@@ -11,28 +11,28 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local ray_reorder = import("goluwa/render3d/ray_reorder.lua")
-local scene_reflection = {}
-scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
+local scene_hits = {}
+scene_hits.RAY_QUERY = render.GetDevice().ray_query_supported
 pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
-scene_reflection.fog = pvars.Setup2{
-	key = "r_rt_reflection_fog",
+scene_hits.fog = pvars.Setup2{
+	key = "r_rt_hit_fog",
 	default = true,
 	help = "the ground fog between a reflection ray's origin and what it hit is applied to the hit (analytic, unshadowed), the volumetric fog only covers what the camera sees. the reflections, the glass and the water use it",
 }
-scene_reflection.refraction = pvars.Setup2{
+scene_hits.refraction = pvars.Setup2{
 	key = "r_rt_refraction",
 	default = true,
 	help = "refracted rays (through glass and other translucent bodies, and the view from inside a body) find what they hit with a ray query and shade it by ray tracing when it is off screen or hidden, off they march the screen and keep what it holds. costs a ray per refracted sample",
 }
-scene_reflection.max_distance = pvars.Setup2{
-	key = "r_rt_reflection_distance",
+scene_hits.max_distance = pvars.Setup2{
+	key = "r_rt_hit_distance",
 	default = 1000000,
 	min = 1,
 	help = "how far reflection and refraction rays travel, in meters, a ray that goes no further finds the sky or the environment. the reflections, the glass and the water use it",
 }
 pvars.EndGroup()
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
-scene_reflection.rough_rays = pvars.Setup2{
+scene_hits.rough_rays = pvars.Setup2{
 	key = "reflection_rough_rays",
 	default = 4,
 	integer = true,
@@ -40,8 +40,8 @@ scene_reflection.rough_rays = pvars.Setup2{
 	max = 16,
 	help = "rays a pixel traces once its surface is rough (the count rises from 1 between roughness 0.1 and 0.4), each in its own direction over the lobe, and their results are averaged. a single ray is one sharp point of the scene. the reflections and the water use it",
 }
-scene_reflection.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
-scene_reflection.filter_radius = pvars.Setup2{
+scene_hits.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
+scene_hits.filter_radius = pvars.Setup2{
 	key = "reflection_filter_radius",
 	default = 3,
 	min = 1,
@@ -67,7 +67,7 @@ local reorder = pvars.Setup2{
 }
 pvars.EndGroup()
 
-function scene_reflection.GetDescriptorSets(bindings, stage)
+function scene_hits.GetDescriptorSets(bindings, stage)
 	local sets = hit.GetDescriptorSets(bindings.hit, stage, bindings.scene)
 	sets[#sets + 1] = {
 		type = "storage_buffer",
@@ -89,7 +89,7 @@ end
 do
 	local bound = setmetatable({}, {__mode = "k"})
 
-	function scene_reflection.Bind(self, cmd, desc, bindings)
+	function scene_hits.Bind(self, cmd, desc, bindings)
 		local materials = ddgi.WriteMaterialBuffer(self)
 		local tlas = rt.GetTLAS(cmd)
 		bound[self] = bound[self] or {}
@@ -118,7 +118,7 @@ do
 	end
 end
 
-function scene_reflection.GetDeclarationGLSL(bindings, shared)
+function scene_hits.GetDeclarationGLSL(bindings, shared)
 	return [[
 		]] .. (
 			shared and
@@ -126,8 +126,8 @@ function scene_reflection.GetDeclarationGLSL(bindings, shared)
 			"#define DDGI_VISIBILITY_RAYS"
 		) .. [[
 
-		#define SCENE_REFLECTION
-		#define SCENE_REFLECTION_CONE 0.0017
+		#define SCENE_HITS
+		#define SCENE_HIT_CONE 0.0017
 	]] .. optical_rays.GetDeclarationGLSL(bindings) .. (
 			bindings.light_grid and
 			light_grid.GetGLSL(bindings.light_grid) or
@@ -135,14 +135,14 @@ function scene_reflection.GetDeclarationGLSL(bindings, shared)
 		)
 end
 
-function scene_reflection.GetRayGeneration(reordered)
+function scene_hits.GetRayGeneration(reordered)
 	if not (reordered and ray_reorder.IsSupported()) then return nil end
 
 	return ray_reorder.GetRayGeneration{
 		declarations = [[
-			#define SCENE_REFLECTION_SER
-			layout(location = 0) rayPayloadEXT int scene_reflection_payload;
-			layout(location = 1) SER_hitObjectAttribute vec2 scene_reflection_attributes;
+			#define SCENE_HIT_SER
+			layout(location = 0) rayPayloadEXT int scene_hit_payload;
+			layout(location = 1) SER_hitObjectAttribute vec2 scene_hit_attributes;
 		]],
 		anyhit = [[
 			hitAttributeEXT vec2 barycentrics;
@@ -158,24 +158,24 @@ function scene_reflection.GetRayGeneration(reordered)
 	}
 end
 
-scene_reflection.CONSTANTS_GLSL = [[
+scene_hits.CONSTANTS_GLSL = [[
 
-		#define SCENE_REFLECTION_MIRROR_THRESHOLD 0.06
-		#define SCENE_REFLECTION_MAX_HIT_LUMINANCE 8.0
+		#define REFLECTION_MIRROR_THRESHOLD 0.06
+		#define REFLECTION_MAX_HIT_LUMINANCE 8.0
 ]]
 
-function scene_reflection.GetDirectionGLSL()
-	return scene_reflection.CONSTANTS_GLSL .. [[
+function scene_hits.GetDirectionGLSL()
+	return scene_hits.CONSTANTS_GLSL .. [[
 
-		int scene_reflection_ray_count(float roughness, int rough_rays) {
+		int reflection_ray_count(float roughness, int rough_rays) {
 			return 1 + int(float(rough_rays - 1) * smoothstep(0.03, 0.25, roughness) + 0.5);
 		}
 
-		vec3 scene_reflection_direction(vec3 N, vec3 V, float roughness, vec2 xi, out float environment_roughness) {
+		vec3 reflection_direction(vec3 N, vec3 V, float roughness, vec2 xi, out float environment_roughness) {
 			vec3 mirror = reflect(-V, N);
 			environment_roughness = roughness;
 
-			if (roughness <= SCENE_REFLECTION_MIRROR_THRESHOLD) return mirror;
+			if (roughness <= REFLECTION_MIRROR_THRESHOLD) return mirror;
 
 			vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 			vec3 T = normalize(cross(up, N));
@@ -183,7 +183,7 @@ function scene_reflection.GetDirectionGLSL()
 			vec3 V_local = vec3(dot(V, T), dot(V, B), dot(V, N));
 			vec3 H_local = ImportanceSampleGGXVNDF(V_local, max(0.001, roughness * roughness), xi);
 			vec3 H = normalize(T * H_local.x + B * H_local.y + N * H_local.z);
-			float rough_mix = smoothstep(SCENE_REFLECTION_MIRROR_THRESHOLD, SCENE_REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
+			float rough_mix = smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
 			vec3 R = normalize(mix(mirror, reflect(-V, H), rough_mix));
 			environment_roughness = roughness * (1.0 - rough_mix);
 
@@ -194,7 +194,7 @@ function scene_reflection.GetDirectionGLSL()
 			return R;
 		}
 
-		vec3 scene_reflection_limit_hit(vec3 traced, float limit) {
+		vec3 reflection_limit_hit(vec3 traced, float limit) {
 			float traced_luma = dot(traced, vec3(0.2126, 0.7152, 0.0722));
 
 			return traced_luma > limit ? traced * (limit / traced_luma) : traced;
@@ -202,38 +202,38 @@ function scene_reflection.GetDirectionGLSL()
 	]]
 end
 
-function scene_reflection.IsReordered()
+function scene_hits.IsReordered()
 	return reorder:Get()
 end
 
-function scene_reflection.IsEnabled()
+function scene_hits.IsEnabled()
 	return enabled:Get()
 end
 
-scene_reflection.block = {
+scene_hits.block = {
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 	{"light_count", "int"},
 	{"reflection_screenspace_roughness", "float"},
-	{"reflection_max_distance", "float"},
-	{"reflection_fog", "int"},
+	{"hit_max_distance", "float"},
+	{"hit_fog", "int"},
 	{"light_transmittance", "int"},
 	{"optical_tint", "int"},
 	{"refraction_rays", "int"},
 }
 
-function scene_reflection.WriteBlock(self, block)
+function scene_hits.WriteBlock(self, block)
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	block.reflection_screenspace_roughness = screenspace_roughness:Get()
-	block.reflection_max_distance = scene_reflection.max_distance:Get()
-	block.reflection_fog = scene_reflection.fog:Get() and 1 or 0
+	block.hit_max_distance = scene_hits.max_distance:Get()
+	block.hit_fog = scene_hits.fog:Get() and 1 or 0
 	block.light_transmittance = ddgi.HasDirectTint() and 1 or 0
 	block.optical_tint = (ddgi.HasGlass() or ddgi.HasMedium()) and 1 or 0
-	block.refraction_rays = scene_reflection.refraction:Get() and 1 or 0
+	block.refraction_rays = scene_hits.refraction:Get() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
 
-function scene_reflection.WriteProbeBlock(self, block)
+function scene_hits.WriteProbeBlock(self, block)
 	gi.WriteProbeBlock(self, block)
 
 	if not enabled:Get() then block.ddgi_rt_ready = 0 end
@@ -241,16 +241,16 @@ function scene_reflection.WriteProbeBlock(self, block)
 	return block
 end
 
-function scene_reflection.GetDDGIUniformBuffer(binding)
+function scene_hits.GetDDGIUniformBuffer(binding)
 	return {
 		name = "ddgi_data",
 		binding_index = binding,
 		block = gi.GetProbeBlockLayout(),
-		write = scene_reflection.WriteProbeBlock,
+		write = scene_hits.WriteProbeBlock,
 	}
 end
 
-function scene_reflection.GetGLSL(block_name, shared)
+function scene_hits.GetGLSL(block_name, shared)
 	return ddgi.GetHitDefinesGLSL() .. (
 			shared and
 			"" or
@@ -260,60 +260,60 @@ function scene_reflection.GetGLSL(block_name, shared)
 			"" or
 			optical_rays.GetGLSL()
 		) .. glsl_common.GetHashGLSL() .. [[
-		#define SCENE_REFLECTION_MAX_DISTANCE (]] .. block_name .. [[.reflection_max_distance)
+		#define SCENE_HIT_MAX_DISTANCE (]] .. block_name .. [[.hit_max_distance)
 
-		#define SCENE_REFLECTION_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
-		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
+		#define SCENE_HIT_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
+		#define SCENE_HIT_LIGHT_FULL_RADIANCE 0.02
 		#ifndef SCENE_HIT_SKY_RAYS
 		#define SCENE_HIT_SKY_RAYS 4
 		#endif
 		#ifndef SCENE_HIT_EMISSION
 		#define SCENE_HIT_EMISSION true
 		#endif
-		#ifndef SCENE_REFLECTION_MASK
-		#define SCENE_REFLECTION_MASK 0xFF
+		#ifndef SCENE_HIT_MASK
+		#define SCENE_HIT_MASK 0xFF
 		#endif
 
-		float scene_reflection_random(vec3 p, int light) {
+		float scene_hit_random(vec3 p, int light) {
 			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u))).x);
 		}
 
-		float scene_reflection_light_weight(vec3 contribution, vec3 p, int light) {
-			float probability = min(max(max(contribution.r, contribution.g), contribution.b) * get_exposure() / SCENE_REFLECTION_LIGHT_FULL_RADIANCE, 1.0);
+		float scene_hit_light_weight(vec3 contribution, vec3 p, int light) {
+			float probability = min(max(max(contribution.r, contribution.g), contribution.b) * get_exposure() / SCENE_HIT_LIGHT_FULL_RADIANCE, 1.0);
 
 			if (probability >= 1.0) return 1.0;
 
-			return scene_reflection_random(p, light) < probability ? 1.0 / probability : 0.0;
+			return scene_hit_random(p, light) < probability ? 1.0 / probability : 0.0;
 		}
 
-		bool scene_reflection_ready() {
+		bool scene_hits_ready() {
 			return ddgi_data.ddgi_rt_ready != 0;
 		}
 
-		bool scene_reflection_screen_first(float roughness) {
+		bool reflection_screen_first(float roughness) {
 			return roughness < ]] .. block_name .. [[.reflection_screenspace_roughness;
 		}
 
-		#define SCENE_REFLECTION_PROCEED(query) \
+		#define SCENE_HIT_PROCEED(query) \
 			while (rayQueryProceedEXT(query)) { \
 				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)); \
 				if (ddgi_materials[scene_instance_material(candidate)].transparent == 0 && ddgi_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
 			}
 
-		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
+		bool scene_hit_visible(vec3 origin, vec3 dir, float dist) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), SCENE_REFLECTION_MASK, origin, 0.0, dir, dist);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), SCENE_HIT_MASK, origin, 0.0, dir, dist);
 
-			SCENE_REFLECTION_PROCEED(query)
+			SCENE_HIT_PROCEED(query)
 
 			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 		}
 
 		float scene_hit_distance(vec3 origin, vec3 dir, float max_distance) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, SCENE_HIT_FLAGS, SCENE_HIT_MASK, origin, 0.0, dir, max_distance);
 
-			SCENE_REFLECTION_PROCEED(query)
+			SCENE_HIT_PROCEED(query)
 
 			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return max_distance;
 
@@ -322,9 +322,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 		bool trace_scene_interval(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, origin, t_min, dir, t_max);
+			rayQueryInitializeEXT(query, ddgi_scene, SCENE_HIT_FLAGS, SCENE_HIT_MASK, origin, t_min, dir, t_max);
 
-			SCENE_REFLECTION_PROCEED(query)
+			SCENE_HIT_PROCEED(query)
 
 			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return false;
 
@@ -336,9 +336,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 		}
 
 		bool trace_scene_hit(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
-			#ifdef SCENE_REFLECTION_SER
+			#ifdef SCENE_HIT_SER
 			SER_hitObject hit_object;
-			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, 0, 0, 0, origin, t_min, dir, t_max, 0);
+			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_HIT_FLAGS, SCENE_HIT_MASK, 0, 0, 0, origin, t_min, dir, t_max, 0);
 
 			SER_reorderThread(hit_object);
 
@@ -348,16 +348,16 @@ function scene_reflection.GetGLSL(block_name, shared)
 			instance = uint(SER_hitObjectGetInstanceCustomIndex(hit_object));
 			primitive = uint(SER_hitObjectGetPrimitiveIndex(hit_object));
 			SER_hitObjectGetAttributes(hit_object, 1);
-			barycentrics = scene_reflection_attributes;
+			barycentrics = scene_hit_attributes;
 			return true;
 			#else
 			return trace_scene_interval(origin, dir, t_min, t_max, t, instance, primitive, barycentrics);
 			#endif
 		}
 
-		vec3 shade_scene_reflection_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics);
+		vec3 shade_scene_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics);
 
-		vec3 trace_scene_reflection_hit(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
+		vec3 trace_scene_radiance_unfogged(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			hit_t = max_distance;
 			float t;
 			uint hit_instance;
@@ -369,10 +369,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 			}
 
 			hit_t = t;
-			return shade_scene_reflection_hit(origin, dir, roughness, t, hit_instance, hit_primitive, hit_barycentrics);
+			return shade_scene_hit(origin, dir, roughness, t, hit_instance, hit_primitive, hit_barycentrics);
 		}
 
-		vec3 shade_scene_reflection_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics) {
+		vec3 shade_scene_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics) {
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ddgi_material material = ddgi_materials[tri.material];
 			vec3 hit_N = -tri.normal;
@@ -393,7 +393,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 				scene_uv uv = scene_hit_uv(hit_instance, hit_primitive);
 				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);
 				vec2 coord = uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;
-				float cone_width = t * (SCENE_REFLECTION_CONE + roughness * roughness * 0.25);
+				float cone_width = t * (SCENE_HIT_CONE + roughness * roughness * 0.25);
 				vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.albedo_tex), 0), cone_width)).rgb;
 
 				if (material.albedo2_tex >= 0) {
@@ -416,7 +416,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 
-			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_reflection_visible(surface, sun_L, SCENE_REFLECTION_MAX_DISTANCE))) {
+			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_hit_visible(surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
 				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
 
 				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
@@ -436,7 +436,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 				for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
 					picked_weight[k] = 0.0;
-					u[k] = scene_reflection_random(P, -1 - k);
+					u[k] = scene_hit_random(P, -1 - k);
 				}
 
 				for (int w = 0; w < light_grid_words(light_count); w++) {
@@ -484,7 +484,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					float dist = picked_ray[k].w;
 
-					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_reflection_visible(surface, picked_ray[k].xyz, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(surface, picked_ray[k].xyz, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
 					vec3 contribution = picked_light[k];
 
@@ -517,13 +517,13 @@ function scene_reflection.GetGLSL(block_name, shared)
 					if (NoL <= 0.0) continue;
 
 					vec3 contribution = albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
-					float light_weight = scene_reflection_light_weight(contribution, P, i);
+					float light_weight = scene_hit_light_weight(contribution, P, i);
 
 					if (light_weight == 0.0) continue;
 
 					float dist = dot(light.position.xyz - surface, L);
 
-					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_reflection_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
 					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance_local(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
@@ -559,7 +559,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 					float phi = spin + float(k) * (6.28318530718 / float(SCENE_HIT_SKY_RAYS));
 					vec3 sky_dir = normalize(hit_N + tangent * cos(phi) + bitangent * sin(phi));
 
-					if (scene_reflection_visible(surface, sky_dir, SCENE_REFLECTION_MAX_DISTANCE)) open_sky += 1.0 / float(SCENE_HIT_SKY_RAYS);
+					if (scene_hit_visible(surface, sky_dir, SCENE_HIT_MAX_DISTANCE)) open_sky += 1.0 / float(SCENE_HIT_SKY_RAYS);
 				}
 
 				gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N) * open_sky;
@@ -572,10 +572,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return radiance + albedo * gi.rgb;
 		}
 
-		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
-			vec3 radiance = trace_scene_reflection_hit(origin, dir, N, roughness, max_distance, hit_t);
+		vec3 trace_scene_radiance(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
+			vec3 radiance = trace_scene_radiance_unfogged(origin, dir, N, roughness, max_distance, hit_t);
 
-			bool fog_hit = ]] .. block_name .. [[.reflection_fog != 0 && hit_t < max_distance;
+			bool fog_hit = ]] .. block_name .. [[.hit_fog != 0 && hit_t < max_distance;
 
 			if (]] .. block_name .. [[.optical_tint != 0) radiance *= get_optical_tint(origin, dir, hit_t, fog_hit);
 
@@ -591,4 +591,4 @@ function scene_reflection.GetGLSL(block_name, shared)
 	]]
 end
 
-return scene_reflection
+return scene_hits

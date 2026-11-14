@@ -20,8 +20,8 @@ local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local render = import("goluwa/render/render.lua")
-local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
-local RAY_QUERY = scene_reflection.RAY_QUERY
+local scene_hits = import("goluwa/render3d/scene_hits.lua")
+local RAY_QUERY = scene_hits.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local BINDING_OCCLUSION = 10
 local BINDING_OPTICAL = 11
@@ -644,7 +644,7 @@ list.insert(
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
 		LocalSize = {x = 8, y = 8, z = 1},
-		ray_generation = RAY_QUERY and scene_reflection.GetRayGeneration(reorder_pvar:Get()) or nil,
+		ray_generation = RAY_QUERY and scene_hits.GetRayGeneration(reorder_pvar:Get()) or nil,
 		storage_images = {
 			{binding_index = 0, attachment = 1, dst_stage = {"compute", "fragment"}},
 			{binding_index = 1, attachment = 2, dst_stage = {"compute", "fragment"}},
@@ -652,13 +652,13 @@ list.insert(
 		storage_buffers = not RAY_QUERY and {{binding_index = BINDING_OPTICAL}} or nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			if RAY_QUERY then
-				scene_reflection.Bind(self, cmd, desc, REFLECTION_BINDINGS)
+				scene_hits.Bind(self, cmd, desc, REFLECTION_BINDINGS)
 			else
 				ddgi.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
 			end
 		end,
 		descriptor_sets = RAY_QUERY and
-			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
+			scene_hits.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
 			nil,
 		sampled_images = RAY_QUERY and
 			{
@@ -673,7 +673,7 @@ list.insert(
 			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_water_distance;
 		]] .. (
 				RAY_QUERY and
-				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0)
+				scene_hits.GetDeclarationGLSL(REFLECTION_BINDINGS) .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0)
 				or
 				ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL)
 			),
@@ -722,7 +722,7 @@ list.insert(
 					medium_surface.block,
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					post_source.pre_exposure_block,
-					RAY_QUERY and scene_reflection.block or nil,
+					RAY_QUERY and scene_hits.block or nil,
 					RAY_QUERY and atmosphere.GetBlockLayout() or nil,
 					RAY_QUERY and light_occlusion.GetBlockLayout() or nil,
 				},
@@ -752,8 +752,8 @@ list.insert(
 					block.features = features
 					block.shaft_samples = shaft_samples_pvar:Get()
 					block.trace_steps = trace_steps_pvar:Get()
-					local scale = scene_reflection.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
-					block.rough_rays = math.max(1, math.floor(scene_reflection.rough_rays:Get() * scale * scale + 0.5))
+					local scale = scene_hits.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
+					block.rough_rays = math.max(1, math.floor(scene_hits.rough_rays:Get() * scale * scale + 0.5))
 					block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and
 						render3d.IsPassEnabled("volumetric_fog") and
 						self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture()) or
@@ -775,7 +775,7 @@ list.insert(
 
 					if RAY_QUERY then
 						light_occlusion.WriteOcclusionBlock(block, lights)
-						scene_reflection.WriteBlock(self, block)
+						scene_hits.WriteBlock(self, block)
 						atmosphere.WriteBlock(
 							self,
 							block,
@@ -788,7 +788,7 @@ list.insert(
 					return block
 				end,
 			},
-			RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
+			RAY_QUERY and scene_hits.GetDDGIUniformBuffer(8) or nil,
 		},
 		shader = medium_common.GetGLSL() .. [[
 			ivec2 water_pixel;
@@ -866,9 +866,9 @@ list.insert(
 			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 				RAY_QUERY and
-				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("water_data") .. scene_reflection.GetDirectionGLSL() .. light_occlusion.GetSamplingGLSL("water_data") .. scene_lights.GetPointShadowGLSL("water_data")
+				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("water_data") .. scene_hits.GetDirectionGLSL() .. light_occlusion.GetSamplingGLSL("water_data") .. scene_lights.GetPointShadowGLSL("water_data")
 				or
-				scene_reflection.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
+				scene_hits.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
 			) .. [[
 
 			float get_blue_noise() {
@@ -1328,8 +1328,8 @@ list.insert(
 
 			vec3 get_ambient_irradiance(vec3 P, float visibility_min_weight, bool smooth_blend) {
 				vec3 sky = sample_environment_irradiance(water_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
-				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
+				#ifdef SCENE_HITS
+				if (scene_hits_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float weight;
 					vec4 gi = gi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), smooth_blend, visibility_min_weight, weight);
 					if (weight > 0.0) return gi.rgb;
@@ -1353,7 +1353,7 @@ list.insert(
 
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail);
 
-			#ifdef SCENE_REFLECTION
+			#ifdef SCENE_HITS
 			]] .. medium_lighting.GetLocalLightsGLSL(
 				"water_data",
 				"WATER_LIGHT_MAX_PER_SAMPLE",
@@ -1371,8 +1371,8 @@ list.insert(
 				vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
 				float shaft = get_water_sun_visibility(surface, water_data.sun_direction);
 
-				#ifdef SCENE_REFLECTION
-				if (shaft > 0.0 && scene_reflection_ready() && water_feature(WATER_SUN_SHADOWS) && !scene_reflection_visible(p, -sun_dir, distance(p, surface) - 0.05)) shaft = 0.0;
+				#ifdef SCENE_HITS
+				if (shaft > 0.0 && scene_hits_ready() && water_feature(WATER_SUN_SHADOWS) && !scene_hit_visible(p, -sun_dir, distance(p, surface) - 0.05)) shaft = 0.0;
 				#endif
 
 				if (shaft_focus > 0.0 && shaft > 0.0) {
@@ -1416,8 +1416,8 @@ list.insert(
 				vec3 sky_phase = w.molecular / (4.0 * PI) + w.particles * particle_share;
 				vec3 ambient = sample_environment_irradiance(water_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 
-				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
+				#ifdef SCENE_HITS
+				if (scene_hits_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float f = jitter;
 					ambient = get_ambient_irradiance(origin + dir * (min(len, 60.0) * f * f), DDGI_NO_VISIBILITY_RAYS, false);
 				}
@@ -1426,8 +1426,8 @@ list.insert(
 				vec3 sky_scatter = ambient * (PI * sky_phase + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
 				vec3 light_scatter = vec3(0.0);
 
-				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
+				#ifdef SCENE_HITS
+				if (scene_hits_ready() && water_feature(WATER_LIGHTS)) {
 					float light_len = min(len, WATER_LIGHT_RANGE);
 
 					for (int i = 0; i < WATER_LIGHT_SAMPLES; i++) {
@@ -1589,9 +1589,9 @@ if (w.volume >= 0) {
 				bool rays_ready = false;
 				bool screen_first = true;
 
-				#ifdef SCENE_REFLECTION
-				rays_ready = scene_reflection_ready();
-				screen_first = !rays_ready || scene_reflection_screen_first(refl_perceptual);
+				#ifdef SCENE_HITS
+				rays_ready = scene_hits_ready();
+				screen_first = !rays_ready || reflection_screen_first(refl_perceptual);
 				#endif
 
 				vec2 screen_uv;
@@ -1601,7 +1601,7 @@ if (w.volume >= 0) {
 					vec3 hit_pos = get_world_pos(screen_uv, scene_depth_at(screen_uv));
 					refl_screen_color = get_last_frame_color(hit_pos, screen_uv);
 
-					if (refl_perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD) {
+					if (refl_perceptual > REFLECTION_MIRROR_THRESHOLD) {
 						vec3 tangent = normalize(cross(refl_dir, abs(refl_dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
 						vec3 bitangent = cross(refl_dir, tangent);
 						float spin = get_blue_noise() * 6.2831853;
@@ -1631,11 +1631,11 @@ if (w.volume >= 0) {
 					}
 				}
 
-				#ifdef SCENE_REFLECTION
+				#ifdef SCENE_HITS
 				if (rays_ready && refl_screen_weight < 0.999) {
-					refl_rough = refl_perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD;
-					refl_rays = scene_reflection_ray_count(refl_perceptual, water_data.rough_rays);
-					refl_limit = SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure();
+					refl_rough = refl_perceptual > REFLECTION_MIRROR_THRESHOLD;
+					refl_rays = reflection_ray_count(refl_perceptual, water_data.rough_rays);
+					refl_limit = REFLECTION_MAX_HIT_LUMINANCE / get_exposure();
 				}
 				#endif
 
@@ -1764,8 +1764,8 @@ if (w.volume >= 0) {
 				float specular = D_GGXAlpha(glint_alpha, no_h) * V_SmithGGXCorrelated(glint_alpha, above_no_v, no_l) * fresnel_dielectric(max(dot(above_view_dir, half_dir), 0.0), 1.0 / w.ior);
 				vec3 color = mix(transmitted, reflection, above_fresnel) + sun_light * (specular * no_l);
 
-				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
+				#ifdef SCENE_HITS
+				if (scene_hits_ready() && water_feature(WATER_LIGHTS)) {
 					int light_cell = light_grid_cell(surface_pos);
 					int light_count = water_data.light_count;
 					int shaded = 0;
@@ -1821,8 +1821,8 @@ if (w.volume >= 0) {
 
 				float shore_range = 0.25 * w.foam;
 				float shore_depth = above_has_floor ? max(w.surface_y - above_floor_pos.y, length(above_floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
-				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && shore_range > 0.0 && water_feature(WATER_SHORE_FOAM)) {
+				#ifdef SCENE_HITS
+				if (scene_hits_ready() && shore_range > 0.0 && water_feature(WATER_SHORE_FOAM)) {
 					float rise = max(water_data.ocean_wave_info.x, 0.05);
 					shore_depth = max(scene_hit_distance(vec3(surface_pos.x, w.surface_y + rise, surface_pos.z), vec3(0.0, -1.0, 0.0), shore_range + rise) - rise, 0.0);
 				}
@@ -1902,8 +1902,8 @@ if (w.volume >= 0) {
 
 				below_scene_traced = false;
 
-				#ifdef SCENE_REFLECTION
-				below_scene_traced = scene_reflection_ready();
+				#ifdef SCENE_HITS
+				below_scene_traced = scene_hits_ready();
 				#endif
 
 				return below_scene_traced ? 2 : 0;
@@ -2211,17 +2211,17 @@ if (w.volume >= 0) {
 					prepare_above(w, surface_pos, normal, alpha, ray_dir, entry_t, scene_t < 1e29 ? max(scene_t - entry_t, 0.0) : 1e30, jitter);
 
 				// every call site inlines the whole hit shading, gi lookup and inscatter, so all rays share one trace call and all segments one inscatter call
-				#ifdef SCENE_REFLECTION
+				#ifdef SCENE_HITS
 				for (int ray = 0; ray < trace_count; ray++) {
 					vec3 origin = refl_origin;
 					vec3 dir = refl_dir;
 					vec3 n = refl_normal;
 					float roughness = refl_perceptual;
-					float max_t = SCENE_REFLECTION_MAX_DISTANCE;
+					float max_t = SCENE_HIT_MAX_DISTANCE;
 
 					if (shade_mode == 2) {
 						if (refl_rough) {
-							dir = scene_reflection_direction(refl_normal, refl_view, refl_perceptual, get_blue_noise2(ray), roughness);
+							dir = reflection_direction(refl_normal, refl_view, refl_perceptual, get_blue_noise2(ray), roughness);
 							if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
 						}
 					} else if (ray == 0) {
@@ -2242,15 +2242,15 @@ if (w.volume >= 0) {
 					}
 
 					float traced_t;
-					vec3 traced = trace_scene_reflection(origin, dir, n, roughness, max_t, traced_t);
+					vec3 traced = trace_scene_radiance(origin, dir, n, roughness, max_t, traced_t);
 
 					if (shade_mode == 2) {
-						if (refl_rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, refl_limit);
+						if (refl_rough && traced_t < SCENE_HIT_MAX_DISTANCE) traced = reflection_limit_hit(traced, refl_limit);
 
 						refl_sum += traced;
 					} else if (ray == 0) {
 						below_primary_above = traced;
-						below_hit_scene = traced_t < SCENE_REFLECTION_MAX_DISTANCE;
+						below_hit_scene = traced_t < SCENE_HIT_MAX_DISTANCE;
 					} else if (traced_t < below_len) {
 						below_behind = mix(traced * get_submerged_light(w, below_origin + below_reflect_dir * traced_t), below_behind, below_weight);
 						if (below_weight <= 0.0) below_len = traced_t;
@@ -2347,7 +2347,7 @@ list.insert(
 						end
 
 						block.history_blend = render3d.IsTemporalAntiAliasingEnabled() and 0.7 or 0.9
-						block.filter_radius = scene_reflection.filter_radius:Get()
+						block.filter_radius = scene_hits.filter_radius:Get()
 
 						if not render3d.pipelines.water_resolve.framebuffers then
 							block.history_water_tex = -1
@@ -2386,7 +2386,7 @@ list.insert(
 				return texture(TEXTURE(water_resolve_data.current_water_distance_tex), uv).r;
 			}
 
-			]] .. scene_reflection.CONSTANTS_GLSL .. [[
+			]] .. scene_hits.CONSTANTS_GLSL .. [[
 
 			float get_current_water_roughness(vec2 uv) {
 				if (water_resolve_data.current_water_distance_tex == -1) return 0.0;
@@ -2402,7 +2402,7 @@ list.insert(
 
 				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(water_resolve_data.current_water_tex), 0));
 				float spin = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.28318530718;
-				float limit = SCENE_REFLECTION_MAX_HIT_LUMINANCE / ]] .. post_source.PRE_EXPOSURE_HEADROOM .. [[.0;
+				float limit = REFLECTION_MAX_HIT_LUMINANCE / ]] .. post_source.PRE_EXPOSURE_HEADROOM .. [[.0;
 				float center_weight = 1.0 / (1.0 + dot(center.rgb, vec3(0.2126, 0.7152, 0.0722)) / (limit * 0.1));
 				vec3 sum = center.rgb * center_weight;
 				float total = center_weight;

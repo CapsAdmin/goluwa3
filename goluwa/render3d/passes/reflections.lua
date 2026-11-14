@@ -10,15 +10,15 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
-local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local render = import("goluwa/render/render.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local RAY_QUERY = scene_reflection.RAY_QUERY
+local RAY_QUERY = scene_hits.RAY_QUERY
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
-local rough_rays = scene_reflection.rough_rays
-local filter_radius = scene_reflection.filter_radius
+local rough_rays = scene_hits.rough_rays
+local filter_radius = scene_hits.filter_radius
 local hit_reprojection = pvars.Setup2{
 	key = "reflection_hit_reprojection",
 	default = true,
@@ -34,7 +34,7 @@ local single_ray_roughness = pvars.Setup2{
 	default = 0.8,
 	help = "perceptual roughness from which a rough pixel traces a single ray, its count falls to one from reflection_rough_rays over the 0.3 of roughness below this. a very rough lobe is smooth enough for the filter, which averages it over its widest disc, to make up for the rays (within a percent or two of the full count against a reference), so this trades little for the cost of the roughest surfaces. 2 keeps the full count",
 }
-local SCALES = scene_reflection.RESOLUTION_SCALES
+local SCALES = scene_hits.RESOLUTION_SCALES
 local resolution = pvars.Setup2{
 	key = "reflection_resolution",
 	default = "half",
@@ -130,7 +130,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"prev_view", "mat4"},
 				{"prev_projection", "mat4"},
 				post_source.pre_exposure_block,
-				RAY_QUERY and scene_reflection.block or nil,
+				RAY_QUERY and scene_hits.block or nil,
 				RAY_QUERY and atmosphere.GetBlockLayout() or nil,
 				RAY_QUERY and {"primary_sun_illuminance", "float"} or nil,
 			},
@@ -182,7 +182,7 @@ local function get_uniform_buffers(with_ddgi)
 				end
 
 				if RAY_QUERY then
-					scene_reflection.WriteBlock(self, block)
+					scene_hits.WriteBlock(self, block)
 					local lights = render3d.GetLights()
 					local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 					atmosphere.WriteBlock(self, block, render3d.GetCamera():GetPosition(), sun_direction)
@@ -209,7 +209,7 @@ local function get_uniform_buffers(with_ddgi)
 		},
 		with_ddgi and
 		RAY_QUERY and
-		scene_reflection.GetDDGIUniformBuffer(8) or
+		scene_hits.GetDDGIUniformBuffer(8) or
 		nil,
 	}
 end
@@ -238,7 +238,7 @@ return {
 			self.pipeline:DispatchForSize(cmd, width, height, 1, desc, self.dynamic_offsets)
 		end,
 		ray_generation = RAY_QUERY and
-			scene_reflection.GetRayGeneration(scene_reflection.IsReordered()) or
+			scene_hits.GetRayGeneration(scene_hits.IsReordered()) or
 			nil,
 		storage_images = {
 			{
@@ -253,11 +253,11 @@ return {
 			},
 		},
 		descriptor_sets = RAY_QUERY and
-			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
+			scene_hits.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
 			nil,
 		on_pre_draw = RAY_QUERY and
 			function(self, cmd, frame, desc)
-				scene_reflection.Bind(self, cmd, desc, REFLECTION_BINDINGS)
+				scene_hits.Bind(self, cmd, desc, REFLECTION_BINDINGS)
 			end or
 			nil,
 		uniform_buffers = get_uniform_buffers(true),
@@ -266,7 +266,7 @@ return {
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_raw_distance;
 		]] .. (
 				RAY_QUERY and
-				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or
+				scene_hits.GetDeclarationGLSL(REFLECTION_BINDINGS) or
 				""
 			),
 		shader = [[
@@ -274,13 +274,13 @@ return {
 		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionWeightGLSL("reflection_data") .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
-				atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("reflection_data")
+				atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("reflection_data")
 				or
 				""
 			) .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. [[
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
-		]] .. shared_glsl .. scene_reflection.GetDirectionGLSL() .. [[
+		]] .. shared_glsl .. scene_hits.GetDirectionGLSL() .. [[
 
 			float max_hit_luminance;
 			float reflection_hit_distance;
@@ -390,7 +390,7 @@ return {
 								float thick_conf = 1.0 - saturate(refined_diff / max(0.15 * reflection_data.view_scale, -z_surf * 0.03));
 								vec3 hit_color;
 
-								if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD) {
+								if (roughness > REFLECTION_MIRROR_THRESHOLD) {
 									float radius_uv = roughness * roughness * length(hit_vs - pos_vs) / max(-hit_vs.z, 0.1) * reflection_data.projection[1][1] * 0.5;
 									radius_uv = min(radius_uv, 0.05);
 									vec3 sum = vec3(0.0);
@@ -399,7 +399,7 @@ return {
 									for (int k = 0; k < SCREENSPACE_CONE_TAPS; k++) {
 										float angle = spin + float(k) * 6.2831853 / float(SCREENSPACE_CONE_TAPS);
 										vec2 tap_uv = last_frame_uv + vec2(cos(angle), sin(angle)) * radius_uv * (0.35 + 0.65 * fract(jitter * 7.0 + float(k) * 0.381966));
-										sum += scene_reflection_limit_hit(texture(TEXTURE(reflection_data.last_frame_tex), tap_uv).rgb / get_previous_pre_exposure(), max_hit_luminance);
+										sum += reflection_limit_hit(texture(TEXTURE(reflection_data.last_frame_tex), tap_uv).rgb / get_previous_pre_exposure(), max_hit_luminance);
 									}
 
 									hit_color = sum / float(SCREENSPACE_CONE_TAPS);
@@ -423,7 +423,7 @@ return {
 			vec4 cast_reflection_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
 				N = bend_normal_to_view(N, V);
 				float environment_roughness;
-				vec3 R_world = scene_reflection_direction(N, V, roughness, xi, environment_roughness);
+				vec3 R_world = reflection_direction(N, V, roughness, xi, environment_roughness);
 
 				float below = dot(R_world, geometric_N);
 
@@ -432,22 +432,22 @@ return {
 				vec3 R_vs = normalize(mat3(reflection_data.view) * R_world);
 				bool rt_primary = false;
 
-				#ifdef SCENE_REFLECTION
-				rt_primary = scene_reflection_ready() && !scene_reflection_screen_first(roughness);
+				#ifdef SCENE_HITS
+				rt_primary = scene_hits_ready() && !reflection_screen_first(roughness);
 				#endif
 
 				if (!rt_primary && reflection_data.last_frame_tex == -1) return vec4(0.0);
 
 				vec4 hit = rt_primary ? vec4(0.0) : trace_screenspace_direction(pos_vs, R_vs, roughness, xi.y);
 
-				#ifdef SCENE_REFLECTION
-				if (scene_reflection_ready() && hit.a < 0.999) {
+				#ifdef SCENE_HITS
+				if (scene_hits_ready() && hit.a < 0.999) {
 					vec3 origin = world_pos + geometric_N * (0.0002 + 0.0001 * -pos_vs.z);
 					float traced_t;
-					vec3 traced = trace_scene_reflection(origin, R_world, N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+					vec3 traced = trace_scene_radiance(origin, R_world, N, environment_roughness, SCENE_HIT_MAX_DISTANCE, traced_t);
 					reflection_hit_distance = traced_t;
 
-					if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, max_hit_luminance);
+					if (roughness > REFLECTION_MIRROR_THRESHOLD && traced_t < SCENE_HIT_MAX_DISTANCE) traced = reflection_limit_hit(traced, max_hit_luminance);
 
 					return vec4(mix(traced, hit.rgb, hit.a), 1.0);
 				}
@@ -483,7 +483,7 @@ return {
 
 				if (get_reflection_traced_weight(roughness, gbuffer_metallic(gbuffer_pos)) <= 0.0) return 0;
 
-				int rays = scene_reflection_ray_count(roughness, reflection_data.rough_rays);
+				int rays = reflection_ray_count(roughness, reflection_data.rough_rays);
 				smooth_surface = rays <= 1;
 				return max(1, int(mix(float(rays), 1.0, smoothstep(reflection_data.single_ray_roughness - 0.3, reflection_data.single_ray_roughness, roughness)) + 0.5));
 			}
@@ -528,17 +528,17 @@ return {
 				mat4 inv_projection = reflection_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
-				max_hit_luminance = reflection_data.exposure_tex != -1 ? SCENE_REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
+				max_hit_luminance = reflection_data.exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 				ivec2 first = block * gbuffer_size / reflection_size;
 				ivec2 extent = (block + 1) * gbuffer_size / reflection_size - first;
 				int pixel_count = extent.x * extent.y;
 
-				#ifdef SCENE_REFLECTION
+				#ifdef SCENE_HITS
 				if (reflection_data.debug_scene != 0) {
 					debug_uv = (vec2(block) + 0.5) / vec2(reflection_size);
 					vec3 debug_dir = get_debug_ray();
 					float debug_t;
-					vec3 radiance = trace_scene_reflection(reflection_data.camera_position.xyz, debug_dir, -debug_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, debug_t);
+					vec3 radiance = trace_scene_radiance(reflection_data.camera_position.xyz, debug_dir, -debug_dir, 0.0, SCENE_HIT_MAX_DISTANCE, debug_t);
 
 					for (int i = 0; i < pixel_count; i++) {
 						imageStore(out_raw, first + ivec2(i % extent.x, i / extent.x), vec4(clamp(radiance * get_exposure(), 0.0, 1.0), 1.0));
@@ -616,7 +616,7 @@ return {
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_reflection_depth;
 			layout(set = 0, binding = 2, r32f) uniform writeonly image2D out_reflection_moment;
 		]],
-		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. scene_reflection.CONSTANTS_GLSL .. [[
+		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. scene_hits.CONSTANTS_GLSL .. [[
 		]] .. ibl.GetReflectionQuadGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. shared_glsl .. [[
 
 			void main() {
@@ -801,7 +801,7 @@ return {
 										result = history;
 										moment = history_moment;
 									} else {
-										float history_deviation = sqrt(max(history_moment - luminance(history.rgb) * luminance(history.rgb), 0.0)) * smoothstep(SCENE_REFLECTION_MIRROR_THRESHOLD, 0.25, roughness);
+										float history_deviation = sqrt(max(history_moment - luminance(history.rgb) * luminance(history.rgb), 0.0)) * smoothstep(REFLECTION_MIRROR_THRESHOLD, 0.25, roughness);
 										vec3 clamp_extent = (deviation + history_deviation) * REFLECTION_CLAMP_SIGMA + filtered.rgb * 0.05 + 0.001;
 										history.rgb = clamp(history.rgb, filtered.rgb - clamp_extent, filtered.rgb + clamp_extent);
 										if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);

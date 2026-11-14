@@ -9,7 +9,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
-local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
@@ -32,7 +32,7 @@ local BINDING_SCREEN_DEBUG = 15
 local BINDING_EMITTERS = 16
 local SCENE_BINDINGS = {scene = 10, hit = 30, materials = 11, light_grid = 12}
 -- decals float a hair above the surface they decorate: a surfel on that surface would trace into their undersides and stay black
-local NO_DECALS_GLSL = string.format("#define SCENE_REFLECTION_MASK 0x%02X\n", scene_instances.MASK_SURFACES)
+local NO_DECALS_GLSL = string.format("#define SCENE_HIT_MASK 0x%02X\n", scene_instances.MASK_SURFACES)
 local SOLID_MASK = string.format("0x%02X", scene_instances.MASK_SOLID)
 local DUMMY_FORMAT = {{"r8_unorm", {"surfel_dummy", "r"}}}
 
@@ -46,7 +46,7 @@ local function pass_uniform(options)
 	}
 
 	if options.trace then
-		layout[#layout + 1] = scene_reflection.block
+		layout[#layout + 1] = scene_hits.block
 		layout[#layout + 1] = atmosphere.GetBlockLayout()
 		layout[#layout + 1] = {"primary_sun_illuminance", "float"}
 		layout[#layout + 1] = {"env_tex", "int"}
@@ -64,7 +64,7 @@ local function pass_uniform(options)
 			block.surfel_positions_tex = -1
 
 			if options.trace then
-				scene_reflection.WriteBlock(self, block)
+				scene_hits.WriteBlock(self, block)
 				local lights = render3d.GetLights()
 				atmosphere.WriteBlock(
 					self,
@@ -778,7 +778,7 @@ local function pass_visibility()
 	}
 end
 
-local TRACE_GLSL = "#define SURFEL_UNSCALED\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. [[
+local TRACE_GLSL = "#define SURFEL_UNSCALED\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("surfel_data") .. [[
 
 	ivec3 surfel_merge_corner(int c, vec3 P, int level, int bucket, int i, out vec3 f) {
 		vec3 grid = surfel_cell_position(P, bucket, surfel_cell_size(level + 1)) - 0.5;
@@ -808,7 +808,7 @@ local function pass_merge_visibility()
 		FramebufferSize = {x = 1, y = 1},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
-		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = trace_uniforms(),
 		storage_buffers = {
 			{binding_index = BINDING_TABLE},
@@ -816,7 +816,7 @@ local function pass_merge_visibility()
 			{binding_index = BINDING_STATS},
 		},
 		on_pre_draw = function(self, cmd, frame, desc)
-			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			bind_buffers(self, desc)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
@@ -828,7 +828,7 @@ local function pass_merge_visibility()
 
 			compute_barrier(cmd)
 		end,
-		custom_declarations = TABLE_GLSL .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
+		custom_declarations = TABLE_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = TRACE_GLSL .. [[
 			shared uint s_visible[8];
 
@@ -863,7 +863,7 @@ local function pass_merge_visibility()
 						vec3 to = neighbour.xyz + neighbour_N * (bias + lift) - from;
 						float len = length(to);
 
-						if (!SURFEL_ON(SURFEL_FEATURE_MERGE_VISIBILITY) || len < 1e-3 || scene_reflection_visible(from, to / len, len)) atomicOr(s_visible[group_slot], 1u << uint(corner));
+						if (!SURFEL_ON(SURFEL_FEATURE_MERGE_VISIBILITY) || len < 1e-3 || scene_hit_visible(from, to / len, len)) atomicOr(s_visible[group_slot], 1u << uint(corner));
 					}
 				}
 
@@ -883,9 +883,9 @@ local function pass_trace()
 		FramebufferSize = {x = 1, y = 1},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
-		ray_generation = scene_reflection.GetRayGeneration(surfel_gi.IsReordered()),
+		ray_generation = scene_hits.GetRayGeneration(surfel_gi.IsReordered()),
 		storage_images = {storage_image(BINDING_OUTPUT, "atlas")},
-		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = trace_uniforms(),
 		storage_buffers = {
 			{binding_index = BINDING_TABLE},
@@ -893,7 +893,7 @@ local function pass_trace()
 			{binding_index = BINDING_STATS},
 		},
 		on_pre_draw = function(self, cmd, frame, desc)
-			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			bind_buffers(self, desc)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
@@ -914,7 +914,7 @@ local function pass_trace()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_atlas;
-		]] .. TABLE_GLSL .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
+		]] .. TABLE_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = TRACE_GLSL .. [[
 
 			vec4 surfel_merge(int c, ivec2 dir_texel, vec3 P, int level, int bucket, uint visible, out float weight) {
@@ -1038,7 +1038,7 @@ local function pass_trace()
 				}
 
 				if (hit) {
-					result = vec4(shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), 0.0);
+					result = vec4(shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), 0.0);
 
 					if (surfel_data.surfel_hit_spawns != 0 && state.w > 0.5) {
 						scene_triangle tri = scene_hit_tri(instance, primitive);
@@ -1087,7 +1087,7 @@ local function pass_emitters()
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
 		storage_images = {storage_image(BINDING_OUTPUT, "emitter")},
-		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = {
 			pass_uniform{
 				trace = true,
@@ -1099,7 +1099,7 @@ local function pass_emitters()
 		},
 		storage_buffers = {{binding_index = BINDING_EMITTERS}},
 		on_pre_draw = function(self, cmd, frame, desc)
-			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			local emitters = scene_emitters.BuildActive(cmd)
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
 		end,
@@ -1109,8 +1109,8 @@ local function pass_emitters()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_emitter;
-		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		shader = "#define SURFEL_UNSCALED\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. [[
+		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = "#define SURFEL_UNSCALED\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("surfel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. [[
 			#define SURFEL_EMITTER_SAMPLES EMITTER_CANDIDATES
 
 			void main() {
@@ -1149,7 +1149,7 @@ local function pass_emitters()
 
 						if (dot(dir, N) <= 0.0 || !(dot(light, vec3(1.0)) > 0.0)) continue;
 
-						if (dist > 0.02 * surfel_data.view_scale && !scene_reflection_visible(origin, dir, dist - 0.02 * surfel_data.view_scale)) continue;
+						if (dist > 0.02 * surfel_data.view_scale && !scene_hit_visible(origin, dir, dist - 0.02 * surfel_data.view_scale)) continue;
 
 						if (surfel_data.light_transmittance != 0) light *= get_light_transmittance_local(origin, dir, dist, 0.0);
 

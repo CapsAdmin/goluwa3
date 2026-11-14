@@ -13,7 +13,7 @@ local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
-local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
@@ -119,7 +119,7 @@ return {
 			{binding_index = fluid_volume_passes.BINDING_RECORDS},
 		},
 		descriptor_sets = optical_rays.RAY_QUERY and
-			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
+			scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute") or
 			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
@@ -128,7 +128,7 @@ return {
 			fluid_volume_passes.BindRecords(self, desc)
 
 			if optical_rays.RAY_QUERY then
-				scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+				scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			end
 		end,
 		sampled_images = {
@@ -215,7 +215,7 @@ return {
 					return block
 				end,
 			},
-			scene_reflection.GetDDGIUniformBuffer(BINDING_DDGI),
+			scene_hits.GetDDGIUniformBuffer(BINDING_DDGI),
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;

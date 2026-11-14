@@ -13,7 +13,7 @@ local medium_surface = import("goluwa/render3d/medium_surface.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
-local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
@@ -58,7 +58,7 @@ return {
 		framebuffer_count = 1,
 		LocalSize = {x = 1, y = 1, z = 1},
 		descriptor_sets = optical_rays.RAY_QUERY and
-			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
+			scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute") or
 			nil,
 		storage_buffers = {{binding_index = BINDING_PROBE}},
 		uniform_buffers = {
@@ -73,7 +73,7 @@ return {
 			},
 		},
 		on_pre_draw = function(self, cmd, frame, desc)
-			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			local slot = (
 					(
 						render.GetCurrentFrame() or
@@ -107,7 +107,7 @@ return {
 			};
 		]] .. (
 				optical_rays.RAY_QUERY and
-				scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) or
+				scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) or
 				""
 			),
 		shader = optical_rays.RAY_QUERY and
@@ -155,11 +155,11 @@ return {
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {{binding_index = BINDING_OUTPUT, attachment = 1, dst_stage = "fragment"}},
 		descriptor_sets = optical_rays.RAY_QUERY and
-			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
+			scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute") or
 			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			if optical_rays.RAY_QUERY then
-				scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+				scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			end
 		end,
 		uniform_buffers = {
@@ -177,7 +177,7 @@ return {
 					{"env_tex", "int"},
 					{"sun_direction", "vec3"},
 					{"sun_radiance", "vec3"},
-					scene_reflection.block,
+					scene_hits.block,
 					atmosphere.GetBlockLayout(),
 					{"primary_sun_illuminance", "float"},
 				},
@@ -194,7 +194,7 @@ return {
 					directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
 					local color = directional_shadows.GetPrimarySunColor(lights) * directional_shadows.GetPrimarySunIlluminance(lights)
 					color:CopyToFloatPointer(block.sun_radiance)
-					scene_reflection.WriteBlock(self, block)
+					scene_hits.WriteBlock(self, block)
 					atmosphere.WriteBlock(
 						self,
 						block,
@@ -205,19 +205,19 @@ return {
 					return block
 				end,
 			},
-			scene_reflection.GetDDGIUniformBuffer(BINDING_DDGI),
+			scene_hits.GetDDGIUniformBuffer(BINDING_DDGI),
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			]] .. (
 				optical_rays.RAY_QUERY and
-				scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) or
+				scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) or
 				""
 			) .. [[
 		]],
 		shader = glsl_common.GetConstantsGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("camera_medium_data") .. post_source.GetPreExposureGLSL("camera_medium_data") .. screen_refraction.GetGLSL("camera_medium_data") .. ibl.GetEnvironmentGLSLCode() .. medium_common.GetGLSL() .. (
 				optical_rays.RAY_QUERY and
-				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("camera_medium_data", "camera_medium_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("camera_medium_data") .. medium_surface.GetGLSL("camera_medium_data") .. medium_surface.GetCausticGLSL(
+				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("camera_medium_data", "camera_medium_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("camera_medium_data") .. medium_surface.GetGLSL("camera_medium_data") .. medium_surface.GetCausticGLSL(
 					"camera_medium_data",
 					{
 						name = "body_caustic",
@@ -376,7 +376,7 @@ return {
 				}
 
 				float traced_t;
-				return mix(trace_scene_reflection(exit_pos, exit_dir, exit_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, traced_t) * get_pre_exposure(), screen_seen, screen_weight);
+				return mix(trace_scene_radiance(exit_pos, exit_dir, exit_dir, 0.0, SCENE_HIT_MAX_DISTANCE, traced_t) * get_pre_exposure(), screen_seen, screen_weight);
 			}
 
 			void main() {
@@ -447,7 +447,7 @@ return {
 							throughput *= segment_transmittance;
 
 							if (object) {
-								seen += throughput * shade_scene_reflection_hit(inside_pos, d, 0.0, object_t, object_instance, object_primitive, object_barycentrics) * get_pre_exposure();
+								seen += throughput * shade_scene_hit(inside_pos, d, 0.0, object_t, object_instance, object_primitive, object_barycentrics) * get_pre_exposure();
 								break;
 							}
 

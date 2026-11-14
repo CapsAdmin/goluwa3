@@ -10,7 +10,7 @@ local ibl = import("goluwa/render3d/ibl.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
-local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local restir_gi = import("goluwa/render3d/restir_gi.lua")
@@ -21,7 +21,7 @@ local BINDING_EMITTERS = 13
 local SCENE_BINDINGS = {scene = 10, hit = 30, materials = 11, light_grid = 12}
 local LOCAL_SIZE = {x = 8, y = 8, z = 1}
 -- decals float a hair above the surface they decorate, rays from that surface would hit their undersides
-local NO_DECALS_GLSL = string.format("#define SCENE_REFLECTION_MASK 0x%02X\n", scene_instances.MASK_SURFACES)
+local NO_DECALS_GLSL = string.format("#define SCENE_HIT_MASK 0x%02X\n", scene_instances.MASK_SURFACES)
 
 local function attachment(pipeline_name, framebuffer, index)
 	return render3d.pipelines[pipeline_name]:GetFramebuffer(framebuffer):GetAttachment(index)
@@ -83,7 +83,7 @@ local function restir_uniform(trace)
 	}
 
 	if trace then
-		layout[#layout + 1] = scene_reflection.block
+		layout[#layout + 1] = scene_hits.block
 		layout[#layout + 1] = atmosphere.GetBlockLayout()
 		layout[#layout + 1] = {"primary_sun_illuminance", "float"}
 		layout[#layout + 1] = {"env_tex", "int"}
@@ -183,7 +183,7 @@ local function restir_uniform(trace)
 			block.blur_tex = self:GetTextureIndex(attachment("restir_gi_blur", 1, 1))
 
 			if trace then
-				scene_reflection.WriteBlock(self, block)
+				scene_hits.WriteBlock(self, block)
 				local lights = render3d.GetLights()
 				atmosphere.WriteBlock(
 					self,
@@ -456,7 +456,7 @@ local RESOLVE_GLSL = [[
 
 			if (restir_data.changed_light_intensities[i].x / (RESTIR_PI * d * d) <= 0.1 * gi_luminance) continue;
 
-			if (dist <= sphere.w || scene_reflection_visible(origin, to_light / dist, dist - sphere.w)) return true;
+			if (dist <= sphere.w || scene_hit_visible(origin, to_light / dist, dist - sphere.w)) return true;
 		}
 
 		return false;
@@ -473,7 +473,7 @@ local RESOLVE_GLSL = [[
 		return s;
 	}
 ]]
-local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. [[
+local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. [[
 			vec3 restir_cosine_direction(vec3 N, vec2 xi) {
 				vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 				vec3 T = normalize(cross(up, N));
@@ -490,11 +490,11 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				uint primitive;
 				vec2 barycentrics;
 				restir_sample s;
-				miss = !trace_scene_hit(origin, dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, t, instance, primitive, barycentrics);
+				miss = !trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
 
 				if (miss) {
 					s = restir_sample(dir, vec3(0.0), ddgi_sky(dir), RESTIR_SKY, vec3(0.0));
-					t = SCENE_REFLECTION_MAX_DISTANCE;
+					t = SCENE_HIT_MAX_DISTANCE;
 				} else {
 					scene_triangle tri = scene_hit_tri(instance, primitive);
 					vec3 hit_N = -tri.normal;
@@ -504,7 +504,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 					vec3 P = origin + dir * t;
 					s = emitter ?
 						restir_sample(P, hit_N, ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material], P)), RESTIR_EMITTER, restir_emitter_id(instance, primitive, barycentrics, dot(hit_N, tri.normal) > 0.0)) :
-						restir_sample(P, hit_N, shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE, vec3(0.0));
+						restir_sample(P, hit_N, shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE, vec3(0.0));
 				}
 
 				if (restir_data.optical_tint != 0) {
@@ -535,11 +535,11 @@ local function pass_candidates()
 		scale = restir_gi.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(3),
-		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		storage_buffers = {{binding_index = BINDING_EMITTERS}},
-		uniform_buffers = {restir_uniform(true), scene_reflection.GetDDGIUniformBuffer(BINDING_GI)},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
-			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			local emitters = scene_emitters.BuildActive(cmd)
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
 		end,
@@ -559,7 +559,7 @@ local function pass_candidates()
 			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_a;
 			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_b;
 			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_c;
-		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
 		-- temporal and spatial reuse stand in for more candidates: one by each of the emitter tree's weighings
 		shader = TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. [[
 
@@ -577,7 +577,7 @@ local function pass_candidates()
 				float view_depth;
 				float depth;
 
-				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth) || !scene_reflection_ready()) {
+				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth) || !scene_hits_ready()) {
 					imageStore(out_a, pos, vec4(0.0));
 					imageStore(out_b, pos, vec4(0.0));
 					imageStore(out_c, pos, vec4(0.0));
@@ -653,7 +653,7 @@ local function pass_candidates()
 						vec3 L_dir = to_point / max(dist, 1e-6);
 						float cosine = dot(N, L_dir);
 
-						if (weight > 0.0 && cosine > 0.0 && dist > 0.02 * restir_data.view_scale && scene_reflection_visible(origin, L_dir, dist - 0.02 * restir_data.view_scale)) {
+						if (weight > 0.0 && cosine > 0.0 && dist > 0.02 * restir_data.view_scale && scene_hit_visible(origin, L_dir, dist - 0.02 * restir_data.view_scale)) {
 							int e = int(uint(emitter) & 0x03FFFFFFu);
 							scene_triangle tri = scene_hit_tri(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED);
 							ddgi_material material = ddgi_materials[tri.material];
@@ -709,10 +709,10 @@ local function pass_temporal()
 		scale = restir_gi.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(5),
-		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		uniform_buffers = {restir_uniform(true), scene_reflection.GetDDGIUniformBuffer(BINDING_GI)},
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		uniform_buffers = {restir_uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
-			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_a;
@@ -720,7 +720,7 @@ local function pass_temporal()
 			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_c;
 			layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_geometry;
 			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_receiver;
-		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
+		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = TRACE_GLSL .. [[
 
 			shared float restir_group_contribution[64];
@@ -742,7 +742,7 @@ local function pass_temporal()
 				vec3 N;
 				float view_depth;
 				float depth;
-				bool surface = is_screen_pos_in_bounds(pos, size) && restir_surface(pos, size, gpos, P, N, view_depth, depth) && scene_reflection_ready();
+				bool surface = is_screen_pos_in_bounds(pos, size) && restir_surface(pos, size, gpos, P, N, view_depth, depth) && scene_hits_ready();
 
 				if (surface) {
 					uint frame = uint(restir_data.frame);
@@ -944,10 +944,10 @@ local function pass_spatial()
 		scale = restir_gi.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(5),
-		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		uniform_buffers = {restir_uniform(true), scene_reflection.GetDDGIUniformBuffer(BINDING_GI)},
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		uniform_buffers = {restir_uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
-			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_raw;
@@ -955,8 +955,8 @@ local function pass_spatial()
 			layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_b;
 			layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_c;
 			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_receiver;
-		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
-		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. RESOLVE_GLSL .. [[
+		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
+		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. RESOLVE_GLSL .. [[
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -997,7 +997,7 @@ local function pass_spatial()
 				float picked_W = W;
 
 				// pairwise mis: neighbours get little say over light only this pixel can find (the wall beside it in a crease)
-				if (restir_data.spatial != 0 && scene_reflection_ready()) {
+				if (restir_data.spatial != 0 && scene_hits_ready()) {
 					vec3 origin = restir_ray_origin(gpos, P, N, view_depth, depth);
 					float turn = restir_random(pos, 4u) * 6.28318530718;
 					float plane_tolerance = 0.01 + 0.02 * view_depth;
@@ -1040,10 +1040,10 @@ local function pass_spatial()
 						// a neighbour that cannot see this pixel's sample could not have found it, crediting it anyway darkens light found through gaps (canopies)
 						if (own_at_q > 0.0 && own_target > 0.0 && restir_data.visibility != 0) {
 							vec3 q_origin = restir_ray_origin(q_gpos, q_P, q_N, q_view_depth, q_depth);
-							vec3 to_own = own.kind == RESTIR_SKY ? own.x * SCENE_REFLECTION_MAX_DISTANCE : own.x + own.n * 0.01 * restir_data.view_scale - q_origin;
+							vec3 to_own = own.kind == RESTIR_SKY ? own.x * SCENE_HIT_MAX_DISTANCE : own.x + own.n * 0.01 * restir_data.view_scale - q_origin;
 							float own_length = length(to_own);
 
-							if (!scene_reflection_visible(q_origin, to_own / own_length, own.kind == RESTIR_SKY ? own_length : max(own_length - 0.03 * restir_data.view_scale, 0.0))) own_at_q = 0.0;
+							if (!scene_hit_visible(q_origin, to_own / own_length, own.kind == RESTIR_SKY ? own_length : max(own_length - 0.03 * restir_data.view_scale, 0.0))) own_at_q = 0.0;
 						}
 
 						own_weight += own_target * M / k + own_at_q > 0.0 ? own_target * M / k / (own_target * M / k + own_at_q) : 1.0;
@@ -1055,10 +1055,10 @@ local function pass_spatial()
 						if (!(jacobian > 0.0 && jacobian < 1e20) || s_cosine <= 0.0 || q_W <= 0.0 || luminance(s.L) <= 0.0) continue;
 
 						if (restir_data.visibility != 0) {
-							vec3 to_sample = s.kind == RESTIR_SKY ? s.x * SCENE_REFLECTION_MAX_DISTANCE : s.x + s.n * 0.01 * restir_data.view_scale - origin;
+							vec3 to_sample = s.kind == RESTIR_SKY ? s.x * SCENE_HIT_MAX_DISTANCE : s.x + s.n * 0.01 * restir_data.view_scale - origin;
 							float ray_length = length(to_sample);
 
-							if (!scene_reflection_visible(origin, to_sample / ray_length, s.kind == RESTIR_SKY ? ray_length : max(ray_length - 0.03 * restir_data.view_scale, 0.0))) continue;
+							if (!scene_hit_visible(origin, to_sample / ray_length, s.kind == RESTIR_SKY ? ray_length : max(ray_length - 0.03 * restir_data.view_scale, 0.0))) continue;
 						}
 
 						float target_here = luminance(s.L) * s_cosine * M / k;
