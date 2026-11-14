@@ -526,8 +526,20 @@ function cry_scene.Translate(data, level_name, level_path, options)
 				Color = color,
 				Lumen = lumen,
 				SourceRadius = source_radius,
-				OcclusionMap = light.cast_shadow,
 			}
+			local components = {
+				transform = {
+					Position = transform_data.position,
+					Rotation = transform_data.rotation,
+				},
+				[light.spot_fov and
+				"light_spot" or
+				"light_point"] = component,
+			}
+
+			if light.cast_shadow and not light.spot_fov then
+				components.shadow_map_point = {NearPlane = 0.1, FarPlane = light.radius}
+			end
 
 			if light.spot_fov then
 				component.OuterCone = light.spot_fov / 2
@@ -538,13 +550,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 				guid = level_guid .. ":light:" .. index,
 				parent = lights_guid,
 				properties = {Name = light.name or "cry_light"},
-				components = {
-					transform = {
-						Position = transform_data.position,
-						Rotation = transform_data.rotation,
-					},
-					[light.spot_fov and "light_spot" or "light_point"] = component,
-				},
+				components = components,
 			}
 		end
 	end
