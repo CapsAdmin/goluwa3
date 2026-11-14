@@ -1,3 +1,5 @@
+local ffi = require("ffi")
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -27,15 +29,126 @@ local enabled = pvars.Setup2{
 	key = "r_camera_medium",
 	default = true,
 	friendly = "camera inside a medium",
-	help = "when the camera is inside a closed body with a medium, every pixel is dimmed and lit by the medium over the path to its wall, as under water. costs one ray query per pixel while the scene has media",
+	help = "when the camera is inside a closed body with a medium, every pixel is dimmed and lit by the medium over the path to its wall, as under water. while the scene has bodies a single ray probe finds out whether the camera is inside one, the pass only runs (a few frames late) while it is",
 }
 pvars.EndGroup()
+local BINDING_PROBE = 4
+local probe_buffers = {}
+local camera_inside = false
+
+local function probe_enabled()
+	return glass_light.RAY_QUERY and
+		glass_light.IsEnabled() and
+		enabled:Get() and
+		ddgi.HasBodies()
+end
+
 return {
+	{
+		name = "camera_medium_probe",
+		ComputePass = true,
+		is_enabled = function()
+			if probe_enabled() then return true end
+
+			camera_inside = false
+			return false
+		end,
+		ColorFormat = {{"r8_unorm", {"camera_medium_probe_dummy", "r"}}},
+		FramebufferSize = {x = 1, y = 1},
+		framebuffer_count = 1,
+		LocalSize = {x = 1, y = 1, z = 1},
+		descriptor_sets = glass_light.RAY_QUERY and
+			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
+			nil,
+		storage_buffers = {{binding_index = BINDING_PROBE}},
+		uniform_buffers = {
+			{
+				name = "probe_data",
+				binding_index = BINDING_UNIFORM,
+				block = {render3d.camera_block},
+				write = function(self, block)
+					render3d.WriteCameraBlock(self, block)
+					return block
+				end,
+			},
+		},
+		on_pre_draw = function(self, cmd, frame, desc)
+			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			local slot = (
+					(
+						render.GetCurrentFrame() or
+						1
+					) - 1
+				) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+			local buffer = probe_buffers[slot]
+
+			if buffer then
+				camera_inside = ffi.cast("uint32_t*", buffer:Map(0, 4))[0] ~= 0
+			else
+				buffer = render.CreateBuffer{
+					byte_size = 16,
+					buffer_usage = {"storage_buffer"},
+					memory_property = {"host_visible", "host_coherent"},
+					label = "camera_medium_probe",
+					data = ffi.new("uint8_t[16]"),
+				}
+				probe_buffers[slot] = buffer
+			end
+
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_PROBE, 0, buffer, buffer:GetSize())
+		end,
+		on_draw = function(self, cmd, fb, frame, desc)
+			self:UploadConstants()
+			self.pipeline:Dispatch(cmd, 1, 1, 1, desc, self.dynamic_offsets)
+		end,
+		custom_declarations = [[
+			layout(std430, set = 0, binding = ]] .. BINDING_PROBE .. [[) buffer CameraMediumProbe {
+				uint probe_inside;
+			};
+		]] .. (
+				glass_light.RAY_QUERY and
+				scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) or
+				""
+			),
+		shader = glass_light.RAY_QUERY and
+			[[
+			void main() {
+				uint inside = 1u;
+
+				for (int k = 0; k < 2; k++) {
+					float nearest = 0.0;
+					bool front = false;
+					rayQueryEXT query;
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, probe_data.camera_position, 0.0, vec3(0.0, k == 0 ? 1.0 : -1.0, 0.0), ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[);
+
+					while (rayQueryProceedEXT(query)) {
+						ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+
+						if ((material.glass == 0 && !ddgi_has_medium(material)) || material.double_sided != 0) continue;
+
+						float t = rayQueryGetIntersectionTEXT(query, false);
+
+						if (nearest == 0.0 || t < nearest) {
+							nearest = t;
+							front = rayQueryGetIntersectionFrontFaceEXT(query, false);
+						}
+					}
+
+					if (!front) inside = 0u;
+				}
+
+				probe_inside = inside;
+			}
+		]] or
+			[[
+			void main() {}
+		]],
+	},
 	{
 		name = "camera_medium",
 		ComputePass = true,
 		is_enabled = function()
-			return glass_light.IsEnabled() and enabled:Get() and ddgi.HasBodies()
+			return camera_inside and probe_enabled()
 		end,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 1,
