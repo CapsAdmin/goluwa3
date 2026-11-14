@@ -49,10 +49,18 @@ fluid_volumes.MODES = {raymarch = 0, froxels = 1}
 fluid_volumes.volumes = {}
 fluid_volumes.emitters = {}
 fluid_volumes.generation = 0
-local RAY_QUERY = render.GetDevice().ray_query_supported
+local RAY_QUERY
 local LOCAL_SIZE = 4
 local SLOTS_PER_FRAME = fluid_volumes.MAX_VOLUMES * fluid_volumes.MAX_SUBSTEPS
-local FRAME_SPAN = math.max(render.GetSwapchainImageCount() or 1, 1)
+local FRAME_SPAN
+
+local function read_device()
+	if FRAME_SPAN then return end
+
+	RAY_QUERY = render.GetDevice().ray_query_supported
+	FRAME_SPAN = math.max(render.GetSwapchainImageCount() or 1, 1)
+end
+
 local states = {}
 local splats = {}
 local atlas = {width = 0, height = 0, depth = 0}
@@ -1891,6 +1899,7 @@ local function write_records()
 end
 
 function fluid_volumes.GetRecordBuffer()
+	read_device()
 	return fluid_volumes.record_buffer or write_records()
 end
 
@@ -2014,6 +2023,7 @@ event.AddListener("Update", "fluid_transients", function()
 end)
 
 function fluid_volumes.Simulate(cmd)
+	read_device()
 	list.clear(active)
 
 	for _, volume in ipairs(fluid_volumes.volumes) do
