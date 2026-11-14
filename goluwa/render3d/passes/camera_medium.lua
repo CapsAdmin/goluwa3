@@ -11,11 +11,15 @@ local medium_surface = import("goluwa/render3d/medium_surface.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
+local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
-local GLASS_BINDINGS = {scene = 6, hit = 30, materials = 8}
+local SCENE_BINDINGS = {scene = 6, hit = 30, materials = 8, light_grid = 9}
+local BINDING_DDGI = 12
+local SCREEN_EDGE_BLEND = 0.03
 pvars.StartGroup("Lighting", "Camera medium", {store = false})
 local enabled = pvars.Setup2{
 	key = "r_camera_medium",
@@ -36,11 +40,11 @@ return {
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {{binding_index = BINDING_OUTPUT, attachment = 1, dst_stage = "fragment"}},
 		descriptor_sets = glass_light.RAY_QUERY and
-			glass_light.GetDescriptorSets(GLASS_BINDINGS, "compute") or
+			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
 			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			if glass_light.RAY_QUERY then
-				glass_light.Bind(self, cmd, desc, GLASS_BINDINGS)
+				scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
 			end
 		end,
 		uniform_buffers = {
@@ -55,8 +59,12 @@ return {
 					medium_surface.block,
 					{"source_tex", "int"},
 					{"env_irradiance_tex", "int"},
+					{"env_tex", "int"},
 					{"sun_direction", "vec3"},
 					{"sun_radiance", "vec3"},
+					scene_reflection.block,
+					atmosphere.GetBlockLayout(),
+					{"primary_sun_illuminance", "float"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -66,25 +74,35 @@ return {
 					post_source.WritePreExposureBlock(self, block)
 					block.source_tex = self:GetTextureIndex(post_source.GetFogSourceTexture())
 					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					local lights = render3d.GetLights()
 					directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
 					local color = directional_shadows.GetPrimarySunColor(lights) * directional_shadows.GetPrimarySunIlluminance(lights)
 					color:CopyToFloatPointer(block.sun_radiance)
+					scene_reflection.WriteBlock(self, block)
+					atmosphere.WriteBlock(
+						self,
+						block,
+						render3d.GetCamera():GetPosition(),
+						directional_shadows.GetPrimarySunDirection(lights)
+					)
+					block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
 					return block
 				end,
 			},
+			scene_reflection.GetDDGIUniformBuffer(BINDING_DDGI),
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			]] .. (
 				glass_light.RAY_QUERY and
-				glass_light.GetDeclarationGLSL(GLASS_BINDINGS) or
+				scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) or
 				""
 			) .. [[
 		]],
 		shader = glsl_common.GetConstantsGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("camera_medium_data") .. post_source.GetPreExposureGLSL("camera_medium_data") .. screen_refraction.GetGLSL("camera_medium_data") .. ibl.GetEnvironmentGLSLCode() .. medium_common.GetGLSL() .. (
 				glass_light.RAY_QUERY and
-				glass_light.GetGLSL("glass_light_scene") .. medium_surface.GetGLSL("camera_medium_data") .. medium_surface.GetCausticGLSL(
+				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("camera_medium_data", "camera_medium_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("camera_medium_data") .. medium_surface.GetGLSL("camera_medium_data") .. medium_surface.GetCausticGLSL(
 					"camera_medium_data",
 					{
 						name = "body_caustic",
@@ -149,7 +167,7 @@ return {
 			vec2 nearest_barycentrics = vec2(0.0);
 			ddgi_material body;
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, glass_light_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[));
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
@@ -240,18 +258,30 @@ return {
 						float transmitted = total ? 0.0 : 1.0 - fresnel_dielectric(dot(view_dir, view.exit_normal), view.ior);
 						vec3 exit_dir = total ? view_dir : normalize(refracted);
 						vec3 exit_pos = camera_medium_data.camera_position + view_dir * view.exit_distance;
-						float travel = 2000.0;
 						rayQueryEXT beyond;
-						rayQueryInitializeEXT(beyond, glass_light_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.002 * camera_medium_data.view_scale, exit_dir, travel);
+						rayQueryInitializeEXT(beyond, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.002 * camera_medium_data.view_scale, exit_dir, 2000.0);
 
 						while (rayQueryProceedEXT(beyond)) {}
 
-						if (rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT) travel = rayQueryGetIntersectionTEXT(beyond, true);
+						float screen_weight = 0.0;
+						vec3 screen_seen = vec3(0.0);
 
-						vec3 target = screen_refraction_project(exit_pos + exit_dir * travel);
+						if (rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+							vec3 target = screen_refraction_project(exit_pos + exit_dir * rayQueryGetIntersectionTEXT(beyond, true));
 
-						if (target.z > -1.0 && screen_refraction_on_screen(target.xy)) {
-							seen = texture(TEXTURE(camera_medium_data.source_tex), target.xy).rgb;
+							if (target.z > -1.0 && screen_refraction_on_screen(target.xy) && textureLod(TEXTURE(camera_medium_data.depth_tex), target.xy, 0.0).r <= target.z * 1.02 + 1e-6) {
+								vec2 edge = min(target.xy, 1.0 - target.xy);
+								screen_weight = smoothstep(0.0, ]] .. SCREEN_EDGE_BLEND .. [[, min(edge.x, edge.y));
+								screen_seen = texture(TEXTURE(camera_medium_data.source_tex), target.xy).rgb;
+							}
+						}
+
+						seen = screen_seen;
+
+						if (screen_weight < 1.0) {
+							float traced_t;
+							vec3 traced = trace_scene_reflection(exit_pos, exit_dir, exit_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, traced_t) * get_pre_exposure();
+							seen = mix(traced, screen_seen, screen_weight);
 						}
 
 						seen = mix(view.inside_color, seen, transmitted);
