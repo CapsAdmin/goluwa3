@@ -430,13 +430,15 @@ function PhysicalDevice:GetRayTracingPipelineProperties()
 end
 
 function PhysicalDevice:GetRobustness2Features()
-	local robustness2Features = VkPhysicalDeviceRobustness2FeaturesEXTBox{
-		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT,
-		pNext = nil,
-		robustBufferAccess2 = 0,
-		robustImageAccess2 = 0,
-		nullDescriptor = 0,
-	}
+	local robustness2Features = VkPhysicalDeviceRobustness2FeaturesEXTBox(
+		vulkan.vk.s.PhysicalDeviceRobustness2FeaturesKHR{
+			sType = "physical_device_robustness_2_features_ext",
+			pNext = nil,
+			robustBufferAccess2 = 0,
+			robustImageAccess2 = 0,
+			nullDescriptor = 0,
+		}
+	)
 	local queryDeviceFeatures = vulkan.vk.s.PhysicalDeviceFeatures2{
 		sType = "physical_device_features_2",
 		pNext = robustness2Features,

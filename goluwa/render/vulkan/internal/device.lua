@@ -362,19 +362,31 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 	if table.has_value(available_extensions, "VK_EXT_robustness2") then
 		table.insert(finalExtensions, "VK_EXT_robustness2")
 		local robustness2Features = physical_device:GetRobustness2Features()
+		local validating = os.getenv("GOLUWA_VALIDATE") == "1"
+		local robust_buffers = validating and
+			robustness2Features.robustBufferAccess2 == 1 and
+			physical_features.robustBufferAccess == 1
+		has_null_descriptor = robustness2Features.nullDescriptor == 1
 
-		if robustness2Features.nullDescriptor == 1 then
-			has_null_descriptor = true
+		if robust_buffers then enabled_features[0].robustBufferAccess = 1 end
+
+		if has_null_descriptor or robust_buffers then
 			local enabledRobustness2Features = VkPhysicalDeviceRobustness2FeaturesEXTBox(
-				vulkan.vk.s.PhysicalDeviceRobustness2FeaturesEXT{
+				vulkan.vk.s.PhysicalDeviceRobustness2FeaturesKHR{
 					sType = "physical_device_robustness_2_features_ext",
 					pNext = pNextChain,
-					nullDescriptor = 1,
-					robustBufferAccess2 = 0,
+					nullDescriptor = has_null_descriptor and 1 or 0,
+					robustBufferAccess2 = robust_buffers and 1 or 0,
 					robustImageAccess2 = 0,
 				}
 			)
 			pNextChain = enabledRobustness2Features
+		end
+
+		if robust_buffers then
+			logn(
+				"[vulkan] robustBufferAccess2 on with validation (out of bounds buffer accesses read zero instead of faulting)"
+			)
 		end
 	end
 
