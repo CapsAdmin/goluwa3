@@ -202,6 +202,42 @@ T.Test("xen foliage materials absorb their transmission colour through a medium"
 	T(absorption.x < absorption.y and absorption.y < absorption.z)["=="](true)
 end)
 
+T.Test("source 2 glass, bottles and liquids are refractive with their colour as a medium", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local material = import("goluwa/source_engine/source2/material.lua")
+	local Material = import("goluwa/render3d/material.lua")
+	local media = import("goluwa/render3d/media.lua")
+	local glass_info = material.GetInfo("materials/models/particle/combine_ball_glass.vmat")
+	T(glass_info.glass)["=="](true)
+	local glass = Material.New()
+	material.ApplyGlass(glass, glass_info)
+	T(glass:GetRefraction())["=="](1)
+	T(glass:GetIndexOfRefraction())["=="](1.5)
+	local absorption = media.presets[glass:GetMedium()].Absorption
+	T(absorption.x > absorption.y)["=="](true)
+	local holo = material.GetInfo("materials/particle/hologram/box_noise_00_holo_fail.vmat")
+	T(holo.additive)["=="](true)
+	T(holo.translucent)["=="](true)
+	T(holo.ints.F_UNLIT)["=="](1)
+	T(material.GetInfo("materials/combine/combine_vault_glass_b.vmat").additive)["=="](true)
+	local bottle_info = material.GetInfo("materials/models/props_interiors/waterbottle.vmat")
+	T(bottle_info.bottle)["=="](true)
+	local bottle = Material.New()
+	material.ApplyBottle(bottle, bottle_info)
+	T(bottle:GetRefraction())["=="](1)
+	T(bottle:GetMedium())["=="]("")
+	local liquid_info = material.GetInfo("materials/models/props_interiors/waterbottle_liquid.vmat")
+	T(liquid_info.liquid)["=="](true)
+	local liquid = Material.New()
+	material.ApplyLiquid(liquid, liquid_info)
+	T(liquid:GetRefraction())["=="](1)
+	T(liquid:GetMedium() ~= "")["=="](true)
+end)
+
 T.Test("vtex textures with clamp flags are not read as cube maps", function()
 	local info = steam.FindSourceGame(546560)
 

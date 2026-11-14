@@ -85,7 +85,11 @@ function material.GetInfo(path)
 
 	info.blend = BLEND_SHADERS[info.shader] == true
 	info.decal = info.shader == "vr_static_overlay.vfx"
-	info.translucent = info.ints.F_TRANSLUCENT == 1 or info.shader == "vr_glass.vfx" or info.decal
+	info.glass = info.shader == "vr_glass.vfx" or info.shader == "vr_glass_markable.vfx"
+	info.bottle = info.shader == "vr_simple_liquid.vfx" and info.ints.F_NO_LIQUID == 1
+	info.liquid = info.shader == "vr_simple_liquid.vfx" and not info.bottle
+	info.additive = info.ints.F_ADDITIVE_BLEND == 1
+	info.translucent = (info.ints.F_TRANSLUCENT or 0) > 0 or info.additive or info.glass or info.decal
 	info.alpha_test = info.ints.F_ALPHA_TEST == 1
 	info.tint_mask = info.ints.F_TINT_MASK == 1 or info.ints.F_ENABLE_TINT_MASKS == 1
 	return info
@@ -160,6 +164,10 @@ local XEN_TRANSMISSION_DEPTH = 0.15
 local XEN_TRANSMISSION = 0.4
 local MIN_TRANSMITTANCE = 0.02
 local NO_SCATTERING = Vec3(0, 0, 0)
+local GLASS_PANE_DEPTH = 0.05
+local GLASS_IOR = 1.5
+local GLASS_ROUGHNESS = 0.04
+local LIQUID_DEPTH = 0.08
 
 local function define_absorbing_medium(color, depth)
 	return media.Define(
@@ -177,6 +185,43 @@ function material.ApplyXenFoliage(self, info)
 		define_absorbing_medium(info.vectors.g_vTransmissionColor or {1, 1, 1}, XEN_TRANSMISSION_DEPTH)
 	)
 	self:SetDiffuseTransmission(XEN_TRANSMISSION)
+end
+
+-- vr_glass is a refractive pane whose GlassTintColor is what survives a pane; the additive variant only glows
+function material.ApplyGlass(self, info)
+	if info.additive then return end
+
+	local tint = info.vectors.GlassTintColor
+
+	if tint and (tint[1] < 0.99 or tint[2] < 0.99 or tint[3] < 0.99) then
+		self:SetMedium(define_absorbing_medium(tint, GLASS_PANE_DEPTH))
+	end
+
+	self:SetRefraction(1)
+	self:SetRefractionThickness(0)
+	self:SetIndexOfRefraction(GLASS_IOR)
+	self:SetMetallicMultiplier(0)
+	self:SetRoughnessMultiplier(GLASS_ROUGHNESS)
+	self:SetNormalTextureAlphaIsRoughness(false)
+end
+
+-- vr_simple_liquid is a bottle and the liquid in it as two materials: the bottle is clear glass, the liquid a closed body
+-- whose g_vLiquidColor is what survives LIQUID_DEPTH metres of it
+function material.ApplyBottle(self, info)
+	self:SetRefraction(1)
+	self:SetRefractionThickness(0)
+	self:SetIndexOfRefraction(GLASS_IOR)
+	self:SetMetallicMultiplier(0)
+	self:SetRoughnessMultiplier(GLASS_ROUGHNESS)
+	self:SetNormalTextureAlphaIsRoughness(false)
+end
+
+function material.ApplyLiquid(self, info)
+	self:SetMedium(define_absorbing_medium(info.vectors.g_vLiquidColor or {1, 1, 1}, LIQUID_DEPTH))
+	self:SetRefraction(1)
+	self:SetMetallicMultiplier(0)
+	self:SetRoughnessMultiplier(GLASS_ROUGHNESS)
+	self:SetNormalTextureAlphaIsRoughness(false)
 end
 
 function material.Prefetch(path)
@@ -314,6 +359,13 @@ function material.FromVMAT(path)
 
 	if info.translucent then self:SetTranslucent(true) end
 
+	if info.additive then
+		self:SetAdditive(true)
+		self:SetDisplayReferred(true)
+	end
+
+	if ints.F_UNLIT == 1 and info.translucent then self:SetUnlit(true) end
+
 	if info.decal then
 		self:SetDecal(true)
 		self:SetDithered(true)
@@ -339,6 +391,14 @@ function material.FromVMAT(path)
 		if textures.g_tMaskParameters then
 			self:SetTransmissionTexture(Material.LinearTexture(textures.g_tMaskParameters, {stream = true}))
 		end
+	end
+
+	if info.glass then
+		material.ApplyGlass(self, info)
+	elseif info.bottle then
+		material.ApplyBottle(self, info)
+	elseif info.liquid then
+		material.ApplyLiquid(self, info)
 	end
 
 	if ints.F_RENDER_BACKFACES == 1 then self:SetDoubleSided(true) end
