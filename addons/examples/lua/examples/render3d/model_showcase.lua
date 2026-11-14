@@ -112,6 +112,9 @@ local rows = {
 		models = {
 			"models/props_combine/combine_vault_interior/combine_vault_interior_iso_cage_glass.vmdl_c",
 			"models/props_combine/combine_structures/vault_shield_mesh.vmdl_c",
+			"models/props_combine/combine_fence/combine_fence01a_128.vmdl_c",
+			"models/props_combine/combine_fence/combine_fence01b_128.vmdl_c",
+			"models/props_combine/combine_fence/combine_doorway_fence.vmdl_c",
 			"models/characters/combine_soldier_heavy/combine_hand_shield.vmdl_c",
 			"models/props_combine/combine_consoles/combine_monitor_medium.vmdl_c",
 			"models/props_combine/health_charger/combine_health_charger_vr_pad.vmdl_c",
