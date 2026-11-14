@@ -13,6 +13,8 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local Color = import("goluwa/structs/color.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local event = import("goluwa/event.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
@@ -33,6 +35,11 @@ fluid_volumes.GRAVITY = 9.81
 fluid_volumes.EMITTER_RESPONSE = 20
 fluid_volumes.MAX_PUSHERS = 16
 fluid_volumes.MAX_LIGHT_SLOTS = 4
+fluid_volumes.MAX_FREE_STATES = 8
+fluid_volumes.MAX_TRANSIENTS = 6
+fluid_volumes.TRANSIENT_MIN_AGE = 1
+fluid_volumes.TRANSIENT_MAX_AGE = 40
+fluid_volumes.TRANSIENT_SMOKE = 0.05
 fluid_volumes.FIRE_LIGHT_RESPONSE = 0.5
 fluid_volumes.FIRE_LIGHT_MIN_LUMEN = 1
 fluid_volumes.PUSHER_DRAG = 15
@@ -53,32 +60,6 @@ fluid_volumes.atlas = atlas
 
 function fluid_volumes.AddVolume(volume)
 	list.insert(fluid_volumes.volumes, volume)
-end
-
-function fluid_volumes.RemoveVolume(volume)
-	for i, other in ipairs(fluid_volumes.volumes) do
-		if other == volume then
-			list.remove(fluid_volumes.volumes, i)
-
-			break
-		end
-	end
-
-	local state = states[volume]
-
-	if not state then return end
-
-	states[volume] = nil
-
-	for _, texture in ipairs(state.textures) do
-		texture:Remove()
-	end
-
-	for _, buffer in pairs(state.stats) do
-		buffer:Remove()
-	end
-
-	if state.fire_light then state.fire_light:Remove() end
 end
 
 function fluid_volumes.GetVolumes()
@@ -109,6 +90,7 @@ function fluid_volumes.Splat(position, radius, amounts)
 			temperature = amounts.temperature or 0,
 			fuel = amounts.fuel or 0,
 			velocity = amounts.velocity and amounts.velocity:Copy() or Vec3(0, 0, 0),
+			expand = amounts.expand or 0,
 		}
 	)
 end
@@ -138,7 +120,7 @@ local EMITTER_LAYOUT = {
 	{"amounts", "vec4"},
 	{"velocity", "vec4"},
 }
-local params = {}
+local params = {shift_x = 0, shift_y = 0, shift_z = 0}
 local fluid_block = {
 	{"to_world", "mat4"},
 	{"to_local", "mat4"},
@@ -154,6 +136,7 @@ local fluid_block = {
 	{"turbulence", "vec4"},
 	{"optics", "vec4"},
 	{"light_slots", "ivec4"},
+	{"shift", "ivec4"},
 	{"flags", "ivec4"},
 	{"emitters", EMITTER_LAYOUT, fluid_volumes.MAX_EMITTERS},
 }
@@ -177,6 +160,7 @@ local function write_fluid_block(self, block)
 		block.light_slots[i] = params.light_slots[i + 1]
 	end
 
+	block.shift[0], block.shift[1], block.shift[2] = params.shift_x, params.shift_y, params.shift_z
 	block.flags[0], block.flags[1], block.flags[2], block.flags[3] = params.floor, params.emitter_count, params.obstacle_rays and 1 or 0, 0
 
 	for i = 0, params.emitter_count - 1 do
@@ -184,7 +168,7 @@ local function write_fluid_block(self, block)
 		local dst = block.emitters[i]
 		dst.sphere[0], dst.sphere[1], dst.sphere[2], dst.sphere[3] = src.x, src.y, src.z, src.radius
 		dst.amounts[0], dst.amounts[1], dst.amounts[2], dst.amounts[3] = src.smoke, src.temperature, src.fuel, src.blend
-		dst.velocity[0], dst.velocity[1], dst.velocity[2], dst.velocity[3] = src.vx, src.vy, src.vz, src.blend
+		dst.velocity[0], dst.velocity[1], dst.velocity[2], dst.velocity[3] = src.vx, src.vy, src.vz, src.expand
 	end
 
 	return block
@@ -383,6 +367,44 @@ local function get_pipelines()
 			]],
 		}
 	)
+	pipelines.shift = create_pipeline(
+		"shift",
+		{
+			storage_images = {
+				{binding_index = 0},
+				{binding_index = 1},
+				{binding_index = 2},
+				{binding_index = 3},
+				{binding_index = 4},
+				{binding_index = 5},
+				{binding_index = 6},
+			},
+			uniform_buffers = {FLUID_UBO},
+			custom_declarations = [[
+				layout(set = 0, binding = 0, rgba16f) uniform readonly image3D velocity_source;
+				layout(set = 0, binding = 1, rgba16f) uniform writeonly image3D velocity_target;
+				layout(set = 0, binding = 2, rgba16f) uniform readonly image3D scalars_source;
+				layout(set = 0, binding = 3, rgba16f) uniform writeonly image3D scalars_target;
+				layout(set = 0, binding = 4, r8) uniform readonly image3D obstacles_source;
+				layout(set = 0, binding = 5, r8) uniform writeonly image3D obstacles_target;
+				layout(set = 0, binding = 6, r32f) uniform writeonly image3D pressure;
+			]],
+			shader = COMMON_GLSL .. [[
+				void main() {
+					ivec3 c = ivec3(gl_GlobalInvocationID);
+
+					if (!fluid_in_grid(c)) return;
+
+					ivec3 source = c + fluid.shift.xyz;
+					bool inside = fluid_in_grid(source);
+					imageStore(velocity_target, c, inside ? imageLoad(velocity_source, source) : vec4(fluid.wind.xyz, 0.0));
+					imageStore(scalars_target, c, inside ? imageLoad(scalars_source, source) : vec4(0.0, fluid.thermal.x, 0.0, 0.0));
+					imageStore(obstacles_target, c, inside ? imageLoad(obstacles_source, source) : vec4(0.0));
+					imageStore(pressure, c, vec4(0.0));
+				}
+			]],
+		}
+	)
 	pipelines.pushers = create_pipeline(
 		"pushers",
 		{
@@ -491,7 +513,11 @@ local function get_pipelines()
 					for (int i = 0; i < fluid.flags.y; i++) {
 						float w = fluid_emitter_weight(i, local);
 
-						if (w > 0.0) advected = mix(advected, fluid.emitters[i].velocity.xyz, w * fluid.emitters[i].velocity.w);
+						if (w <= 0.0) continue;
+
+						vec4 v = fluid.emitters[i].velocity;
+						vec3 outward = local - fluid.emitters[i].sphere.xyz;
+						advected = mix(advected, v.xyz + outward / max(length(outward), 1e-4) * v.w, w * fluid.emitters[i].amounts.w);
 					}
 
 					advected = mix(advected, m.xyz, m.w);
@@ -1069,33 +1095,56 @@ local function create_grid_texture(nx, ny, nz, format, name, filter)
 	return texture
 end
 
-local function ensure_state(volume, cmd)
-	local nx, ny, nz, cell = fluid_volumes.GetGridSize(volume)
-	local state = states[volume]
+local free_states = {}
 
-	if state and state.nx == nx and state.ny == ny and state.nz == nz then
-		state.cell = cell
-		return state
+local function destroy_state(state)
+	for _, texture in ipairs(state.textures) do
+		texture:Remove()
 	end
 
-	if state then
-		for _, texture in ipairs(state.textures) do
-			texture:Remove()
+	for _, buffer in pairs(state.stats) do
+		buffer:Remove()
+	end
+
+	if state.fire_light then state.fire_light:Remove() end
+end
+
+function fluid_volumes.RemoveVolume(volume)
+	for i, other in ipairs(fluid_volumes.volumes) do
+		if other == volume then
+			list.remove(fluid_volumes.volumes, i)
+
+			break
 		end
 	end
 
-	state = {
+	local state = states[volume]
+
+	if not state then return end
+
+	states[volume] = nil
+
+	if state.fire_light then
+		state.fire_light:Remove()
+		state.fire_light = nil
+	end
+
+	list.insert(free_states, state)
+
+	if #free_states > fluid_volumes.MAX_FREE_STATES then
+		destroy_state(list.remove(free_states, 1))
+	end
+end
+
+local function create_state(nx, ny, nz, cell, cmd)
+	local state = {
 		nx = nx,
 		ny = ny,
 		nz = nz,
 		cell = cell,
-		current = 1,
-		needs_fill = true,
-		obstacle_time = -math.huge,
 		textures = {},
-		stats = state and state.stats or {},
+		stats = {},
 		light_slots = {-1, -1, -1, -1},
-		fire_light = state and state.fire_light,
 	}
 
 	local function grid(format, name, filter)
@@ -1120,6 +1169,44 @@ local function ensure_state(volume, cmd)
 	state.static_obstacles = grid("r8_unorm", "static obstacles", "nearest")
 	state.obstacles = grid("r8_unorm", "obstacles", "nearest")
 	state.motion = grid("r16g16b16a16_sfloat", "motion", "nearest")
+	return state
+end
+
+local function reset_state(state, cell)
+	state.cell = cell
+	state.current = 1
+	state.needs_fill = true
+	state.obstacle_time = -math.huge
+	state.origin = nil
+	state.last_stats = nil
+
+	for k = 1, 4 do
+		state.light_slots[k] = -1
+	end
+
+	return state
+end
+
+local function take_free_state(nx, ny, nz)
+	for i, state in ipairs(free_states) do
+		if state.nx == nx and state.ny == ny and state.nz == nz then
+			return list.remove(free_states, i)
+		end
+	end
+end
+
+local function ensure_state(volume, cmd)
+	local nx, ny, nz, cell = fluid_volumes.GetGridSize(volume)
+	local state = states[volume]
+
+	if state and state.nx == nx and state.ny == ny and state.nz == nz then
+		state.cell = cell
+		return state
+	end
+
+	if state then destroy_state(state) end
+
+	state = reset_state(take_free_state(nx, ny, nz) or create_state(nx, ny, nz, cell, cmd), cell)
 	states[volume] = state
 	fluid_volumes.generation = fluid_volumes.generation + 1
 	return state
@@ -1188,11 +1275,45 @@ local function rotate_vector(m, v)
 	)
 end
 
-local function collect_emitters(volume, to_local, half, dt)
+local emitter_targets = setmetatable({}, {__mode = "k"})
+
+local function finest_volume(position)
+	local best
+	local best_cell = math.huge
+
+	for _, volume in ipairs(fluid_volumes.active) do
+		local state = states[volume]
+		local x, y, z = state.to_local:TransformVectorUnpacked(position.x, position.y, position.z)
+
+		if
+			state.cell < best_cell and
+			math.abs(x) <= state.nx * state.cell / 2 and
+			math.abs(y) <= state.ny * state.cell / 2 and
+			math.abs(z) <= state.nz * state.cell / 2
+		then
+			best = volume
+			best_cell = state.cell
+		end
+	end
+
+	return best
+end
+
+local function assign_sources()
+	for _, emitter in ipairs(fluid_volumes.emitters) do
+		emitter_targets[emitter] = finest_volume(Vec3(emitter.Owner.transform:GetWorldMatrix():GetTranslation()))
+	end
+
+	for _, splat in ipairs(splats) do
+		splat.target = finest_volume(splat.position)
+	end
+end
+
+local function collect_emitters(volume, to_local, half, dt, with_splats)
 	local emitters = params.emitters
 	local count = 0
 
-	local function add(position, radius, smoke, temperature, fuel, velocity, blend)
+	local function add(position, radius, smoke, temperature, fuel, velocity, blend, expand)
 		if count >= fluid_volumes.MAX_EMITTERS then return end
 
 		local x, y, z = to_local:TransformVectorUnpacked(position.x, position.y, position.z)
@@ -1217,12 +1338,13 @@ local function collect_emitters(volume, to_local, half, dt)
 		e.x, e.y, e.z, e.radius = x, y, z, radius
 		e.smoke, e.temperature, e.fuel, e.blend = smoke, temperature, fuel, blend
 		e.vx, e.vy, e.vz = v.x, v.y, v.z
+		e.expand = expand
 	end
 
 	local blend = 1 - math.exp(-fluid_volumes.EMITTER_RESPONSE * dt)
 
 	for _, emitter in ipairs(fluid_volumes.emitters) do
-		if emitter:IsEmitting() then
+		if emitter:IsEmitting() and emitter_targets[emitter] == volume then
 			local world = emitter.Owner.transform:GetWorldMatrix()
 			add(
 				Vec3(world:GetTranslation()),
@@ -1231,22 +1353,26 @@ local function collect_emitters(volume, to_local, half, dt)
 				emitter:GetTemperature(),
 				emitter:GetFuel(),
 				rotate_vector(world, emitter:GetVelocity()),
-				blend
+				blend,
+				0
 			)
 		end
 	end
 
-	if dt > 0 then
+	if with_splats and dt > 0 then
 		for _, splat in ipairs(splats) do
-			add(
-				splat.position,
-				splat.radius,
-				splat.smoke / dt,
-				splat.temperature,
-				splat.fuel / dt,
-				splat.velocity,
-				1
-			)
+			if splat.target == volume then
+				add(
+					splat.position,
+					splat.radius,
+					splat.smoke / dt,
+					splat.temperature,
+					splat.fuel / dt,
+					splat.velocity,
+					1,
+					splat.expand
+				)
+			end
 		end
 	end
 
@@ -1357,7 +1483,7 @@ local function choose_light_slots(volume, state)
 		scores[k] = 0
 	end
 
-	local to_local = volume.Owner.transform:GetWorldMatrixInverse()
+	local to_local = state.to_local
 	local half = Vec3(state.nx, state.ny, state.nz) * (state.cell / 2)
 	local lights = render3d.GetLights()
 
@@ -1431,7 +1557,7 @@ local function update_fire_light(volume, state)
 
 	local light = state.fire_light.light_point
 	local center = stats.emission_center
-	local x, y, z = volume.Owner.transform:GetWorldMatrix():TransformVectorUnpacked(center.x, center.y, center.z)
+	local x, y, z = state.to_world:TransformVectorUnpacked(center.x, center.y, center.z)
 	local response = fluid_volumes.FIRE_LIGHT_RESPONSE
 	state.fire_light.transform:SetPosition(Vec3(x, y, z))
 	light:SetVisible(true)
@@ -1440,10 +1566,69 @@ local function update_fire_light(volume, state)
 	light:SetSourceRadius(state.cell * 2)
 end
 
-local function write_params(volume, state, dt)
+local function update_frame(volume, state)
 	local transform = volume.Owner.transform
-	local to_world = transform:GetWorldMatrix()
-	local to_local = transform:GetWorldMatrixInverse()
+
+	if volume:GetSpace() ~= "world" then
+		state.to_world = transform:GetWorldMatrix()
+		state.to_local = transform:GetWorldMatrixInverse()
+		state.origin = nil
+		return
+	end
+
+	local x, y, z = transform:GetWorldMatrix():GetTranslation()
+	local cell = state.cell
+	local cx, cy, cz = math.floor(x / cell + 0.5), math.floor(y / cell + 0.5), math.floor(z / cell + 0.5)
+	local origin = state.origin
+
+	if origin then
+		state.shift_x, state.shift_y, state.shift_z = cx - origin[1], cy - origin[2], cz - origin[3]
+	else
+		state.shift_x, state.shift_y, state.shift_z = 0, 0, 0
+	end
+
+	state.origin = {cx, cy, cz}
+	state.to_world = Matrix44(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, cx * cell, cy * cell, cz * cell, 1)
+	state.to_local = Matrix44(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -cx * cell, -cy * cell, -cz * cell, 1)
+end
+
+local function shift_state(cmd, state)
+	local x, y, z = state.shift_x or 0, state.shift_y or 0, state.shift_z or 0
+
+	if x == 0 and y == 0 and z == 0 then return end
+
+	state.shift_x, state.shift_y, state.shift_z = 0, 0, 0
+
+	if math.abs(x) >= state.nx or math.abs(y) >= state.ny or math.abs(z) >= state.nz then
+		state.needs_fill = true
+		state.obstacle_time = -math.huge
+		return
+	end
+
+	params.shift_x, params.shift_y, params.shift_z = x, y, z
+	local next = 3 - state.current
+	dispatch(
+		cmd,
+		pipelines.shift,
+		{
+			[0] = state.velocity[state.current],
+			[1] = state.velocity[next],
+			[2] = state.scalars[state.current],
+			[3] = state.scalars[next],
+			[4] = state.static_obstacles,
+			[5] = state.obstacles,
+			[6] = state.pressure,
+		}
+	)
+	barrier(cmd)
+	params.shift_x, params.shift_y, params.shift_z = 0, 0, 0
+	state.current = next
+	state.static_obstacles, state.obstacles = state.obstacles, state.static_obstacles
+end
+
+local function write_params(volume, state, dt, with_splats)
+	local to_world = state.to_world
+	local to_local = state.to_local
 	params.to_world = params.to_world or ffi.new("float[16]")
 	params.to_local = params.to_local or ffi.new("float[16]")
 	params.emitters = params.emitters or {}
@@ -1476,7 +1661,7 @@ local function write_params(volume, state, dt)
 	params.flame_absorption = media.presets.flame.Absorption.x
 	params.light_slots = state.light_slots
 	params.floor = volume:GetFloor() and 1 or 0
-	collect_emitters(volume, to_local, params.half, dt)
+	collect_emitters(volume, to_local, params.half, dt, with_splats)
 end
 
 local function step(cmd, state)
@@ -1649,7 +1834,7 @@ fluid_volumes.active = active
 local function write_record(record, volume, state)
 	local medium = media.presets[volume:GetMedium()]
 	local density = volume:GetDensity()
-	volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(record.to_local)
+	state.to_local:CopyToFloatPointer(record.to_local)
 	record.half_size[0], record.half_size[1], record.half_size[2] = state.nx * state.cell / 2, state.ny * state.cell / 2, state.nz * state.cell / 2
 	record.cell = state.cell
 	record.grid[0], record.grid[1], record.grid[2] = state.nx, state.ny, state.nz
@@ -1717,6 +1902,117 @@ function fluid_volumes.GetStepTime()
 	return math.clamp(system.GetElapsedTime() - render3d.GetPreviousElapsedTime(), 0, 0.1)
 end
 
+local prewarm_requests = {}
+
+function fluid_volumes.Prewarm(size, resolution, count)
+	list.insert(prewarm_requests, {size = size, resolution = resolution, count = count})
+end
+
+local function prewarm(cmd)
+	for _, request in ipairs(prewarm_requests) do
+		local nx, ny, nz, cell = fluid_volumes.GetGridSize{
+			GetSize = function()
+				return request.size
+			end,
+			GetResolution = function()
+				return request.resolution
+			end,
+		}
+
+		for _ = 1, request.count do
+			if #free_states >= fluid_volumes.MAX_FREE_STATES then break end
+
+			list.insert(free_states, create_state(nx, ny, nz, cell, cmd))
+		end
+
+		ensure_atlas(
+			math.max(atlas.width, nx),
+			math.max(atlas.height, ny),
+			atlas.depth + nz * request.count
+		)
+	end
+
+	list.clear(prewarm_requests)
+end
+
+local transients = {}
+
+local function transient_contains(transient, position, margin)
+	local entity = transient.entity
+	local size = entity.fluid_volume:GetSize()
+	local center = Vec3(entity.transform:GetWorldMatrix():GetTranslation())
+	local d = position - center
+	return math.abs(d.x) <= size.x / 2 - margin and
+		math.abs(d.y) <= size.y / 2 - margin and
+		math.abs(d.z) <= size.z / 2 - margin
+end
+
+function fluid_volumes.Spawn(config)
+	local now = system.GetElapsedTime()
+	local position = config.position
+	local radius = config.radius or 0.5
+
+	for _, transient in ipairs(transients) do
+		if transient.entity:IsValid() and transient_contains(transient, position, radius) then
+			transient.time = now
+			fluid_volumes.Splat(position, radius, config)
+			return transient.entity.fluid_volume
+		end
+	end
+
+	if #transients >= fluid_volumes.MAX_TRANSIENTS then
+		list.remove(transients, 1).entity:Remove()
+	end
+
+	local volume = table.copy(config.volume or {})
+	volume.Space = volume.Space or "world"
+	local entity = import("goluwa/entities/entity.lua").New{
+		Name = "fluid_transient",
+		HideFromEditor = true,
+		transform = {Position = position + (config.offset or Vec3(0, 0, 0))},
+		fluid_volume = volume,
+	}
+	list.insert(transients, {entity = entity, time = now})
+	fluid_volumes.Splat(position, radius, config)
+	return entity.fluid_volume
+end
+
+function fluid_volumes.GetTransients()
+	for i = #transients, 1, -1 do
+		if not transients[i].entity:IsValid() then list.remove(transients, i) end
+	end
+
+	return transients
+end
+
+event.AddListener("Update", "fluid_transients", function()
+	local now = system.GetElapsedTime()
+
+	for i = #transients, 1, -1 do
+		local transient = transients[i]
+		local age = now - transient.time
+		local stats = transient.entity:IsValid() and
+			fluid_volumes.GetStats(transient.entity.fluid_volume)
+		local spent = stats and
+			stats.smoke_total < fluid_volumes.TRANSIENT_SMOKE and
+			stats.max_flame < 0.01 and
+			stats.max_temperature < fluid_volumes.AMBIENT_TEMPERATURE + 30
+
+		if
+			not transient.entity:IsValid() or
+			age > fluid_volumes.TRANSIENT_MAX_AGE or
+			(
+				age > fluid_volumes.TRANSIENT_MIN_AGE and
+				spent
+			)
+		then
+			if transient.entity:IsValid() then transient.entity:Remove() end
+
+			list.remove(transients, i)
+		end
+	end
+end)
+
 function fluid_volumes.Simulate(cmd)
 	list.clear(active)
 
@@ -1733,6 +2029,7 @@ function fluid_volumes.Simulate(cmd)
 	end
 
 	get_pipelines()
+	prewarm(cmd)
 	local width, height, depth = 1, 1, 0
 
 	for _, volume in ipairs(active) do
@@ -1744,6 +2041,12 @@ function fluid_volumes.Simulate(cmd)
 	end
 
 	ensure_atlas(width, height, depth)
+
+	for _, volume in ipairs(active) do
+		update_frame(volume, states[volume])
+	end
+
+	assign_sources()
 	render.TransitionResourceToComputeStorage(atlas.fields, {cmd = cmd, srcStage = "compute"})
 	render.TransitionResourceToComputeStorage(atlas.light, {cmd = cmd, srcStage = "compute"})
 	render.TransitionResourceToComputeStorage(atlas.slot_depth, {cmd = cmd, srcStage = "compute"})
@@ -1757,6 +2060,7 @@ function fluid_volumes.Simulate(cmd)
 		local state = states[volume]
 		local simulated = volume:GetSimulation() == "fluid"
 		write_params(volume, state, 0)
+		shift_state(cmd, state)
 
 		if
 			now - state.obstacle_time >= fluid_volumes.OBSTACLE_INTERVAL or
@@ -1775,12 +2079,7 @@ function fluid_volumes.Simulate(cmd)
 			barrier(cmd)
 		end
 
-		collect_pushers(
-			volume,
-			state,
-			volume.Owner.transform:GetWorldMatrixInverse(),
-			steps > 0 and frame_dt / steps or 0
-		)
+		collect_pushers(volume, state, state.to_local, steps > 0 and frame_dt / steps or 0)
 		dispatch(
 			cmd,
 			pipelines.pushers,
@@ -1805,8 +2104,8 @@ function fluid_volumes.Simulate(cmd)
 		end
 
 		if simulated and steps > 0 then
-			for _ = 1, steps do
-				write_params(volume, state, frame_dt / steps)
+			for i = 1, steps do
+				write_params(volume, state, frame_dt / steps, i == 1)
 				step(cmd, state)
 			end
 		end
@@ -1832,7 +2131,7 @@ function fluid_volumes.Simulate(cmd)
 		update_fire_light(volume, state)
 	end
 
-	list.clear(splats)
+	if steps > 0 then list.clear(splats) end
 
 	for _, texture in ipairs{atlas.fields, atlas.light, atlas.slot_depth, atlas.slot_visibility} do
 		render.TransitionResourceFrom(

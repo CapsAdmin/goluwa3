@@ -189,3 +189,76 @@ T.Test3DRayTracing("Graphics render3d a rising body drags smoke up in its wake",
 		T(pushed_stats.smoke_height - still_stats.smoke_height)[">"](0.1)
 	end)
 end)
+
+T.Test3DRayTracing("Graphics render3d world space fluid stays in the world when its box moves", function(draw)
+	with_scene(draw, function(root, fluid_volumes)
+		local config = {
+			Size = Vec3(3, 3, 3),
+			Resolution = 32,
+			Medium = "smoke",
+			Buoyancy = 0,
+			Turbulence = 0,
+			Vorticity = 0,
+			Dissipation = 0,
+			Floor = false,
+			Obstacles = false,
+			Pushers = false,
+		}
+		config.Space = "world"
+		local world = Entity.New{
+			Parent = root,
+			transform = {Position = Vec3(0, 2, 0)},
+			fluid_volume = table.copy(config),
+		}
+		config.Space = "local"
+		local attached = Entity.New{Parent = root, transform = {Position = Vec3(10, 2, 0)}, fluid_volume = config}
+		run(draw, 2)
+		fluid_volumes.Splat(Vec3(0, 2, 0), 0.6, {smoke = 1})
+		fluid_volumes.Splat(Vec3(10, 2, 0), 0.6, {smoke = 1})
+		run(draw, 4)
+		local world_before = fluid_volumes.GetStats(world.fluid_volume).smoke_height
+		local attached_before = fluid_volumes.GetStats(attached.fluid_volume).smoke_height
+		world.transform:SetPosition(Vec3(0, 2.6, 0))
+		attached.transform:SetPosition(Vec3(10, 2.6, 0))
+		run(draw, 6)
+		local world_stats = fluid_volumes.GetStats(world.fluid_volume)
+		T(world_stats.smoke_total)[">"](0)
+		T(world_stats.smoke_height - world_before)["<"](-0.45)
+		T(
+			math.abs(fluid_volumes.GetStats(attached.fluid_volume).smoke_height - attached_before)
+		)["<"](0.05)
+	end)
+end)
+
+T.Test3DRayTracing("Graphics render3d spawned fluid merges nearby events and reuses grids", function(draw)
+	with_scene(draw, function(root, fluid_volumes)
+		local function spawn(position)
+			return fluid_volumes.Spawn{
+				position = position,
+				radius = 0.5,
+				smoke = 1,
+				volume = {Size = Vec3(4, 4, 4), Resolution = 16, Obstacles = false},
+			}
+		end
+
+		local first = spawn(Vec3(0, 2, 0))
+		T(spawn(Vec3(0.3, 2, 0)) == first)["=="](true)
+		local far = spawn(Vec3(20, 2, 0))
+		T(far ~= first)["=="](true)
+		T(#fluid_volumes.GetTransients())["=="](2)
+		run(draw, 12)
+		T(fluid_volumes.GetStats(first).smoke_total)[">"](0)
+		local entities = {}
+
+		for i, transient in ipairs(fluid_volumes.GetTransients()) do
+			entities[i] = transient.entity
+		end
+
+		for _, entity in ipairs(entities) do
+			entity:Remove()
+		end
+
+		run(draw, 1)
+		T(#fluid_volumes.GetTransients())["=="](0)
+	end)
+end)
