@@ -1,3 +1,4 @@
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local assets = import("goluwa/assets.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -8,7 +9,6 @@ local envprobe = import("goluwa/render3d/envprobe.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
@@ -84,8 +84,8 @@ function surface_lighting.WriteBlock(self, block)
 	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
-	block.light_transmittance = (optical_rays.IsEnabled() and ddgi.HasDirectTint()) and 1 or 0
-	block.optical_tint = (optical_rays.IsEnabled() and (ddgi.HasGlass() or ddgi.HasMedium())) and 1 or 0
+	block.light_transmittance = (optical_rays.IsEnabled() and ray_materials.HasDirectTint()) and 1 or 0
+	block.optical_tint = (optical_rays.IsEnabled() and (ray_materials.HasGlass() or ray_materials.HasMedium())) and 1 or 0
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
@@ -136,7 +136,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			ray_queries and
 			[[
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, distance);
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, distance);
 			while (rayQueryProceedEXT(query)) {}
 			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
 			]] or
@@ -193,7 +193,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			ray_queries and
 			[[
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
 			while (rayQueryProceedEXT(query)) {}
 			float solid = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
 			#ifdef OPTICAL_RAYS

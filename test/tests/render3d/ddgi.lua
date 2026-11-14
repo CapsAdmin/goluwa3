@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -400,30 +401,30 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer marks materials witho
 				return releases
 			end,
 		}
-		local buffer = ddgi.WriteMaterialBuffer(pipeline)
-		local entry = ddgi.GetMaterialEntries(buffer) + id
+		local buffer = ray_materials.WriteMaterialBuffer(pipeline)
+		local entry = ray_materials.GetMaterialEntries(buffer) + id
 		T(entry.albedo[2])["=="](0.75)
 		T(entry.albedo_tex)["=="](-1)
 		T(entry.metallic)["=="](1)
 		T(entry.metallic_tex)["=="](-1)
 		material:SetMetallicMultiplier(0.5)
-		ddgi.WriteMaterialBuffer(pipeline)
+		ray_materials.WriteMaterialBuffer(pipeline)
 		T(entry.metallic)["=="](0.5)
 		T(entry.roughness)["=="](1)
 		T(entry.roughness_tex)["=="](-1)
 		material:SetRoughnessMultiplier(0.25)
-		ddgi.WriteMaterialBuffer(pipeline)
+		ray_materials.WriteMaterialBuffer(pipeline)
 		T(entry.roughness)["=="](0.25)
 		entry.double_sided = 99
-		T(ddgi.WriteMaterialBuffer(pipeline) == buffer)["=="](true)
+		T(ray_materials.WriteMaterialBuffer(pipeline) == buffer)["=="](true)
 		T(entry.double_sided)["=="](99)
 		material:SetColorMultiplier(Color(1, 0.5, 0.125, 1))
-		ddgi.WriteMaterialBuffer(pipeline)
+		ray_materials.WriteMaterialBuffer(pipeline)
 		T(entry.albedo[2])["=="](0.125)
 		T(entry.double_sided)["=="](0)
 		entry.double_sided = 99
 		releases = releases + 1
-		ddgi.WriteMaterialBuffer(pipeline)
+		ray_materials.WriteMaterialBuffer(pipeline)
 		T(entry.double_sided)["=="](0)
 	end)
 	ent:Remove()
@@ -459,14 +460,14 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the
 				return 0
 			end,
 		}
-		local buffer = ddgi.WriteMaterialBuffer(pipeline)
-		local entries = ddgi.GetMaterialEntries(buffer)
+		local buffer = ray_materials.WriteMaterialBuffer(pipeline)
+		local entries = ray_materials.GetMaterialEntries(buffer)
 		local entry = entries[id]
 		T(entry.medium_extinction[0])["~"](0.19 * 2, 1e-5)
 		T(entry.medium_scattering[1])["~"](2, 1e-5)
 		T(entry.medium_g)["~"](0.8, 1e-5)
 		T(entry.medium_porous_scattering[2])["~"](300, 1e-3)
-		local header, volumes = ddgi.GetOpticalVolumes(buffer)
+		local header, volumes = ray_materials.GetOpticalVolumes(buffer)
 		T(header.media)["=="](1)
 		T(volumes[header.water_first].shape[0])["=="](2)
 		T(volumes[header.water_first].shape[1])["=="](2)
@@ -501,8 +502,8 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the
 		T(volumes[header.fog_first].shape[1])["=="](2)
 		T(volumes[header.fog_first].falloff)["=="](3)
 		T(volumes[header.fog_first].extinction[0])["~"](0.5 * (0.55 + 0.45), 1e-5)
-		T(ddgi.HasVolumes())["=="](true)
-		T(ddgi.HasDirectTint())["=="](true)
+		T(ray_materials.HasVolumes())["=="](true)
+		T(ray_materials.HasDirectTint())["=="](true)
 	end)
 	volume:Remove()
 	fog:Remove()

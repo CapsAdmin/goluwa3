@@ -1,3 +1,4 @@
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -17,7 +18,6 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local fog_volumes = import("goluwa/render3d/fog_volumes.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
@@ -481,7 +481,7 @@ local scatter_pass = {
 	on_pre_draw = function(self, cmd, frame, desc)
 		froxel_fog.EnsureResources()
 		light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
-		ddgi.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
+		ray_materials.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
 		fluid_volume_passes.BindRecords(self, desc)
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
@@ -493,8 +493,8 @@ local scatter_pass = {
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 		layout(set = 0, binding = ]] .. BINDING_GI .. [[) uniform sampler3D froxel_gi;
 		layout(set = 0, binding = ]] .. BINDING_GI_EMITTER .. [[) uniform sampler3D froxel_gi_emitter;
-	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
-	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. ddgi.GetOpticalTintGLSL() .. medium_lighting.GetLocalLightsGLSL(
+	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ray_materials.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
+	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. ray_materials.GetOpticalTintGLSL() .. medium_lighting.GetLocalLightsGLSL(
 			"froxel_data",
 			LOCAL_LIGHT_LIMIT,
 			{
@@ -859,13 +859,13 @@ local integrate_pass = {
 		{binding_index = fluid_volume_passes.BINDING_RECORDS},
 	},
 	on_pre_draw = function(self, cmd, frame, desc)
-		ddgi.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
+		ray_materials.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
 		fluid_volume_passes.BindRecords(self, desc)
 	end,
 	custom_declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_integrated;
 		layout(set = 0, binding = ]] .. BINDING_SCATTER .. [[) uniform sampler3D scatter;
-	]] .. ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
+	]] .. ray_materials.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
 	shader = atmosphere.GetGLSLDefines("froxel_data", string.format("%.17g", atmosphere.GetSunIlluminance())) .. atmosphere.GetAerialPerspectiveGLSLCode() .. fog_volumes.GetGLSL() .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);

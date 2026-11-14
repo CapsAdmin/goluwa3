@@ -1,7 +1,7 @@
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
@@ -90,7 +90,7 @@ do
 	local bound = setmetatable({}, {__mode = "k"})
 
 	function scene_hits.Bind(self, cmd, desc, bindings)
-		local materials = ddgi.WriteMaterialBuffer(self)
+		local materials = ray_materials.WriteMaterialBuffer(self)
 		local tlas = rt.GetTLAS(cmd)
 		bound[self] = bound[self] or {}
 		local last = bound[self][desc]
@@ -147,12 +147,12 @@ function scene_hits.GetRayGeneration(reordered)
 		anyhit = [[
 			hitAttributeEXT vec2 barycentrics;
 			layout(location = 0) rayPayloadInEXT int payload;
-		]] .. ddgi.GetAlphaTestGLSL() .. [[
+		]] .. ray_materials.GetAlphaTestGLSL() .. [[
 
 			void main() {
 				uint instance = uint(gl_InstanceCustomIndexEXT);
 
-				if (ddgi_materials[scene_instance_material(instance)].transparent != 0 || !ddgi_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;
+				if (ray_materials[scene_instance_material(instance)].transparent != 0 || !ray_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;
 			}
 		]],
 	}
@@ -227,8 +227,8 @@ function scene_hits.WriteBlock(self, block)
 	block.reflection_screenspace_roughness = screenspace_roughness:Get()
 	block.hit_max_distance = scene_hits.max_distance:Get()
 	block.hit_fog = scene_hits.fog:Get() and 1 or 0
-	block.light_transmittance = ddgi.HasDirectTint() and 1 or 0
-	block.optical_tint = (ddgi.HasGlass() or ddgi.HasMedium()) and 1 or 0
+	block.light_transmittance = ray_materials.HasDirectTint() and 1 or 0
+	block.optical_tint = (ray_materials.HasGlass() or ray_materials.HasMedium()) and 1 or 0
 	block.refraction_rays = scene_hits.refraction:Get() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
@@ -251,11 +251,11 @@ function scene_hits.GetDDGIUniformBuffer(binding)
 end
 
 function scene_hits.GetGLSL(block_name, shared)
-	return ddgi.GetHitDefinesGLSL() .. (
+	return ray_materials.GetHitDefinesGLSL() .. (
 			shared and
 			"" or
 			gi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode()
-		) .. ddgi.GetMaterialGLSL() .. ddgi.GetAlphaTestGLSL() .. (
+		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. (
 			shared and
 			"" or
 			optical_rays.GetGLSL()
@@ -297,12 +297,12 @@ function scene_hits.GetGLSL(block_name, shared)
 		#define SCENE_HIT_PROCEED(query) \
 			while (rayQueryProceedEXT(query)) { \
 				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)); \
-				if (ddgi_materials[scene_instance_material(candidate)].transparent == 0 && ddgi_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
+				if (ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
 			}
 
 		bool scene_hit_visible(vec3 origin, vec3 dir, float dist) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), SCENE_HIT_MASK, origin, 0.0, dir, dist);
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), SCENE_HIT_MASK, origin, 0.0, dir, dist);
 
 			SCENE_HIT_PROCEED(query)
 
@@ -311,7 +311,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 		float scene_hit_distance(vec3 origin, vec3 dir, float max_distance) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, SCENE_HIT_FLAGS, SCENE_HIT_MASK, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, scene_tlas, SCENE_HIT_FLAGS, SCENE_HIT_MASK, origin, 0.0, dir, max_distance);
 
 			SCENE_HIT_PROCEED(query)
 
@@ -322,7 +322,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 		bool trace_scene_interval(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, SCENE_HIT_FLAGS, SCENE_HIT_MASK, origin, t_min, dir, t_max);
+			rayQueryInitializeEXT(query, scene_tlas, SCENE_HIT_FLAGS, SCENE_HIT_MASK, origin, t_min, dir, t_max);
 
 			SCENE_HIT_PROCEED(query)
 
@@ -338,7 +338,7 @@ function scene_hits.GetGLSL(block_name, shared)
 		bool trace_scene_hit(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
 			#ifdef SCENE_HIT_SER
 			SER_hitObject hit_object;
-			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_HIT_FLAGS, SCENE_HIT_MASK, 0, 0, 0, origin, t_min, dir, t_max, 0);
+			SER_hitObjectTraceRay(hit_object, scene_tlas, SCENE_HIT_FLAGS, SCENE_HIT_MASK, 0, 0, 0, origin, t_min, dir, t_max, 0);
 
 			SER_reorderThread(hit_object);
 
@@ -374,7 +374,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 		vec3 shade_scene_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics) {
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
-			ddgi_material material = ddgi_materials[tri.material];
+			ray_material material = ray_materials[tri.material];
 			vec3 hit_N = -tri.normal;
 
 			if (dot(dir, hit_N) > 0.0) {
@@ -385,7 +385,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 			vec3 P = origin + dir * t;
 			vec3 surface = P + hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
-			vec3 albedo = ddgi_albedo(material, P);
+			vec3 albedo = ray_material_albedo(material, P);
 
 			#if RT_HIT_TEXTURES
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
@@ -411,8 +411,8 @@ function scene_hits.GetGLSL(block_name, shared)
 			}
 			#endif
 
-			albedo = ddgi_medium_albedo(material, albedo);
-			vec3 radiance = SCENE_HIT_EMISSION ? ddgi_emission(tri, albedo) : vec3(0.0);
+			albedo = ray_medium_albedo(material, albedo);
+			vec3 radiance = SCENE_HIT_EMISSION ? ray_material_emission(tri, albedo) : vec3(0.0);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 

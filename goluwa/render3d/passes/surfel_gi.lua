@@ -1016,7 +1016,7 @@ local function pass_trace()
 
 				if (hit) {
 					scene_triangle hit_tri = scene_hit_tri(instance, primitive);
-					backface = dot(dir, hit_tri.normal) < 0.0 && ddgi_materials[hit_tri.material].double_sided == 0;
+					backface = dot(dir, hit_tri.normal) < 0.0 && ray_materials[hit_tri.material].double_sided == 0;
 				}
 
 				atomicAdd(surfel_table[g].backfaces, backface ? 0x10001u : 0x10000u);
@@ -1045,7 +1045,7 @@ local function pass_trace()
 						vec3 hit_N = -tri.normal;
 						bool front = dot(dir, hit_N) <= 0.0;
 
-						if (front || ddgi_materials[tri.material].double_sided != 0) {
+						if (front || ray_materials[tri.material].double_sided != 0) {
 							uint attempts = atomicAdd(surfel_hit_attempts, 1u);
 							float rate = float(SURFEL_HIT_SAMPLES) / float(max(surfel_hit_last_attempts, uint(SURFEL_HIT_SAMPLES)));
 
@@ -1428,7 +1428,7 @@ local function pass_resolve()
 			#extension GL_EXT_ray_query : require
 			#define DDGI_VISIBILITY_RAYS
 			#define SURFEL_SCREEN_LOOKUP
-			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT ddgi_scene;
+			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT scene_tlas;
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_GEOMETRY .. [[, rgba16f) uniform writeonly image2D out_geometry;
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;

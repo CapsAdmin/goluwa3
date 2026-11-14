@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
@@ -6,7 +7,6 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local medium_surface = import("goluwa/render3d/medium_surface.lua")
@@ -40,7 +40,7 @@ local function probe_enabled()
 	return optical_rays.RAY_QUERY and
 		optical_rays.IsEnabled() and
 		enabled:Get() and
-		ddgi.HasBodies()
+		ray_materials.HasBodies()
 end
 
 return {
@@ -119,12 +119,12 @@ return {
 					float nearest = 0.0;
 					bool front = false;
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, probe_data.camera_position, 0.0, vec3(0.0, k == 0 ? 1.0 : -1.0, 0.0), ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[);
+					rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, probe_data.camera_position, 0.0, vec3(0.0, k == 0 ? 1.0 : -1.0, 0.0), ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[);
 
 					while (rayQueryProceedEXT(query)) {
-						ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+						ray_material material = ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
 
-						if ((material.glass == 0 && !ddgi_has_medium(material)) || material.double_sided != 0) continue;
+						if ((material.glass == 0 && !ray_material_has_medium(material)) || material.double_sided != 0) continue;
 
 						float t = rayQueryGetIntersectionTEXT(query, false);
 
@@ -221,7 +221,7 @@ return {
 					"camera_medium_data",
 					{
 						name = "body_caustic",
-						params = "ddgi_material body",
+						params = "ray_material body",
 						gradient = "medium_surface_gradient(vec4(body.medium_wave_height, body.medium_wave_length, 0.0, 0.0), vec2(0.0), xz, filter_size, grad, hess);",
 					}
 				) .. [[
@@ -229,7 +229,7 @@ return {
 				return t * 2.0 / (camera_medium_data.projection[1][1] * camera_medium_data.render_size.y);
 			}
 
-			vec3 camera_body_shaft_sample(ddgi_material body, vec3 sun_dir, vec3 attenuation, float mu, vec3 p) {
+			vec3 camera_body_shaft_sample(ray_material body, vec3 sun_dir, vec3 attenuation, float mu, vec3 p) {
 				vec3 wall_normal;
 				float sun_path = get_glass_body_exit(p, sun_dir, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[, wall_normal);
 
@@ -250,7 +250,7 @@ return {
 
 			]] .. medium_common.GetShaftGLSL{
 					name = "camera_body_shaft",
-					params = "ddgi_material body, vec3 sun_dir, vec3 attenuation, float mu",
+					params = "ray_material body, vec3 sun_dir, vec3 attenuation, float mu",
 					sample = "camera_body_shaft_sample(body, sun_dir, attenuation, mu, p)",
 				} .. [[
 
@@ -281,14 +281,14 @@ return {
 			uint nearest_instance = 0u;
 			uint nearest_primitive = 0u;
 			vec2 nearest_barycentrics = vec2(0.0);
-			ddgi_material body;
+			ray_material body;
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[));
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
-				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+				ray_material material = ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
 
-				if ((material.glass == 0 && !ddgi_has_medium(material)) || material.double_sided != 0) continue;
+				if ((material.glass == 0 && !ray_material_has_medium(material)) || material.double_sided != 0) continue;
 
 				float t = rayQueryGetIntersectionTEXT(query, false);
 
@@ -308,7 +308,7 @@ return {
 			vec3 scattering = vec3(0.0);
 			vec3 wall_light = ambient;
 
-			if (ddgi_has_medium(body)) {
+			if (ray_material_has_medium(body)) {
 				scattering = medium_scattering_at(body.medium_scattering, body.medium_porous_scattering, body.medium_porosity);
 				wall_light *= get_material_medium_transmittance(body);
 			} else {
@@ -349,7 +349,7 @@ return {
 			vec3 camera_body_outside(vec3 wall_pos, vec3 outward, vec3 exit_dir) {
 				vec3 exit_pos = wall_pos + outward * (0.01 * camera_medium_data.view_scale);
 				rayQueryEXT beyond;
-				rayQueryInitializeEXT(beyond, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.0, exit_dir, 2000.0);
+				rayQueryInitializeEXT(beyond, scene_tlas, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.0, exit_dir, 2000.0);
 
 				while (rayQueryProceedEXT(beyond)) {}
 

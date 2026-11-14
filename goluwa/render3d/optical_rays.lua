@@ -1,6 +1,6 @@
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
@@ -36,15 +36,15 @@ Material.GlassCastsShadow = function()
 end
 
 function optical_rays.GetDeclarationGLSL(bindings)
-	return hit.GetSceneGLSL("ddgi_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials)
+	return hit.GetSceneGLSL("scene_tlas", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ray_materials.GetMaterialDeclarationsGLSL(bindings.materials)
 end
 
 function optical_rays.GetGLSL()
-	return ddgi.GetOpticalTintGLSL() .. hit.GetOccludedGLSL("ddgi_scene") .. [[
+	return ray_materials.GetOpticalTintGLSL() .. hit.GetOccludedGLSL("scene_tlas") .. [[
 		#define OPTICAL_RAYS
 		#define OPTICAL_SUN_DISTANCE ]] .. string.format("%.1f", optical_rays.SUN_DISTANCE) .. [[
 
-		vec3 get_material_medium_transmittance(ddgi_material material) {
+		vec3 get_material_medium_transmittance(ray_material material) {
 			return medium_transmittance(material.medium_extinction, medium_scattering_at(material.medium_scattering, material.medium_porous_scattering, material.medium_porosity), material.medium_g, material.medium_thickness);
 		}
 
@@ -59,10 +59,10 @@ function optical_rays.GetGLSL()
 
 			vec3 transmitted = vec3(1.0);
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
-				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+				ray_material material = ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
 				bool front = rayQueryGetIntersectionFrontFaceEXT(query, false);
 
 				if (material.glass != 0) {
@@ -70,7 +70,7 @@ function optical_rays.GetGLSL()
 
 					vec3 through;
 
-					if (ddgi_has_medium(material)) {
+					if (ray_material_has_medium(material)) {
 						through = get_material_medium_transmittance(material);
 					} else {
 						through = material.albedo;
@@ -81,7 +81,7 @@ function optical_rays.GetGLSL()
 					}
 
 					transmitted *= clamp(material.glass_refraction * through + (1.0 - material.glass_refraction) * (1.0 - material.glass_covering), vec3(0.0), vec3(1.0));
-				} else if (through_medium && ddgi_has_medium(material)) {
+				} else if (through_medium && ray_material_has_medium(material)) {
 					if (material.medium_body > 0.0 && front) continue;
 
 					transmitted *= get_material_medium_transmittance(material);
@@ -105,12 +105,12 @@ function optical_rays.GetGLSL()
 			uint exit_primitive = 0u;
 			vec2 exit_barycentrics = vec2(0.0);
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
 
 			while (rayQueryProceedEXT(query)) {
-				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+				ray_material material = ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
 
-				if (!rayQueryGetIntersectionFrontFaceEXT(query, false) || (material.glass == 0 && !ddgi_has_medium(material))) continue;
+				if (!rayQueryGetIntersectionFrontFaceEXT(query, false) || (material.glass == 0 && !ray_material_has_medium(material))) continue;
 
 				float t = rayQueryGetIntersectionTEXT(query, false);
 
