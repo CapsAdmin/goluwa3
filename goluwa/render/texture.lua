@@ -240,6 +240,7 @@ local function is_valid_vulkan_format(format)
 end
 
 local fallback_texture = NULL
+local fallback_cubemap = NULL
 
 local function build_texture_debug_name(base, suffix)
 	if not base or base == "" then return nil end
@@ -324,6 +325,44 @@ local function create_fallback_texture()
 	}
 	fallback_texture.config.path = "textures/error.png"
 	return fallback_texture
+end
+
+local function create_fallback_cubemap()
+	if fallback_cubemap:IsValid() then return fallback_cubemap end
+
+	local size = 8
+	local face = create_fallback_texture().config.buffer
+	local buffer = ffi.new("uint8_t[?]", size * size * 4 * 6)
+
+	for i = 0, 5 do
+		ffi.copy(buffer + i * size * size * 4, face, size * size * 4)
+	end
+
+	fallback_cubemap = Texture.New{
+		width = size,
+		height = size,
+		format = "r8g8b8a8_unorm",
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+		},
+		image = {
+			array_layers = 6,
+			flags = {"cube_compatible"},
+			usage = {"sampled", "transfer_dst"},
+		},
+		view = {
+			view_type = "cube",
+			layer_count = 6,
+		},
+	}
+	fallback_cubemap.config.path = "textures/error_cubemap.png"
+	fallback_cubemap:Upload{width = size, height = size, buffer = buffer, layer_count = 6}
+	return fallback_cubemap
+end
+
+function Texture.GetFallbackCubemap()
+	return create_fallback_cubemap()
 end
 
 function Texture:GetFrameCount()
@@ -908,6 +947,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	local width, height, x, y, buffer
+	local layer_count = type(data) == "table" and data.layer_count or 1
 
 	if type(data) == "table" then
 		width = data.width
@@ -925,7 +965,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 
 	if type(buffer) == "table" and buffer.pixels then buffer = buffer.pixels end
 
-	local pixel_count = width * height
+	local pixel_count = width * height * layer_count
 	local bytes_per_pixel = render.GetVulkanFormatSize(self.format)
 	local staging_buffer = Buffer.New{
 		device = device,
@@ -952,7 +992,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 			level_count = 1,
 		}
 	)
-	cmd:CopyBufferToImage(staging_buffer, self.image, width, height, x, y)
+	cmd:CopyBufferToImage(staging_buffer, self.image, width, height, x, y, nil, layer_count)
 
 	if not keep_in_transfer_dst then
 		local final_layout = "general"
@@ -1341,6 +1381,8 @@ function Texture:GenerateMipmaps(initial_layout, config)
 	local cmd = config.cmd or render.GetCommandBuffer()
 	local own_cmd = false
 	local dst_stage = config.dst_stage or "fragment"
+	if fallback_cubemap == self then fallback_cubemap = NULL end
+
 
 	if not cmd or cmd.is_rendering then
 		cmd = command_pool:AllocateCommandBuffer()
@@ -1614,8 +1656,8 @@ function Texture:Shade(glsl, extra_config)
 
 							layout(set = 1, binding = 0) uniform sampler2D textures[%d];
 							layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
-							#define TEXTURE(idx) textures[nonuniformEXT(idx)]
-							#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
+							#define TEXTURE(idx) textures[nonuniformEXT(max(idx, 0))]
+							#define CUBEMAP(idx) cubemaps[nonuniformEXT(max(idx, 0))]
 
 							layout(location = 0) in vec2 in_uv;
 							layout(location = 1) in vec3 in_dir;

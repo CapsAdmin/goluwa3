@@ -313,6 +313,15 @@ function pipeline_common.bind_texture_registry(META)
 		if not state.fallback_view then
 			state.fallback_view = pipeline_common.get_fallback_view(self)
 			state.fallback_sampler = pipeline_common.get_fallback_sampler(self)
+			self.bindless = state
+			assert(
+				acquire_sampled_texture_index(self, state.textures, Texture.GetFallback()) == 0,
+				"the error texture must own bindless texture index 0"
+			)
+			assert(
+				acquire_sampled_texture_index(self, state.cubemaps, Texture.GetFallbackCubemap()) == 0,
+				"the error cubemap must own bindless cubemap index 0"
+			)
 		end
 
 		self.bindless = state

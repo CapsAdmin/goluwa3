@@ -1659,7 +1659,7 @@ function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height, srcX,
 	)
 end
 
-function CommandBuffer:CopyBufferToImage(buffer, image, width, height, x, y, z)
+function CommandBuffer:CopyBufferToImage(buffer, image, width, height, x, y, z, layer_count)
 	vulkan.lib.vkCmdCopyBufferToImage(
 		self.ptr[0],
 		buffer.ptr[0],
@@ -1674,7 +1674,7 @@ function CommandBuffer:CopyBufferToImage(buffer, image, width, height, x, y, z)
 				aspectMask = "color",
 				mipLevel = 0,
 				baseArrayLayer = 0,
-				layerCount = 1,
+				layerCount = layer_count or 1,
 			},
 			imageOffset = vulkan.vk.VkOffset3D{x = x or 0, y = y or 0, z = z or 0},
 			imageExtent = vulkan.vk.VkExtent3D{width = width, height = height, depth = 1},

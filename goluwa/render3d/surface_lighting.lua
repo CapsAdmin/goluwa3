@@ -57,7 +57,12 @@ function surface_lighting.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	scene_lights.WriteShadowBlock(self, block.shadows, lights)
 	block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-	block.brdf_lut_tex = self:GetTextureIndex(assets.GetTexture("textures/render/brdf_lut.lua"))
+	block.brdf_lut_tex = self:GetTextureIndex(
+		assert(
+			assets.GetTexture("textures/render/brdf_lut.lua"),
+			"the brdf lut texture is not registered"
+		)
+	)
 	render3d.WriteCommonBlock(self, block)
 	light_occlusion.WriteOcclusionBlock(block, lights)
 	local primary_sun = directional_shadows.GetPrimarySun(lights)

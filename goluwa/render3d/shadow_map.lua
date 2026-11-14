@@ -64,15 +64,18 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 	end
 
 	local entry = material_cache[pipeline]
+	local releases = pipeline:GetTextureIndexReleases()
 
 	if
 		not entry or
+		entry.releases ~= releases or
 		entry.albedo_texture ~= albedo_texture or
 		entry.albedo_view ~= albedo_view or
 		entry.normal_texture ~= normal_texture or
 		entry.normal_view ~= normal_view
 	then
 		entry = entry or {}
+		entry.releases = releases
 		entry.albedo_texture = albedo_texture
 		entry.albedo_view = albedo_view
 		entry.albedo_texture_index = pipeline:GetTextureIndex(albedo_texture)
@@ -105,7 +108,7 @@ end
 
 local function sample_shadow_texture(texture, uv)
 	-- one mip sharper than the shadow texel's footprint: mip 0 misses the cache on every fragment of a far cascade, and the footprint mip thins alpha tested foliage
-	return "texture(textures[nonuniformEXT(" .. texture .. ")], " .. uv .. ", -1.0)"
+	return "texture(textures[nonuniformEXT(max(" .. texture .. ", 0))], " .. uv .. ", -1.0)"
 end
 
 local function build_shadow_alpha_glsl(block)

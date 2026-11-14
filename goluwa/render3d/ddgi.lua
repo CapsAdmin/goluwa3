@@ -926,6 +926,8 @@ function ddgi.GetCommonGLSL()
 		}
 
 		vec3 ddgi_sky(vec3 dir) {
+			if (ddgi_data.ddgi_env_tex < 0) return vec3(0.0);
+
 			return textureLod(
 				TEXTURE(ddgi_data.ddgi_env_tex),
 				dir_to_equirect_uv(correct_environment_lookup_dir(dir)),
@@ -1691,7 +1693,7 @@ local function build_anyhit_glsl()
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
 layout(set = 1, binding = 0) uniform sampler2D textures[]] .. render.GetBindlessDescriptorCapacities().textures .. [[];
-#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+#define TEXTURE(idx) textures[nonuniformEXT(max(idx, 0))]
 hitAttributeEXT vec2 barycentrics;
 ]] .. payload_glsl .. [[
 layout(location = 0) rayPayloadInEXT Payload payload;

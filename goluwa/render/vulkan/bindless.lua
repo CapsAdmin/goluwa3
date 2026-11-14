@@ -106,7 +106,8 @@ local function reclaim(slot, frame)
 	while i <= #pending do
 		local item = pending[i]
 
-		if frame == nil or frame - item.frame >= REUSE_DELAY_FRAMES then
+		if frame == nil or item.cleared and frame - item.frame >= REUSE_DELAY_FRAMES then
+			item.reclaimed = true
 			slot.free[#slot.free + 1] = item.index
 			table.remove(pending, i)
 		else
@@ -138,13 +139,34 @@ local function take_index(state, slot)
 	)
 end
 
-local function release_index(state, slot, index)
-	slot.entries[index + 1] = nil
-	slot.pending[#slot.pending + 1] = {index = index, frame = system.GetFrameNumber()}
-	state.releases = state.releases + 1
+local write_entry
+
+local function clear_index(state, slot, item)
+	if item.reclaimed then return end
+
+	local entries = slot.entries
+	entries[item.index + 1] = entries[1]
+	write_entry(state, slot, item.index)
+	entries[item.index + 1] = nil
+	item.cleared = true
 end
 
-local function write_entry(state, slot, index)
+local function release_index(state, slot, index)
+	local item = {index = index, frame = system.GetFrameNumber()}
+	slot.entries[index + 1] = nil
+	slot.pending[#slot.pending + 1] = item
+	state.releases = state.releases + 1
+
+	if slot ~= state.views then
+		state.device:DeferRelease(function()
+			clear_index(state, slot, item)
+		end)
+	else
+		item.cleared = true
+	end
+end
+
+function write_entry(state, slot, index)
 	local device = state.device
 	local entries = slot.entries
 

@@ -638,8 +638,8 @@ local function build_shader_header(
 	layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 	layout(set = 1, binding = 2) uniform texture2D texture_views[%d];
 	layout(set = 1, binding = 3) uniform sampler texture_samplers[%d];
-	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
-	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
+	#define TEXTURE(idx) textures[nonuniformEXT(max(idx, 0))]
+	#define CUBEMAP(idx) cubemaps[nonuniformEXT(max(idx, 0))]
 	#define TEXTURE_S(idx, sidx) sampler2D(texture_views[nonuniformEXT(idx)], texture_samplers[nonuniformEXT(sidx)])]=]
 	header = header:format(
 		bindless_texture_capacity,
