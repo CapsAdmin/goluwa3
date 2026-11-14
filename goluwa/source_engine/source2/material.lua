@@ -223,15 +223,24 @@ function material.ApplyGlass(self, info)
 	self:SetNormalTextureAlphaIsRoughness(false)
 end
 
--- vr_simple_liquid is a bottle and the liquid in it as two materials: the bottle is clear glass, the liquid a closed body
--- whose g_vLiquidColor is what survives LIQUID_DEPTH metres of it
+-- vr_simple_liquid is a bottle and the liquid in it as two materials: the bottle is glass whose roughness map is
+-- g_tLiquidMask (grime and scratches) between g_flMaskMinimum and g_flMaskMaximum, the liquid a closed body whose
+-- g_vLiquidColor is what survives LIQUID_DEPTH metres of it
 function material.ApplyBottle(self, info)
 	self:SetRefraction(1)
 	self:SetRefractionThickness(0)
 	self:SetIndexOfRefraction(GLASS_IOR)
 	self:SetMetallicMultiplier(0)
-	self:SetRoughnessMultiplier(GLASS_ROUGHNESS)
 	self:SetNormalTextureAlphaIsRoughness(false)
+
+	if info.textures.g_tLiquidMask then
+		self:SetRoughnessTexture(Material.LinearTexture(info.textures.g_tLiquidMask, {stream = true}))
+		self:SetRoughnessMin(info.floats.g_flMaskMinimum or 0)
+		self:SetRoughnessMax(info.floats.g_flMaskMaximum or 1)
+		self:SetRoughnessMultiplier(info.floats.g_flRefractRoughnessMultiplier or 1)
+	else
+		self:SetRoughnessMultiplier(GLASS_ROUGHNESS)
+	end
 end
 
 function material.ApplyLiquid(self, info)

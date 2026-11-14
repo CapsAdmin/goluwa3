@@ -202,7 +202,7 @@ T.Test("xen foliage materials absorb their transmission colour through a medium"
 	T(absorption.x < absorption.y and absorption.y < absorption.z)["=="](true)
 end)
 
-T.Test("source 2 glass, bottles and liquids are refractive with their colour as a medium", function()
+T.Test3D("source 2 glass, bottles and liquids are refractive with their colour as a medium", function()
 	local info = steam.FindSourceGame(546560)
 
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
@@ -230,6 +230,8 @@ T.Test("source 2 glass, bottles and liquids are refractive with their colour as 
 	material.ApplyBottle(bottle, bottle_info)
 	T(bottle:GetRefraction())["=="](1)
 	T(bottle:GetMedium())["=="]("")
+	T(bottle:GetRoughnessTexture() ~= nil)["=="](true)
+	T(math.abs(bottle:GetRoughnessMax() - 0.793) < 0.001)["=="](true)
 	local liquid_info = material.GetInfo("materials/models/props_interiors/waterbottle_liquid.vmat")
 	T(liquid_info.liquid)["=="](true)
 	local liquid = Material.New()
