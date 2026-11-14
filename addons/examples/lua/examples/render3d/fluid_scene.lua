@@ -9,6 +9,7 @@ local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
+local grenade_effects = import("lua/grenade_effects.lua")
 local fluid_scene = {}
 _G.fluid_scene = fluid_scene
 render3d.SetOceanEnabled(false)
@@ -205,31 +206,66 @@ event.AddListener("Update", "fluid_scene_cart", function()
 	cart.transform:SetPosition(Vec3(-3 + math.sin(system.GetElapsedTime() * fluid_scene.cart_speed) * 4, 0.4, 7))
 end)
 
-local EXPLOSION_SIZE = Vec3(6, 8, 6)
-local EXPLOSION_RESOLUTION = 48
-fluid_volumes.Prewarm(EXPLOSION_SIZE, EXPLOSION_RESOLUTION, 3)
+local BLAST_PAD = Vec3(4, 0.05, 14)
+local BLAST_RADIUS = 6
+local UP = Vec3(0, 1, 0)
+grenade_effects.PrewarmFluid(BLAST_RADIUS, 3)
 
 function fluid_scene.Explode(position)
-	return fluid_volumes.Spawn{
-		position = position or Vec3(2, 0.6, 9),
-		radius = 0.9,
-		fuel = 6,
-		smoke = 2,
-		temperature = 1500,
-		expand = 8,
-		offset = Vec3(0, 2.4, 0),
-		volume = {
-			Size = EXPLOSION_SIZE,
-			Resolution = EXPLOSION_RESOLUTION,
-			Medium = "smoke",
-			Floor = false,
-			BurnRate = 8,
-			Dissipation = 0.08,
-			Turbulence = 4,
-			Vorticity = 3,
-		},
-	}
+	grenade_effects.ExplodeFluid(position or BLAST_PAD, UP, BLAST_RADIUS)
 end
+
+function fluid_scene.ExplodeSprites(position)
+	grenade_effects.Explode(position or BLAST_PAD, UP, BLAST_RADIUS)
+end
+
+box("blast_pad", Vec3(BLAST_PAD.x, 0.01, BLAST_PAD.z), Vec3(2, 0.02, 2), concrete)
+
+local function button(name, x, prompt, color, press)
+	box(name .. "_pedestal", Vec3(x, 0.5, 21), Vec3(0.5, 1, 0.5), grey)
+	local cap = shapes.Box{
+		Name = name,
+		Parent = root,
+		Position = Vec3(x, 1.05, 21),
+		Size = Vec3(0.3, 0.1, 0.3),
+		Material = shapes.Material{Color = color, Roughness = 0.4, Metallic = 0},
+		RigidBody = {MotionType = "static"},
+	}
+	cap:AddComponent("usable", {Prompt = prompt})
+
+	function cap:OnUsed()
+		press()
+		self.transform:SetPosition(Vec3(x, 1.02, 21))
+
+		timer.Delay(0.2, function()
+			if self:IsValid() then self.transform:SetPosition(Vec3(x, 1.05, 21)) end
+		end)
+
+		return true
+	end
+
+	return cap
+end
+
+button(
+	"button_sprites",
+	2.8,
+	"sprite explosion",
+	Color(0.9, 0.5, 0.1, 1),
+	function()
+		fluid_scene.ExplodeSprites()
+	end
+)
+
+button(
+	"button_fluid",
+	5.2,
+	"fluid explosion",
+	Color(0.15, 0.45, 0.9, 1),
+	function()
+		fluid_scene.Explode()
+	end
+)
 
 function fluid_scene.Barrage(interval)
 	timer.Repeat(
@@ -237,7 +273,7 @@ function fluid_scene.Barrage(interval)
 		interval or 2.5,
 		0,
 		function()
-			fluid_scene.Explode(Vec3(math.randomf(-2, 9), 0.6, math.randomf(8, 12)))
+			fluid_scene.Explode(BLAST_PAD + Vec3(math.randomf(-2, 2), 0, math.randomf(-2, 2)))
 		end
 	)
 end
@@ -285,7 +321,8 @@ fluid_scene.cameras = {
 	poison = {Vec3(4, 2.5, 6), Vec3(-20, 0, 0)},
 	steam = {Vec3(10, 2.5, 6), Vec3(-5, 0, 0)},
 	cart = {Vec3(-3, 2.5, 14), Vec3(-10, 0, 0)},
-	explosions = {Vec3(3.5, 3, 20), Vec3(-8, 0, 0)},
+	explosions = {Vec3(4, 3.5, 30), Vec3(-6, 0, 0)},
+	buttons = {Vec3(4, 1.7, 23.5), Vec3(-15, 0, 0)},
 }
 
 function fluid_scene.Goto(name)
