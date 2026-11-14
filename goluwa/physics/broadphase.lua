@@ -349,6 +349,7 @@ local function assign_entry_cells(self, entry, bounds)
 	remove_entry_from_spatial_index(self, entry)
 	local min_x, min_y, min_z, max_x, max_y, max_z = get_cell_range(bounds, self.CellSize)
 	local cell_count = get_cell_span_count(min_x, min_y, min_z, max_x, max_y, max_z)
+	assert(cell_count == cell_count, "broadphase entry has non-finite bounds")
 	entry.cell_min_x = min_x
 	entry.cell_min_y = min_y
 	entry.cell_min_z = min_z
