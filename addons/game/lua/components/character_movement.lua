@@ -42,6 +42,8 @@ META:GetSet("FlySpeed", 30)
 META:GetSet("FlySpeedRamp", 1)
 META:GetSet("FlyAccelerate", 4)
 META:GetSet("FlyBrake", 5)
+META:GetSet("FlySlowStart", 0.005)
+META:GetSet("FlySlowTime", 2)
 META:GetSet("FlySpeedMaxMultiplier", 500)
 META:GetSet("WalkMaxLinearSpeed", 240)
 META:GetSet("SprintMultiplier", 2)
@@ -1506,7 +1508,9 @@ do
 			local velocity = (target - position) / dt
 			local speed = velocity:GetLength()
 
-			if speed > DRIVE_MAX_SPEED then velocity = velocity / speed * DRIVE_MAX_SPEED end
+			if speed > DRIVE_MAX_SPEED then
+				velocity = velocity / speed * DRIVE_MAX_SPEED
+			end
 
 			body:SetVelocity(velocity)
 			body:SetAngularVelocity(Vec3())
@@ -1515,6 +1519,7 @@ do
 
 		if not active then
 			self.fly_speed_multiplier = 1
+			self.fly_slow_elapsed = 0
 			body:SetVelocity(Vec3())
 			body:SetAngularVelocity(Vec3())
 			return
@@ -1535,6 +1540,13 @@ do
 
 		local move = forward + right + up
 		local moving = move:GetLength() > 0.0001
+
+		if crouching and moving and not sprinting then
+			self.fly_slow_elapsed = (self.fly_slow_elapsed or 0) + dt
+			speed_multiplier = speed_multiplier * math.lerp(math.min(self.fly_slow_elapsed / self.FlySlowTime, 1), self.FlySlowStart, 1)
+		else
+			self.fly_slow_elapsed = 0
+		end
 
 		if moving then
 			move = move:GetNormalized()
