@@ -173,7 +173,7 @@ function sheets.BuildPasses()
 					}
 				]],
 	}
-	local fragment_common = translucent_moments.GLSL .. surface_conditions.GetBlackbodyGLSL() .. [[
+	local fragment_common = translucent_moments.GLSL .. glsl_common.GetBlackbodyGLSL() .. [[
 		vec4 sheet_noise(vec2 uv) {
 			return texture(TEXTURE(sheet_draw.noise_tex), uv);
 		}

@@ -256,4 +256,26 @@ function glsl_common.GetNoiseGLSL()
 	]]
 end
 
+function glsl_common.GetBlackbodyGLSL()
+	return [[
+		#ifndef GLSL_COMMON_BLACKBODY
+		#define GLSL_COMMON_BLACKBODY
+		vec3 effect_blackbody(float kelvin) {
+			float t = kelvin / 100.0;
+			vec3 c;
+			c.r = t <= 66.0 ? 1.0 : clamp(1.29293618606 * pow(t - 60.0, -0.1332047592), 0.0, 1.0);
+			c.g = t <= 66.0 ? clamp(0.39008157876 * log(t) - 0.63184144378, 0.0, 1.0) : clamp(1.12989086089 * pow(t - 60.0, -0.0755148492), 0.0, 1.0);
+			c.b = t >= 66.0 ? 1.0 : (t <= 19.0 ? 0.0 : clamp(0.54320678911 * log(t - 10.0) - 1.19625408914, 0.0, 1.0));
+			c = pow(c, vec3(2.2));
+			return c / max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
+		}
+
+		// planck radiance weighted by the photopic curve, fit within 5% from 800 to 3000 kelvin
+		float blackbody_luminance(float kelvin) {
+			return kelvin < 600.0 ? 0.0 : 1.44e7 * pow(kelvin, 1.037) * exp(-22707.0 / kelvin);
+		}
+		#endif
+	]]
+end
+
 return glsl_common

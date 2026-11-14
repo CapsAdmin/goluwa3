@@ -127,7 +127,7 @@ surface_condition_particles.system = particles.Register{
 		block.frame_time = dt
 		return block
 	end,
-	declarations = glsl_common.GetNoiseGLSL() .. surface_conditions.GetBlackbodyGLSL() .. surface_conditions.GetSitesGLSL() .. [[
+	declarations = glsl_common.GetNoiseGLSL() .. glsl_common.GetBlackbodyGLSL() .. surface_conditions.GetSitesGLSL() .. [[
 		#define SE_EMITTER_COUNT ]] .. #emitters .. [[u
 
 		uint se_find_emitter(uint index) {

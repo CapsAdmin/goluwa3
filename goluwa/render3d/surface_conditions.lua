@@ -1006,23 +1006,6 @@ function surface_conditions.GetTime()
 	return system.GetElapsedTime() % 3600
 end
 
-function surface_conditions.GetBlackbodyGLSL()
-	return [[
-		#ifndef GOLUWA_EFFECT_BLACKBODY
-		#define GOLUWA_EFFECT_BLACKBODY
-		vec3 effect_blackbody(float kelvin) {
-			float t = kelvin / 100.0;
-			vec3 c;
-			c.r = t <= 66.0 ? 1.0 : clamp(1.29293618606 * pow(t - 60.0, -0.1332047592), 0.0, 1.0);
-			c.g = t <= 66.0 ? clamp(0.39008157876 * log(t) - 0.63184144378, 0.0, 1.0) : clamp(1.12989086089 * pow(t - 60.0, -0.0755148492), 0.0, 1.0);
-			c.b = t >= 66.0 ? 1.0 : (t <= 19.0 ? 0.0 : clamp(0.54320678911 * log(t - 10.0) - 1.19625408914, 0.0, 1.0));
-			c = pow(c, vec3(2.2));
-			return c / max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-4);
-		}
-		#endif
-	]]
-end
-
 function surface_conditions.GetCommonGLSL(block_name)
 	local out = {}
 
@@ -1031,7 +1014,7 @@ function surface_conditions.GetCommonGLSL(block_name)
 	end
 
 	local glsl = (
-		medium_common.GetGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetOctahedralGLSL() .. surface_conditions.GetBlackbodyGLSL() .. [[
+		medium_common.GetGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetOctahedralGLSL() .. glsl_common.GetBlackbodyGLSL() .. [[
 		#ifndef GOLUWA_SURFACE_EFFECTS_COMMON
 		#define GOLUWA_SURFACE_EFFECTS_COMMON
 		vec4 effect_noise(vec3 P, vec3 N, float scale) {
