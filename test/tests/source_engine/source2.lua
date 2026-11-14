@@ -305,6 +305,26 @@ T.Test3D("source 2 vr_complex materials without F_SPECULAR have no specular", fu
 	)["=="](1)
 end)
 
+T.Test("source 2 occluder draw calls have no material and are not packed", function()
+	local mesh_pack = import("goluwa/source_engine/source2/mesh_pack.lua")
+	local entries = {}
+	local data = {
+		m_sceneObjects = {
+			{
+				m_drawCalls = {
+					{
+						m_nPrimitiveType = "RENDER_PRIM_TRIANGLES",
+						m_nIndexCount = 144,
+						m_bIsOccluder = true,
+					},
+				},
+			},
+		},
+	}
+	mesh_pack.PackMeshes(nil, entries, data, nil, "occluder")
+	T(#entries)["=="](0)
+end)
+
 T.Test("source 2 draw call tints reach the model as tinted entries", function()
 	local info = steam.FindSourceGame(546560)
 

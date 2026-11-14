@@ -227,7 +227,8 @@ function mesh_pack.PackMeshes(builder, entries, data, buffers, name, bone_map)
 		for _, draw_call in ipairs(object.m_drawCalls) do
 			if
 				draw_call.m_nPrimitiveType == "RENDER_PRIM_TRIANGLES" and
-				draw_call.m_nIndexCount > 0
+				draw_call.m_nIndexCount > 0 and
+				not draw_call.m_bIsOccluder
 			then
 				entries[#entries + 1] = mesh_pack.PackDrawCall(builder, buffers, draw_call, name, bone_map)
 			end
