@@ -90,7 +90,7 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 			done = true
 			local physics = model.physics
 
-			if not physics then
+			if not physics or not physics.children[1] then
 				local points = {}
 				local vegetation = false
 
