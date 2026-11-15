@@ -218,10 +218,17 @@ function pvars.Setup2(info)
 	info.order = previous and previous.order or pvars.order_count
 	pvars.infos[info.key] = info
 	info.object = META:CreateObject({key = info.key})
-	load(info.key, info.store and pvars.vars[info.key] or nil)
+	local current
+
+	if previous or info.store then current = pvars.vars[info.key] end
+
+	load(info.key, current)
 
 	if env_overrides[info.key] then
+		-- the delayed initial callback below reports it; a change callback here runs while the caller is still loading
+		info.in_callback = true
 		pvars.SetStringSession(info.key, env_overrides[info.key])
+		info.in_callback = nil
 	end
 
 	if info.callback then
