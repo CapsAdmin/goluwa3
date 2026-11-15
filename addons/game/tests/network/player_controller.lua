@@ -515,6 +515,24 @@ T.TestPhysics("player movement mode switching keeps the eye position", function(
 	T(math.abs(player.transform:GetPosition().y + movement:GetViewOffset().y - eye.y))["<"](0.2)
 end)
 
+T.TestPhysics("player fly mode brakes to exactly zero velocity", function()
+	local player = create_player(Vec3(0, 5, 0))
+
+	drive(player, 60, function(cmd)
+		cmd.mode = "fly"
+		cmd.forward = 1
+	end)
+
+	T(player.rigid_body:GetVelocity():GetLength())[">"](1)
+
+	drive(player, 180, function(cmd)
+		cmd.mode = "fly"
+	end)
+
+	T(player.rigid_body:GetVelocity():GetLength())["=="](0)
+	player:Remove()
+end)
+
 T.TestPhysics("player controller reconciliation corrects mispredictions and shifts history", function()
 	local ground = create_ground()
 	local player = create_player()

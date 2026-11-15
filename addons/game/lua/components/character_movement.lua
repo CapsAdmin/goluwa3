@@ -593,6 +593,7 @@ local STEP_IMMINENT_MARGIN = 0.08
 local STEP_PROBE_BACKOFF = 0.05
 local STEP_MIN_GAIN = 0.005
 local STEP_MIN_RISE = 0.002
+local FLY_SETTLE_SPEED = 0.001
 local STEP_LOW_PROBE_EXTRA = 0.15
 local STEP_LANDING_MARGIN = 0.02
 local GROUND_RAY_LIFT = 0.02
@@ -1572,7 +1573,13 @@ do
 		local rate = target:GetLength() < velocity:GetLength() and
 			self.FlyBrake or
 			self.FlyAccelerate
-		body:SetVelocity(velocity + (target - velocity) * (1 - math.exp(-rate * dt)))
+		local next_velocity = velocity + (target - velocity) * (1 - math.exp(-rate * dt))
+
+		if (target - next_velocity):GetLength() < FLY_SETTLE_SPEED then
+			next_velocity = target
+		end
+
+		body:SetVelocity(next_velocity)
 		body:SetAngularVelocity(Vec3())
 	end
 end
