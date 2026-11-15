@@ -618,7 +618,11 @@ local function pass_candidates()
 
 					{
 						vec2 xi = vec2(0.5);
-						if (restir_data.blue_noise_tex >= 0) xi = blue_noise_r2(blue_noise_texel(TEXTURE(restir_data.blue_noise_tex), pos).rg, float(frame % 4096u));
+						// the noise tile repeats every 64 pixels: each tile copy takes its own random shift per frame, or pixels a tile apart take the same ray every frame and their shared error never averages out
+						if (restir_data.blue_noise_tex >= 0) {
+							uvec3 tile_hash = pcg3d(uvec3(uvec2(pos / textureSize(TEXTURE(restir_data.blue_noise_tex), 0)), frame));
+							xi = fract(blue_noise_texel(TEXTURE(restir_data.blue_noise_tex), pos).rg + vec2(pcg_unorm(tile_hash.x), pcg_unorm(tile_hash.y)));
+						}
 						vec3 dir = restir_cosine_direction(N, xi);
 						ivec2 guide_tile = ivec2(0);
 
