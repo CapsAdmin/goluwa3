@@ -105,8 +105,9 @@ function optical_rays.GetGLSL()
 			uint exit_primitive = 0u;
 			vec2 exit_barycentrics = vec2(0.0);
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsCullBackFacingTrianglesEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
 
+			// committing each accepted face shortens the ray to it, or traversal hands back every face of every layer up to max_distance
 			while (rayQueryProceedEXT(query)) {
 				ray_material material = ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
 
@@ -119,6 +120,7 @@ function optical_rays.GetGLSL()
 					exit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
 					exit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
 					exit_barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, false);
+					rayQueryConfirmIntersectionEXT(query);
 				}
 			}
 
