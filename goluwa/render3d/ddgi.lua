@@ -1400,6 +1400,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_uniform_rays", "int"},
 		{"ddgi_guide_tex", "int"},
 		{"ddgi_bent_normal_tex", "int"},
+		clouds.GetShadowBlockLayout(),
 	}
 end
 
@@ -1409,7 +1410,6 @@ function ddgi.GetBlockLayout()
 		gbuffer_layout.block,
 		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 		{"light_count", "int"},
-		clouds.GetShadowBlockLayout(),
 	}
 	table.add(layout, ddgi.GetProbeBlockLayout())
 	table.add(layout, post_source.pre_exposure_block)
@@ -1506,6 +1506,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_guide_tex = pipeline_texture_index(self, "ddgi_guide")
 	local bent_normal = ambient_occlusion.GetBentNormalTexture()
 	block.ddgi_bent_normal_tex = bent_normal and self:GetTextureIndex(bent_normal) or -1
+	clouds.WriteShadowBlock(self, block)
 	return block
 end
 
@@ -1515,7 +1516,6 @@ function ddgi.WriteBlock(self, block)
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	scene_lights.WriteLightsBlock(block.lights, lights)
-	clouds.WriteShadowBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
 	block.light_transmittance = ray_materials.HasDirectTint() and 1 or 0
 	block.medium_gi = ray_materials.HasMedium() and 1 or 0

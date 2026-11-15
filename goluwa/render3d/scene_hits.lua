@@ -4,6 +4,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
@@ -254,7 +255,7 @@ function scene_hits.GetGLSL(block_name, shared)
 	return ray_materials.GetHitDefinesGLSL() .. (
 			shared and
 			"" or
-			gi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode()
+			gi.GetCommonGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. scene_lights.GetLightGLSLCode()
 		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. (
 			shared and
 			"" or
@@ -417,7 +418,8 @@ function scene_hits.GetGLSL(block_name, shared)
 			float sun_NoL = dot(hit_N, sun_L);
 
 			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_hit_visible(surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
-				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
+				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
+				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359) * get_cloud_shadow(P) * ddgi_ground_fog_sun_transmittance(fog_altitude, sun_L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
 
 				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
 
