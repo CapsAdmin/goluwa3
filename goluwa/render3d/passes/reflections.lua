@@ -14,6 +14,7 @@ local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local render = import("goluwa/render/render.lua")
+local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_hits.RAY_QUERY
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
@@ -33,6 +34,11 @@ local single_ray_roughness = pvars.Setup2{
 	key = "reflection_single_ray_roughness",
 	default = 0.8,
 	help = "perceptual roughness from which a rough pixel traces a single ray, its count falls to one from reflection_rough_rays over the 0.3 of roughness below this. a very rough lobe is smooth enough for the filter, which averages it over its widest disc, to make up for the rays (within a percent or two of the full count against a reference), so this trades little for the cost of the roughest surfaces. 2 keeps the full count",
+}
+local emitter_roughness = pvars.Setup2{
+	key = "reflection_emitter_roughness",
+	default = 0.2,
+	help = "perceptual roughness from which the reflection rays leave emissive surfaces to emitter samples (the light tree, as the gi samples them), each weighed by the reflection lobe. a ray finds a small bright emitter in a rough lobe rarely, as a firefly, and the hit limit that keeps those down took most of the emitter's light out of the reflection. below it the rays alone see emitters, a narrow lobe is found by its rays far better than by the emitter samples. 2 is never",
 }
 local SCALES = scene_hits.RESOLUTION_SCALES
 local resolution = pvars.Setup2{
@@ -62,6 +68,7 @@ local shared_glsl = [[
 			#define REFLECTION_SPATIAL_NORMAL_POWER 32.0
 			#define REFLECTION_FILTER_TAPS 16
 			#define REFLECTION_PIXEL_CANDIDATES 4
+			#define REFLECTION_EMITTER_CANDIDATES 4
 			ivec2 reflection_size;
 			ivec2 gbuffer_size;
 			vec4 inv_projection_row_z;
@@ -99,6 +106,7 @@ local shared_glsl = [[
 
 ]]
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
+local BINDING_EMITTERS = 10
 
 local function get_uniform_buffers(with_ddgi)
 	return {
@@ -123,6 +131,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"raw_distance_tex", "int"},
 				{"filter_radius", "float"},
 				{"single_ray_roughness", "float"},
+				{"emitter_roughness", "float"},
 				{"trace_size", "ivec2"},
 				ibl.reflection_weight_block,
 				{"hit_reprojection", "int"},
@@ -155,6 +164,7 @@ local function get_uniform_buffers(with_ddgi)
 				block.debug_scene = debug_scene:Get() and 1 or 0
 				block.filter_radius = filter_radius:Get()
 				block.single_ray_roughness = single_ray_roughness:Get()
+				block.emitter_roughness = emitter_roughness:Get()
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
 				block.trace_size[0], block.trace_size[1] = get_trace_size()
 				ibl.WriteReflectionWeightBlock(block)
@@ -255,9 +265,12 @@ return {
 		descriptor_sets = RAY_QUERY and
 			scene_hits.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
 			nil,
+		storage_buffers = RAY_QUERY and {{binding_index = BINDING_EMITTERS}} or nil,
 		on_pre_draw = RAY_QUERY and
 			function(self, cmd, frame, desc)
 				scene_hits.Bind(self, cmd, desc, REFLECTION_BINDINGS)
+				local emitters = scene_emitters.BuildActive(cmd)
+				self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
 			end or
 			nil,
 		uniform_buffers = get_uniform_buffers(true),
@@ -266,7 +279,8 @@ return {
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_raw_distance;
 		]] .. (
 				RAY_QUERY and
-				scene_hits.GetDeclarationGLSL(REFLECTION_BINDINGS) or
+				scene_hits.GetDeclarationGLSL(REFLECTION_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS)
+				or
 				""
 			),
 		shader = [[
@@ -274,7 +288,7 @@ return {
 		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionWeightGLSL("reflection_data") .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
-				atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("reflection_data")
+				"bool reflection_hit_emission = true;\n#define SCENE_HIT_EMISSION reflection_hit_emission\n#define EMITTER_CANDIDATES 2\n" .. atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("reflection_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
 				or
 				""
 			) .. [[
@@ -421,6 +435,49 @@ return {
 				return vec4(0.0);
 			}
 
+			#ifdef SCENE_HITS
+			// the rays are averaged unweighted over the visible normal distribution, so an emitter sample must enter at that density of its direction
+			vec3 reflection_emitter_light(vec3 origin, vec3 N, vec3 geometric_N, vec3 V, float alpha, uint index) {
+				float NoV = max(dot(N, V), 1e-4);
+				float a = max(0.001, alpha);
+				float G1 = 2.0 * NoV / (NoV + sqrt(a * a + (1.0 - a * a) * NoV * NoV));
+				uint frame = uint(reflection_data.frame_index);
+				vec3 chosen = vec3(0.0);
+				vec3 chosen_dir = vec3(0.0);
+				float chosen_dist = 0.0;
+				float chosen_target = 0.0;
+				float total = 0.0;
+
+				for (int k = 0; k < REFLECTION_EMITTER_CANDIDATES; k++) {
+					vec3 dir;
+					float dist;
+					vec3 light = emitter_sample_light(index * uint(REFLECTION_EMITTER_CANDIDATES) + uint(k), frame, origin, N, 0.05, dir, dist);
+
+					if (dot(geometric_N, dir) <= 0.0) continue;
+
+					vec3 value = light * G1 * D_GGXAlpha(a, max(dot(N, normalize(V + dir)), 0.0)) / (4.0 * NoV);
+					float target = luminance(value);
+
+					if (!(target > 0.0) || isinf(target)) continue;
+
+					total += target;
+
+					if (emitter_random(index, frame, 0x68e31da4u + uint(k)).w * total < target) {
+						chosen = value;
+						chosen_dir = dir;
+						chosen_dist = dist;
+						chosen_target = target;
+					}
+				}
+
+				if (!(total > 0.0) || chosen_dist <= 0.02 * reflection_data.view_scale || !scene_hit_visible(origin, chosen_dir, chosen_dist - 0.02 * reflection_data.view_scale)) return vec3(0.0);
+
+				if (reflection_data.light_transmittance != 0) chosen *= get_light_transmittance_local(origin, chosen_dir, chosen_dist, 0.0);
+
+				return chosen * (total / float(REFLECTION_EMITTER_CANDIDATES)) / chosen_target;
+			}
+			#endif
+
 			vec4 cast_reflection_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
 				N = bend_normal_to_view(N, V);
 				float environment_roughness;
@@ -504,6 +561,13 @@ return {
 				vec4 sum = vec4(0.0);
 				float found = 0.0;
 				float distance_sum = 0.0;
+				bool emitters_sampled = false;
+
+				#ifdef SCENE_HITS
+				// below the mirror blend the rays' density is not the lobe's
+				emitters_sampled = scene_hits_ready() && !reflection_screen_first(roughness) && ddgi_data.ddgi_emitter_count > 0 && roughness >= max(reflection_data.emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0);
+				reflection_hit_emission = !emitters_sampled;
+				#endif
 
 				for (int ray = 0; ray < rays; ray++) {
 					reflection_hit_distance = 0.0;
@@ -516,7 +580,15 @@ return {
 				if (found <= 0.0) return vec4(0.0);
 
 				hit_distance = distance_sum / found;
-				return vec4(sum.rgb / found, found / float(rays));
+				vec3 color = sum.rgb / found;
+
+				#ifdef SCENE_HITS
+				reflection_hit_emission = true;
+
+				if (emitters_sampled) color += reflection_emitter_light(world_pos + geometric_N * (0.0002 + 0.0001 * -pos_vs.z), bend_normal_to_view(N, V), geometric_N, V, roughness * roughness, uint(gbuffer_pos.y * gbuffer_size.x + gbuffer_pos.x));
+				#endif
+
+				return vec4(color, found / float(rays));
 			}
 
 			void main() {
