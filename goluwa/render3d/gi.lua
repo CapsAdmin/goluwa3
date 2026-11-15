@@ -3,6 +3,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
 local restir_gi = import("goluwa/render3d/restir_gi.lua")
+local short_range_gi = import("goluwa/render3d/short_range_gi.lua")
 local gi = {}
 gi.MODES = {none = 0, ddgi = 1, surfels = 2}
 gi.MIN_WEIGHT = ddgi.MIN_WEIGHT
@@ -82,6 +83,7 @@ function gi.ResetHistory()
 	ddgi.ResetHistory()
 	surfel_gi.ResetHistory()
 	restir_gi.ResetHistory()
+	short_range_gi.ResetHistory()
 end
 
 function gi.GetProbeBlockLayout()

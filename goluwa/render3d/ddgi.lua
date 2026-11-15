@@ -114,6 +114,8 @@ ddgi.LIGHT_SAMPLES = 2
 ddgi.IRRADIANCE_TEXELS = 8
 ddgi.GUIDE_TEXELS = 8
 ddgi.DISTANCE_TEXELS = 16
+ddgi.RADIANCE_TEXELS = 8
+ddgi.RADIANCE_EXPONENT = 12
 local hysteresis = pvars.Setup2{
 	key = "ddgi_hysteresis",
 	default = 0.97,
@@ -653,6 +655,8 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_RAY_STRIDE (DDGI_RAYS + DDGI_EMITTER_SAMPLES)
 		#define DDGI_IRRADIANCE_TEXELS %d
 		#define DDGI_DISTANCE_TEXELS %d
+		#define DDGI_RADIANCE_TEXELS %d
+		#define DDGI_RADIANCE_EXPONENT %.1f
 		#define DDGI_MISS_DISTANCE %.1e
 		#define DDGI_RAY_MAX %.1e
 		#define DDGI_DIRECTION_BITS %du
@@ -685,6 +689,8 @@ function ddgi.GetDefinesGLSL()
 		ddgi.EMITTER_SAMPLES,
 		ddgi.IRRADIANCE_TEXELS,
 		ddgi.DISTANCE_TEXELS,
+		ddgi.RADIANCE_TEXELS,
+		ddgi.RADIANCE_EXPONENT,
 		ddgi.MISS_DISTANCE,
 		ddgi.HALF_PRECISION_RAYS and 65000 or 3e38,
 		ddgi.HALF_PRECISION_RAYS and 6 or 12,
@@ -1238,6 +1244,88 @@ function ddgi.GetCommonGLSL()
 			vec4 second;
 			return ddgi_sample_irradiance_pair(P, N, L, L, V, smooth_blend, visibility_min_weight, weight, second);
 		}
+
+		vec3 ddgi_radiance_cascade(int c, vec3 P, vec3 dir, out float weight) {
+			weight = 0.0;
+
+			if (ddgi_cascade_reset(c)) return vec3(0.0);
+
+			float spacing = ddgi_spacing(c);
+			vec3 grid = P / spacing;
+			ivec3 base_world = ivec3(floor(grid));
+			vec3 alpha = grid - vec3(base_world);
+			ivec3 volume_min = ddgi_volume_base(c);
+			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
+			vec3 sum = vec3(0.0);
+
+			for (int i = 0; i < 8; i++) {
+				ivec3 offset = ivec3(i & 1, (i >> 1) & 1, i >> 2);
+				ivec3 world = base_world + offset;
+
+				if (any(lessThan(world, volume_min)) || any(greaterThan(world, volume_max))) continue;
+
+				ivec3 slot = ddgi_slot(world, c);
+				vec4 data = ddgi_probe_data(slot, c);
+
+				if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) continue;
+
+				vec3 probe_to_point = P - data.xyz * spacing;
+				float dist = length(probe_to_point);
+				vec2 moments = textureLod(
+					TEXTURE(ddgi_data.ddgi_distance_tex),
+					ddgi_atlas_uv(slot, c, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS),
+					0.0
+				).rg;
+				float chebyshev = 1.0;
+
+				if (dist > moments.x) {
+					float variance = abs(moments.x * moments.x - moments.y);
+					float d = dist - moments.x;
+					chebyshev = variance / (variance + d * d);
+					chebyshev = chebyshev * chebyshev * chebyshev;
+				}
+
+				vec3 kernel = mix(1.0 - alpha, alpha, vec3(offset));
+				float w = max(1e-6, chebyshev) * kernel.x * kernel.y * kernel.z;
+				sum += textureLod(TEXTURE(ddgi_data.ddgi_radiance_tex), ddgi_atlas_uv(slot, c, dir, DDGI_RADIANCE_TEXELS), 0.0).rgb * w;
+				weight += w;
+			}
+
+			return sum / max(weight, 1e-6);
+		}
+
+		// the light arriving at P from dir, smoothed over about a radiance texel; probe irradiance would average the whole hemisphere around dir
+		vec3 ddgi_sample_radiance(vec3 P, vec3 dir, out float weight) {
+			weight = 0.0;
+			int count = ddgi_data.ddgi_cascade_count;
+			vec3 result = vec3(0.0);
+
+			for (int c = 0; c < count; c++) {
+				float fine = c == count - 1 ? 1.0 : ddgi_cascade_blend(c, P, false);
+
+				if (fine <= 0.0) continue;
+
+				result = ddgi_radiance_cascade(c, P, dir, weight);
+
+				if (c == count - 1 || fine >= 1.0 && weight > ]] .. MIN_WEIGHT .. [[) break;
+
+				float coarse_weight;
+				vec3 coarse = ddgi_radiance_cascade(c + 1, P, dir, coarse_weight);
+				float keep = fine * smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
+
+				if (coarse_weight > 0.0) {
+					weight = mix(coarse_weight, weight, keep);
+					result = mix(coarse, result, keep);
+				}
+
+				break;
+			}
+
+			#ifndef DDGI_UNSCALED
+			result *= ddgi_data.ddgi_strength;
+			#endif
+			return result;
+		}
 	]]
 end
 
@@ -1394,6 +1482,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_ray_tex", "int"},
 		{"ddgi_irradiance_tex", "int"},
 		{"ddgi_distance_tex", "int"},
+		{"ddgi_radiance_tex", "int"},
 		{"ddgi_probe_data_tex", "int"},
 		{"ddgi_emitter_count", "int"},
 		{"ddgi_frame", "int"},
@@ -1499,6 +1588,9 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_ray_tex = pipeline_texture_index(self, "ddgi_shade")
 	block.ddgi_irradiance_tex = pipeline_texture_index(self, "ddgi_irradiance")
 	block.ddgi_distance_tex = pipeline_texture_index(self, "ddgi_distance")
+	block.ddgi_radiance_tex = render3d.IsPassEnabled("short_range_gi") and
+		pipeline_texture_index(self, "ddgi_radiance") or
+		-1
 	block.ddgi_probe_data_tex = pipeline_texture_index(self, "ddgi_probe_data")
 	block.ddgi_emitter_count = scene_emitters.GetActiveCount()
 	block.ddgi_frame = state.frame
