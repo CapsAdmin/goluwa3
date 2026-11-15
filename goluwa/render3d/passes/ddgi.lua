@@ -227,7 +227,7 @@ local function pass_shade()
 				uvec4 ddgi_hits[];
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ray_materials.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		shader = "#define DDGI_UNSCALED\n" .. ray_materials.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_emitters.GetGLSL() .. ray_materials.GetMaterialGLSL() .. ray_materials.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (
+		shader = "#define DDGI_UNSCALED\n" .. ray_materials.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_emitters.GetGLSL() .. ray_materials.GetMaterialGLSL() .. ray_materials.GetHitAlbedoGLSL() .. ibl.GetEONGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (
 				VISIBILITY_RAYS and
 				optical_rays.GetGLSL() or
 				optical_rays.GetStubGLSL()
@@ -237,15 +237,16 @@ local function pass_shade()
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
 			}
 
-			vec3 ddgi_direct_light(vec3 P, vec3 N, bool sun_visible, float radius, vec4 u) {
+			vec3 ddgi_direct_light(vec3 P, vec3 N, vec3 V, vec3 albedo, float roughness, bool sun_visible, float radius, vec4 u) {
 				vec3 L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 				float NoL = max(dot(N, L), 0.0);
+				float NoV = max(dot(N, V), 1e-4);
 				vec3 direct = vec3(0.0);
 
 				if (RT_HIT_SUN != 0 && sun_visible) {
 					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
 					vec3 fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
-					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * fog;
+					direct += ddgi_data.ddgi_sun_radiance.rgb * Fd_EON(albedo, roughness, NoL, NoV, dot(L, V)) * NoL * get_cloud_shadow(P) * fog;
 
 					if (ddgi_data.light_transmittance != 0) direct *= get_light_transmittance(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0);
 				}
@@ -290,7 +291,7 @@ local function pass_shade()
 
 					float light_dist = length(to_light);
 					attenuation *= get_light_falloff(light, light_dist) / max(get_light_falloff(light, max(light_dist, radius)), 0.0025);
-					vec3 light_radiance = light.color.rgb * light.color.a * attenuation * (light_NoL / 3.14159265359);
+					vec3 light_radiance = light.color.rgb * light.color.a * attenuation * Fd_EON(albedo, roughness, light_NoL, NoV, dot(light_to_surface, V)) * light_NoL;
 					float weight = luminance(light_radiance);
 
 					if (weight <= 0.0) continue;
@@ -422,12 +423,13 @@ local function pass_shade()
 				vec3 surface = P + N * 0.02 * ddgi_data.ddgi_view_scale;
 				float light_radius = ddgi_data.ddgi_light_radius * ddgi_spacing(c);
 				vec4 u = emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);
-				vec3 radiance = albedo * ddgi_direct_light(surface, N, hit.w != 0u, light_radius, u);
+				float roughness = clamp(ray_hit_roughness(material, P, hit.y, hit.z), 0.045, 1.0);
+				vec3 radiance = ddgi_direct_light(surface, N, -dir, albedo, roughness, hit.w != 0u, light_radius, u);
 
 				float weight;
 				#if RT_HIT_PROBES
 				ddgi_contrast_reference = luminance(textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS), 0.0).rgb);
-				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight).rgb;
+				radiance += EON_directional_albedo(albedo, roughness, max(dot(N, -dir), 1e-4)) * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight).rgb;
 				#endif
 
 				store_ray(pos, vec4(radiance * glass + optical_inscatter_lit(origin, dir, t, ddgi_fog_ambient(), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true), t));

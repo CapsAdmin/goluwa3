@@ -468,6 +468,10 @@ function ray_materials.GetHitAlbedoGLSL()
 			vec3 ray_hit_albedo(ray_material material, vec3 P, uint instance, uint primitive) {
 				return ray_medium_albedo(material, ray_material_albedo(material, P));
 			}
+
+			float ray_hit_roughness(ray_material material, vec3 P, uint instance, uint primitive) {
+				return material.roughness;
+			}
 		]]
 	end
 
@@ -475,9 +479,7 @@ function ray_materials.GetHitAlbedoGLSL()
 
 		#define RAY_HIT_ALBEDO_UV_TEXELS ]] .. string.format("%.1f", hit_texels:Get()) .. [[
 
-		vec3 ray_hit_albedo_plain(ray_material material, vec3 P, uint instance, uint primitive) {
-			if (material.terrain_tex >= 0 || material.albedo_tex < 0) return ray_material_albedo(material, P);
-
+		vec2 ray_hit_coord(vec3 P, uint instance, uint primitive, out vec3 weights, out scene_uv uv) {
 			scene_triangle tri = scene_hit_tri(instance, primitive);
 			vec3 p = P - tri.v0;
 			float d00 = dot(tri.e1, tri.e1);
@@ -488,14 +490,34 @@ function ray_materials.GetHitAlbedoGLSL()
 			float inv = 1.0 / (d00 * d11 - d01 * d01);
 			float v = (d11 * d20 - d01 * d21) * inv;
 			float w = (d00 * d21 - d01 * d20) * inv;
-			scene_uv uv = scene_hit_uv(instance, primitive);
-			vec2 coord = uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w;
+			weights = vec3(1.0 - v - w, v, w);
+			uv = scene_hit_uv(instance, primitive);
+			return uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;
+		}
+
+		float ray_hit_roughness(ray_material material, vec3 P, uint instance, uint primitive) {
+			if (material.terrain_tex >= 0 || material.roughness_tex < 0) return material.roughness;
+
+			vec3 weights;
+			scene_uv uv;
+			vec2 coord = ray_hit_coord(P, instance, primitive, weights, uv);
+			ivec2 size = textureSize(TEXTURE(material.roughness_tex), 0);
+			float lod = max(log2(float(max(size.x, size.y)) / RAY_HIT_ALBEDO_UV_TEXELS), 0.0);
+			return material.roughness * mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), coord, lod)[material.roughness_channel]);
+		}
+
+		vec3 ray_hit_albedo_plain(ray_material material, vec3 P, uint instance, uint primitive) {
+			if (material.terrain_tex >= 0 || material.albedo_tex < 0) return ray_material_albedo(material, P);
+
+			vec3 weights;
+			scene_uv uv;
+			vec2 coord = ray_hit_coord(P, instance, primitive, weights, uv);
 			ivec2 size = textureSize(TEXTURE(material.albedo_tex), 0);
 			float lod = max(log2(float(max(size.x, size.y)) / RAY_HIT_ALBEDO_UV_TEXELS), 0.0);
 			vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, lod).rgb;
 
 			if (material.albedo2_tex >= 0) {
-				float blend = uv.blend.x * (1.0 - v - w) + uv.blend.y * v + uv.blend.z * w;
+				float blend = dot(uv.blend, weights);
 
 				if (material.blend_tex >= 0) {
 					vec2 modulate = textureLod(TEXTURE(material.blend_tex), coord, lod).rg;
