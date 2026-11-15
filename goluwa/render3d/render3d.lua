@@ -354,7 +354,6 @@ local default_passes = {
 	{"ddgi", "goluwa/render3d/passes/ddgi.lua", gi = "ddgi"},
 	{"surfel_gi", "goluwa/render3d/passes/surfel_gi.lua", gi = "surfels"},
 	{"restir_gi", "goluwa/render3d/passes/restir_gi.lua", gi = "restir"},
-	{"short_range_gi", "goluwa/render3d/passes/short_range_gi.lua", optional = true},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"fluid_volumes", "goluwa/render3d/passes/fluid_volumes.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},

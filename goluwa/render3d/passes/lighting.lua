@@ -16,7 +16,6 @@ local gi = import("goluwa/render3d/gi.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
-local short_range_gi = import("goluwa/render3d/short_range_gi.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -169,7 +168,6 @@ return {
 					{"rough_sky", "float"},
 					{"gi_reflection_direction", "int"},
 					{"gi_per_pixel", "int"},
-					{"short_range_gi_tex", "int"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -196,12 +194,6 @@ return {
 					block.rough_sky = rough_sky:Get()
 					block.gi_reflection_direction = gi_reflection_direction:Get() and 1 or 0
 					block.gi_per_pixel = gi.IsPerPixel() and 1 or 0
-					block.short_range_gi_tex = short_range_gi.IsActive() and
-						not gi.IsPerPixel()
-						and
-						gi.GetMode() ~= "none" and
-						self:GetTextureIndex(short_range_gi.GetOutputTexture()) or
-						-1
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -432,9 +424,7 @@ return {
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
 				vec3 specular_albedo = (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y) * GGXEnergyCompensation(s.F0, envBRDF);
 				vec3 kD_ambient = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - s.metallic);
-				if (lighting_data.short_range_gi_tex >= 0) irradiance = textureLod(TEXTURE(lighting_data.short_range_gi_tex), in_uv, 0.0).rgb;
-
-				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 || lighting_data.short_range_gi_tex >= 0 ? irradiance : irradiance * ambient_occlusion + bounce) * EON_directional_albedo(s.albedo, s.perceptual_roughness, s.NdotV);
+				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * EON_directional_albedo(s.albedo, s.perceptual_roughness, s.NdotV);
 
 				vec3 ambient_specular = reflection * specular_albedo;
 				ambient_specular *= mix(1.0, lighting_data.thin_specular, get_thin_feature(in_view_depth, s.geometric_N));

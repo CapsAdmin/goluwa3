@@ -640,33 +640,6 @@ local IRRADIANCE_INTEGRATE = {
 		}
 	]],
 }
-local RADIANCE_INTEGRATE = {
-	atlas_format = {"r16g16b16a16_sfloat", "rgba16f"},
-	declare = IRRADIANCE_INTEGRATE.declare,
-	loop = [[
-		if (ray.a < 0.0) continue;
-
-		float cos_angle = dot(texel_dir, s_dir[r]);
-
-		if (cos_angle <= 0.0) continue;
-
-		float w = pow(cos_angle, DDGI_RADIANCE_EXPONENT) * s_q[r];
-		vec3 radiance = ray.rgb;
-		float contribution = luminance(radiance) * s_q[r] / ray_q_mean;
-
-		if (contribution > ray_cap) radiance *= ray_cap / contribution;
-
-		sum += vec4(radiance * w, 0.0);
-		weight_sum += w;
-	]],
-	-- an emitter sample holds its share of the irradiance (radiance times solid angle over pi), spread here over the lobe's solid angle 2 pi / (n + 1)
-	result = [[
-		for (int k = 0; k < DDGI_EMITTER_SAMPLES; k++) {
-			vec4 emitter = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(DDGI_RAYS + k), slot, c), 0);
-			result.rgb += emitter.rgb * pow(max(0.0, dot(texel_dir, ddgi_unpack_direction(emitter.a))), DDGI_RADIANCE_EXPONENT) * (DDGI_RADIANCE_EXPONENT + 1.0) * 0.5;
-		}
-	]],
-}
 local DISTANCE_INTEGRATE = {
 	atlas_format = {"r16g16_sfloat", "rg16f"},
 	declare = [[
@@ -1421,14 +1394,6 @@ local passes = {
 	pass_shade(),
 	pass_update("ddgi_irradiance", ddgi.IRRADIANCE_TEXELS, IRRADIANCE_INTEGRATE),
 	pass_update("ddgi_distance", ddgi.DISTANCE_TEXELS, DISTANCE_INTEGRATE),
-	table.merge(
-		pass_update("ddgi_radiance", ddgi.RADIANCE_TEXELS, RADIANCE_INTEGRATE),
-		{
-			is_enabled = function()
-				return render3d.IsPassEnabled("short_range_gi")
-			end,
-		}
-	),
 	pass_probe_data(),
 	pass_guide(),
 }
