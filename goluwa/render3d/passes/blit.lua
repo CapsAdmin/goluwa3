@@ -593,7 +593,7 @@ local compute_shader = [[
 		vec3 col = scene.rgb;
 		float glare_keep = compute.has_fields != 0 ? scene.a : 1.0;
 
-		if (compute.eye_defocus != 0 && compute.has_exposure_tex != 0) {
+		if (compute.debug_passthrough == 0 && compute.eye_defocus != 0 && compute.has_exposure_tex != 0) {
 			float pupil_mm = 4.9 - 3.0 * tanh(0.4 * (log((exp2(texture(exposure_tex, vec2(0.5)).b - 3.0))) * 0.4342945 + 1.0));
 			vec2 radius = 0.5 * pupil_mm * 1e-3 * vec2(0.35, 0.9) * (180.0 / 3.14159265) * compute.pixels_per_degree;
 			vec2 texel = 1.0 / vec2(textureSize(source_tex, 0));
@@ -616,7 +616,7 @@ local compute_shader = [[
 			}
 		}
 
-		if (compute.white_balance_on != 0) {
+		if (compute.debug_passthrough == 0 && compute.white_balance_on != 0) {
 			vec2 illuminant = vec2(0.3127, 0.3290);
 
 			if (compute.white_balance > 0.0) {
@@ -640,15 +640,15 @@ local compute_shader = [[
 		float pixel_log10 = log(max(luminance(col) / pre_exposure, 1e-9)) * 0.4342945;
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
-		if (compute.has_bloom_tex != 0) {
+		if (compute.debug_passthrough == 0 && compute.has_bloom_tex != 0) {
 			col = max(col * (1.0 - compute.bloom_strength.rgb) + texelFetch(glare_tex, pos, 0).rgb * glare_keep / exposure, vec3(0.0));
 		}
 
-		if (compute.has_afterimage != 0) col = apply_afterimage(col, texture_catmull_rom(afterimage_tex, uv).rgb, texture_catmull_rom(afterimage_bleach_tex, uv).rgb, texture_catmull_rom(afterimage_source_tex, uv), exposure, compute.afterimage_intensity);
+		if (compute.debug_passthrough == 0 && compute.has_afterimage != 0) col = apply_afterimage(col, texture_catmull_rom(afterimage_tex, uv).rgb, texture_catmull_rom(afterimage_bleach_tex, uv).rgb, texture_catmull_rom(afterimage_source_tex, uv), exposure, compute.afterimage_intensity);
 
-		col = mix(col, vec3(dot(max(col, vec3(0.0)), ROD_RESPONSE)), (1.0 - cones) * compute.night_vision);
+		if (compute.debug_passthrough == 0) col = mix(col, vec3(dot(max(col, vec3(0.0)), ROD_RESPONSE)), (1.0 - cones) * compute.night_vision);
 
-		if (compute.eye_noise > 0.0) {
+		if (compute.debug_passthrough == 0 && compute.eye_noise > 0.0) {
 			float shown = max(luminance(col) * exposure, 0.0);
 			float dark_adapted = 1.0 - smoothstep(-2.0, 0.5, (adapted_ev - 3.0) * 0.30103);
 			uint h = pcg_hash(uint(pos.x / 2) + pcg_hash(uint(pos.y / 2) + pcg_hash(uint(compute.frame) + 7919u)));
@@ -657,7 +657,7 @@ local compute_shader = [[
 			col = max(col + vec3(0.75, 0.35, 1.0) * (noise * deviation / max(exposure * display_scale, 1e-6)), vec3(0.0));
 		}
 
-		if (compute.grain != 0 && compute.has_exposure_tex != 0) {
+		if (compute.debug_passthrough == 0 && compute.grain != 0 && compute.has_exposure_tex != 0) {
 			float iso = camera_settings(texture(exposure_tex, vec2(0.5)).r).x;
 			uint h = pcg_hash(uint(pos.x) + pcg_hash(uint(pos.y) + pcg_hash(uint(compute.frame))));
 			float grain = float(h & 0xffffu) / 65535.0 + float(h >> 16) / 65535.0 - 1.0;
