@@ -1,11 +1,14 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
+local vegetation_bend = import("goluwa/render3d/scene/vegetation_bend.lua")
 local scatter_rt = {}
 local Segment = ffi.typeof([[struct {
 	uint32_t first_record;
@@ -22,6 +25,12 @@ local Part = ffi.typeof([[struct {
 	uint32_t material_row;
 	uint32_t record_flags;
 	uint32_t mask_flags;
+	uint32_t bend_first;
+	uint32_t bend_count;
+}]])
+local BendSlot = ffi.typeof([[struct {
+	float m[12];
+	uint64_t blas;
 }]])
 local LOCAL_SIZE = 64
 pvars.StartGroup("Rendering", "Scatter ray tracing", {store = false})
@@ -36,8 +45,19 @@ local max_distance = pvars.Setup2{
 	min = 0,
 	help = "how far from the camera what scatter grows is in the ray traced scene, in meters",
 }
+local bend_slots = pvars.Setup2{
+	key = "r_scatter_rt_bend_slots",
+	default = 32,
+	integer = true,
+	help = "copies of each bending scatter mesh that the wind bends in the ray traced scene, given to its instances within r_rt_bend_distance in no particular order (instances past the copies are traced at rest). each is bent and refit every frame",
+}
 pvars.EndGroup()
-local segments_table, parts_table
+local segments_table, parts_table, slots_table
+local counters_buffer, readback_buffer, readback
+local READBACK_RING = 4
+local bending = {}
+local BufferCopy = ffi.typeof("$[1]", vulkan.vk.VkBufferCopy)
+local readback_copy = BufferCopy()
 local pipeline
 local built_version = -1
 local bound_buffers = {}
@@ -48,9 +68,10 @@ local function get_tables()
 	if not segments_table then
 		segments_table = store.CreateTable{name = "scatter_rt_segments", ctype = Segment, capacity = 1024}
 		parts_table = store.CreateTable{name = "scatter_rt_parts", ctype = Part, capacity = 4096}
+		slots_table = store.CreateTable{name = "scatter_rt_bend_slots", ctype = BendSlot, capacity = 256}
 	end
 
-	return segments_table, parts_table
+	return segments_table, parts_table, slots_table
 end
 
 local create_pipeline
@@ -74,6 +95,8 @@ function create_pipeline()
 			{binding_index = 4},
 			{binding_index = 5},
 			{binding_index = 6},
+			{binding_index = 7},
+			{binding_index = 9},
 		},
 		uniform_buffers = {
 			{
@@ -86,6 +109,7 @@ function create_pipeline()
 					{"counter_base", "int"},
 					{"camera", "vec4"},
 					{"max_distance", "float"},
+					{"bend_distance", "float"},
 				},
 				write = function(self, block)
 					block.region_base = range_base or 0
@@ -97,6 +121,7 @@ function create_pipeline()
 					block.camera[1] = position.y
 					block.camera[2] = position.z
 					block.max_distance = max_distance:Get()
+					block.bend_distance = vegetation_bend.GetDistance()
 					return block
 				end,
 			},
@@ -148,6 +173,13 @@ function create_pipeline()
 				uint material_row;
 				uint record_flags;
 				uint mask_flags;
+				uint bend_first;
+				uint bend_count;
+			};
+
+			struct bend_slot {
+				float m[12];
+				uint64_t blas;
 			};
 
 			layout(scalar, set = 0, binding = 0) buffer TLASInstances { tlas_instance tlas[]; };
@@ -157,6 +189,8 @@ function create_pipeline()
 			layout(scalar, set = 0, binding = 4) readonly buffer Parts { part parts[]; };
 			layout(std430, set = 0, binding = 5) readonly buffer ScatterLists { mat4 lists[]; };
 			layout(std430, set = 0, binding = 6) readonly buffer ScatterCounts { uint counts[]; };
+			layout(scalar, set = 0, binding = 7) buffer BendSlots { bend_slot slots[]; };
+			layout(std430, set = 0, binding = 9) buffer BendCounters { uint bend_counters[]; };
 		]],
 		shader = [[
 			void main() {
@@ -203,6 +237,22 @@ function create_pipeline()
 				tlas[row].custom_and_mask = row | (mask << 24u);
 				tlas[row].flags = p.record_flags;
 				tlas[row].blas = meshes[p.mesh_row].blas;
+
+				// the first instances in range to ask get the bent copies, in whatever order the threads run
+				if (p.bend_count > 0u && distance(world[3].xyz, produce_data.camera.xyz) <= produce_data.bend_distance) {
+					uint k = atomicAdd(bend_counters[s.parts_first + j], 1u);
+
+					if (k < p.bend_count) {
+						uint b = p.bend_first + k;
+
+						for (uint c = 0u; c < 12u; c++) {
+							slots[b].m[c] = tlas[row].m[c];
+						}
+
+						if (slots[b].blas != 0ul) tlas[row].blas = slots[b].blas;
+					}
+				}
+
 				data[row].mesh_row = p.mesh_row;
 				data[row].material_row = p.material_row;
 				data[row].flags = (p.mask_flags >> 8u) | 32u;
@@ -258,10 +308,19 @@ end
 
 local function rebuild(segment_list)
 	scatter_rt.rebuilds = (scatter_rt.rebuilds or 0) + 1
-	local segments, parts = get_tables()
+	local segments, parts, slots = get_tables()
 	render.GetDevice():WaitIdle()
 	segments:Clear()
 	parts:Clear()
+	slots:Clear()
+
+	for _, entry in ipairs(bending) do
+		for _, record in ipairs(entry.records) do
+			vegetation_bend.ReleaseRecord(record)
+		end
+	end
+
+	bending = {}
 
 	if range_base then instances.FreeRange(range_base, range_count, true) end
 
@@ -277,12 +336,36 @@ local function rebuild(segment_list)
 
 			if row then
 				local flags, mask = instances.GetMaterialFlags(part.material)
-				local entry = parts:Get()[parts:Alloc()]
+				local index = parts:Alloc()
+				local entry = parts:Get()[index]
 				entry.mesh_row = row
 				entry.material_row = materials.GetID(part.material)
 				entry.record_flags = instances.GetRecordFlags(flags)
 				entry.mask_flags = mask + flags * 256
+				entry.bend_first = 0
+				entry.bend_count = 0
 				count = count + 1
+
+				if part.material:HasVertexAnimation() and part.polygon then
+					local records = {}
+					entry.bend_first = slots.count
+
+					for k = 1, bend_slots:Get() do
+						local slot = slots:Get()[slots:Alloc()]
+						ffi.fill(slot.m, ffi.sizeof(slot.m))
+						slot.m[0], slot.m[5], slot.m[10] = 1, 1, 1
+						slot.blas = 0
+						records[k] = vegetation_bend.NewRecord(meshes.GetRecord(row))
+					end
+
+					bending[#bending + 1] = {
+						index = index,
+						part = part,
+						row = row,
+						first = entry.bend_first,
+						records = records,
+					}
+				end
 			end
 		end
 
@@ -377,8 +460,46 @@ local function produce(cmd)
 
 	if not range_base then return end
 
-	local segments, parts = get_tables()
+	local segments, parts, slots = get_tables()
 	local tlas_table, data_table = instances.GetTables()
+	local animating = vegetation_bend.IsEnabled()
+	local part_rows = parts:Get()
+	local frame = system.GetFrameNumber()
+
+	if not counters_buffer or counters_buffer:GetSize() < parts.capacity * 4 then
+		if counters_buffer then
+			counters_buffer:Remove()
+			readback_buffer:Remove()
+		end
+
+		counters_buffer = render.CreateBuffer{
+			byte_size = parts.capacity * 4,
+			buffer_usage = {"storage_buffer", "transfer_dst", "transfer_src"},
+			memory_property = {"device_local"},
+			label = "scatter_rt_bend_counters",
+		}
+		readback_buffer = render.CreateBuffer{
+			byte_size = parts.capacity * 4 * READBACK_RING,
+			buffer_usage = {"transfer_dst"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scatter_rt_bend_readback",
+		}
+		readback = ffi.cast("uint32_t *", readback_buffer:Map())
+		ffi.fill(readback, parts.capacity * 4 * READBACK_RING)
+	end
+
+	-- how many instances asked for a copy a few frames ago (the oldest copy in the ring, which the gpu has finished): only that many and a few more are bent and refit
+	local asked = readback + ((frame + 1) % READBACK_RING) * parts.capacity
+
+	for _, entry in ipairs(bending) do
+		entry.animates = animating and vegetation_bend.Animates(entry.part.material, entry.part.polygon)
+		local wanted = asked[entry.index]
+		entry.used = entry.animates and
+			math.min(#entry.records, wanted > 0 and wanted + 2 + math.floor(wanted / 4) or 1) or
+			0
+		part_rows[entry.index].bend_count = entry.used
+	end
+
 	local pipe = get_pipeline()
 	local slot = (
 			(
@@ -388,7 +509,7 @@ local function produce(cmd)
 		) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 	local bound = bound_buffers[slot]
 	local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
-	local segments_buffer, parts_buffer = segments:GetBuffer(), parts:GetBuffer()
+	local segments_buffer, parts_buffer, slots_buffer = segments:GetBuffer(), parts:GetBuffer(), slots:GetBuffer()
 
 	if
 		not bound or
@@ -398,7 +519,9 @@ local function produce(cmd)
 		bound[4] ~= segments_buffer or
 		bound[5] ~= parts_buffer or
 		bound[6] ~= list_buffer or
-		bound[7] ~= counts_buffer
+		bound[7] ~= counts_buffer or
+		bound[8] ~= slots_buffer or
+		bound[9] ~= counters_buffer
 	then
 		bound_buffers[slot] = {
 			tlas_buffer,
@@ -408,6 +531,8 @@ local function produce(cmd)
 			parts_buffer,
 			list_buffer,
 			counts_buffer,
+			slots_buffer,
+			counters_buffer,
 		}
 		pipe:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
 		pipe:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
@@ -416,16 +541,49 @@ local function produce(cmd)
 		pipe:UpdateDescriptorSet("storage_buffer", slot, 4, 0, parts_buffer, parts:GetSize())
 		pipe:UpdateDescriptorSet("storage_buffer", slot, 5, 0, list_buffer, list_buffer.size)
 		pipe:UpdateDescriptorSet("storage_buffer", slot, 6, 0, counts_buffer, counts_buffer.size)
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 7, 0, slots_buffer, slots:GetSize())
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 9, 0, counters_buffer, counters_buffer:GetSize())
 	end
 
 	pipe:UploadConstants()
+	cmd:FillBuffer(counters_buffer, 0, counters_buffer:GetSize(), 0)
 	cmd:PipelineBarrier{
-		srcStage = {"host", "compute", "acceleration_structure_build_khr"},
+		srcStage = {"host", "transfer", "compute", "acceleration_structure_build_khr"},
 		dstStage = "compute",
 		memoryBarrier = true,
 	}
 	pipe.pipeline:Dispatch(cmd, math.ceil(range_count / LOCAL_SIZE), 1, 1, slot, pipe.dynamic_offsets)
-	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = {"compute", "transfer"}, memoryBarrier = true}
+
+	if not bending[1] then return end
+
+	readback_copy[0].srcOffset = 0
+	readback_copy[0].dstOffset = (frame % READBACK_RING) * parts.capacity * 4
+	readback_copy[0].size = parts.capacity * 4
+	cmd:CopyBuffer(counters_buffer, readback_buffer, readback_copy, 1)
+	local mesh_rows = meshes.GetTable():Get()
+	local slots_address = slots:GetAddress()
+
+	for _, entry in ipairs(bending) do
+		for k = 1, entry.used do
+			vegetation_bend.Queue(
+				entry.records[k],
+				mesh_rows[entry.row].vertex_address,
+				slots_address + (entry.first + k - 1) * ffi.sizeof(BendSlot),
+				entry.part.material,
+				entry.part.polygon
+			)
+		end
+	end
+
+	vegetation_bend.Dispatch(cmd)
+	local slot_rows = slots:Get()
+
+	for _, entry in ipairs(bending) do
+		for k = 1, entry.used do
+			slot_rows[entry.first + k - 1].blas = entry.records[k].blas_record.address
+		end
+	end
 end
 
 instances.AddProducer("scatter", produce, prepare)
