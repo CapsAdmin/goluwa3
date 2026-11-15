@@ -59,9 +59,9 @@ local hdr_paper_white = pvars.Setup2{
 }
 local hdr_peak = pvars.Setup2{
 	key = "r_hdr_peak",
-	default = 2000,
+	default = hdr_output.GetEdrHeadroom() and hdr_output.GetEdrHeadroom() * 200 or 2000,
 	min = 1,
-	help = "nits of the brightest the display can show in HDR output",
+	help = "nits of the brightest the display can show in HDR output (on macos the screen's extended range headroom times the paper white)",
 	callback = function(_, is_init)
 		if not is_init then update_hdr_metadata() end
 	end,

@@ -325,7 +325,11 @@ function render.Initialize(config)
 		local size = wnd:GetSize()
 		render.target = vulkan_instance:CreateWindowRenderTarget{
 			present_mode = "immediate_khr",
-			enable_hdr = _G.HDR,
+			enable_hdr = _G.HDR and
+				(
+					jit.os ~= "OSX" or
+					import("goluwa/render/hdr_output.lua").GetEdrHeadroom() > 1
+				),
 			image_count = nil,
 			width = size.x,
 			height = size.y,

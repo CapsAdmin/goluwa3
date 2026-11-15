@@ -104,6 +104,7 @@ local cocoa_objc = objc.bind{
 			},
 			instance = {
 				frame = "{CGRect={CGPoint=dd}{CGSize=dd}}@:",
+				maximumPotentialExtendedDynamicRangeColorComponentValue = "d@:",
 			},
 		},
 		NSString = {
@@ -768,6 +769,10 @@ function cocoa.get_desktop_size()
 	local screen = NSScreen.mainScreen()
 	local frame = NSScreen.frame(screen)
 	return frame.size.width, frame.size.height
+end
+
+function cocoa.get_edr_headroom()
+	return NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue(NSScreen.mainScreen())
 end
 
 function meta:Initialize()

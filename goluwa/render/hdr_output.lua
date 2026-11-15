@@ -12,6 +12,21 @@ local ui_white = pvars.Setup2{
 }
 pvars.EndGroup()
 
+function hdr_output.GetEdrHeadroom()
+	if jit.os ~= "OSX" then return nil end
+
+	return import("goluwa/bindings/cocoa.lua").get_edr_headroom()
+end
+
+function hdr_output.GetScrgbNitsPerUnit()
+	if jit.os == "OSX" then
+		-- with HDR10 metadata set the metal layer reads scRGB 1.0 as 1 nit, otherwise as the display's SDR white
+		return render.target.hdr_metadata_applied and 1 or pvars.Get("r_hdr_paper_white")
+	end
+
+	return 80
+end
+
 function hdr_output.GetWhiteNits()
 	local nits = ui_white:Get()
 
@@ -51,11 +66,13 @@ do
 							{"source_tex", "int"},
 							{"white_nits", "float"},
 							{"pq", "int"},
+							{"nits_per_unit", "float"},
 						},
 						write = function(self, block)
 							block.source_tex = self:GetTextureIndex(source_texture)
 							block.white_nits = hdr_output.GetWhiteNits()
 							block.pq = output_pq and 1 or 0
+							block.nits_per_unit = hdr_output.GetScrgbNitsPerUnit()
 							return block
 						end,
 					},
@@ -76,7 +93,7 @@ do
 							);
 							set_color(vec4(pq_encode(bt709_to_bt2020 * nits), 1.0));
 						} else {
-							set_color(vec4(nits / 80.0, 1.0));
+							set_color(vec4(nits / hdr_output_data.nits_per_unit, 1.0));
 						}
 					}
 				]],

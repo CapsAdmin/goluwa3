@@ -514,7 +514,8 @@ function ImageRenderTarget:SetHDRMetadata(t)
 
 	if not self.swapchain or not self:IsHDR() then return false end
 
-	return self.swapchain:SetHdrMetadata(t)
+	self.hdr_metadata_applied = self.swapchain:SetHdrMetadata(t)
+	return self.hdr_metadata_applied
 end
 
 function ImageRenderTarget:GetImageView()
