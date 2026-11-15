@@ -59,6 +59,11 @@ local blur = pvars.Setup2{
 		light_occlusion.Reset()
 	end,
 }
+local soft = pvars.Setup2{
+	key = "light_occlusion_soft",
+	default = true,
+	help = "point and spot lights with a source radius cast soft shadows: the penumbra widens with the distance between the occluder and what it shades, off every occlusion map shadow is as sharp as the map",
+}
 local bleed_reduction = pvars.Setup2{
 	key = "light_occlusion_bleed_reduction",
 	default = 0.5,
@@ -77,6 +82,8 @@ local BINDING_TLAS = 2
 local BINDING_HIT = 3
 local BINDING_BLUR_SRC = 1
 local BINDING_BLUR_DST = 2
+local BINDING_MIP_SRC = 1
+local BINDING_MIP_DST = 2
 local MAP_SAMPLER_CONFIG = {
 	min_filter = "linear",
 	mag_filter = "linear",
@@ -85,12 +92,16 @@ local MAP_SAMPLER_CONFIG = {
 	wrap_r = "clamp_to_edge",
 }
 
-local function create_map_texture(size, layers, debug_name, usage, sampler)
+local function get_mip_count(size)
+	return math.floor(math.log(size) / math.log(2) + 0.5) + 1
+end
+
+local function create_map_texture(size, layers, debug_name, usage, sampler, levels)
 	local texture = Texture.New{
 		width = size,
 		height = size,
 		format = "r32g32_sfloat",
-		mip_map_levels = 1,
+		mip_map_levels = levels,
 		image = {
 			array_layers = layers,
 			usage = usage,
@@ -98,6 +109,7 @@ local function create_map_texture(size, layers, debug_name, usage, sampler)
 		view = {
 			view_type = "2d_array",
 			layer_count = layers,
+			level_count = levels,
 		},
 		sampler = sampler,
 	}
@@ -371,24 +383,107 @@ local function build_blur_pipeline(horizontal)
 	}
 end
 
+local function build_mip_pipeline(levels)
+	local storage_images = {{binding_index = BINDING_MIP_SRC}}
+	local declarations = {
+		(
+			"layout(set = 0, binding = %d, rg32f) uniform readonly image2DArray mip_src;"
+		):format(BINDING_MIP_SRC),
+	}
+	local stores = {}
+
+	for level = 1, levels - 1 do
+		storage_images[#storage_images + 1] = {binding_index = BINDING_MIP_DST + level - 1}
+		declarations[#declarations + 1] = (
+			"layout(set = 0, binding = %d, rg32f) uniform writeonly image2DArray mip_%d;"
+		):format(BINDING_MIP_DST + level - 1, level)
+		stores[#stores + 1] = (
+			"if (level == %d) imageStore(mip_%d, ivec3(p, slot), vec4(sum, 0.0, 0.0));"
+		):format(level, level)
+	end
+
+	return EasyPipeline.Compute{
+		name = "light_occlusion_mips",
+		DescriptorSetCount = get_frame_span(),
+		LocalSize = {x = 8, y = 8, z = 1},
+		storage_images = storage_images,
+		uniform_buffers = {
+			{
+				name = "mip_data",
+				binding_index = BINDING_UNIFORM,
+				block = {
+					{"slot_at_z", "int", LIGHT_OCCL_MAX_TRACES_PER_FRAME},
+					{"slot_count", "int"},
+				},
+				write = function(self, block)
+					for i = 0, LIGHT_OCCL_MAX_TRACES_PER_FRAME - 1 do
+						block.slot_at_z[i] = slot_at_z[i + 1] or 0
+					end
+
+					block.slot_count = light_occlusion.last_dispatches
+					return block
+				end,
+			},
+		},
+		custom_declarations = table.concat(declarations, "\n"),
+		shader = [[
+			void main() {
+				int level = int(gl_GlobalInvocationID.z) / mip_data.slot_count + 1;
+				int slot = mip_data.slot_at_z[int(gl_GlobalInvocationID.z) % mip_data.slot_count];
+				int size = imageSize(mip_src).x >> level;
+				ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+
+				if (p.x >= size || p.y >= size) return;
+
+				int span = 1 << level;
+				vec2 sum = vec2(0.0);
+
+				for (int y = 0; y < span; y++) {
+					for (int x = 0; x < span; x++) {
+						sum += imageLoad(mip_src, ivec3(p * span + ivec2(x, y), slot)).rg;
+					}
+				}
+
+				sum /= float(span * span);
+				]] .. table.concat(stores, "\n\t\t\t\t") .. [[
+			}
+		]],
+	}
+end
+
 local function ensure_map_texture()
 	if not light_occlusion.map_texture then
 		local size = oct_size:Get()
+		local levels = get_mip_count(size)
 		light_occlusion.map_texture = create_map_texture(
 			size,
 			MAX_LIGHTS,
 			"light_occlusion_map",
 			{"sampled", "storage", "transfer_src", "transfer_dst"},
-			MAP_SAMPLER_CONFIG
+			MAP_SAMPLER_CONFIG,
+			levels
 		)
 		light_occlusion.scratch_texture = create_map_texture(
 			size,
 			LIGHT_OCCL_MAX_TRACES_PER_FRAME,
 			"light_occlusion_blur_scratch",
 			{"storage"},
-			nil
+			nil,
+			1
 		)
 		light_occlusion.map_size = size
+		light_occlusion.map_levels = levels
+		light_occlusion.mip_views = {}
+
+		for level = 0, levels - 1 do
+			light_occlusion.mip_views[level] = light_occlusion.map_texture:GetImage():CreateView{
+				view_type = "2d_array",
+				base_mip_level = level,
+				level_count = 1,
+				base_array_layer = 0,
+				layer_count = MAX_LIGHTS,
+			}
+		end
 	end
 end
 
@@ -401,6 +496,10 @@ local function ensure_resources()
 
 	if not light_occlusion.blur_pipelines then
 		light_occlusion.blur_pipelines = {build_blur_pipeline(true), build_blur_pipeline(false)}
+	end
+
+	if not light_occlusion.mip_pipeline then
+		light_occlusion.mip_pipeline = build_mip_pipeline(light_occlusion.map_levels)
 	end
 end
 
@@ -520,7 +619,7 @@ function light_occlusion.Draw(cmd)
 		scratch_texture,
 		{cmd = cmd, base_array_layer = 0, layer_count = LIGHT_OCCL_MAX_TRACES_PER_FRAME}
 	)
-	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_MAP, 0, map_texture:GetView())
+	pipeline:UpdateDescriptorSet("storage_image", slot, BINDING_MAP, 0, light_occlusion.mip_views[0])
 	pipeline:UpdateDescriptorSet("acceleration_structure_khr", slot, BINDING_TLAS, 0, tlas)
 	hit.Bind(pipeline, slot, BINDING_HIT)
 	pipeline:UploadConstants()
@@ -563,8 +662,20 @@ function light_occlusion.Draw(cmd)
 					},
 				},
 			}
-			blur:UpdateDescriptorSet("storage_image", slot, BINDING_BLUR_SRC, 0, src:GetView())
-			blur:UpdateDescriptorSet("storage_image", slot, BINDING_BLUR_DST, 0, dst:GetView())
+			blur:UpdateDescriptorSet(
+				"storage_image",
+				slot,
+				BINDING_BLUR_SRC,
+				0,
+				src == map_texture and light_occlusion.mip_views[0] or src:GetView()
+			)
+			blur:UpdateDescriptorSet(
+				"storage_image",
+				slot,
+				BINDING_BLUR_DST,
+				0,
+				dst == map_texture and light_occlusion.mip_views[0] or dst:GetView()
+			)
 			blur:UploadConstants()
 			blur.pipeline:Dispatch(
 				cmd,
@@ -577,6 +688,41 @@ function light_occlusion.Draw(cmd)
 		end
 	end
 
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = "compute",
+		imageBarriers = {
+			{
+				image = map_texture:GetImage(),
+				oldLayout = "general",
+				newLayout = "general",
+				srcAccessMask = "shader_write",
+				dstAccessMask = "shader_read",
+			},
+		},
+	}
+	local mips = light_occlusion.mip_pipeline
+	mips:UpdateDescriptorSet("storage_image", slot, BINDING_MIP_SRC, 0, light_occlusion.mip_views[0])
+
+	for level = 1, light_occlusion.map_levels - 1 do
+		mips:UpdateDescriptorSet(
+			"storage_image",
+			slot,
+			BINDING_MIP_DST + level - 1,
+			0,
+			light_occlusion.mip_views[level]
+		)
+	end
+
+	mips:UploadConstants()
+	mips.pipeline:Dispatch(
+		cmd,
+		math.ceil(size / 16),
+		math.ceil(size / 16),
+		dirty_count * (light_occlusion.map_levels - 1),
+		slot,
+		mips.dynamic_offsets
+	)
 	gpu_timing.EndScope(cmd, "light_occlusion")
 	render.TransitionResourceFrom(
 		map_texture,
@@ -693,6 +839,7 @@ function light_occlusion.GetBlockLayout()
 		{"bvh_oct_size", "int"},
 		{"bvh_oct_bias", "float"},
 		{"bvh_oct_bleed_reduction", "float"},
+		{"bvh_oct_soft", "int"},
 	}
 end
 
@@ -718,24 +865,18 @@ function light_occlusion.WriteOcclusionBlock(block, lights)
 	block.bvh_oct_size = get_map_size()
 	block.bvh_oct_bias = bias:Get()
 	block.bvh_oct_bleed_reduction = bleed_reduction:Get()
+	block.bvh_oct_soft = soft:Get() and 1 or 0
 end
 
 function light_occlusion.GetSamplingGLSL(data_block)
 	return (
 			[[
 		const int LIGHT_OCCL_MAX_SLOTS = ]] .. MAX_LIGHTS .. [[;
+		const int LIGHT_OCCL_TAPS = 12;
 
 		]] .. glsl_common.GetOctahedralGLSL() .. [[
 
-		float light_oct_shadow_factor(int slot, vec3 light_pos, float range, vec3 world_pos) {
-			if (slot < 0 || slot >= LIGHT_OCCL_MAX_SLOTS || ]] .. data_block .. [[.bvh_oct_active == 0) return 1.0;
-			vec3 to_pos = world_pos - light_pos;
-			float dist = length(to_pos);
-
-			if (dist >= range) return 1.0;
-
-			vec2 moments = texture(light_oct_map, vec3(oct_encode(to_pos / max(dist, 1e-5)) * 0.5 + 0.5, float(slot))).rg;
-
+		float light_oct_chebyshev(vec2 moments, float dist, float bleed) {
 			if (moments.x <= 0.0) return 1.0;
 
 			float bias = ]] .. data_block .. [[.bvh_oct_bias;
@@ -745,8 +886,84 @@ function light_occlusion.GetSamplingGLSL(data_block)
 
 			float min_std = moments.x * bias;
 			float variance = max(moments.y - moments.x * moments.x, min_std * min_std);
-			float bleed = ]] .. data_block .. [[.bvh_oct_bleed_reduction;
 			return clamp((variance / (variance + d * d) - bleed) / (1.0 - bleed), 0.0, 1.0);
+		}
+
+		vec2 light_oct_wrap(vec2 uv) {
+			if (uv.x < 0.0) uv = vec2(-uv.x, 1.0 - uv.y);
+			else if (uv.x > 1.0) uv = vec2(2.0 - uv.x, 1.0 - uv.y);
+
+			if (uv.y < 0.0) uv = vec2(1.0 - uv.x, -uv.y);
+			else if (uv.y > 1.0) uv = vec2(1.0 - uv.x, 2.0 - uv.y);
+
+			return uv;
+		}
+
+		float light_oct_receiver_depth(vec2 uv, vec3 to_pos, vec3 normal, float dist) {
+			float facing = dot(normal, oct_decode(uv * 2.0 - 1.0));
+
+			if (facing > -0.05) return dist;
+
+			return min(dot(normal, to_pos) / facing, dist * 4.0);
+		}
+
+		float light_oct_shadow_factor(int slot, vec3 light_pos, float range, vec3 world_pos, float source_radius, vec3 normal) {
+			if (slot < 0 || slot >= LIGHT_OCCL_MAX_SLOTS || ]] .. data_block .. [[.bvh_oct_active == 0) return 1.0;
+			vec3 to_pos = world_pos - light_pos;
+			float dist = length(to_pos);
+
+			if (dist >= range) return 1.0;
+
+			vec3 uv = vec3(oct_encode(to_pos / max(dist, 1e-5)) * 0.5 + 0.5, float(slot));
+			float bleed = ]] .. data_block .. [[.bvh_oct_bleed_reduction;
+
+			if (source_radius <= 0.0 || dist <= source_radius || ]] .. data_block .. [[.bvh_oct_soft == 0) return light_oct_chebyshev(textureLod(light_oct_map, uv, 0.0).rg, dist, bleed);
+
+			float map_size = float(]] .. data_block .. [[.bvh_oct_size);
+			float max_lod = float(textureQueryLevels(light_oct_map) - 1);
+			float search = 3.0 * source_radius / dist;
+			float sharp = light_oct_chebyshev(textureLod(light_oct_map, uv, 0.0).rg, dist, bleed);
+			float coarse = light_oct_chebyshev(textureLod(light_oct_map, uv, clamp(log2(2.0 * search * map_size / 3.5449077), 0.0, max_lod)).rg, dist, 0.0);
+
+			if (sharp >= 0.99 && coarse >= 0.99) return 1.0;
+
+			if (sharp <= 0.01 && coarse <= 0.01) return 0.0;
+
+			vec3 center_dir = oct_decode(uv.xy * 2.0 - 1.0);
+			vec2 step = vec2(clamp(uv.x + 1.0 / map_size, 0.0, 1.0) - uv.x, clamp(uv.y + 1.0 / map_size, 0.0, 1.0) - uv.y);
+			step = mix(-vec2(1.0 / map_size), step, greaterThan(abs(step), vec2(0.5 / map_size)));
+			float angle_per_uv = 0.5 * (acos(clamp(dot(center_dir, oct_decode(vec2(uv.x + step.x, uv.y) * 2.0 - 1.0)), -1.0, 1.0)) / abs(step.x) + acos(clamp(dot(center_dir, oct_decode(vec2(uv.x, uv.y + step.y) * 2.0 - 1.0)), -1.0, 1.0)) / abs(step.y));
+			float texel_angle = angle_per_uv / map_size;
+			float tap_spread = 2.0 / sqrt(float(LIGHT_OCCL_TAPS));
+			float search_lod = clamp(log2(search * tap_spread / texel_angle) - 3.0, 0.0, max_lod);
+			float blocker_sum = 0.0;
+			float blocker_count = 0.0;
+
+			for (int k = 0; k < LIGHT_OCCL_TAPS; k++) {
+				float angle = float(k) * 2.39996323;
+				vec2 tap = light_oct_wrap(uv.xy + vec2(cos(angle), sin(angle)) * sqrt((float(k) + 0.5) / float(LIGHT_OCCL_TAPS)) * search / angle_per_uv);
+				float mean = textureLod(light_oct_map, vec3(tap, uv.z), search_lod).r;
+
+				if (mean > 0.0 && mean * (1.0 + ]] .. data_block .. [[.bvh_oct_bias) < light_oct_receiver_depth(tap, to_pos, normal, dist)) {
+					blocker_sum += 1.0 / max(mean, 0.05);
+					blocker_count += 1.0;
+				}
+			}
+
+			if (blocker_count == 0.0) return sharp;
+
+			float penumbra = source_radius * max(blocker_sum / blocker_count - 1.0 / dist, 0.0);
+			float lod = clamp(log2(penumbra * tap_spread / texel_angle) - 1.0, 0.0, max_lod);
+			float tap_bleed = bleed * clamp((4.0 - penumbra / texel_angle) / 3.0, 0.0, 1.0);
+			float visibility = 0.0;
+
+			for (int k = 0; k < LIGHT_OCCL_TAPS; k++) {
+				float angle = float(k) * 2.39996323;
+				vec2 tap = light_oct_wrap(uv.xy + vec2(cos(angle), sin(angle)) * sqrt((float(k) + 0.5) / float(LIGHT_OCCL_TAPS)) * penumbra / angle_per_uv);
+				visibility += light_oct_chebyshev(textureLod(light_oct_map, vec3(tap, uv.z), lod).rg, light_oct_receiver_depth(tap, to_pos, normal, dist), tap_bleed);
+			}
+
+			return visibility / float(LIGHT_OCCL_TAPS);
 		}
 	]]
 		)

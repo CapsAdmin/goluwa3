@@ -269,7 +269,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			if (type == 0) {
 				if (i == ]] .. block_name .. [[.shadows.directional_shadow_light_index && ]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0) return calculateShadow(position, L, L);
 			} else if (type == 1 || type == 3) {
-				return light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light_position, light_range, position);
+				return light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light_position, light_range, position, ]] .. block_name .. [[.lights[i].direction.w, vec3(0.0));
 			}
 
 			return 1.0;
@@ -347,7 +347,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L) * shadow_facing;
 					screen_marchable = false;
 				} else if (type == 1 || type == 3) {
-					shadow_factor = light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
+					shadow_factor = light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos, light.direction.w, shadow_N);
 
 					if (scatter_floor <= 0.0 && brightest * shadow_factor * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 

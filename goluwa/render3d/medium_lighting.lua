@@ -58,7 +58,7 @@ function medium_lighting.GetLightVisibilityGLSL(data_block)
 		}
 
 		float get_medium_light_visibility(int i, lights_t light, vec3 world_pos, vec3 L) {
-			float occlusion = light_oct_shadow_factor(]] .. data_block .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
+			float occlusion = light_oct_shadow_factor(]] .. data_block .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos, 0.0, vec3(0.0));
 
 			if (occlusion <= 0.0) return 0.0;
 
