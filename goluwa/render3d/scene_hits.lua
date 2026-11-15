@@ -257,7 +257,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			shared and
 			"" or
 			gi.GetCommonGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. scene_lights.GetLightGLSLCode()
-		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. ibl.GetEONAlbedoGLSL() .. (
+		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. ibl.GetEONGLSL() .. (
 			shared and
 			"" or
 			optical_rays.GetGLSL()
@@ -418,13 +418,14 @@ function scene_hits.GetGLSL(block_name, shared)
 
 			albedo = ray_medium_albedo(material, albedo);
 			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive) : vec3(0.0);
-			albedo = EON_directional_albedo(albedo, clamp(hit_roughness, 0.045, 1.0), max(dot(hit_N, -dir), 1e-4));
+			hit_roughness = clamp(hit_roughness, 0.045, 1.0);
+			float hit_NoV = max(dot(hit_N, -dir), 1e-4);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 
 			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_hit_visible(surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
 				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359) * get_cloud_shadow(P) * ddgi_ground_fog_sun_transmittance(fog_altitude, sun_L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
+				vec3 sun_radiance = Fd_EON(albedo, hit_roughness, sun_NoL, hit_NoV, dot(sun_L, -dir)) * ddgi_data.ddgi_sun_radiance.rgb * sun_NoL * get_cloud_shadow(P) * ddgi_ground_fog_sun_transmittance(fog_altitude, sun_L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
 
 				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
 
@@ -465,7 +466,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 						if (NoL <= 0.0) continue;
 
-						vec3 contribution = albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
+						vec3 contribution = Fd_EON(albedo, hit_roughness, NoL, hit_NoV, dot(L, -dir)) * light.color.rgb * light.color.a * attenuation * NoL;
 						float weight = max(max(contribution.r, contribution.g), contribution.b);
 
 						if (weight <= 0.0) continue;
@@ -523,7 +524,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					if (NoL <= 0.0) continue;
 
-					vec3 contribution = albedo * light.color.rgb * light.color.a * attenuation * (NoL / 3.14159265359);
+					vec3 contribution = Fd_EON(albedo, hit_roughness, NoL, hit_NoV, dot(L, -dir)) * light.color.rgb * light.color.a * attenuation * NoL;
 					float light_weight = scene_hit_light_weight(contribution, P, i);
 
 					if (light_weight == 0.0) continue;
@@ -546,7 +547,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			#ifdef SCENE_HIT_SCREEN_GI
 			vec3 screen_gi;
 
-			if (scene_hit_screen_gi(P, hit_N, t, screen_gi)) return radiance + albedo * screen_gi;
+			if (scene_hit_screen_gi(P, hit_N, t, screen_gi)) return radiance + EON_directional_albedo(albedo, hit_roughness, hit_NoV) * screen_gi;
 			#endif
 
 			#ifdef SCENE_HIT_GI_SHARE
@@ -576,7 +577,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			gi.rgb /= SCENE_HIT_GI_SHARE;
 			#endif
 
-			return radiance + albedo * gi.rgb;
+			return radiance + EON_directional_albedo(albedo, hit_roughness, hit_NoV) * gi.rgb;
 		}
 
 		vec3 trace_scene_radiance(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
