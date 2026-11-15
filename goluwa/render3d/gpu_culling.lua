@@ -300,6 +300,8 @@ function gpu_culling.PrepareMainViewHiZ(cmd)
 		cmd:PipelineBarrier(buffer.mip_barriers[mip_level + 1])
 	end
 
+	local camera = render3d.GetCamera()
+	buffer.view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()
 	buffer.built = true
 	state.latest = buffer
 	state.write_index = (state.write_index % HIZ_BUFFER_COUNT) + 1

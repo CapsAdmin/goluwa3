@@ -408,6 +408,7 @@ local DRAW_DECLARATIONS = [[
 ]]
 local cull_pipeline
 local state = {}
+local view_projection_scratch = ffi.new("float[16]")
 local args_ring
 local create_cull_pipeline
 
@@ -436,7 +437,9 @@ function create_cull_pipeline()
 			{"count", "int"},
 			{"capacity", "int"},
 			{"frustum_planes", "vec4", 6},
-			{"view_projection", "mat4"},
+			{"view_w_row", "vec4"},
+			{"view_y_row", "vec4"},
+			{"hiz_view_projection", "mat4"},
 			{"viewport_height", "float"},
 			{"lod_forced", "int"},
 			{"lod_scale", "float"},
@@ -456,7 +459,16 @@ function create_cull_pipeline()
 			block.count = state.count
 			block.capacity = state.capacity
 			ffi.copy(block.frustum_planes, state.planes, ffi.sizeof("float") * 24)
-			state.view_projection:CopyToFloatPointer(block.view_projection)
+			state.view_projection:CopyToFloatPointer(view_projection_scratch)
+			block.view_w_row[0] = view_projection_scratch[3]
+			block.view_w_row[1] = view_projection_scratch[7]
+			block.view_w_row[2] = view_projection_scratch[11]
+			block.view_w_row[3] = view_projection_scratch[15]
+			block.view_y_row[0] = view_projection_scratch[1]
+			block.view_y_row[1] = view_projection_scratch[5]
+			block.view_y_row[2] = view_projection_scratch[9]
+			local hiz_vp = state.occlusion_view_projection or state.view_projection
+			hiz_vp:CopyToFloatPointer(block.hiz_view_projection)
 			block.viewport_height = state.viewport_height
 			block.lod_forced = lod.GetForcedLevel()
 			block.lod_scale = lod.GetScale()
@@ -514,7 +526,7 @@ function create_cull_pipeline()
 
 				for (int i = 0; i < 8; ++i) {
 					vec3 corner = vec3((i & 1) != 0 ? raster.box_max.x : raster.box_min.x, (i & 2) != 0 ? raster.box_max.y : raster.box_min.y, (i & 4) != 0 ? raster.box_max.z : raster.box_min.z);
-					vec4 clip = compute.view_projection * vec4(corner, 1.0);
+					vec4 clip = compute.hiz_view_projection * vec4(corner, 1.0);
 
 					if (clip.w <= 0.0) return false;
 
@@ -590,11 +602,10 @@ function create_cull_pipeline()
 					) return;
 
 					if (!inside && compute.viewport_height > 0.0 && inst.bounds.w > 0.0) {
-						vec4 clip = compute.view_projection * vec4(inst.bounds.xyz, 1.0);
+						float clip_w = dot(compute.view_w_row, vec4(inst.bounds.xyz, 1.0));
 
-						if (clip.w > 0.0) {
-							vec3 clip_y_row = vec3(compute.view_projection[0][1], compute.view_projection[1][1], compute.view_projection[2][1]);
-							float projected_radius_px = length(clip_y_row) * inst.bounds.w * compute.viewport_height / max(clip.w * 2.0, 1e-5);
+						if (clip_w > 0.0) {
+							float projected_radius_px = length(compute.view_y_row.xyz) * inst.bounds.w * compute.viewport_height / max(clip_w * 2.0, 1e-5);
 
 							if (projected_radius_px * 2.0 < 1.0) return;
 						}
@@ -958,6 +969,7 @@ function draw.Cull(
 		state.viewport_height = viewport_height
 		state.culling = culling_enabled
 		state.occlusion_max_mip = hiz and hiz.max_mip or nil
+		state.occlusion_view_projection = hiz and hiz.view_projection or nil
 		cmd:FillBuffer(buffers.counts, 0, buffers.counts.size, 0)
 		cmd:FillBuffer(buffers.group_counts, 0, buffers.group_counts.size, 0)
 		cmd:PipelineBarrier{
