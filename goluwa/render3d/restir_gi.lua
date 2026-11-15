@@ -22,7 +22,9 @@ restir_gi.resolution = pvars.Setup2{
 			"restir_gi_temporal",
 			"restir_gi_spatial",
 			"restir_gi_accumulate",
-			"restir_gi_blur",
+			"restir_gi_filter_0",
+			"restir_gi_filter_1",
+			"restir_gi_filter_2",
 			"restir_gi_filter",
 		} do
 			pipelines[name]:RecreateFramebuffers()
@@ -123,21 +125,12 @@ restir_gi.light_change = pvars.Setup2{
 restir_gi.filter = pvars.Setup2{
 	key = "restir_gi_filter",
 	default = true,
-	help = "the denoiser's spatial filter, wide where the history is short and narrowing as frames add up",
+	help = "the denoiser's spatial filter: a-trous passes stopped by plane, normal and a luminance difference beyond the pixel's noise, so a noisy pixel blurs wide and a settled one keeps its detail",
 }
-restir_gi.filter_radius = pvars.Setup2{
-	key = "restir_gi_filter_radius",
-	default = 24,
-	min = 1,
-	max = 32,
-	help = "radius in gi pixels of the spatial filter on a pixel with no history",
-}
-restir_gi.filter_history = pvars.Setup2{
-	key = "restir_gi_filter_history",
-	default = 8,
-	min = 1,
-	max = 100,
-	help = "frames of history after which the spatial filter is off: its radius falls from restir_gi_filter_radius on a pixel with no history to nothing here, so only what the camera just revealed is blurred and settled surfaces keep their detail",
+restir_gi.filter_luminance = pvars.Setup2{
+	key = "restir_gi_filter_luminance",
+	default = 4,
+	help = "how many standard deviations of a pixel's estimate a neighbour may differ by and still be blurred in, higher blurs noisy areas wider and loses more contrast",
 }
 restir_gi.debug = pvars.Setup2{
 	key = "restir_gi_debug",

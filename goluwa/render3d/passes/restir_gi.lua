@@ -27,7 +27,13 @@ local function attachment(pipeline_name, framebuffer, index)
 	return render3d.pipelines[pipeline_name]:GetFramebuffer(framebuffer):GetAttachment(index)
 end
 
-local function restir_uniform(trace)
+local FILTER_ITERATIONS = 4
+
+local function filter_name(iteration)
+	return iteration == FILTER_ITERATIONS - 1 and "restir_gi_filter" or "restir_gi_filter_" .. iteration
+end
+
+local function restir_uniform(trace, filter_iteration)
 	local layout = {
 		render3d.camera_block,
 		gbuffer_layout.block,
@@ -46,7 +52,9 @@ local function restir_uniform(trace)
 		{"changed_light_count", "int"},
 		{"changed_lights", "vec4", restir_gi.MAX_CHANGED_LIGHTS},
 		{"changed_light_intensities", "vec4", restir_gi.MAX_CHANGED_LIGHTS},
-		{"filter_history", "float"},
+		{"filter_luminance", "float"},
+		{"filter_source_tex", "int"},
+		{"filter_step", "int"},
 		{"hit_gi_share", "float"},
 		{"guided", "float"},
 		{"ray_share", "int"},
@@ -58,7 +66,6 @@ local function restir_uniform(trace)
 		{"validation", "int"},
 		{"accumulation", "float"},
 		{"filter_enabled", "int"},
-		{"filter_radius", "float"},
 		{"reservoir_a_tex", "int"},
 		{"reservoir_b_tex", "int"},
 		{"reservoir_c_tex", "int"},
@@ -79,7 +86,6 @@ local function restir_uniform(trace)
 		{"accum_moments_tex", "int"},
 		{"accum_history_tex", "int"},
 		{"accum_history_moments_tex", "int"},
-		{"blur_tex", "int"},
 	}
 
 	if trace then
@@ -148,7 +154,7 @@ local function restir_uniform(trace)
 				block.changed_light_intensities[i - 1][0] = light.intensity
 			end
 
-			block.filter_history = restir_gi.filter_history:Get()
+			block.filter_luminance = restir_gi.filter_luminance:Get()
 			block.hit_gi_share = restir_gi.hit_gi_share:Get()
 			block.guided = restir_gi.guided:Get()
 			block.ray_share = restir_gi.GetRayShare()
@@ -160,7 +166,6 @@ local function restir_uniform(trace)
 			block.validation = restir_gi.validation:Get() and 1 or 0
 			block.accumulation = restir_gi.accumulation:Get()
 			block.filter_enabled = restir_gi.filter:Get() and 1 or 0
-			block.filter_radius = restir_gi.filter_radius:Get()
 			block.reservoir_a_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 1))
 			block.reservoir_b_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 2))
 			block.reservoir_c_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 3))
@@ -185,7 +190,11 @@ local function restir_uniform(trace)
 			block.accum_moments_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", current, 2))
 			block.accum_history_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 1))
 			block.accum_history_moments_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 2))
-			block.blur_tex = self:GetTextureIndex(attachment("restir_gi_blur", 1, 1))
+
+			if filter_iteration then
+				block.filter_step = 2 ^ filter_iteration
+				block.filter_source_tex = self:GetTextureIndex(filter_iteration == 0 and attachment("restir_gi_accumulate", current, 1) or attachment(filter_name(filter_iteration - 1), 1, 1))
+			end
 
 			if trace then
 				scene_hits.WriteBlock(self, block)
@@ -1228,16 +1237,18 @@ local function pass_accumulate()
 	}
 end
 
-local function pass_filter(name, source_field, radius_scale, seed)
+-- a-trous passes with growing steps over the accumulated estimate, each tap stopped by the plane, the normal and a luminance difference beyond the pixel's standard deviation (of the accumulated mean, carried in alpha between the passes), so a noisy pixel blurs wide and a settled one keeps its detail
+local function pass_filter(iteration)
+	local last = iteration == FILTER_ITERATIONS - 1
 	return {
-		name = name,
+		name = filter_name(iteration),
 		ComputePass = true,
 		ColorFormat = {
 			{
 				"r16g16b16a16_sfloat",
-				{name, "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+				{filter_name(iteration), "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
-			{"r16g16b16a16_sfloat", {name .. "_geometry", "rgb"}},
+			{"r16g16b16a16_sfloat", {filter_name(iteration) .. "_geometry", "rgb"}},
 		},
 		framebuffer_count = 1,
 		scale = restir_gi.GetScale,
@@ -1246,15 +1257,29 @@ local function pass_filter(name, source_field, radius_scale, seed)
 			{binding_index = 0, attachment = 1, dst_stage = {"compute", "fragment"}},
 			{binding_index = 1, attachment = 2, dst_stage = {"compute", "fragment"}},
 		},
-		uniform_buffers = {restir_uniform(false)},
+		uniform_buffers = {restir_uniform(false, iteration)},
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_geometry;
 		]],
 		shader = SURFACE_GLSL .. [[
+			#define RESTIR_FILTER_FIRST ]] .. (iteration == 0 and "1" or "0") .. [[
 
-			#define RESTIR_FILTER_TAPS 16
-			#define RESTIR_FILTER_SOURCE restir_data.]] .. source_field .. [[
+			#define RESTIR_FILTER_LAST ]] .. (last and "1" or "0") .. [[
+
+			float restir_filter_deviation(ivec2 q, vec4 value) {
+				#if RESTIR_FILTER_FIRST
+				vec3 moments = texelFetch(TEXTURE(restir_data.accum_moments_tex), q, 0).xyz;
+				float history_length = max(moments.x, 1.0);
+
+				// the temporal variance means little with a few frames of history
+				if (history_length < 4.0) return luminance(value.rgb);
+
+				return sqrt(max(moments.z - moments.y * moments.y, 0.0) / history_length);
+				#else
+				return value.a;
+				#endif
+			}
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -1274,51 +1299,63 @@ local function pass_filter(name, source_field, radius_scale, seed)
 					return;
 				}
 
-				vec4 center = texelFetch(TEXTURE(RESTIR_FILTER_SOURCE), pos, 0);
-				vec4 result = center;
+				vec4 center = texelFetch(TEXTURE(restir_data.filter_source_tex), pos, 0);
+				float deviation = restir_filter_deviation(pos, center);
+				vec3 result = center.rgb;
+				float result_deviation = deviation;
 
-				if (restir_data.filter_enabled != 0 && texelFetch(TEXTURE(restir_data.accum_moments_tex), pos, 0).x < restir_data.filter_history + 1.0) {
-					vec3 moments = texelFetch(TEXTURE(restir_data.accum_moments_tex), pos, 0).xyz;
-					float history_length = max(moments.x, 1.0);
+				if (restir_data.filter_enabled != 0) {
 					float center_luminance = luminance(center.rgb);
-					// the temporal variance means little with a few frames of history
-					float luminance_scale = history_length < 4.0 ? 0.0 : 1.0 / (4.0 * sqrt(max(moments.z - moments.y * moments.y, 0.0)) + 0.1 * center_luminance + 1e-6);
-					float radius = restir_data.filter_radius * ]] .. radius_scale .. [[ * saturate(1.0 - (history_length - 1.0) / restir_data.filter_history);
-					float turn = restir_random(pos, ]] .. seed .. [[u) * 6.28318530718;
+					float luminance_tolerance = restir_data.filter_luminance * deviation + 0.01 * center_luminance + 1e-6;
 					float plane_tolerance = 0.01 + 0.01 * view_depth;
-					vec4 sum = center;
-					float total = 1.0;
+					vec3 sum = vec3(0.0);
+					float total = 0.0;
+					float variance = 0.0;
 
-					for (int k = 0; k < RESTIR_FILTER_TAPS; k++) {
-						float angle = turn + float(k) * 2.39996323;
-						ivec2 q = pos + ivec2(round(vec2(cos(angle), sin(angle)) * sqrt((float(k) + 0.5) / float(RESTIR_FILTER_TAPS)) * radius));
+					for (int y = -1; y <= 1; y++) {
+						for (int x = -1; x <= 1; x++) {
+							ivec2 q = pos + ivec2(x, y) * restir_data.filter_step;
 
-						if (q == pos || any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) continue;
+							if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) continue;
 
-						ivec2 q_gpos;
-						vec3 q_P;
-						vec3 q_N;
-						float q_view_depth;
-						float q_depth;
+							float w = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25);
+							vec4 value = center;
 
-						if (!restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth)) continue;
+							if (q != pos) {
+								ivec2 q_gpos;
+								vec3 q_P;
+								vec3 q_N;
+								float q_view_depth;
+								float q_depth;
 
-						vec4 value = texelFetch(TEXTURE(RESTIR_FILTER_SOURCE), q, 0);
+								if (!restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth)) continue;
 
-						if (any(isnan(value))) continue;
+								value = texelFetch(TEXTURE(restir_data.filter_source_tex), q, 0);
 
-						float w = exp(-abs(dot(N, q_P - P)) / plane_tolerance - abs(luminance(value.rgb) - center_luminance) * luminance_scale) * pow(max(dot(N, q_N), 0.0), 16.0);
+								if (any(isnan(value))) continue;
 
-						if (w <= 1e-4) continue;
+								w *= exp(-abs(dot(N, q_P - P)) / plane_tolerance - abs(luminance(value.rgb) - center_luminance) / luminance_tolerance) * pow(max(dot(N, q_N), 0.0), 16.0);
 
-						sum += value * w;
-						total += w;
+								if (w <= 1e-5) continue;
+							}
+
+							float q_deviation = q == pos ? deviation : restir_filter_deviation(q, value);
+							sum += value.rgb * w;
+							variance += w * w * q_deviation * q_deviation;
+							total += w;
+						}
 					}
 
 					result = sum / total;
+					result_deviation = sqrt(variance) / total;
 				}
 
-				imageStore(out_color, pos, min(result, vec4(65000.0)));
+				// the last pass hands the lighting the accumulated alpha (sky visibility), the others carry the deviation in it
+				#if RESTIR_FILTER_LAST
+				imageStore(out_color, pos, min(vec4(result, texelFetch(TEXTURE(restir_data.accum_tex), pos, 0).a), vec4(65000.0)));
+				#else
+				imageStore(out_color, pos, min(vec4(result, result_deviation), vec4(65000.0)));
+				#endif
 				imageStore(out_geometry, pos, vec4(N, view_depth));
 			}
 		]],
@@ -1332,6 +1369,8 @@ return {
 	pass_temporal(),
 	pass_spatial(),
 	pass_accumulate(),
-	pass_filter("restir_gi_blur", "accum_tex", "1.0", "40"),
-	pass_filter("restir_gi_filter", "blur_tex", "0.5", "41"),
+	pass_filter(0),
+	pass_filter(1),
+	pass_filter(2),
+	pass_filter(3),
 }
