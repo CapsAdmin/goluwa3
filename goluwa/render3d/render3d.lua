@@ -356,6 +356,7 @@ local default_passes = {
 	{"restir_gi", "goluwa/render3d/passes/restir_gi.lua", gi = "restir"},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"fluid_volumes", "goluwa/render3d/passes/fluid_volumes.lua"},
+	{"ray_shadows", "goluwa/render3d/passes/ray_shadows.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"path_trace", "goluwa/render3d/passes/path_trace.lua", optional = true},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},

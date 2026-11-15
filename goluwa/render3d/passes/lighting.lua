@@ -201,6 +201,10 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
+					if render3d.IsPassEnabled("ray_shadows") then
+						block.ray_shadow_tex = self:GetTextureIndex(render3d.pipelines.ray_shadow_filter:GetFramebuffer(1):GetAttachment(1))
+					end
+
 					ibl.WriteReflectionWeightBlock(block, gi.IsPerPixel())
 					local overlay = gi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
@@ -460,6 +464,11 @@ return {
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 				in_uv = get_compute_uv();
 				in_pixel = pos;
+				]] .. (
+				optical_rays.RAY_QUERY and
+				"ray_shadow_pixel = pos;" or
+				""
+			) .. [[
 
 				float depth = gbuffer_depth(in_uv);
 

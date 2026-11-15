@@ -38,6 +38,7 @@ local ray_shadow_samples = pvars.Setup2{
 }
 pvars.EndGroup()
 surface_lighting.PASS_PATHS = {
+	"goluwa/render3d/passes/ray_shadows.lua",
 	"goluwa/render3d/passes/lighting.lua",
 	"goluwa/render3d/passes/translucent.lua",
 	"goluwa/render3d/passes/path_trace.lua",
@@ -73,6 +74,7 @@ surface_lighting.block = {
 	{"ray_shadow_samples", "int"},
 	{"ray_shadow_noise_tex", "int"},
 	{"ray_shadow_frame", "int"},
+	{"ray_shadow_tex", "int"},
 	{"medium_slots", "vec4", (
 		media.MAX_SLOTS + 1
 	) * media.SLOT_STRIDE},
@@ -137,6 +139,7 @@ function surface_lighting.WriteBlock(self, block)
 		)
 	)
 	block.ray_shadow_frame = render3d.GetTemporalFrame()
+	block.ray_shadow_tex = -1
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
@@ -148,6 +151,10 @@ function surface_lighting.WriteBlock(self, block)
 	media.WriteSlots(block.medium_slots)
 	post_source.WritePreExposureBlock(self, block)
 	return block
+end
+
+function surface_lighting.UsesRayShadows()
+	return ray_shadows:Get()
 end
 
 function surface_lighting.GetDeclarationGLSL(grid_binding, occlusion_binding)
@@ -264,9 +271,22 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 				return visible / float(samples);
 			}
+
+			ivec2 ray_shadow_pixel = ivec2(-1);
+
+			float get_ray_shadow_factor(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
+				if (ray_shadow_pixel.x < 0 || ]] .. block_name .. [[.ray_shadow_tex < 0) return get_ray_shadow_visibility(i, type, light, P, N, L);
+
+				vec4 filtered = texelFetch(TEXTURE(]] .. block_name .. [[.ray_shadow_tex), ray_shadow_pixel, 0);
+				return type == 0 ? filtered.r : filtered.g;
+			}
 			]] or
 			[[
 			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
+				return 1.0;
+			}
+
+			float get_ray_shadow_factor(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
 				return 1.0;
 			}
 			]]
@@ -389,6 +409,47 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			return 1.0;
 		}
 
+		#if SURFACE_RAY_SHADOWS
+		vec4 trace_ray_shadows(vec3 P, vec3 N, vec3 geometric_N, bool lit_from_behind) {
+			vec4 sums = vec4(0.0);
+			int light_cell = light_grid_cell(P);
+
+			for (int w = 0; w < light_grid_words(]] .. block_name .. [[.light_count); w++) {
+				uint light_bits = light_grid_word(light_cell, w, ]] .. block_name .. [[.light_count);
+
+				while (light_bits != 0u) {
+					int i = w * 32 + findLSB(light_bits);
+					light_bits &= light_bits - 1u;
+					lights_t light = ]] .. block_name .. [[.lights[i];
+					int type = get_light_type(light);
+					vec3 L;
+					float attenuation = 1.0;
+
+					if (!get_light_vector_and_attenuation(light, P, L, attenuation)) continue;
+
+					float NoL = dot(N, L);
+
+					if (NoL <= 0.0 && !lit_from_behind) continue;
+
+					vec3 radiance = light.color.rgb * light.color.a * attenuation;
+					float weight = max(max(radiance.r, radiance.g), radiance.b) * max(abs(NoL), 0.05);
+
+					if (weight * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
+
+					float visible = get_ray_shadow_visibility(i, type, light, P, geometric_N, L) * weight;
+
+					if (type == 0) {
+						sums.xz += vec2(visible, weight);
+					} else {
+						sums.yw += vec2(visible, weight);
+					}
+				}
+			}
+
+			return vec4(sums.z > 0.0 ? sums.x / sums.z : 1.0, sums.w > 0.0 ? sums.y / sums.w : 1.0, sums.z > 0.0 ? 1.0 : 0.0, sums.w > 0.0 ? 1.0 : 0.0);
+		}
+		#endif
+
 		vec3 get_direct_light(in Surface s, out vec3 specular)
 		{
 			vec3 diffuse = vec3(0.0);
@@ -439,7 +500,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				bool screen_marchable = true;
 
 				#if SURFACE_RAY_SHADOWS
-				shadow_factor = get_ray_shadow_visibility(i, type, light, s.world_pos, shadow_N, L) * (type == 0 || type == 2 ? shadow_facing : 1.0);
+				shadow_factor = get_ray_shadow_factor(i, type, light, s.world_pos, shadow_N, L) * (type == 0 || type == 2 ? shadow_facing : 1.0);
 				screen_marchable = false;
 
 				if (type == 0 && shadow_factor > 0.0) shadow_factor *= get_cloud_shadow(s.world_pos);
