@@ -70,7 +70,7 @@ local shared_glsl = [[
 			#define REFLECTION_SPATIAL_NORMAL_POWER 32.0
 			#define REFLECTION_FILTER_TAPS 16
 			#define REFLECTION_PIXEL_CANDIDATES 4
-			#define REFLECTION_EMITTER_CANDIDATES 4
+			#define REFLECTION_EMITTER_CANDIDATES 2
 			ivec2 reflection_size;
 			ivec2 gbuffer_size;
 			vec4 inv_projection_row_z;
