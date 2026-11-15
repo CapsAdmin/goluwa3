@@ -723,6 +723,29 @@ function render3d.RebuildPipelineBundle(bundle)
 	collectgarbage()
 end
 
+function render3d.ReloadPasses(paths)
+	local fresh = {}
+
+	for _, path in ipairs(paths) do
+		local old = import.loaded[path]
+
+		if old then
+			import.loaded[path] = nil
+			fresh[old] = import(path)
+		end
+	end
+
+	for bundle in pairs(render3d.bundles) do
+		for i, pass in ipairs(bundle.options.passes or {}) do
+			if fresh[pass] then bundle.options.passes[i] = fresh[pass] end
+		end
+
+		local ok, err = pcall(render3d.RebuildPipelineBundle, bundle)
+
+		if not ok then logn("failed to rebuild pipelines: ", err) end
+	end
+end
+
 function render3d.RebuildPipeline(bundle, name)
 	local options = table.shallow_copy(bundle.options)
 	options.include_names = {[name] = true}

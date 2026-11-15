@@ -15,7 +15,32 @@ local surface_features = import("goluwa/render3d/surface_features.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local surface_lighting = {}
+pvars.StartGroup("Lighting", "Ray traced shadows", {store = false, prefix = "r_ray_shadow_"})
+local ray_shadows = pvars.Setup2{
+	key = "r_ray_shadows",
+	friendly = "enabled",
+	default = false,
+	help = "shadow every light with rays toward a point on the light (the sun's disc, a sphere of the light's source radius) instead of shadow maps, light occlusion maps and screen space shadows. built into the lighting shaders",
+	callback = function(value, initial)
+		if initial then return end
+
+		render3d.ReloadPasses(surface_lighting.PASS_PATHS)
+	end,
+}
+local ray_shadow_samples = pvars.Setup2{
+	key = "r_ray_shadow_samples",
+	default = 1,
+	integer = true,
+	help = "rays per light and pixel toward a light with a size, a light without one always takes one",
+}
+pvars.EndGroup()
+surface_lighting.PASS_PATHS = {
+	"goluwa/render3d/passes/lighting.lua",
+	"goluwa/render3d/passes/translucent.lua",
+	"goluwa/render3d/passes/path_trace.lua",
+}
 surface_lighting.block = {
 	render3d.camera_block,
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
@@ -44,6 +69,7 @@ surface_lighting.block = {
 	{"medium_porosity_high", "float"},
 	{"medium_noise_phase", "float"},
 	{"medium_local_thickness", "float"},
+	{"ray_shadow_samples", "int"},
 	{"medium_slots", "vec4", (
 		media.MAX_SLOTS + 1
 	) * media.SLOT_STRIDE},
@@ -100,6 +126,7 @@ function surface_lighting.WriteBlock(self, block)
 		and
 		1 or
 		0
+	block.ray_shadow_samples = ray_shadow_samples:Get()
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
@@ -118,7 +145,14 @@ function surface_lighting.GetDeclarationGLSL(grid_binding, occlusion_binding)
 end
 
 function surface_lighting.GetGLSL(block_name, ray_queries)
-	return atmosphere.GetGLSLDefines(block_name, block_name .. ".primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. post_source.GetPreExposureGLSL(block_name) .. [[
+	return "#define SURFACE_RAY_SHADOWS " .. (
+			(
+				ray_queries and
+				ray_shadows:Get()
+			) and
+			"1" or
+			"0"
+		) .. "\n" .. atmosphere.GetGLSLDefines(block_name, block_name .. ".primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. post_source.GetPreExposureGLSL(block_name) .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 
 		]] .. ibl.GetEnvironmentGLSLCode() .. [[
@@ -157,6 +191,71 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			"return 1.0;"
 		) .. [[
 		}
+
+		]] .. (
+			ray_queries and
+			ray_materials.GetShadowRayGLSL() .. [[
+			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
+				vec4 clip = ]] .. block_name .. [[.projection * (]] .. block_name .. [[.view * vec4(P, 1.0));
+				vec2 pixel = floor((clip.xy / clip.w * 0.5 + 0.5) * ]] .. block_name .. [[.render_size) + ]] .. block_name .. [[.noise_phase * 9.04165 + float(i) * 5.588238;
+				vec3 origin = P + (dot(N, L) < 0.0 ? -N : N) * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(P, ]] .. block_name .. [[.camera_position));
+				vec3 axis = L;
+				float one_minus_cos = 0.0;
+				float center_distance = 0.0;
+
+				if (type == 0) {
+					one_minus_cos = 1.0 - cos(SUN_ANGULAR_RADIUS);
+				} else if (type != 2) {
+					center_distance = distance(light.position.xyz, origin);
+					axis = (light.position.xyz - origin) / center_distance;
+					float radius = light.direction.w;
+
+					if (radius > 0.0 && center_distance > radius) {
+						float sin2 = radius * radius / (center_distance * center_distance);
+						one_minus_cos = sin2 / (1.0 + sqrt(1.0 - sin2));
+					}
+				}
+
+				vec3 T = normalize(cross(abs(axis.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), axis));
+				vec3 B = cross(axis, T);
+				int samples = one_minus_cos > 0.0 ? ]] .. block_name .. [[.ray_shadow_samples : 1;
+				float visible = 0.0;
+
+				for (int k = 0; k < samples; k++) {
+					vec2 xi = fract(vec2(
+						52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))),
+						52.9829189 * fract(dot(pixel.yx + vec2(17.0, 31.0), vec2(0.06711056, 0.00583715)))
+					) + float(k) * vec2(0.7548777, 0.5698403));
+					float cone = xi.x * one_minus_cos;
+					float sin_theta = sqrt(max(cone * (2.0 - cone), 0.0));
+					float phi = 6.2831853 * xi.y;
+					vec3 dir = normalize(T * (sin_theta * cos(phi)) + B * (sin_theta * sin(phi)) + axis * (1.0 - cone));
+					float dist;
+
+					if (type == 0) {
+						dist = 1e6;
+					} else if (type == 2) {
+						dist = light.params.x;
+					} else if (one_minus_cos > 0.0) {
+						vec3 to_center = light.position.xyz - origin;
+						float along = dot(to_center, dir);
+						dist = along - sqrt(max(along * along - dot(to_center, to_center) + light.direction.w * light.direction.w, 0.0)) - 0.05 * ]] .. block_name .. [[.view_scale;
+					} else {
+						dist = center_distance - 0.05 * ]] .. block_name .. [[.view_scale;
+					}
+
+					if (dist <= 0.0 || ray_shadow_visible(origin, dir, dist, type == 0 ? 0u : ]] .. string.format("0x%02Xu", scene_instances.MASK_LIGHT_BODY) .. [[)) visible += 1.0;
+				}
+
+				return visible / float(samples);
+			}
+			]] or
+			[[
+			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
+				return 1.0;
+			}
+			]]
+		) .. [[
 
 		float get_medium_assumed_thickness(vec3 P) {
 			return ]] .. block_name .. [[.medium_thickness + max(P.y - ]] .. block_name .. [[.medium_base_height, 0.0) * ]] .. block_name .. [[.medium_thickness_per_height;
@@ -322,6 +421,14 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				float LoH = saturate(dot(L, H));
 
 				float shadow_factor = 1.0;
+				bool screen_marchable = true;
+
+				#if SURFACE_RAY_SHADOWS
+				shadow_factor = get_ray_shadow_visibility(i, type, light, s.world_pos, shadow_N, L) * (type == 0 || type == 2 ? shadow_facing : 1.0);
+				screen_marchable = false;
+
+				if (type == 0 && shadow_factor > 0.0) shadow_factor *= get_cloud_shadow(s.world_pos);
+				#else
 				if (
 					i == ]] .. block_name .. [[.shadows.directional_shadow_light_index &&
 					]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 &&
@@ -334,8 +441,6 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
 					}
 				}
-
-				bool screen_marchable = true;
 
 				if (type == 0) {
 					if (shadow_factor > 0.0) shadow_factor *= get_cloud_shadow(s.world_pos);
@@ -358,6 +463,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 						screen_marchable = false;
 					}
 				}
+				#endif
 
 				#ifdef SHADOW_SCREEN_SPACE
 				#define SCREEN_SHADOW_MIN_SCREEN_RADIANCE 0.002

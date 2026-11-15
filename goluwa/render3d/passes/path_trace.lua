@@ -172,15 +172,6 @@ return {
 					if (ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
 				}
 
-			bool pt_visible(vec3 origin, vec3 dir, float dist) {
-				rayQueryEXT query;
-				rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsTerminateOnFirstHitEXT, PT_MASK, origin, 0.0, dir, dist);
-
-				PT_PROCEED(query)
-
-				return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
-			}
-
 			bool pt_trace(vec3 origin, vec3 dir, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
 				rayQueryEXT query;
 				rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsNoneEXT, PT_MASK, origin, 0.0, dir, lighting_data.hit_max_distance);
@@ -334,7 +325,7 @@ return {
 
 						vec3 contribution = f * dot(v.N, L) * pt_sun_irradiance(light, v.P);
 
-						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !pt_visible(origin, L, lighting_data.hit_max_distance)) continue;
+						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !ray_shadow_visible(origin, L, lighting_data.hit_max_distance, 0u)) continue;
 
 						if (lighting_data.light_transmittance != 0) contribution *= get_light_transmittance(origin, L, OPTICAL_SUN_DISTANCE, 0.0);
 
@@ -389,7 +380,7 @@ return {
 					dist = dot(light.position.xyz - origin, L) - 0.05 * lighting_data.view_scale;
 				}
 
-				if (dist <= 0.0 || !pt_visible(origin, L, dist)) return radiance;
+				if (dist <= 0.0 || !ray_shadow_visible(origin, L, dist, ]] .. string.format("0x%02Xu", scene_instances.MASK_LIGHT_BODY) .. [[)) return radiance;
 
 				if (lighting_data.light_transmittance != 0) contribution *= get_light_transmittance_local(origin, L, dist, 0.0);
 

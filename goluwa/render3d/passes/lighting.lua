@@ -15,6 +15,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -323,7 +324,8 @@ return {
 
 			]] .. (
 				optical_rays.RAY_QUERY and
-				optical_rays.GetGLSL() or
+				optical_rays.GetGLSL() .. ray_materials.GetAlphaTestGLSL()
+				or
 				""
 			) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. ddgi.GetScreenSampleGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. [[
 

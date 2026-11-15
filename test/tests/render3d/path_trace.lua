@@ -327,3 +327,35 @@ T.Test3DRayTracing("Graphics render3d path tracer softens shadows by the light's
 		T(soft_sum)["~"](hard_sum, hard_sum * 0.1)
 	end)
 end)
+
+T.Test3DRayTracing("Graphics render3d ray traced shadows match the path traced direct light", function(draw)
+	with_scene({
+		r_pass_path_trace = true,
+		r_ray_shadows = true,
+		path_trace_bounces = 0,
+		path_trace_view = "path",
+		lighting_debug_direct = true,
+	}, function(polygon3d, created)
+		render3d.camera:SetPosition(Vec3(0, 6, 6))
+		render3d.camera:SetAngles{x = math.rad(-45), y = 0, z = 0}
+		add_slab(polygon3d, created, Vec3(-20, -1, -20), Vec3(20, 0, 20))
+		add_slab(polygon3d, created, Vec3(-1, 0, -1), Vec3(-0.5, 2, 1))
+		add_slab(polygon3d, created, Vec3(0.5, 1, -1), Vec3(1.5, 1.2, 0))
+		local light = Entity.New{
+			Name = "path_trace_light",
+			transform = {},
+			light_point = {Lumen = 30000},
+		}
+		light.transform:SetPosition(Vec3(0, 2.5, 0))
+		created[#created + 1] = light
+	end, function()
+		for _ = 1, 16 do
+			draw()
+		end
+
+		local result = path_trace.Compare()
+		T(result.path > 0)["=="](true)
+		T(result.ratio)["~"](1, 0.005)
+		T(result.relative_error < 0.01)["=="](true)
+	end)
+end)

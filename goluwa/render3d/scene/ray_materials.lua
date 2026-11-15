@@ -9,6 +9,7 @@ local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
+local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local ray_materials = {}
 ray_materials.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + fluid_volumes.MAX_VOLUMES + 2
@@ -534,6 +535,35 @@ function ray_materials.GetAlphaTestGLSL()
 			}
 
 			return alpha >= material.alpha_cutoff;
+		}
+	]]
+end
+
+function ray_materials.GetShadowRayGLSL()
+	return [[
+		bool ray_alpha_passes(uint instance, uint primitive, vec2 barycentrics);
+
+		bool ray_shadow_visible(vec3 origin, vec3 dir, float dist, uint skip_mask) {
+			float start = 0.0;
+
+			for (int attempt = 0; attempt < 8; attempt++) {
+				rayQueryEXT query;
+				rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SURFACES) .. [[, origin, start, dir, dist);
+
+				while (rayQueryProceedEXT(query)) {
+					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+
+					if ((scene_instances[candidate].mask_lod & skip_mask) == 0u && ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query);
+				}
+
+				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return true;
+
+				if ((scene_instances[uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true))].mask_lod & skip_mask) == 0u) return false;
+
+				start = rayQueryGetIntersectionTEXT(query, true) + 0.002;
+			}
+
+			return true;
 		}
 	]]
 end
