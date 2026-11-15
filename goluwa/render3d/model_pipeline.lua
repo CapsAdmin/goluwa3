@@ -996,6 +996,24 @@ do
 		return block
 	end
 
+	-- how far, in meters, the wind moves the farthest vertex of a filled record
+	function model_pipeline.GetVertexAnimationMotion(block)
+		local motion = block.MainBending * MAIN_MOTION
+
+		if block.DetailBending ~= 0 and block.BendSpeed > 0 then
+			local strength = block.BendSpeed * block.DetailFrequency
+
+			if block.DetailBending == 2 then
+				strength = strength * (block.BendHeight > 0 and block.BendHeight or 1)
+			end
+
+			local amplitude = strength < 0.5 and strength * 2 or math.sqrt(strength * 2)
+			motion = motion + DETAIL_MOTION * amplitude * math.max(block.DetailLeafAmplitude, block.DetailBranchAmplitude)
+		end
+
+		return motion
+	end
+
 	function model_pipeline.FillVertexAnimationData(block, material, polygon)
 		material = material or get_material()
 		polygon = polygon or render3d.GetCurrentPolygon3D()
@@ -1024,19 +1042,7 @@ do
 		block.DetailLeafAmplitude = material:GetBendDetailLeafAmplitude()
 		block.DetailBranchAmplitude = material:GetBendDetailBranchAmplitude()
 		block.DetailPhase = material:GetBendDetailPhase()
-		local motion = block.MainBending * MAIN_MOTION
-
-		if block.DetailBending ~= 0 and detail_speed > 0 then
-			local strength = detail_speed * block.DetailFrequency
-
-			if block.DetailBending == 2 then
-				strength = strength * (height > 0 and height or 1)
-			end
-
-			local amplitude = strength < 0.5 and strength * 2 or math.sqrt(strength * 2)
-			motion = motion + DETAIL_MOTION * amplitude * math.max(block.DetailLeafAmplitude, block.DetailBranchAmplitude)
-		end
-
+		local motion = model_pipeline.GetVertexAnimationMotion(block)
 		local pixels = still_pixels:Get()
 		block.Motion = pixels > 0 and motion / pixels or 1e9
 		block.PushBending = height > 0 and material:GetBending() or 0

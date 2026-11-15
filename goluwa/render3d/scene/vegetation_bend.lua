@@ -21,7 +21,7 @@ local enabled = pvars.Setup2{
 local max_distance = pvars.Setup2{
 	key = "r_rt_bend_distance",
 	default = 80,
-	help = "meters from the camera within which bending plants are bent in the ray traced scene, farther ones are traced at rest",
+	help = "the farthest, in meters, a bending plant is bent in the ray traced scene. nearer it is bent while the wind moves it by at least a pixel (a blade of grass only close by, a tree much farther), beyond that it is traced at rest",
 }
 pvars.EndGroup()
 local MAX_JOBS = 4096
@@ -187,10 +187,6 @@ function vegetation_bend.IsEnabled()
 	return enabled:Get()
 end
 
-function vegetation_bend.GetDistance()
-	return max_distance:Get()
-end
-
 -- a positions only copy of the mesh that the bend writes and an acceleration structure over it with the mesh's indices
 function vegetation_bend.NewRecord(mesh)
 	local positions = render.CreateBuffer{
@@ -234,11 +230,19 @@ local function animates(animation)
 end
 
 local scratch_animation = Animation()
+local MIN_PIXELS = 1
 
--- whether a part with this material and polygon moves at all in this frame's wind and pushers
-function vegetation_bend.Animates(material, polygon)
+-- how far from the camera a part with this material and polygon is bent: while the wind moves it by at least a pixel, 0 when it does not move
+function vegetation_bend.GetRange(material, polygon)
 	model_pipeline.FillVertexAnimationData(scratch_animation, material, polygon)
-	return animates(scratch_animation)
+
+	if not animates(scratch_animation) then return 0 end
+
+	local _, pixel_scale = model_pipeline.GetVertexAnimationView()
+	return math.min(
+		max_distance:Get(),
+		model_pipeline.GetVertexAnimationMotion(scratch_animation) * pixel_scale / MIN_PIXELS
+	)
 end
 
 local frame_stamp, frame_used = -1, 0
@@ -295,7 +299,6 @@ local seen = {}
 
 local function produce(cmd)
 	local camera = model_pipeline.GetVertexAnimationView()
-	local reach = max_distance:Get()
 	table.clear(seen)
 
 	if enabled:Get() then
@@ -311,9 +314,8 @@ local function produce(cmd)
 				if
 					not item.hidden and
 					item.material:HasVertexAnimation() and
-					math.sqrt(dx * dx + dy * dy + dz * dz) - data.radius <= reach and
 					instances.IsLevelShown(id, camera) and
-					vegetation_bend.Animates(item.material, item.entry.polygon3d)
+					math.sqrt(dx * dx + dy * dy + dz * dz) - data.radius <= vegetation_bend.GetRange(item.material, item.entry.polygon3d)
 				then
 					local mesh = meshes.GetRecord(item.mesh_row)
 					local record = bent[id]

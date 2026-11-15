@@ -27,6 +27,7 @@ local Part = ffi.typeof([[struct {
 	uint32_t mask_flags;
 	uint32_t bend_first;
 	uint32_t bend_count;
+	float bend_distance;
 }]])
 local BendSlot = ffi.typeof([[struct {
 	float m[12];
@@ -109,7 +110,6 @@ function create_pipeline()
 					{"counter_base", "int"},
 					{"camera", "vec4"},
 					{"max_distance", "float"},
-					{"bend_distance", "float"},
 				},
 				write = function(self, block)
 					block.region_base = range_base or 0
@@ -121,7 +121,6 @@ function create_pipeline()
 					block.camera[1] = position.y
 					block.camera[2] = position.z
 					block.max_distance = max_distance:Get()
-					block.bend_distance = vegetation_bend.GetDistance()
 					return block
 				end,
 			},
@@ -175,6 +174,7 @@ function create_pipeline()
 				uint mask_flags;
 				uint bend_first;
 				uint bend_count;
+				float bend_distance;
 			};
 
 			struct bend_slot {
@@ -239,7 +239,7 @@ function create_pipeline()
 				tlas[row].blas = meshes[p.mesh_row].blas;
 
 				// the first instances in range to ask get the bent copies, in whatever order the threads run
-				if (p.bend_count > 0u && distance(world[3].xyz, produce_data.camera.xyz) <= produce_data.bend_distance) {
+				if (p.bend_count > 0u && distance(world[3].xyz, produce_data.camera.xyz) <= p.bend_distance) {
 					uint k = atomicAdd(bend_counters[s.parts_first + j], 1u);
 
 					if (k < p.bend_count) {
@@ -344,6 +344,7 @@ local function rebuild(segment_list)
 				entry.mask_flags = mask + flags * 256
 				entry.bend_first = 0
 				entry.bend_count = 0
+				entry.bend_distance = 0
 				count = count + 1
 
 				if part.material:HasVertexAnimation() and part.polygon then
@@ -492,12 +493,13 @@ local function produce(cmd)
 	local asked = readback + ((frame + 1) % READBACK_RING) * parts.capacity
 
 	for _, entry in ipairs(bending) do
-		entry.animates = animating and vegetation_bend.Animates(entry.part.material, entry.part.polygon)
+		local range = animating and vegetation_bend.GetRange(entry.part.material, entry.part.polygon) or 0
 		local wanted = asked[entry.index]
-		entry.used = entry.animates and
+		entry.used = range > 0 and
 			math.min(#entry.records, wanted > 0 and wanted + 2 + math.floor(wanted / 4) or 1) or
 			0
 		part_rows[entry.index].bend_count = entry.used
+		part_rows[entry.index].bend_distance = range
 	end
 
 	local pipe = get_pipeline()
