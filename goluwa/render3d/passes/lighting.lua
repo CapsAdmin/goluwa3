@@ -201,7 +201,7 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
-					ibl.WriteReflectionWeightBlock(block)
+					ibl.WriteReflectionWeightBlock(block, gi.IsPerPixel())
 					local overlay = gi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 
@@ -412,14 +412,17 @@ return {
 				float sky_visibility;
 				vec3 irradiance = get_gi_irradiance(s.N, sky_visibility);
 				vec3 reflection_gi = irradiance;
+				bool traced_gi_reflection = false;
 				
 				if (lighting_data.gi_reflection_direction != 0 && lighting_data.gi_screen_specular_tex >= 0) {
 					reflection_gi = ddgi_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
+					traced_gi_reflection = lighting_data.gi_per_pixel != 0;
 				}
 				
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
 				float ambient_occlusion = screen_gi.a;
-				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.metallic, s.V, s.world_pos, sky_visibility, reflection_gi, in_uv, SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
+				// the per pixel gi's reflection is its own rays weighed by the lobe: it holds the sky and the occlusion already
+				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.metallic, s.V, s.world_pos, traced_gi_reflection ? 0.0 : sky_visibility, reflection_gi, in_uv, traced_gi_reflection ? 1.0 : SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;

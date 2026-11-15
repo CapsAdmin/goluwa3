@@ -9,8 +9,8 @@ local Color = import("goluwa/structs/color.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local gi = import("goluwa/render3d/gi.lua")
 
-local function gi_mean()
-	local downloaded = gi.GetScreenTexture():Download()
+local function gi_mean(texture)
+	local downloaded = (texture or gi.GetScreenTexture()):Download()
 	local sum = {0, 0, 0, 0}
 	local count = 0
 
@@ -87,7 +87,7 @@ T.Test3DRayTracing("Graphics render3d restir gi produces a screen gi texture ove
 	end, function()
 		T(gi.IsPerPixel())["=="](true)
 		T(gi.GetMode())["=="]("ddgi")
-		T(gi.GetScreenSpecularTexture() == nil)["=="](true)
+		T(gi.GetScreenSpecularTexture() ~= nil)["=="](true)
 
 		for _ = 1, 8 do
 			draw()
@@ -96,6 +96,8 @@ T.Test3DRayTracing("Graphics render3d restir gi produces a screen gi texture ove
 		local r, g, b, sky_visibility = gi_mean()
 		T(r + g + b > 0)["=="](true)
 		T(sky_visibility > 0.5)["=="](true)
+		local sr, sg, sb = gi_mean(gi.GetScreenSpecularTexture())
+		T(sr + sg + sb > 0)["=="](true)
 	end)
 end)
 

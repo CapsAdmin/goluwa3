@@ -16,6 +16,7 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local render = import("goluwa/render/render.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local restir_gi = import("goluwa/render3d/restir_gi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_hits.RAY_QUERY
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
@@ -208,7 +209,7 @@ local function get_uniform_buffers(with_ddgi)
 
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
 				block.trace_size[0], block.trace_size[1] = get_trace_size()
-				ibl.WriteReflectionWeightBlock(block)
+				ibl.WriteReflectionWeightBlock(block, gi.IsPerPixel())
 				local camera = render3d.GetCamera()
 				local viewport = camera:GetViewport()
 				block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w

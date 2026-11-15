@@ -20,7 +20,7 @@ local gi_fade = pvars.Setup2{
 local trace_metals = pvars.Setup2{
 	key = "reflection_trace_metals",
 	default = true,
-	help = "metals are traced at every roughness and never fall to the gi's light (a partly metallic surface by its share). a metal's look is all reflection, and the gi's light is a far wider lobe than a rough metal's (it sees the whole hemisphere around the reflection), so a rough patch on a metal would change brightness where it crosses reflection_gi_threshold",
+	help = "metals are traced at every roughness and never fall to the gi's light (a partly metallic surface by its share). a metal's look is all reflection, and the probe gi's light is a far wider lobe than a rough metal's (it sees the whole hemisphere around the reflection), so a rough patch on a metal would change brightness where it crosses reflection_gi_threshold. ignored under restir gi, whose reflection weighs its own samples by the lobe",
 }
 pvars.EndGroup()
 
@@ -35,9 +35,9 @@ ibl.reflection_weight_block = {
 	{"reflection_trace_metals", "float"},
 }
 
-function ibl.WriteReflectionWeightBlock(block)
+function ibl.WriteReflectionWeightBlock(block, gi_reflects_lobe)
 	block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
-	block.reflection_trace_metals = trace_metals:Get() and 1 or 0
+	block.reflection_trace_metals = trace_metals:Get() and not gi_reflects_lobe and 1 or 0
 end
 
 function ibl.GetReflectionWeightGLSL(uniform_name)

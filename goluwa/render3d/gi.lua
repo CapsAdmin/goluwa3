@@ -49,7 +49,7 @@ function gi.GetScreenGeometryTexture()
 end
 
 function gi.GetScreenSpecularTexture()
-	if gi.IsPerPixel() then return nil end
+	if gi.IsPerPixel() then return restir_gi.GetSpecularTexture() end
 
 	local mode = gi.GetMode()
 
