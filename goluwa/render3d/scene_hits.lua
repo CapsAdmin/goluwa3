@@ -5,6 +5,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local ibl = import("goluwa/render3d/ibl.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
@@ -256,7 +257,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			shared and
 			"" or
 			gi.GetCommonGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. scene_lights.GetLightGLSLCode()
-		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. (
+		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. ibl.GetEONAlbedoGLSL() .. (
 			shared and
 			"" or
 			optical_rays.GetGLSL()
@@ -387,6 +388,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			vec3 P = origin + dir * t;
 			vec3 surface = P + hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
 			vec3 albedo = ray_material_albedo(material, P);
+			float hit_roughness = material.roughness;
 
 			#if RT_HIT_TEXTURES
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
@@ -409,11 +411,14 @@ function scene_hits.GetGLSL(block_name, shared)
 				}
 
 				albedo = material.albedo * rgb;
+
+				if (material.roughness_tex >= 0) hit_roughness *= mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.roughness_tex), 0), cone_width))[material.roughness_channel]);
 			}
 			#endif
 
 			albedo = ray_medium_albedo(material, albedo);
 			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive) : vec3(0.0);
+			albedo = EON_directional_albedo(albedo, clamp(hit_roughness, 0.045, 1.0), max(dot(hit_N, -dir), 1e-4));
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 

@@ -424,7 +424,7 @@ return {
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
 				vec3 specular_albedo = (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y) * GGXEnergyCompensation(s.F0, envBRDF);
 				vec3 kD_ambient = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - s.metallic);
-				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * s.albedo;
+				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * EON_directional_albedo(s.albedo, s.perceptual_roughness, s.NdotV);
 
 				vec3 ambient_specular = reflection * specular_albedo;
 				ambient_specular *= mix(1.0, lighting_data.thin_specular, get_thin_feature(in_view_depth, s.geometric_N));

@@ -48,6 +48,23 @@ function ibl.GetReflectionWeightGLSL(uniform_name)
 	]]
 end
 
+-- the share of uniform incoming light Fd_EON reflects toward NoV: what indirect light and ray hits are lit with instead of the albedo, which is lambert and brighter than the direct light's EON lobe on rough surfaces
+function ibl.GetEONAlbedoGLSL()
+	return [[
+		#ifndef EON_DIRECTIONAL_ALBEDO
+		#define EON_DIRECTIONAL_ALBEDO
+		vec3 EON_directional_albedo(vec3 albedo, float roughness, float NoV) {
+			float A = 1.0 / (1.0 + (0.5 - 2.0 / (3.0 * 3.14159265359)) * roughness);
+			float B = roughness * A;
+			float mean_albedo = A * (1.0 + (2.0 / 3.0 - 28.0 / (15.0 * 3.14159265359)) * roughness);
+			float inv_o = 1.0 - NoV;
+			float E_o = A + B * inv_o * (0.0571085289 + inv_o * (0.491881867 + inv_o * (-0.332181442 + inv_o * 0.0714429953)));
+			return albedo * E_o + albedo * albedo * (mean_albedo / max(vec3(1.0) - albedo * (1.0 - mean_albedo), vec3(1e-4))) * (1.0 - E_o);
+		}
+		#endif
+	]]
+end
+
 function ibl.GetBRDFGLSLCode()
 	return glsl_common.GetConstantsGLSL() .. [[
 
@@ -115,6 +132,8 @@ function ibl.GetBRDFGLSLCode()
 				vec3 multi_scatter = albedo * albedo * (mean_albedo / max(vec3(1.0) - albedo * (1.0 - mean_albedo), vec3(1e-4))) * ((1.0 - E_i) * (1.0 - E_o) / multi_denominator);
 				return (single_scatter + multi_scatter) / PI;
 			}
+
+			]] .. ibl.GetEONAlbedoGLSL() .. [[
 
 			float SpecularOcclusion(float NoV, float ambient_occlusion, float perceptual_roughness) {
 				float exponent = exp2(-16.0 * perceptual_roughness - 1.0);
