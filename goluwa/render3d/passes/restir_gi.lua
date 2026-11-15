@@ -276,9 +276,32 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return vec3(float(instance), float(primitive), float(q.x | (q.y << 11u) | (flipped ? 1u << 22u : 0u)));
 	}
 
+	// below full resolution a gi pixel stands for one of the screen pixels under it, a different one each frame, but only among those within 2% of the nearest one's distance (the depth is reversed, so a ratio of depths is one of distances): beside thin geometry and at edges it otherwise shows the near surface one frame and the far one the next, never keeps its history and flickers, and its unsettled value bleeds into the filter
+	ivec2 restir_gbuffer_pos(ivec2 pos, ivec2 size, ivec2 gsize) {
+		const ivec2 offsets[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
+		ivec2 first = reflection_floor_div(pos * gsize, size);
+		ivec2 span = max(reflection_floor_div((pos + 1) * gsize, size) - first, ivec2(1));
+
+		if (span == ivec2(1)) return min(first, gsize - 1);
+
+		float nearest = 0.0;
+
+		for (int k = 0; k < 4; k++) {
+			nearest = max(nearest, gbuffer_depth(min(first + min(offsets[k], span - 1), gsize - 1)));
+		}
+
+		for (int k = 0; k < 4; k++) {
+			ivec2 q = min(first + min(offsets[(restir_data.phase + k) & 3], span - 1), gsize - 1);
+
+			if (gbuffer_depth(q) >= nearest * 0.98) return q;
+		}
+
+		return min(first, gsize - 1);
+	}
+
 	bool restir_surface(ivec2 pos, ivec2 size, out ivec2 gpos, out vec3 P, out vec3 N, out float view_depth, out float depth) {
 		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
-		gpos = min(get_reflection_gbuffer_pos(pos, restir_data.phase, gsize, size), gsize - 1);
+		gpos = restir_gbuffer_pos(pos, size, gsize);
 		depth = gbuffer_depth(gpos);
 		P = vec3(0.0);
 		N = vec3(0.0);
