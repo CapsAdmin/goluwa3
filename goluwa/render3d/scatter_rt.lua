@@ -46,11 +46,11 @@ local max_distance = pvars.Setup2{
 	min = 0,
 	help = "how far from the camera what scatter grows is in the ray traced scene, in meters",
 }
-local bend_slots = pvars.Setup2{
-	key = "r_scatter_rt_bend_slots",
-	default = 32,
+local bend_triangles = pvars.Setup2{
+	key = "r_scatter_rt_bend_triangles",
+	default = 262144,
 	integer = true,
-	help = "copies of each bending scatter mesh that the wind bends in the ray traced scene, given to its instances within r_rt_bend_distance in no particular order (instances past the copies are traced at rest). each is bent and refit every frame",
+	help = "triangles of bent copies each bending scatter mesh may have in the ray traced scene (a small mesh gets more copies than a large one), given to its instances within r_rt_bend_distance in no particular order. instances past the copies are traced at rest. copies are made as instances ask for them, and as many as asked are bent and refit every frame",
 }
 pvars.EndGroup()
 local segments_table, parts_table, slots_table
@@ -348,23 +348,26 @@ local function rebuild(segment_list)
 				count = count + 1
 
 				if part.material:HasVertexAnimation() and part.polygon then
-					local records = {}
-					entry.bend_first = slots.count
+					local mesh = meshes.GetRecord(row)
+					local copies = math.max(math.floor(bend_triangles:Get() / mesh.triangle_count), 1)
+					local first_slot = slots:AllocRange(copies)
+					entry.bend_first = first_slot
 
-					for k = 1, bend_slots:Get() do
-						local slot = slots:Get()[slots:Alloc()]
+					for k = 0, copies - 1 do
+						local slot = slots:Get()[first_slot + k]
 						ffi.fill(slot.m, ffi.sizeof(slot.m))
 						slot.m[0], slot.m[5], slot.m[10] = 1, 1, 1
 						slot.blas = 0
-						records[k] = vegetation_bend.NewRecord(meshes.GetRecord(row))
 					end
 
 					bending[#bending + 1] = {
 						index = index,
 						part = part,
 						row = row,
+						mesh = mesh,
 						first = entry.bend_first,
-						records = records,
+						copies = copies,
+						records = {},
 					}
 				end
 			end
@@ -493,11 +496,18 @@ local function produce(cmd)
 	local asked = readback + ((frame + 1) % READBACK_RING) * parts.capacity
 
 	for _, entry in ipairs(bending) do
-		local range = animating and vegetation_bend.GetRange(entry.part.material, entry.part.polygon) or 0
+		local range = animating and
+			vegetation_bend.GetRange(entry.part.material, entry.part.polygon) or
+			0
 		local wanted = asked[entry.index]
 		entry.used = range > 0 and
-			math.min(#entry.records, wanted > 0 and wanted + 2 + math.floor(wanted / 4) or 1) or
+			math.min(entry.copies, wanted > 0 and wanted + 2 + math.floor(wanted / 4) or 1) or
 			0
+
+		for k = #entry.records + 1, entry.used do
+			entry.records[k] = vegetation_bend.NewRecord(entry.mesh)
+		end
+
 		part_rows[entry.index].bend_count = entry.used
 		part_rows[entry.index].bend_distance = range
 	end
@@ -586,6 +596,29 @@ local function produce(cmd)
 			slot_rows[entry.first + k - 1].blas = entry.records[k].blas_record.address
 		end
 	end
+end
+
+function scatter_rt.GetBendDemand()
+	local out = {}
+	local frame = system.GetFrameNumber()
+
+	for _, entry in ipairs(bending) do
+		out[#out + 1] = {
+			mesh = entry.mesh.triangle_count,
+			asked = readback and
+				readback[(
+					(
+						frame + 1
+					) % READBACK_RING
+				) * parts_table.capacity + entry.index] or
+				0,
+			used = entry.used or 0,
+			copies = entry.copies,
+			range = parts_table:Get()[entry.index].bend_distance,
+		}
+	end
+
+	return out
 end
 
 instances.AddProducer("scatter", produce, prepare)
