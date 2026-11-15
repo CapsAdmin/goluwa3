@@ -404,3 +404,50 @@ T.Test3D("Graphics render3d scene store keeps moving instances out of the gi ray
 	gear:Remove()
 	cube:Remove()
 end)
+
+T.Test3D("Graphics render3d scene store bends a plant in the ray traced scene the way the wind bends it", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local pvars = import("goluwa/cli/pvars.lua")
+	local atmosphere = import("goluwa/render3d/atmosphere.lua")
+	local wind = atmosphere.GetWind():Copy()
+	local time_scale = atmosphere.GetWindTimeScale()
+	local still_pixels = pvars.Get("r_wind_still_pixels")
+	local pole = Polygon3D.New()
+	shapes.BuildCube(pole, 1)
+	pole:SetBendHeight(0.5)
+	pole:BuildBoundingBox()
+	pole:Upload()
+	local entity = Entity.New{Name = "scene_store_bending"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -4))
+	local visual = entity:AddComponent("visual")
+	local primitive = Entity.New{Name = "scene_store_bending_primitive", Parent = entity}
+	primitive:AddComponent("transform")
+	local visual_primitive = primitive:AddComponent("visual_primitive")
+	visual_primitive:SetPolygon3D(pole)
+	visual_primitive:SetMaterial(Material.New{ColorMultiplier = Color(0, 1, 0, 1), Bending = 1})
+	visual:BuildAABB()
+	atmosphere.SetWindTimeScale(0)
+	atmosphere.SetWind(Vec3(0, 0, -40))
+	pvars.SetSession("r_wind_still_pixels", 0)
+
+	local function distance_at_top(bend)
+		pvars.SetSession("r_rt_bend", bend)
+		draw()
+		draw()
+		local hit = read_results(draw, rt.GetTLAS, {0, 0.9, 0})
+		T(hit[1])["=="](1)
+		return ffi.cast("float*", ffi.new("uint32_t[1]", hit[4]))[0]
+	end
+
+	local rest = distance_at_top(false)
+	local bent = distance_at_top(true)
+	pvars.SetSession("r_rt_bend", true)
+	pvars.SetSession("r_wind_still_pixels", still_pixels)
+	atmosphere.SetWind(wind)
+	atmosphere.SetWindTimeScale(time_scale)
+	entity:Remove()
+	T(math.abs(rest - 3) < 0.01)["=="](true)
+	T(bent - rest > 0.2)["=="](true)
+end)

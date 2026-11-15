@@ -51,7 +51,7 @@ instances.FLAG_BILLBOARD = 128
 instances.FLAG_BEFORE_BILLBOARD = 256
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
-local tlas_table, data_table
+local tlas_table, data_table, blas_override_table
 local RasterData = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -116,6 +116,7 @@ function instances.GetTables()
 			staged = true,
 		}
 		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 16384, staged = true}
+		blas_override_table = store.CreateTable{name = "instance_blas_override", ctype = "uint64_t", capacity = 16384}
 		raster_table = store.CreateTable{name = "instance_raster", ctype = RasterData, capacity = 16384, staged = true}
 	end
 
@@ -215,6 +216,8 @@ function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last,
 end
 
 function instances.Remove(id)
+	if id < blas_override_table.capacity then blas_override_table:Get()[id] = 0 end
+
 	local record = tlas_table:Get()[id]
 	record.accelerationStructureReference = 0
 	local data = data_table:Get()[id]
@@ -229,6 +232,34 @@ end
 function instances.SetMatrix(id, matrix)
 	write_matrix(tlas_table:Get()[id], matrix)
 	tlas_table:Touch(id)
+end
+
+-- the instance traces against this acceleration structure instead of its mesh's while it is shown (0 is its mesh's): a copy of the mesh deformed the way the raster deforms it
+function instances.SetBLASOverride(id, address)
+	blas_override_table:Reserve(tlas_table.capacity)
+	blas_override_table:Get()[id] = address
+end
+
+-- the level of detail the update pass shows, by the same test
+function instances.IsLevelShown(id, camera_position)
+	local data = data_table:Get()[id]
+	local level = bit.band(bit.rshift(data.mask_lod, 8), 0xFF)
+	local last = bit.band(bit.rshift(data.mask_lod, 16), 0xFF)
+	local forced = lod.GetForcedLevel()
+
+	if forced >= 0 then return level == math.min(forced, last) end
+
+	local dx, dy, dz = camera_position.x - data.center_x,
+	camera_position.y - data.center_y,
+	camera_position.z - data.center_z
+	local ratio = math.sqrt(dx * dx + dy * dy + dz * dz) / (
+			math.max(data.radius, 0.001) * lod.GetScale() * rt_lod_scale:Get()
+		)
+	return (level == 0 or ratio >= data.lod_near) and (level == last or ratio < data.lod_far)
+end
+
+function instances.GetTLASRecordAddress(id)
+	return tlas_table:GetAddress() + id * ffi.sizeof(TLASInstance)
 end
 
 function instances.SetBounds(id, x, y, z, radius)
@@ -422,7 +453,12 @@ do
 			name = "scene_instance_update",
 			DescriptorSetCount = math.max(render.GetSwapchainImageCount() or 1, 1),
 			LocalSize = {x = UPDATE_LOCAL_SIZE, y = 1, z = 1},
-			storage_buffers = {{binding_index = 0}, {binding_index = 1}, {binding_index = 2}},
+			storage_buffers = {
+				{binding_index = 0},
+				{binding_index = 1},
+				{binding_index = 2},
+				{binding_index = 4},
+			},
 			uniform_buffers = {
 				{
 					name = "update_data",
@@ -481,6 +517,7 @@ do
 				layout(scalar, set = 0, binding = 0) buffer TLASInstances { tlas_instance tlas[]; };
 				layout(scalar, set = 0, binding = 1) readonly buffer InstanceData { instance_data data[]; };
 				layout(scalar, set = 0, binding = 2) readonly buffer MeshRows { mesh_row meshes[]; };
+				layout(scalar, set = 0, binding = 4) readonly buffer BLASOverrides { uint64_t blas_overrides[]; };
 			]],
 			shader = [[
 				void main() {
@@ -509,6 +546,8 @@ do
 						}
 
 						if (!shown || distance_to - inst.bounds.w > update_data.max_distance) blas = 0ul;
+
+						if (blas != 0ul && blas_overrides[id] != 0ul) blas = blas_overrides[id];
 					}
 
 					tlas[id].blas = blas;
@@ -547,18 +586,24 @@ do
 				) - 1
 			) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		local bound = bound_buffers[slot]
-		local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
+		blas_override_table:Reserve(tlas_table.capacity)
+		local tlas_buffer, data_buffer, mesh_buffer, override_buffer = tlas_table:GetBuffer(),
+		data_table:GetBuffer(),
+		meshes.GetTable():GetBuffer(),
+		blas_override_table:GetBuffer()
 
 		if
 			not bound or
 			bound[1] ~= tlas_buffer or
 			bound[2] ~= data_buffer or
-			bound[3] ~= mesh_buffer
+			bound[3] ~= mesh_buffer or
+			bound[4] ~= override_buffer
 		then
-			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer}
+			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer, override_buffer}
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 2, 0, mesh_buffer, meshes.GetTable():GetSize())
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 4, 0, override_buffer, blas_override_table:GetSize())
 		end
 
 		pipeline:UploadConstants()

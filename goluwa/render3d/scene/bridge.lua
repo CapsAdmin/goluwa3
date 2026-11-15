@@ -13,6 +13,7 @@ local bounds_min, bounds_max = {[0] = 0, 0, 0}, {[0] = 0, 0, 0}
 local bounds_valid = false
 local bounds_dirty = false
 local emissive_visuals = setmetatable({}, {__mode = "k"})
+local bending_visuals = setmetatable({}, {__mode = "k"})
 bridge.emitter_version = 0
 local MAX_DIRTY_BOXES = 64
 local GI_SETTLE_FRAMES = 30
@@ -150,6 +151,7 @@ local function release(visual)
 		dynamic[visual] = nil
 		tracked[visual] = nil
 		emissive_visuals[visual] = nil
+		bending_visuals[visual] = nil
 		return
 	end
 
@@ -164,6 +166,7 @@ local function release(visual)
 	visual.scene_aabb = nil
 	dynamic[visual] = nil
 	tracked[visual] = nil
+	bending_visuals[visual] = nil
 	bounds_dirty = true
 
 	if emissive_visuals[visual] then
@@ -174,6 +177,10 @@ end
 
 function bridge.GetEmissiveVisuals()
 	return emissive_visuals
+end
+
+function bridge.GetBendingVisuals()
+	return bending_visuals
 end
 
 do
@@ -303,6 +310,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	local emissive = false
 	local hidden = not visual.Visible
 	local has_cpu_entry = false
+	local bends = false
 	local frame = system.GetFrameNumber()
 
 	for _, entry in ipairs(visual:GetLODRenderEntries()) do
@@ -322,6 +330,8 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			local r, g, b = materials.GetEmissive(material)
 
 			if r + g + b > 0 and (entry.lod_level or 0) == 0 then emissive = true end
+
+			if material:HasVertexAnimation() then bends = true end
 
 			local gear = false
 
@@ -421,6 +431,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 	visual.scene_instances = list
 	dynamic[visual] = is_dynamic or nil
+	bending_visuals[visual] = bends or nil
 
 	if changed then
 		mark_dirty(visual.scene_aabb)

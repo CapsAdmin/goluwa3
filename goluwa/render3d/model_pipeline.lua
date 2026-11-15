@@ -996,8 +996,9 @@ do
 		return block
 	end
 
-	function model_pipeline.FillVertexAnimationData(block, material)
+	function model_pipeline.FillVertexAnimationData(block, material, polygon)
 		material = material or get_material()
+		polygon = polygon or render3d.GetCurrentPolygon3D()
 		local wind = atmosphere.GetWind()
 		local wind_x = wind.x * BEND_RESPONSE
 		local wind_z = wind.z * BEND_RESPONSE
@@ -1007,7 +1008,6 @@ do
 			)
 		local lean = (wind:GetLength() / BENDING_SPEED) ^ 1.6
 		local bending = MAX_BENDING * lean / (1 + lean)
-		local polygon = render3d.GetCurrentPolygon3D()
 		local height = polygon and polygon:GetBendHeight() or 0
 		block.Time = atmosphere.GetWindTime()
 		block.PrevTime = atmosphere.GetPreviousWindTime()
