@@ -82,10 +82,12 @@ local function restir_uniform(trace, filter_iteration)
 		{"candidate_b_tex", "int"},
 		{"candidate_c_tex", "int"},
 		{"raw_tex", "int"},
+		{"raw_effective_tex", "int"},
 		{"accum_tex", "int"},
 		{"accum_moments_tex", "int"},
 		{"accum_history_tex", "int"},
 		{"accum_history_moments_tex", "int"},
+		{"accum_history_irradiance_tex", "int"},
 	}
 
 	if trace then
@@ -186,10 +188,12 @@ local function restir_uniform(trace, filter_iteration)
 			block.candidate_b_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 2))
 			block.candidate_c_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 3))
 			block.raw_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 1))
+			block.raw_effective_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 6))
 			block.accum_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", current, 1))
 			block.accum_moments_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", current, 2))
 			block.accum_history_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 1))
 			block.accum_history_moments_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 2))
+			block.accum_history_irradiance_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 3))
 
 			if filter_iteration then
 				block.filter_step = 2 ^ filter_iteration
@@ -455,7 +459,7 @@ local SCREEN_GI_GLSL = [[
 
 		if (dot(geometry.xyz, N) < 0.8 || abs(geometry.w - view_depth) > 0.02 * view_depth + 0.02) return false;
 
-		irradiance = texelFetch(TEXTURE(t < 0.05 * view_depth ? restir_data.accum_history_tex : restir_data.screen_gi_tex), texel, 0).rgb;
+		irradiance = texelFetch(TEXTURE(t < 0.05 * view_depth ? restir_data.accum_history_irradiance_tex : restir_data.screen_gi_tex), texel, 0).rgb;
 		return !any(isnan(irradiance));
 	}
 ]]
@@ -954,11 +958,15 @@ local function pass_spatial()
 			},
 			{"r16g16b16a16_sfloat", {"restir_spatial_normal", "rgb"}},
 			{"r32g32b32a32_sfloat", {"restir_spatial_receiver", "rgb", 0.01}},
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_raw_effective", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
 		},
 		framebuffer_count = 1,
 		scale = restir_gi.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(5),
+		storage_images = storage_images(6),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = {restir_uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
@@ -970,6 +978,7 @@ local function pass_spatial()
 			layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_b;
 			layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_c;
 			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_receiver;
+			layout(set = 0, binding = 5, rgba32f) uniform writeonly image2D out_effective;
 		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. RESOLVE_GLSL .. [[
 
@@ -987,6 +996,7 @@ local function pass_spatial()
 
 				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth)) {
 					imageStore(out_raw, pos, vec4(0.0, 0.0, 0.0, 1.0));
+					imageStore(out_effective, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					imageStore(out_a, pos, vec4(0.0));
 					imageStore(out_b, pos, vec4(0.0));
 					imageStore(out_c, pos, vec4(0.0));
@@ -1003,6 +1013,14 @@ local function pass_spatial()
 				float own_cosine = restir_receiver_cosine(own, P, N, dir, dist);
 				float own_target = luminance(own.L) * own_cosine;
 				vec3 irradiance = own.L * (own_cosine * W);
+				// the lighting multiplies the irradiance by the EON response to uniform light, each sample knows where its light came from: backscatter toward the camera reflects up to twice that
+				vec3 V = normalize(restir_data.camera_position - P);
+				float NoV = max(dot(N, V), 1e-4);
+				vec3 albedo = gbuffer_albedo(gpos);
+				float roughness = sqrt(gbuffer_roughness(gpos));
+				vec3 response = max(EON_directional_albedo(albedo, roughness, NoV), vec3(1e-4));
+				bool weigh = all(greaterThan(response, vec3(1e-3)));
+				vec3 effective = weigh && own_cosine > 0.0 ? irradiance * Fd_EON(albedo, roughness, own_cosine, NoV, dot(dir, V)) * RESTIR_PI / response : irradiance;
 				// the reservoir handed to next frame: one sample resampled from this pixel's and its neighbours' by the same weights as the irradiance
 				restir_sample picked = own;
 				float picked_target = own_target;
@@ -1020,6 +1038,7 @@ local function pass_spatial()
 					float own_weight = 0.0;
 					float valid = 0.0;
 					vec3 neighbours = vec3(0.0);
+					vec3 effective_neighbours = vec3(0.0);
 
 					for (int i = 0; i < restir_data.spatial_samples; i++) {
 						float angle = turn + float(i) * 2.39996323;
@@ -1079,7 +1098,9 @@ local function pass_spatial()
 						float target_here = luminance(s.L) * s_cosine * M / k;
 						float target_there = q_M * luminance(s.L) * restir_receiver_cosine(s, q_P, q_N, q_dir, q_dist) / jacobian;
 						float weight = target_there / (target_here + target_there);
-						neighbours += s.L * (weight * s_cosine * jacobian * q_W);
+						vec3 term = s.L * (weight * s_cosine * jacobian * q_W);
+						neighbours += term;
+						effective_neighbours += weigh ? term * Fd_EON(albedo, roughness, s_cosine, NoV, dot(s_dir, V)) * RESTIR_PI / response : term;
 						float w = luminance(s.L) * s_cosine * weight * jacobian * q_W;
 						picked_sum += w;
 
@@ -1103,11 +1124,15 @@ local function pass_spatial()
 
 					// with no reservoir of its own (not traced yet), the pairs with missing neighbours have no one to give their weight to
 					irradiance = M > 0.0 ? (irradiance * own_weight + neighbours) / k : neighbours / max(valid, 1.0);
+					effective = M > 0.0 ? (effective * own_weight + effective_neighbours) / k : effective_neighbours / max(valid, 1.0);
 				}
 
 				irradiance /= RESTIR_PI;
+				effective /= RESTIR_PI;
 
 				if (any(isnan(irradiance)) || any(isinf(irradiance))) irradiance = vec3(0.0);
+
+				if (any(isnan(effective)) || any(isinf(effective))) effective = vec3(0.0);
 
 				int sky_flags = flags;
 
@@ -1117,7 +1142,9 @@ local function pass_spatial()
 					sky_flags = int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), clamp(partner, ivec2(0), size - 1), 0).w + 0.5);
 				}
 
-				imageStore(out_raw, pos, vec4(irradiance, (sky_flags & RESTIR_FLAG_MISS) == 0 ? 0.0 : (sky_flags & RESTIR_FLAG_GUIDE_MIX) != 0 ? 1.0 / max(1.0 - restir_data.guided, 0.05) : 1.0));
+				float sky = (sky_flags & RESTIR_FLAG_MISS) == 0 ? 0.0 : (sky_flags & RESTIR_FLAG_GUIDE_MIX) != 0 ? 1.0 / max(1.0 - restir_data.guided, 0.05) : 1.0;
+				imageStore(out_raw, pos, vec4(irradiance, sky));
+				imageStore(out_effective, pos, vec4(effective, sky));
 
 				if (!(picked_W >= 0.0 && picked_W < 1e30)) {
 					picked_W = 0.0;
@@ -1150,15 +1177,20 @@ local function pass_accumulate()
 				{"restir_accumulated", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
 			{"r32g32b32a32_sfloat", {"restir_history_length", "r", 1 / 16}},
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_accumulated_irradiance", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
 		},
 		framebuffer_count = 2,
 		scale = restir_gi.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(2),
+		storage_images = storage_images(3),
 		uniform_buffers = {restir_uniform(false)},
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_moments;
+			layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_irradiance;
 		]],
 		shader = SURFACE_GLSL .. [[
 
@@ -1180,10 +1212,11 @@ local function pass_accumulate()
 					return;
 				}
 
-				vec4 current = texelFetch(TEXTURE(restir_data.raw_tex), pos, 0);
+				vec4 current = texelFetch(TEXTURE(restir_data.raw_effective_tex), pos, 0);
 				float current_luminance = luminance(current.rgb);
 				vec4 history = vec4(0.0);
 				vec3 history_moments = vec3(0.0);
+				vec3 history_irradiance = vec3(0.0);
 				ivec2 base;
 				vec4 weights;
 
@@ -1201,10 +1234,12 @@ local function pass_accumulate()
 						ivec2 q = base + ivec2(i & 1, i >> 1);
 						vec4 value = texelFetch(TEXTURE(restir_data.accum_history_tex), q, 0);
 						vec3 moments = texelFetch(TEXTURE(restir_data.accum_history_moments_tex), q, 0).xyz;
+						vec3 plain = texelFetch(TEXTURE(restir_data.accum_history_irradiance_tex), q, 0).rgb;
 
-						if (any(isnan(value)) || any(isnan(moments))) continue;
+						if (any(isnan(value)) || any(isnan(moments)) || any(isnan(plain))) continue;
 
 						history += value * weights[i];
+						history_irradiance += plain * weights[i];
 						history_moments += moments * weights[i];
 						total += weights[i];
 					}
@@ -1212,6 +1247,7 @@ local function pass_accumulate()
 					if (total > 0.0) {
 						history /= total;
 						history_moments /= total;
+						history_irradiance /= total;
 					}
 				}
 
@@ -1232,6 +1268,7 @@ local function pass_accumulate()
 				vec2 moments = mix(history_moments.yz, vec2(current_luminance, current_luminance * current_luminance), alpha);
 				imageStore(out_color, pos, mix(history, current, alpha));
 				imageStore(out_moments, pos, vec4(history_length, moments, 0.0));
+				imageStore(out_irradiance, pos, vec4(mix(history_irradiance, texelFetch(TEXTURE(restir_data.raw_tex), pos, 0).rgb, alpha), 1.0));
 			}
 		]],
 	}
