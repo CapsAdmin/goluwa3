@@ -44,7 +44,9 @@ local function uniform(trace)
 		{"rays", "int"},
 		{"accumulation", "float"},
 		{"raw_tex", "int"},
+		{"raw_irradiance_tex", "int"},
 		{"history_tex", "int"},
+		{"history_irradiance_tex", "int"},
 		{"history_geometry_tex", "int"},
 	}
 
@@ -85,6 +87,8 @@ local function uniform(trace)
 			block.rays = short_range_gi.rays:Get()
 			block.accumulation = short_range_gi.accumulation:Get()
 			block.raw_tex = self:GetTextureIndex(attachment("short_range_gi", 1, 1))
+			block.raw_irradiance_tex = self:GetTextureIndex(attachment("short_range_gi", 1, 2))
+			block.history_irradiance_tex = self:GetTextureIndex(attachment("short_range_gi_accumulate", (frame + 1) % 2 + 1, 3))
 			block.history_tex = self:GetTextureIndex(attachment("short_range_gi_accumulate", (frame + 1) % 2 + 1, 1))
 			block.history_geometry_tex = self:GetTextureIndex(attachment("short_range_gi_accumulate", (frame + 1) % 2 + 1, 2))
 
@@ -141,13 +145,13 @@ local SCREEN_GI_GLSL = [[
 
 		if (any(lessThan(uv, vec2(0.0))) || any(greaterThanEqual(uv, vec2(1.0)))) return false;
 
-		ivec2 size = textureSize(TEXTURE(srgi_data.history_tex), 0);
+		ivec2 size = textureSize(TEXTURE(srgi_data.history_irradiance_tex), 0);
 		ivec2 texel = min(ivec2(uv * vec2(size)), size - 1);
 		vec4 geometry = texelFetch(TEXTURE(srgi_data.history_geometry_tex), texel, 0);
 
 		if (dot(geometry.xyz, N) < 0.8 || abs(geometry.w - view_depth) > 0.02 * view_depth + 0.02) return false;
 
-		irradiance = texelFetch(TEXTURE(srgi_data.history_tex), texel, 0).rgb;
+		irradiance = texelFetch(TEXTURE(srgi_data.history_irradiance_tex), texel, 0).rgb;
 		return !any(isnan(irradiance));
 	}
 ]]
@@ -163,10 +167,17 @@ local function pass_trace()
 				"r16g16b16a16_sfloat",
 				{"short_range_gi_raw", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
+			{
+				"r16g16b16a16_sfloat",
+				{"short_range_gi_raw_irradiance", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
 		},
 		framebuffer_count = 1,
 		LocalSize = LOCAL_SIZE,
-		storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
+		storage_images = {
+			{binding_index = 0, attachment = 1, dst_stage = "compute"},
+			{binding_index = 1, attachment = 2, dst_stage = "compute"},
+		},
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = {uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
@@ -174,6 +185,7 @@ local function pass_trace()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_raw;
+			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_irradiance;
 		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = TRACE_GLSL .. [[
 			vec3 srgi_cosine_direction(vec3 N, vec2 xi) {
@@ -225,14 +237,21 @@ local function pass_trace()
 
 				if (!srgi_surface(pos, P, N, view_depth, depth) || !scene_hits_ready()) {
 					imageStore(out_raw, pos, vec4(0.0));
+					imageStore(out_irradiance, pos, vec4(0.0));
 					return;
 				}
+
+				vec3 V = normalize(srgi_data.camera_position - P);
+				float NoV = max(dot(N, V), 1e-4);
+				vec3 albedo = gbuffer_albedo(pos);
+				float roughness = sqrt(gbuffer_roughness(pos));
 
 				vec3 origin = srgi_ray_origin(pos, P, N, view_depth, depth);
 				vec3 geometric_N = normalize(origin - P);
 				float range = srgi_data.range * ddgi_spacing(0);
 				vec2 noise = srgi_data.blue_noise_tex >= 0 ? blue_noise_texel(TEXTURE(srgi_data.blue_noise_tex), pos).rg : vec2(0.5);
 				vec3 sum = vec3(0.0);
+				vec3 weighted = vec3(0.0);
 
 				for (int k = 0; k < srgi_data.rays; k++) {
 					vec3 dir = srgi_cosine_direction(N, blue_noise_r2(noise, float((uint(srgi_data.frame) * uint(srgi_data.rays) + uint(k)) % 4096u)));
@@ -257,9 +276,15 @@ local function pass_trace()
 					}
 
 					sum += L;
+					weighted += L * Fd_EON(albedo, roughness, max(dot(N, dir), 1e-4), NoV, dot(dir, V)) * 3.14159265359;
 				}
 
-				imageStore(out_raw, pos, vec4(min(max(sum / float(srgi_data.rays), vec3(0.0)), vec3(65000.0)), 1.0));
+				vec3 irradiance = sum / float(srgi_data.rays);
+				vec3 response = EON_directional_albedo(albedo, roughness, NoV);
+				// lighting multiplies by the EON response to uniform light, the rays know where the light came from: backscatter toward the camera reflects up to twice that
+				vec3 effective = mix(irradiance, weighted / float(srgi_data.rays) / max(response, vec3(1e-4)), greaterThan(response, vec3(1e-3)));
+				imageStore(out_raw, pos, vec4(min(max(effective, vec3(0.0)), vec3(65000.0)), 1.0));
+				imageStore(out_irradiance, pos, vec4(min(max(irradiance, vec3(0.0)), vec3(65000.0)), 1.0));
 			}
 		]],
 	}
@@ -276,17 +301,23 @@ local function pass_accumulate()
 				{"short_range_gi", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
 			{"r16g16b16a16_sfloat", {"short_range_gi_geometry", "rgb"}},
+			{
+				"r16g16b16a16_sfloat",
+				{"short_range_gi_irradiance", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
 		},
 		framebuffer_count = 2,
 		LocalSize = LOCAL_SIZE,
 		storage_images = {
 			{binding_index = 0, attachment = 1, dst_stage = "compute"},
 			{binding_index = 1, attachment = 2, dst_stage = "compute"},
+			{binding_index = 2, attachment = 3, dst_stage = "compute"},
 		},
 		uniform_buffers = {uniform(false)},
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_geometry;
+			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_irradiance;
 		]],
 		shader = SURFACE_GLSL .. [[
 			void main() {
@@ -303,11 +334,14 @@ local function pass_accumulate()
 				if (!srgi_surface(pos, P, N, view_depth, depth)) {
 					imageStore(out_color, pos, vec4(0.0));
 					imageStore(out_geometry, pos, vec4(0.0));
+					imageStore(out_irradiance, pos, vec4(0.0));
 					return;
 				}
 
 				vec4 current = texelFetch(TEXTURE(srgi_data.raw_tex), pos, 0);
+				vec3 current_irradiance = texelFetch(TEXTURE(srgi_data.raw_irradiance_tex), pos, 0).rgb;
 				vec4 history = vec4(0.0);
+				vec3 history_irradiance = vec3(0.0);
 				float total = 0.0;
 
 				if (srgi_data.history_valid != 0) {
@@ -335,6 +369,7 @@ local function pass_accumulate()
 							if (w <= 0.0 || any(isnan(value))) continue;
 
 							history += value * w;
+							history_irradiance += texelFetch(TEXTURE(srgi_data.history_irradiance_tex), q, 0).rgb * w;
 							total += w;
 						}
 					}
@@ -344,6 +379,7 @@ local function pass_accumulate()
 				vec3 history_color = total > 0.0 ? history.rgb / total : vec3(0.0);
 				history_length = min(history_length + 1.0, srgi_data.accumulation);
 				imageStore(out_color, pos, vec4(mix(history_color, current.rgb, 1.0 / history_length), history_length));
+				imageStore(out_irradiance, pos, vec4(mix(total > 0.0 ? history_irradiance / total : vec3(0.0), current_irradiance, 1.0 / history_length), 1.0));
 				imageStore(out_geometry, pos, vec4(N, view_depth));
 			}
 		]],
