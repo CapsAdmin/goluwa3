@@ -221,6 +221,26 @@ function hit.GetGLSL(binding)
 				dot(vec3(t.m[8], t.m[9], t.m[10]), local_normal)
 			));
 		}
+
+		vec4 scene_hit_smooth_tangent(uint instance, uint primitive, vec2 barycentrics) {
+			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
+			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
+			uint stride = mesh.vertex_stride / 4u;
+			uint a = scene_mesh_index(mesh, primitive * 3u) * stride;
+			uint b = scene_mesh_index(mesh, primitive * 3u + 1u) * stride;
+			uint c = scene_mesh_index(mesh, primitive * 3u + 2u) * stride;
+			vec3 t0 = vec3(vertices.v[a + SCENE_VERTEX_TANGENT], vertices.v[a + SCENE_VERTEX_TANGENT + 1u], vertices.v[a + SCENE_VERTEX_TANGENT + 2u]);
+			vec3 t1 = vec3(vertices.v[b + SCENE_VERTEX_TANGENT], vertices.v[b + SCENE_VERTEX_TANGENT + 1u], vertices.v[b + SCENE_VERTEX_TANGENT + 2u]);
+			vec3 t2 = vec3(vertices.v[c + SCENE_VERTEX_TANGENT], vertices.v[c + SCENE_VERTEX_TANGENT + 1u], vertices.v[c + SCENE_VERTEX_TANGENT + 2u]);
+			vec3 local_tangent = t0 * (1.0 - barycentrics.x - barycentrics.y) + t1 * barycentrics.x + t2 * barycentrics.y;
+			scene_tlas_instance t = scene_tlas_instances[instance];
+			return vec4(
+				dot(vec3(t.m[0], t.m[1], t.m[2]), local_tangent),
+				dot(vec3(t.m[4], t.m[5], t.m[6]), local_tangent),
+				dot(vec3(t.m[8], t.m[9], t.m[10]), local_tangent),
+				vertices.v[a + SCENE_VERTEX_TANGENT + 3u] < 0.0 ? -1.0 : 1.0
+			);
+		}
 	]]
 		):format(binding, binding + 1, binding + 2)
 end

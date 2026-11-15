@@ -28,7 +28,7 @@ local function layer_values(suffix, requires)
 		}
 	end
 
-	values("Scales", Color(1.0, 1.0, 1.0, 1.0))
+	values("Scales", Color(1.0, 1.0, 1.0, 1.0), ray)
 
 	if suffix == "" then params[#params].category = "Terrain Shading" end
 
@@ -43,6 +43,7 @@ local function layer_values(suffix, requires)
 		add{
 			name = "TerrainTriplanarSharpness",
 			default = 4,
+			callback = ray,
 			requires = requires,
 		}
 	end
@@ -92,7 +93,7 @@ for layer = 1, 4 do
 end
 
 for layer = 1, 4 do
-	texture("TerrainLayer" .. layer .. "NormalTexture", "TerrainMaterialTexture")
+	texture("TerrainLayer" .. layer .. "NormalTexture", "TerrainMaterialTexture", ray)
 end
 
 for layer = 1, 4 do
@@ -103,7 +104,7 @@ texture("TerrainMaterial2Texture", "TerrainMaterialTexture", ray)
 
 for layer = 5, 8 do
 	texture("TerrainLayer" .. layer .. "Texture", "TerrainMaterial2Texture", ray)
-	texture("TerrainLayer" .. layer .. "NormalTexture", "TerrainMaterial2Texture")
+	texture("TerrainLayer" .. layer .. "NormalTexture", "TerrainMaterial2Texture", ray)
 	texture("TerrainLayer" .. layer .. "HeightTexture", "TerrainMaterial2Texture")
 end
 

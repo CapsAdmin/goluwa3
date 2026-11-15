@@ -28,6 +28,7 @@ return {
 			name = "Normal2Texture",
 			kind = "texture",
 			type = "render_texture",
+			callback = ray,
 			requires = "NormalTexture",
 		},
 		{

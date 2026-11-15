@@ -18,8 +18,16 @@ Material:StartCategory("Albedo")
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "InvalidateAlbedo"})
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0), {callback = "InvalidateColor"})
 Material:StartCategory("Surface")
-Material:GetSet("NormalTexture", nil, {type = "render_texture"})
-Material:GetSet("NormalMapMultiplier", 1.0, {requires = "NormalTexture"})
+Material:GetSet(
+	"NormalTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
+Material:GetSet(
+	"NormalMapMultiplier",
+	1.0,
+	{requires = "NormalTexture", callback = "InvalidateRayMaterial"}
+)
 Material:GetSet(
 	"MetallicRoughnessTexture",
 	nil,

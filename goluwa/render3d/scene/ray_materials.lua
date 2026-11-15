@@ -301,6 +301,17 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 			float medium_wave_height;
 			float medium_wave_length;
 			float medium_caustics;
+			int normal_tex;
+			int normal2_tex;
+			int normal_ssbump;
+			float normal_scale;
+			vec3 bump_transform_u;
+			vec3 bump_transform_v;
+			ivec4 terrain_layer_normal_tex;
+			ivec4 terrain_layer_normal_tex2;
+			vec4 terrain_scales;
+			vec4 terrain_scales2;
+			float terrain_triplanar_sharpness;
 			};
 
 		]] .. OPTICAL_VOLUME_STRUCT_GLSL .. [[
@@ -578,6 +589,17 @@ local MaterialEntry = ffi.typeof([[struct {
 	float medium_wave_height;
 	float medium_wave_length;
 	float medium_caustics;
+	int32_t normal_tex;
+	int32_t normal2_tex;
+	int32_t normal_ssbump;
+	float normal_scale;
+	float bump_transform_u[3];
+	float bump_transform_v[3];
+	int32_t terrain_layer_normal_tex[4];
+	int32_t terrain_layer_normal_tex2[4];
+	float terrain_scales[4];
+	float terrain_scales2[4];
+	float terrain_triplanar_sharpness;
 	}]])
 ray_materials.MaterialEntry = MaterialEntry
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -948,6 +970,15 @@ function ray_materials.WriteMaterialBuffer(self)
 			entry.medium_caustics = material:GetMediumCaustics()
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
+			local normal = material:GetNormalTexture()
+			entry.normal_tex = normal and normal:IsValid() and self:GetTextureIndex(normal) or -1
+			local normal2 = material:GetNormal2Texture()
+			entry.normal2_tex = normal2 and normal2:IsValid() and self:GetTextureIndex(normal2) or -1
+			entry.normal_ssbump = material:GetNormalTextureIsSSBump() and 1 or 0
+			entry.normal_scale = material:GetNormalMapMultiplier()
+			local bump_u, bump_v = material:GetBumpTransformU(), material:GetBumpTransformV()
+			entry.bump_transform_u[0], entry.bump_transform_u[1], entry.bump_transform_u[2] = bump_u.x, bump_u.y, bump_u.z
+			entry.bump_transform_v[0], entry.bump_transform_v[1], entry.bump_transform_v[2] = bump_v.x, bump_v.y, bump_v.z
 			local albedo2 = material:GetAlbedo2Texture()
 			entry.albedo2_tex = albedo2 and albedo2:IsValid() and self:GetTextureIndex(albedo2) or -1
 			local blend_texture = material:GetBlendTexture()
@@ -965,6 +996,17 @@ function ray_materials.WriteMaterialBuffer(self)
 					entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
 				end
 
+				for layer = 1, 4 do
+					local tex = material["GetTerrainLayer" .. layer .. "NormalTexture"](material)
+					entry.terrain_layer_normal_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
+				end
+
+				local scales = material:GetTerrainLayerScales()
+				entry.terrain_scales[0] = scales.r
+				entry.terrain_scales[1] = scales.g
+				entry.terrain_scales[2] = scales.b
+				entry.terrain_scales[3] = scales.a
+				entry.terrain_triplanar_sharpness = material:GetTerrainTriplanarSharpness()
 				local bounds = material:GetTerrainBounds()
 				entry.terrain_bounds[0] = bounds.x
 				entry.terrain_bounds[1] = bounds.y
@@ -989,6 +1031,16 @@ function ray_materials.WriteMaterialBuffer(self)
 						entry.terrain_layer_tex2[layer - 5] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
 					end
 
+					for layer = 5, 8 do
+						local tex = material["GetTerrainLayer" .. layer .. "NormalTexture"](material)
+						entry.terrain_layer_normal_tex2[layer - 5] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
+					end
+
+					local scales2 = material:GetTerrainLayerScales2()
+					entry.terrain_scales2[0] = scales2.r
+					entry.terrain_scales2[1] = scales2.g
+					entry.terrain_scales2[2] = scales2.b
+					entry.terrain_scales2[3] = scales2.a
 					local detail2 = material:GetTerrainLayerDetailStrength2()
 					local additive2 = material:GetTerrainLayerAdditiveDetail2()
 					entry.terrain_detail2[0] = detail2.r
