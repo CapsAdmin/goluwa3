@@ -192,6 +192,18 @@ function surface_features.New(source_list)
 		return #out > 0 and table.concat(out, " || ") or "false"
 	end
 
+	function self.GetGBufferLitFromBehindExpressionGLSL()
+		local out = {}
+
+		for _, feature in ipairs(list) do
+			if feature.gbuffer_lit_from_behind then
+				out[#out + 1] = "(" .. feature.gbuffer_lit_from_behind .. ")"
+			end
+		end
+
+		return #out > 0 and table.concat(out, " || ") or "false"
+	end
+
 	function self.GetLitFromBehindExpressionGLSL()
 		local out = {}
 

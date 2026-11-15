@@ -80,6 +80,7 @@ return {
 		}
 	]],
 	lit_from_behind = "s.clearcoat > 0.0",
+	gbuffer_lit_from_behind = "gbuffer_clearcoat(c) > 0.0",
 	direct_peak = [[
 		if (s.clearcoat > 0.0) lobe_alpha_min = min(lobe_alpha_min, s.clearcoat_alpha);
 	]],

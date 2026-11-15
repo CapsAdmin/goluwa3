@@ -87,6 +87,7 @@ return {
 		},
 	},
 	thin = "gbuffer_transmission(c) > 0.0",
+	gbuffer_lit_from_behind = "gbuffer_transmission(c) > 0.0",
 	lit_from_behind = "s.transmission > 0.0",
 	encoders = [[
 		vec2 gbuffer_encode_transmission_tint(vec3 tint) {

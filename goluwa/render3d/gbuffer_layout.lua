@@ -348,6 +348,10 @@ do
 		decoders,
 		"bool gbuffer_is_thin(COORD c) { return " .. surface_features.GetThinExpressionGLSL() .. "; }"
 	)
+	table.insert(
+		decoders,
+		"bool gbuffer_is_lit_from_behind(COORD c) { return " .. surface_features.GetGBufferLitFromBehindExpressionGLSL() .. "; }"
+	)
 	decoders = table.concat(decoders, "\n")
 	local code = glsl_common.GetOctahedralGLSL() .. [[
 		vec4 gbuffer_fetch(int tex, vec2 uv) {

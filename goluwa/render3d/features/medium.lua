@@ -189,6 +189,7 @@ return {
 		}
 	]],
 	lit_from_behind = "s.medium_slot > 0.0",
+	gbuffer_lit_from_behind = "gbuffer_medium_slot(c) > 0.0",
 	direct_floor = [[
 		if (s.medium_transmission > 0.0) scatter_floor = 1.0;
 	]],
