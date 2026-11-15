@@ -30,7 +30,9 @@ end
 local FILTER_ITERATIONS = 4
 
 local function filter_name(iteration)
-	return iteration == FILTER_ITERATIONS - 1 and "restir_gi_filter" or "restir_gi_filter_" .. iteration
+	return iteration == FILTER_ITERATIONS - 1 and
+		"restir_gi_filter" or
+		"restir_gi_filter_" .. iteration
 end
 
 local function restir_uniform(trace, filter_iteration)
@@ -197,7 +199,11 @@ local function restir_uniform(trace, filter_iteration)
 
 			if filter_iteration then
 				block.filter_step = 2 ^ filter_iteration
-				block.filter_source_tex = self:GetTextureIndex(filter_iteration == 0 and attachment("restir_gi_accumulate", current, 1) or attachment(filter_name(filter_iteration - 1), 1, 1))
+				block.filter_source_tex = self:GetTextureIndex(
+					filter_iteration == 0 and
+						attachment("restir_gi_accumulate", current, 1) or
+						attachment(filter_name(filter_iteration - 1), 1, 1)
+				)
 			end
 
 			if trace then
@@ -1304,17 +1310,25 @@ local function pass_filter(iteration)
 			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_geometry;
 		]],
 		shader = SURFACE_GLSL .. [[
-			#define RESTIR_FILTER_FIRST ]] .. (iteration == 0 and "1" or "0") .. [[
+			#define RESTIR_FILTER_FIRST ]] .. (
+				iteration == 0 and
+				"1" or
+				"0"
+			) .. [[
 
-			#define RESTIR_FILTER_LAST ]] .. (last and "1" or "0") .. [[
+			#define RESTIR_FILTER_LAST ]] .. (
+				last and
+				"1" or
+				"0"
+			) .. [[
 
 			float restir_filter_deviation(ivec2 q, vec4 value) {
 				#if RESTIR_FILTER_FIRST
 				vec3 moments = texelFetch(TEXTURE(restir_data.accum_moments_tex), q, 0).xyz;
 				float history_length = max(moments.x, 1.0);
 
-				// the temporal variance means little with a few frames of history
-				if (history_length < 4.0) return luminance(value.rgb);
+				// the temporal variance means little with a few frames of history, and the pixel's own luminance is no stand in: most single samples of a light that rare rays find are dark, a dark pixel would then turn away its brighter neighbours and the whole newly seen area comes out dark. it blurs by plane and normal only
+				if (history_length < 4.0) return 65000.0;
 
 				return sqrt(max(moments.z - moments.y * moments.y, 0.0) / history_length);
 				#else
