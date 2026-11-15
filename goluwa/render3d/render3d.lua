@@ -416,7 +416,7 @@ pvars.EndGroup()
 pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_mode = pvars.Setup2{
 	key = "r_gi",
-	default = "ddgi",
+	default = "restir",
 	enums = {"ddgi", "surfels", "restir", "none"},
 	help = "the global illumination: ddgi probe cascades, surfel radiance cascades, restir (a ray per pixel, resampled across neighbouring pixels and frames, with r_gi_cache for the light past the first bounce) or none (the sky's irradiance). the other systems' passes are not built",
 	callback = function(value, initial)
