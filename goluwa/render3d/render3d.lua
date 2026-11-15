@@ -357,6 +357,7 @@ local default_passes = {
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"fluid_volumes", "goluwa/render3d/passes/fluid_volumes.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
+	{"path_trace", "goluwa/render3d/passes/path_trace.lua", optional = true},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
 	{"water", "goluwa/render3d/passes/water.lua"},
 	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},

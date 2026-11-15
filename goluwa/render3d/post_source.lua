@@ -3,6 +3,7 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
+local path_trace = import("goluwa/render3d/path_trace.lua")
 local post_source = {}
 
 function post_source.GetOpaqueSceneFramebuffer()
@@ -77,6 +78,8 @@ function post_source.GetDebugTexture()
 	then
 		return render3d.pipelines.ambient_occlusion_debug:GetFramebuffer():GetAttachment(1)
 	end
+
+	return path_trace.GetDifferenceTexture()
 end
 
 function post_source.IsEffectLayerActive()
