@@ -1,8 +1,7 @@
 # macOS
 
-The kosmickrisp vulkan driver is used rather than MoltenVK (`goluwa/bin_manifest.lua`).
+The kosmickrisp vulkan driver is the default (`goluwa/bin_manifest.lua`).
 
-- MoltenVK cannot build the gbuffer (`gl_DrawID` has no MSL equivalent there).
 - KosmicKrisp builds older than mid 2026 can deadlock the queue (a fence never signals while the GPU is idle) once a frame records many indirect shadow draws; the bundled 26.2.4 and Mesa main do not. When several KosmicKrisp ICDs are installed the loader lists one device per ICD; pick one with `VK_DRIVER_FILES=<icd json>`.
 - Apple GPUs have no ray tracing in Vulkan: DDGI is not built (lighting falls back to the sky irradiance), reflections are screen space, and `r_quality` `auto` resolves to `medium`.
 - Only render pass GPU timestamps are meaningful; compute scopes read 0 or garbage. Measure passes by interleaved frame time A/B, the Air throttles within a minute.
