@@ -328,4 +328,10 @@ function restir_gi.GetOutputTexture(index)
 	return render3d.pipelines.restir_gi_filter:GetFramebuffer(1):GetAttachment(index)
 end
 
+function restir_gi.GetHitIrradianceTextures()
+	local current = system.GetFrameNumber() % 2 + 1
+	return render3d.pipelines.restir_gi_accumulate:GetFramebuffer(current):GetAttachment(3),
+	render3d.pipelines.restir_gi_temporal:GetFramebuffer(current):GetAttachment(4)
+end
+
 return restir_gi

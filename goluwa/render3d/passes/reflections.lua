@@ -15,6 +15,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local render = import("goluwa/render/render.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
+local restir_gi = import("goluwa/render3d/restir_gi.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_hits.RAY_QUERY
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
@@ -105,6 +106,34 @@ local shared_glsl = [[
 			}
 
 ]]
+local HIT_SCREEN_GI_GLSL = [[
+	#define SCENE_HIT_SCREEN_GI
+
+	bool scene_hit_screen_gi(vec3 P, vec3 N, float t, out vec3 irradiance) {
+		irradiance = vec3(0.0);
+
+		if (reflection_data.screen_gi_tex < 0) return false;
+
+		vec4 view_pos = reflection_data.view * vec4(P, 1.0);
+		float view_depth = -view_pos.z;
+
+		if (view_depth <= 0.01) return false;
+
+		vec4 clip = reflection_data.projection * view_pos;
+		vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+
+		if (any(lessThan(uv, vec2(0.0))) || any(greaterThanEqual(uv, vec2(1.0)))) return false;
+
+		ivec2 size = textureSize(TEXTURE(reflection_data.screen_gi_tex), 0);
+		ivec2 texel = min(ivec2(uv * vec2(size)), size - 1);
+		vec4 geometry = texelFetch(TEXTURE(reflection_data.screen_geometry_tex), texel, 0);
+
+		if (dot(geometry.xyz, N) < 0.8 || abs(geometry.w - view_depth) > 0.02 * view_depth + 0.02) return false;
+
+		irradiance = texelFetch(TEXTURE(reflection_data.screen_gi_tex), texel, 0).rgb;
+		return !any(isnan(irradiance));
+	}
+]]
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local BINDING_EMITTERS = 10
 
@@ -132,6 +161,8 @@ local function get_uniform_buffers(with_ddgi)
 				{"filter_radius", "float"},
 				{"single_ray_roughness", "float"},
 				{"emitter_roughness", "float"},
+				{"screen_gi_tex", "int"},
+				{"screen_geometry_tex", "int"},
 				{"trace_size", "ivec2"},
 				ibl.reflection_weight_block,
 				{"hit_reprojection", "int"},
@@ -165,6 +196,16 @@ local function get_uniform_buffers(with_ddgi)
 				block.filter_radius = filter_radius:Get()
 				block.single_ray_roughness = single_ray_roughness:Get()
 				block.emitter_roughness = emitter_roughness:Get()
+
+				if render3d.IsPassEnabled("restir_gi") then
+					local irradiance, geometry = restir_gi.GetHitIrradianceTextures()
+					block.screen_gi_tex = self:GetTextureIndex(irradiance)
+					block.screen_geometry_tex = self:GetTextureIndex(geometry)
+				else
+					block.screen_gi_tex = -1
+					block.screen_geometry_tex = -1
+				end
+
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
 				block.trace_size[0], block.trace_size[1] = get_trace_size()
 				ibl.WriteReflectionWeightBlock(block)
@@ -288,7 +329,7 @@ return {
 		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionWeightGLSL("reflection_data") .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
-				"bool reflection_hit_emission = true;\n#define SCENE_HIT_EMISSION reflection_hit_emission\n#define EMITTER_CANDIDATES 2\n" .. atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("reflection_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
+				"bool reflection_hit_emission = true;\n#define SCENE_HIT_EMISSION reflection_hit_emission\n#define EMITTER_CANDIDATES 2\n" .. HIT_SCREEN_GI_GLSL .. atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("reflection_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
 				or
 				""
 			) .. [[
