@@ -26,6 +26,8 @@ local pools = {}
 local last_ms = {}
 local timestamp_period_ns
 local timestamps_supported
+local MAX_PLAUSIBLE_MS = 1000
+local warned_garbage = {}
 
 local function timestamps_are_supported()
 	if timestamps_supported ~= nil then return timestamps_supported end
@@ -236,6 +238,19 @@ local function read_back_pool(pool)
 	)
 	local period = get_timestamp_period()
 	local now = system.GetUnscaledElapsedTime()
+	local frame_slot = slot_by_name.gpu_frame
+	local max_ms = MAX_PLAUSIBLE_MS
+
+	if
+		frame_slot and
+		frame_slot < scope_count and
+		data[frame_slot * 4 + 1] ~= 0 and
+		data[frame_slot * 4 + 3] ~= 0
+	then
+		local frame_ms = tonumber(data[frame_slot * 4 + 2] - data[frame_slot * 4 + 0]) * period / 1e6
+
+		if frame_ms > 0 and frame_ms < max_ms then max_ms = frame_ms end
+	end
 
 	for slot = 0, scope_count - 1 do
 		local begin_value = data[slot * 4 + 0]
@@ -246,6 +261,16 @@ local function read_back_pool(pool)
 		if begin_available ~= 0 and end_available ~= 0 and end_value > begin_value then
 			local name = slot_order[slot + 1]
 			local ms = tonumber(end_value - begin_value) * period / 1e6
+
+			if ms > max_ms then
+				if not warned_garbage[name] then
+					warned_garbage[name] = true
+					logf("[gpu_timing] ignoring implausible timestamps for scope %s (%.1f ms)\n", name, ms)
+				end
+
+				goto continue
+			end
+
 			pool.gpu_timing_ms[name] = ms
 			pool.gpu_timing_times[name] = now
 			pool.gpu_timing_frames[name] = pool.gpu_timing_recorded_frame
@@ -253,6 +278,8 @@ local function read_back_pool(pool)
 			pool.gpu_timing_end[name] = tonumber(end_value) * period / 1e6
 			last_ms[name] = ms
 		end
+
+		::continue::
 	end
 end
 
