@@ -229,10 +229,7 @@ return {
 			return render3d.pipelines.reflections_trace:GetFramebuffer(1):GetAttachment(1)
 		end,
 		ColorFormat = {
-			{
-				"r16g16b16a16_sfloat",
-				{"reflection_raw", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
-			},
+			{"r16g16b16a16_sfloat", {"reflection_raw", "rgb"}},
 			{"r16_sfloat", {"reflection_raw_distance", "r"}},
 		},
 		framebuffer_count = 1,
@@ -578,7 +575,8 @@ return {
 
 					if (slot == 0 || per_pixel && slot < candidates) value = trace_reflection_pixel(pixel, candidate_rays[slot], hit_distance);
 
-					imageStore(out_raw, pixel, value);
+					// pre exposed like the scene colour: an emitter or a sunlit hit is past what half floats hold in absolute units
+					imageStore(out_raw, pixel, vec4(value.rgb * get_pre_exposure(), value.a));
 					imageStore(out_raw_distance, pixel, vec4(hit_distance));
 				}
 			}
@@ -588,10 +586,7 @@ return {
 		name = "reflections",
 		ComputePass = true,
 		ColorFormat = {
-			{
-				"r16g16b16a16_sfloat",
-				{"reflections", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
-			},
+			{"r16g16b16a16_sfloat", {"reflections", "rgb"}},
 			{"r16_sfloat", {"reflection_depth", "r"}},
 			{"r32_sfloat", {"reflection_moment", "r"}},
 		},
@@ -620,7 +615,7 @@ return {
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_reflection_depth;
 			layout(set = 0, binding = 2, r32f) uniform writeonly image2D out_reflection_moment;
 		]],
-		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. scene_hits.CONSTANTS_GLSL .. [[
+		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. post_source.GetPreExposureGLSL("reflection_data") .. scene_hits.CONSTANTS_GLSL .. [[
 		]] .. ibl.GetReflectionQuadGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. shared_glsl .. [[
 
 			void main() {
@@ -797,8 +792,9 @@ return {
 							float history_depth = texture(TEXTURE(reflection_data.history_depth_tex), surface_prev_uv).r;
 
 							if (abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02) {
-								vec4 history = texture(TEXTURE(reflection_data.history_tex), prev_uv);
-								float history_moment = texture(TEXTURE(reflection_data.history_moment_tex), prev_uv).r;
+								float exposure_change = get_pre_exposure() / get_previous_pre_exposure();
+								vec4 history = texture(TEXTURE(reflection_data.history_tex), prev_uv) * vec4(vec3(exposure_change), 1.0);
+								float history_moment = texture(TEXTURE(reflection_data.history_moment_tex), prev_uv).r * exposure_change * exposure_change;
 
 								if (!any(isnan(history)) && !isnan(history_moment)) {
 									if (!has_current) {

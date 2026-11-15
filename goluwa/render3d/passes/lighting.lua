@@ -341,7 +341,8 @@ return {
 
 				if (lighting_data.reflection_tex == -1) return env_reflection * specular_occlusion;
 
-				return combine_reflections(env_reflection, specular_occlusion, get_filtered_reflection(reflection_uv), get_reflection_traced_weight(roughness, metallic));
+				vec4 traced = get_filtered_reflection(reflection_uv);
+				return combine_reflections(env_reflection, specular_occlusion, vec4(traced.rgb / get_pre_exposure(), traced.a), get_reflection_traced_weight(roughness, metallic));
 			}
 
 			vec3 get_gi_irradiance(vec3 N, out float sky_visibility) {
