@@ -16,6 +16,7 @@ local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local surface_lighting = {}
 pvars.StartGroup("Lighting", "Ray traced shadows", {store = false, prefix = "r_ray_shadow_"})
 local ray_shadows = pvars.Setup2{
@@ -70,6 +71,8 @@ surface_lighting.block = {
 	{"medium_noise_phase", "float"},
 	{"medium_local_thickness", "float"},
 	{"ray_shadow_samples", "int"},
+	{"ray_shadow_noise_tex", "int"},
+	{"ray_shadow_frame", "int"},
 	{"medium_slots", "vec4", (
 		media.MAX_SLOTS + 1
 	) * media.SLOT_STRIDE},
@@ -127,6 +130,13 @@ function surface_lighting.WriteBlock(self, block)
 		1 or
 		0
 	block.ray_shadow_samples = ray_shadow_samples:Get()
+	block.ray_shadow_noise_tex = self:GetTextureIndex(
+		assert(
+			assets.GetTexture("textures/render/blue_noise.lua"),
+			"the blue noise texture is not registered"
+		)
+	)
+	block.ray_shadow_frame = render3d.GetTemporalFrame()
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
@@ -194,11 +204,15 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 		]] .. (
 			ray_queries and
-			ray_materials.GetShadowRayGLSL() .. [[
+			ray_materials.GetShadowRayGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetBlueNoiseGLSL() .. [[
 			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
 				vec4 clip = ]] .. block_name .. [[.projection * (]] .. block_name .. [[.view * vec4(P, 1.0));
-				vec2 pixel = floor((clip.xy / clip.w * 0.5 + 0.5) * ]] .. block_name .. [[.render_size) + ]] .. block_name .. [[.noise_phase * 9.04165 + float(i) * 5.588238;
-				vec3 origin = P + (dot(N, L) < 0.0 ? -N : N) * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(P, ]] .. block_name .. [[.camera_position));
+				ivec2 pixel = ivec2(floor((clip.xy / clip.w * 0.5 + 0.5) * ]] .. block_name .. [[.render_size));
+				ivec2 noise_size = textureSize(TEXTURE(]] .. block_name .. [[.ray_shadow_noise_tex), 0);
+				uvec3 tile_hash = pcg3d(uvec3(uvec2(pixel / noise_size), 0x9E3779B9u));
+				vec2 noise = blue_noise_r2(blue_noise_texel(TEXTURE(]] .. block_name .. [[.ray_shadow_noise_tex), pixel).rg + vec2(pcg_unorm(tile_hash.x), pcg_unorm(tile_hash.y)), float(]] .. block_name .. [[.ray_shadow_frame % 64));
+				vec3 side = dot(N, L) < 0.0 ? -N : N;
+				vec3 origin = P + side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(P, ]] .. block_name .. [[.camera_position));
 				vec3 axis = L;
 				float one_minus_cos = 0.0;
 				float center_distance = 0.0;
@@ -222,14 +236,15 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				float visible = 0.0;
 
 				for (int k = 0; k < samples; k++) {
-					vec2 xi = fract(vec2(
-						52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))),
-						52.9829189 * fract(dot(pixel.yx + vec2(17.0, 31.0), vec2(0.06711056, 0.00583715)))
-					) + float(k) * vec2(0.7548777, 0.5698403));
+					vec2 xi = blue_noise_r2(noise, float((i * samples + k) * 64));
 					float cone = xi.x * one_minus_cos;
 					float sin_theta = sqrt(max(cone * (2.0 - cone), 0.0));
 					float phi = 6.2831853 * xi.y;
 					vec3 dir = normalize(T * (sin_theta * cos(phi)) + B * (sin_theta * sin(phi)) + axis * (1.0 - cone));
+
+					// a ray toward the part of a large light below the surface grazes the surface it starts on and hits it by rounding, as speckle
+					if (dot(dir, side) <= 0.0) continue;
+
 					float dist;
 
 					if (type == 0) {
