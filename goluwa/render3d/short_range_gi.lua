@@ -19,6 +19,21 @@ short_range_gi.accumulation = pvars.Setup2{
 	default = 32,
 	help = "most frames a pixel's estimate averages over",
 }
+short_range_gi.filter_radius = pvars.Setup2{
+	key = "short_range_gi_filter_radius",
+	default = 24,
+	help = "radius in pixels of the edge aware blur over a pixel without history",
+}
+short_range_gi.filter_min_radius = pvars.Setup2{
+	key = "short_range_gi_filter_min_radius",
+	default = 4,
+	help = "radius in pixels of the blur once a pixel has short_range_gi_filter_history frames of history",
+}
+short_range_gi.filter_history = pvars.Setup2{
+	key = "short_range_gi_filter_history",
+	default = 16,
+	help = "frames of history over which the blur shrinks from short_range_gi_filter_radius to short_range_gi_filter_min_radius",
+}
 pvars.EndGroup()
 
 do
@@ -38,7 +53,7 @@ function short_range_gi.IsActive()
 end
 
 function short_range_gi.GetOutputTexture()
-	return render3d.pipelines.short_range_gi_accumulate:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+	return render3d.pipelines.short_range_gi_filter:GetFramebuffer(1):GetAttachment(1)
 end
 
 return short_range_gi

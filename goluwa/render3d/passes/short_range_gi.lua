@@ -47,6 +47,10 @@ local function uniform(trace)
 		{"raw_irradiance_tex", "int"},
 		{"history_tex", "int"},
 		{"history_irradiance_tex", "int"},
+		{"accum_tex", "int"},
+		{"filter_radius", "float"},
+		{"filter_min_radius", "float"},
+		{"filter_history", "float"},
 		{"history_geometry_tex", "int"},
 	}
 
@@ -91,6 +95,10 @@ local function uniform(trace)
 			block.history_irradiance_tex = self:GetTextureIndex(attachment("short_range_gi_accumulate", (frame + 1) % 2 + 1, 3))
 			block.history_tex = self:GetTextureIndex(attachment("short_range_gi_accumulate", (frame + 1) % 2 + 1, 1))
 			block.history_geometry_tex = self:GetTextureIndex(attachment("short_range_gi_accumulate", (frame + 1) % 2 + 1, 2))
+			block.accum_tex = self:GetTextureIndex(attachment("short_range_gi_accumulate", frame % 2 + 1, 1))
+			block.filter_radius = short_range_gi.filter_radius:Get()
+			block.filter_min_radius = short_range_gi.filter_min_radius:Get()
+			block.filter_history = short_range_gi.filter_history:Get()
 
 			if trace then
 				scene_hits.WriteBlock(self, block)
@@ -386,7 +394,85 @@ local function pass_accumulate()
 	}
 end
 
+-- an edge aware disc over the accumulated estimate, wide while a pixel has little history; the screen hits keep reading the unfiltered accumulation, a blurred bounce feeds its blur back
+local function pass_filter()
+	return {
+		name = "short_range_gi_filter",
+		ComputePass = true,
+		is_enabled = is_enabled,
+		ColorFormat = {
+			{
+				"r16g16b16a16_sfloat",
+				{"short_range_gi_filtered", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
+		},
+		framebuffer_count = 1,
+		LocalSize = LOCAL_SIZE,
+		storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
+		uniform_buffers = {uniform(false)},
+		custom_declarations = [[
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+		]],
+		shader = glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. [[
+			#define SRGI_FILTER_TAPS 16
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_color);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				vec3 P;
+				vec3 N;
+				float view_depth;
+				float depth;
+
+				if (!srgi_surface(pos, P, N, view_depth, depth)) {
+					imageStore(out_color, pos, vec4(0.0));
+					return;
+				}
+
+				vec4 center = texelFetch(TEXTURE(srgi_data.accum_tex), pos, 0);
+				float radius = mix(srgi_data.filter_radius, srgi_data.filter_min_radius, clamp(center.a / srgi_data.filter_history, 0.0, 1.0));
+				float rotation = (srgi_data.blue_noise_tex >= 0 ? blue_noise_texel(TEXTURE(srgi_data.blue_noise_tex), pos).r : 0.0) * 6.28318530718;
+				float plane_tolerance = 0.01 * srgi_data.view_scale + 0.01 * view_depth;
+				ivec2 gsize = textureSize(TEXTURE(srgi_data.depth_tex), 0);
+				vec3 sum = center.rgb;
+				float total = 1.0;
+
+				for (int i = 0; i < SRGI_FILTER_TAPS; i++) {
+					float angle = rotation + float(i) * 2.39996323;
+					vec2 offset = vec2(cos(angle), sin(angle)) * radius * sqrt((float(i) + 0.5) / float(SRGI_FILTER_TAPS));
+					ivec2 q = clamp(pos + ivec2(round(offset)), ivec2(0), size - 1);
+
+					if (q == pos) continue;
+
+					float q_depth = gbuffer_depth(q);
+
+					if (q_depth <= 0.0) continue;
+
+					vec3 q_P = get_world_pos((vec2(q) + 0.5) / vec2(gsize), q_depth);
+					vec3 q_N = normalize(gbuffer_normal(q));
+					float w = exp(-abs(dot(N, q_P - P)) / plane_tolerance) * pow(max(dot(N, q_N), 0.0), 16.0);
+
+					if (w <= 1e-4) continue;
+
+					vec3 value = texelFetch(TEXTURE(srgi_data.accum_tex), q, 0).rgb;
+
+					if (any(isnan(value))) continue;
+
+					sum += value * w;
+					total += w;
+				}
+
+				imageStore(out_color, pos, vec4(sum / total, 1.0));
+			}
+		]],
+	}
+end
+
 return {
 	pass_trace(),
 	pass_accumulate(),
+	pass_filter(),
 }
