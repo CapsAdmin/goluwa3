@@ -204,13 +204,14 @@ return {
 
 		if (s.medium_transmission > 0.0) {
 			float entry_weight = saturate(0.5 - dot(s.N, L));
+			vec3 transmitted_bound = s.medium_transmission * s.albedo * (1.0 - s.metallic) * unshadowed_radiance * entry_weight / PI;
 
-			if (entry_weight > 0.0) {
+			if (entry_weight > 0.0 && max(max(transmitted_bound.r, transmitted_bound.g), transmitted_bound.b) * get_exposure() >= LIGHT_MIN_SCREEN_RADIANCE) {
 				float exit_path = get_medium_light_path(s.world_pos - s.geometric_N * 0.003, L, MEDIUM_SOLID_PATH);
 				if (exit_path <= 0.0) exit_path = MEDIUM_PANE_PATH;
 				vec3 exit_position = s.world_pos + L * exit_path;
 				float exit_visibility = get_light_visibility_at(i, type, exit_position + L * 0.02, L, light.position.xyz, light.params.x);
-				diffuse += s.medium_transmission * s.albedo * (1.0 - s.metallic) * optical_transmittance(s.medium_extinction, exit_path) * unshadowed_radiance * exit_visibility * entry_weight / PI;
+				diffuse += transmitted_bound * optical_transmittance(s.medium_extinction, exit_path) * exit_visibility;
 			}
 		}
 	]],

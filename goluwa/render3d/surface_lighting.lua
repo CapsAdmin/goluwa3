@@ -311,7 +311,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			float solid = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
 			#ifdef OPTICAL_RAYS
 			vec3 exit_normal;
-			float body = get_body_exit(origin, dir, max_distance, exit_normal);
+			float body = get_body_exit(origin, dir, solid > 0.0 ? solid : max_distance, exit_normal);
 
 			if (body > 0.0 && (solid <= 0.0 || body < solid)) return body;
 			#endif
