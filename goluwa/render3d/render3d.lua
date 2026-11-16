@@ -1169,6 +1169,7 @@ function render3d.Initialize(config)
 	end)
 
 	gpu_culling.Initialize()
+	import("goluwa/render3d/frame_generation.lua")
 	render3d.initializing = false
 	import("goluwa/render3d/model_loader.lua")
 	event.Call("Render3DInitialized")
@@ -1213,7 +1214,10 @@ function render3d.Draw(dt)
 	if not render3d.pipelines.blit then return end
 
 	local cmd = render.GetCommandBuffer()
-	render3d.pipelines[render3d.IsPassEnabled("blit") and "blit" or "blit_scene"]:Draw(cmd)
+
+	if not render.target:GetFramePacer() then
+		render3d.pipelines[render3d.IsPassEnabled("blit") and "blit" or "blit_scene"]:Draw(cmd)
+	end
 
 	for _, pipeline in ipairs(render3d.pipelines_i) do
 		if pipeline.post_draw then pipeline:post_draw(cmd, dt) end

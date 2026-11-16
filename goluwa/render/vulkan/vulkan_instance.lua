@@ -182,6 +182,10 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
 
+	if self.physical_device:GetQueueFamilyProperties()[self.graphics_queue_family + 1].queueCount >= 2 then
+		self.present_queue = self.device:GetQueue(self.graphics_queue_family, 1)
+	end
+
 	if self.compute_queue_family then
 		self.compute_command_pool = CommandPool.New(self.device, self.compute_queue_family)
 		self.compute_command_pool.compute_only = true

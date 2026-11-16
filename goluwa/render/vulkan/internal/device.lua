@@ -420,14 +420,15 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		)
 	end
 
-	local queuePriority = ffi.new("float[1]", 1.0)
+	local queuePriority = ffi.new("float[2]", 1.0, 1.0)
 	local queueFamilies = {graphicsQueueFamily, computeQueueFamily}
 	local queueCreateInfo = VkDeviceQueueCreateInfoArray(#queueFamilies)
+	local graphics_queue_count = math.min(2, physical_device:GetQueueFamilyProperties()[graphicsQueueFamily + 1].queueCount)
 
 	for i, family in ipairs(queueFamilies) do
 		queueCreateInfo[i - 1] = vulkan.vk.s.DeviceQueueCreateInfo{
 			queueFamilyIndex = family,
-			queueCount = 1,
+			queueCount = family == graphicsQueueFamily and graphics_queue_count or 1,
 			pQueuePriorities = queuePriority,
 			flags = 0,
 		}
@@ -731,7 +732,13 @@ end
 function Device:WaitIdle()
 	if RENDER_NOOP then return end
 
+	-- vkDeviceWaitIdle needs every queue externally synchronized, including the one the frame pacer's present thread owns
+	if self.present_thread then self.present_thread:Pause() end
+
 	vulkan.lib.vkDeviceWaitIdle(self.ptr[0])
+
+	if self.present_thread then self.present_thread:Resume() end
+
 	self:FlushDeferredReleases(true)
 end
 

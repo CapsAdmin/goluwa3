@@ -149,6 +149,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/wrappers.md](docs/wrappers.md): macos notes, Love2D and Garrysmod wrappers
 - [docs/android.md](docs/android.md): the NativeActivity shim, building and deploying the APK, the emulator, bionic and platform layer differences
 - [docs/vulkan-raytrace.md](docs/vulkan-raytrace.md): hardware ray tracing facts and gotchas
+- [docs/frame-generation.md](docs/frame-generation.md): generated frames between rendered ones, the ui layer, the frame pacer's present thread, what not to change at runtime
 - [docs/data-driven-effects.md](docs/data-driven-effects.md): effects, damage types and status effects as pure data files, clip expressions and scripts, particle shaders with glsl hooks, the effects editor
 - [docs/jrpg.md](docs/jrpg.md): `!rpg` mode, damage types, status effects, magic, effect pools, pose actions
 - [docs/audio.md](docs/audio.md): the physically based mixer (delay lines, doppler, ears, reverb buses, loudness normalization, voice stealing), traced acoustics (reverb, occlusion, reflections, materials), impact and contact events (footsteps, physics impacts, scraping, rolling) and their sounds, offline measuring

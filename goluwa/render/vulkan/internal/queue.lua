@@ -7,9 +7,9 @@ local VkQueueBox = ffi.typeof("$[1]", vulkan.vk.VkQueue)
 local VkSemaphoreArray = ffi.typeof("$[?]", vulkan.vk.VkSemaphore)
 local UInt32Array = ffi.typeof("uint32_t[?]")
 
-function Queue.New(device, graphicsQueueFamily)
+function Queue.New(device, family, index)
 	local ptr = VkQueueBox()
-	vulkan.lib.vkGetDeviceQueue(device.ptr[0], graphicsQueueFamily, 0, ptr)
+	vulkan.lib.vkGetDeviceQueue(device.ptr[0], family, index or 0, ptr)
 	return Queue:CreateObject{ptr = ptr, device = device, pending_submissions = {}}
 end
 

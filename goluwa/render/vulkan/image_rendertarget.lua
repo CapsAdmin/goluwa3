@@ -17,6 +17,7 @@ local RENDER_NOOP = _G.RENDER_NOOP or false
 local render = import("goluwa/render/render.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local hdr_output = import("goluwa/render/hdr_output.lua")
+local frame_pacer = import("goluwa/render/frame_pacer.lua")
 local ImageRenderTarget = objects.CreateTemplate("render_image_rendertarget")
 local default_config = {
 	offscreen = false,
@@ -279,6 +280,67 @@ local function create_hdr_layer(self)
 	self.hdr_layer:GetImage().frame_target = true
 end
 
+local function create_frame_generation(self)
+	if not self.frame_composer then return end
+
+	local extent = self.surface_capabilities.currentExtent
+
+	local function layer(name)
+		local texture = Texture.New{
+			width = extent.width,
+			height = extent.height,
+			format = self.color_format,
+			image = {
+				usage = {"color_attachment", "sampled", "transfer_src"},
+				properties = "device_local",
+			},
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+			},
+		}
+		texture:SetDebugName(name)
+		texture.gamma_encoded = self.hdr_layer ~= nil
+		return texture
+	end
+
+	self.ui_layer = layer("frame generation ui layer")
+	self.ui_layer:GetImage().frame_target = true
+
+	if self.hdr_layer then
+		self.compose_targets = {layer("frame generation generated"), layer("frame generation real")}
+	end
+
+	self.frame_pacer = frame_pacer.New{
+		vulkan_instance = self.vulkan_instance,
+		format = self.surface_format.format,
+		width = extent.width,
+		height = extent.height,
+		swapchain = self.swapchain,
+		swapchain_images = self.swapchain:GetImages(),
+	}
+end
+
+local function remove_frame_generation(self)
+	if self.frame_pacer then
+		self.frame_pacer:Remove()
+		self.frame_pacer = nil
+	end
+
+	if self.ui_layer then
+		self.ui_layer:Remove()
+		self.ui_layer = nil
+	end
+
+	if self.compose_targets then
+		for _, texture in ipairs(self.compose_targets) do
+			texture:Remove()
+		end
+
+		self.compose_targets = nil
+	end
+end
+
 local function create_msaa_buffer(self)
 	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
 
@@ -367,6 +429,7 @@ function ImageRenderTarget.New(vulkan_instance, config)
 	choose_format(self)
 	create_swapchain(self)
 	create_hdr_layer(self)
+	create_frame_generation(self)
 	create_depth_buffer(self)
 	create_msaa_buffer(self)
 	create_per_frame_resources(self)
@@ -377,7 +440,27 @@ function ImageRenderTarget.New(vulkan_instance, config)
 end
 
 function ImageRenderTarget:GetTexture()
-	return self.hdr_layer or self.textures[self.texture_index]
+	return self.ui_layer or self.hdr_layer or self.textures[self.texture_index]
+end
+
+-- composer(cmd, ui_layer, generated, real) renders both presented images from the frame's ui layer and returns whether the generated one is presented; nil turns frame generation off
+function ImageRenderTarget:SetFrameGeneration(composer)
+	if self.config.offscreen or self.frame_composer == composer then return end
+
+	remove_frame_generation(self)
+	self.frame_composer = composer
+	self:RebuildFramebuffers()
+end
+
+-- what reaches the screen this frame: with frame generation the composed real frame, valid from PostRenderPass on
+function ImageRenderTarget:GetOutputTexture()
+	if self.frame_pacer then return self.present_targets[2] end
+
+	return self:GetTexture()
+end
+
+function ImageRenderTarget:GetFramePacer()
+	return self.frame_pacer
 end
 
 function ImageRenderTarget:GetImage()
@@ -468,7 +551,10 @@ local function transition_render_attachments(self, cmd)
 			cmd = cmd,
 			srcStage = self.config.offscreen and
 				"top_of_pipe" or
-				self.hdr_layer and
+				(
+					self.hdr_layer or
+					self.ui_layer
+				) and
 				"fragment" or
 				"color_attachment_output",
 			srcAccess = "none",
@@ -512,7 +598,11 @@ local function build_render_config(self, load_op)
 		color_image_view = self:GetImageView(),
 		w = extent.width,
 		h = extent.height,
-		clear_color = self.config.offscreen and {0.0, 0.0, 0.0, 1.0} or {0.2, 0.2, 0.2, 1.0},
+		clear_color = self.ui_layer and
+			{0.0, 0.0, 0.0, 0.0} or
+			self.config.offscreen and
+			{0.0, 0.0, 0.0, 1.0} or
+			{0.2, 0.2, 0.2, 1.0},
 	}
 	render_config.depth_image_view = self:GetDepthImageView()
 	render_config.stencil_image_view = self:GetDepthImageView()
@@ -677,6 +767,14 @@ function ImageRenderTarget:BeginFrame()
 	if RENDER_NOOP then
 		self.texture_index = frame_index
 		texture_index = self.texture_index - 1
+	elseif self.frame_pacer then
+		if self.frame_pacer:IsOutOfDate() then
+			self:RebuildFramebuffers()
+			return nil
+		end
+
+		self.present_targets = {self.frame_pacer:BeginFrame()}
+		self.texture_index = frame_index
 	elseif self.swapchain then
 		local acquire_started = startup.Start()
 		texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[frame_index])
@@ -719,9 +817,59 @@ function ImageRenderTarget:BeginFrame()
 	return cmd
 end
 
+local function end_generated_frame(self, command_buffer)
+	local generated, real = self.present_targets[1], self.present_targets[2]
+	local compose_generated, compose_real = generated, real
+
+	if self.compose_targets then
+		compose_generated, compose_real = self.compose_targets[1], self.compose_targets[2]
+	end
+
+	local present_generated = self.frame_composer(command_buffer, self.ui_layer, compose_generated, compose_real)
+
+	if self.compose_targets then
+		hdr_output.Resolve(command_buffer, compose_real, real, self:GetColorSpace())
+
+		if present_generated then
+			hdr_output.Resolve(command_buffer, compose_generated, generated, self:GetColorSpace())
+		end
+	end
+
+	event.Call("PostRenderPass", command_buffer)
+
+	for _, texture in ipairs(self.present_targets) do
+		render.TransitionResourceTo(
+			texture:GetImage(),
+			"transfer_src_optimal",
+			{
+				cmd = command_buffer,
+				srcStage = "all_commands",
+				srcAccess = "memory_write",
+				dstStage = "transfer",
+				dstAccess = "transfer_read",
+			}
+		)
+	end
+
+	gpu_timing.EndScope(command_buffer, "gpu_frame")
+	command_buffer:End()
+	local waits = finish_frame_parts(self, command_buffer)
+	local ready_generated, ready_real = self.frame_pacer:GetReadySemaphores()
+	self.vulkan_instance.queue:SubmitWith(
+		command_buffer,
+		waits,
+		present_generated and {ready_generated, ready_real} or {ready_real},
+		self.in_flight_fences[self.current_frame]
+	)
+	self.frame_pacer:Queue(present_generated)
+end
+
 function ImageRenderTarget:EndFrame()
 	local command_buffer = self.frame_cmd
 	command_buffer:EndRendering()
+
+	if self.frame_pacer then return end_generated_frame(self, command_buffer) end
+
 	event.Call("PostRenderPass", command_buffer)
 	local output = self.textures[self.texture_index]
 
@@ -797,6 +945,7 @@ function ImageRenderTarget:Capture()
 	if not cmd or not cmd.is_recording or not cmd.is_rendering then return nil end
 
 	if RENDER_NOOP then return nil end
+
 
 	local device = self.vulkan_instance.device
 	local queue = self.vulkan_instance.queue
@@ -881,6 +1030,7 @@ end
 function ImageRenderTarget:RebuildFramebuffers()
 	if self.config.offscreen then return end
 
+	remove_frame_generation(self)
 	local device = self.vulkan_instance.device
 	device:WaitIdle()
 	device:FlushDeferredReleases(true)
@@ -906,6 +1056,7 @@ function ImageRenderTarget:RebuildFramebuffers()
 	choose_format(self)
 	create_swapchain(self)
 	create_hdr_layer(self)
+	create_frame_generation(self)
 	create_depth_buffer(self)
 	create_msaa_buffer(self)
 	create_per_frame_resources(self)

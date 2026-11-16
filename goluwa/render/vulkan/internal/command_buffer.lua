@@ -321,7 +321,7 @@ function CommandBuffer:OnRemove()
 	end
 end
 
-function CommandBuffer:Begin()
+function CommandBuffer:Begin(reusable)
 	self.bound_pipelines = {}
 	self.bound_descriptor_sets = {}
 	self.bound_vertex_buffers = {}
@@ -331,7 +331,7 @@ function CommandBuffer:Begin()
 	self.recording_serial = (self.recording_serial or 0) + 1
 	vulkan.assert(
 		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
-			flags = "one_time_submit",
+			flags = not reusable and "one_time_submit" or nil,
 		}),
 		"failed to begin command buffer"
 	)

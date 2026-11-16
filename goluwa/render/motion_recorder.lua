@@ -258,7 +258,7 @@ function MotionRecorder:Capture()
 	local cmd = render.GetCommandBuffer()
 	local cur = self.textures[self.recorded % 2 + 1]
 	local prev = self.textures[(self.recorded + 1) % 2 + 1]
-	cur:CopyFrom(render.target:GetTexture(), self.width, self.height, 0, 0, 0, 0)
+	cur:CopyFrom(render.target:GetOutputTexture(), self.width, self.height, 0, 0, 0, 0)
 	render.TransitionResourceTo(
 		cur,
 		"shader_read_only_optimal",

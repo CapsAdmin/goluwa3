@@ -9,7 +9,7 @@ function Screenshot(cb, opt)
 	end
 
 	local function capture_swapchain()
-		local texture = render.target:GetTexture():Download()
+		local texture = render.target:GetOutputTexture():Download()
 
 		event.AddListener("PostUpdate", function()
 			texture:Resolve()

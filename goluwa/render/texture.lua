@@ -1338,6 +1338,10 @@ function Texture:GetHeight()
 	return self.image and self.image:GetHeight() or 0
 end
 
+function Texture:GetFormat()
+	return self.format
+end
+
 function Texture:GetSize()
 	return self.image and Vec2(self.image:GetWidth(), self.image:GetHeight()) or Vec2(0, 0)
 end
