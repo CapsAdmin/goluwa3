@@ -266,7 +266,9 @@ function radiance_cache.GetProbeCount()
 end
 
 function radiance_cache.GetRayCount()
-	return radiance_cache.GetProbeCount() * (radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES)
+	return radiance_cache.GetProbeCount() * (
+			radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES
+		)
 end
 
 function radiance_cache.GetScreenSampleGLSL(block_name)
@@ -304,7 +306,8 @@ function radiance_cache.GetScreenSampleGLSL(block_name)
 				}
 				
 				vec4 radiance_cache_screen_specular_sample(vec2 uv, vec3 N, float view_depth) {
-				return radiance_cache_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, uv, N, view_depth);
+				vec4 weighted = radiance_cache_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, uv, N, view_depth);
+				return vec4(weighted.rgb / max(weighted.a, 1e-4), 1.0);
 				}
 	]]
 end
@@ -394,10 +397,16 @@ do
 
 		if need[a] > need[b] then a, b = b, a end
 
-		local n = math.max(math.min(need[a], math.floor(budget ^ (1 / 3) + 1e-6)), radiance_cache.MIN_PROBES_PER_AXIS)
+		local n = math.max(
+			math.min(need[a], math.floor(budget ^ (1 / 3) + 1e-6)),
+			radiance_cache.MIN_PROBES_PER_AXIS
+		)
 		cascade.size[a] = n
 		budget = math.floor(budget / n)
-		n = math.max(math.min(need[b], math.floor(math.sqrt(budget) + 1e-6)), radiance_cache.MIN_PROBES_PER_AXIS)
+		n = math.max(
+			math.min(need[b], math.floor(math.sqrt(budget) + 1e-6)),
+			radiance_cache.MIN_PROBES_PER_AXIS
+		)
 		cascade.size[b] = n
 		budget = math.floor(budget / n)
 		cascade.size[c] = math.max(math.min(need[c], budget), radiance_cache.MIN_PROBES_PER_AXIS)
@@ -640,7 +649,9 @@ function radiance_cache.GetDefinesGLSL()
 		radiance_cache.HALF_PRECISION_RAYS and 6 or 12,
 		radiance_cache.HALF_PRECISION_RAYS and 2048 or 0,
 		radiance_cache.LIGHT_SAMPLES,
-		radiance_cache.ALPHA_TEST and scene_instances.MASK_GI_SOLID or scene_instances.MASK_GI,
+		radiance_cache.ALPHA_TEST and
+			scene_instances.MASK_GI_SOLID or
+			scene_instances.MASK_GI,
 		scene_instances.MASK_GI
 	)
 end

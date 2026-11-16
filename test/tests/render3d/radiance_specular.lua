@@ -27,7 +27,12 @@ local function add_box(polygon3d, created, min, max, material)
 end
 
 local function measure(draw, roughness, metallic, frames)
-	local settings = {r_pass_path_trace = true, path_trace_bounces = 2, path_trace_view = "path", screen_space_shadows = false}
+	local settings = {
+		r_pass_path_trace = true,
+		path_trace_bounces = 2,
+		path_trace_view = "path",
+		screen_space_shadows = false,
+	}
 	local saved = {}
 
 	for key, value in pairs(settings) do
@@ -51,10 +56,36 @@ local function measure(draw, roughness, metallic, frames)
 	local ok, err = pcall(function()
 		render3d.camera:SetPosition(Vec3(0, 3, 9))
 		render3d.camera:SetAngles{x = math.rad(-18), y = 0, z = 0}
-		add_box(polygon3d, created, Vec3(-60, -1, -60), Vec3(60, 0, 60), Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), RoughnessMultiplier = roughness, MetallicMultiplier = metallic})
-		add_box(polygon3d, created, Vec3(-4, 0, -6), Vec3(-2, 3, -4), Material.New{ColorMultiplier = Color(0.9, 0.15, 0.1, 1), MetallicMultiplier = 0})
-		add_box(polygon3d, created, Vec3(1, 0, -7), Vec3(3.5, 2, -5), Material.New{ColorMultiplier = Color(0.1, 0.4, 0.9, 1), MetallicMultiplier = 0})
-		local sun = Entity.New{Name = "radiance_specular_sun", transform = {}, light_sun = {Color = Color(1, 0.95, 0.9), Lux = 100000}}
+		add_box(
+			polygon3d,
+			created,
+			Vec3(-60, -1, -60),
+			Vec3(60, 0, 60),
+			Material.New{
+				ColorMultiplier = Color(0.8, 0.8, 0.8, 1),
+				RoughnessMultiplier = roughness,
+				MetallicMultiplier = metallic,
+			}
+		)
+		add_box(
+			polygon3d,
+			created,
+			Vec3(-4, 0, -6),
+			Vec3(-2, 3, -4),
+			Material.New{ColorMultiplier = Color(0.9, 0.15, 0.1, 1), MetallicMultiplier = 0}
+		)
+		add_box(
+			polygon3d,
+			created,
+			Vec3(1, 0, -7),
+			Vec3(3.5, 2, -5),
+			Material.New{ColorMultiplier = Color(0.1, 0.4, 0.9, 1), MetallicMultiplier = 0}
+		)
+		local sun = Entity.New{
+			Name = "radiance_specular_sun",
+			transform = {},
+			light_sun = {Color = Color(1, 0.95, 0.9), Lux = 100000},
+		}
 		sun.transform:SetRotation(weather.GetSunRotationFromDirection(Vec3(0.3, 0.6, 0.5):GetNormalized()))
 		created[#created + 1] = sun
 
@@ -69,7 +100,12 @@ local function measure(draw, roughness, metallic, frames)
 		if e:IsValid() then e:Remove() end
 	end
 
-	render3d.Initialize{passes = {import("goluwa/render3d/passes/gbuffer.lua"), import("goluwa/render3d/passes/blit.lua")}}
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
 	polygon3d:Remove()
 
 	for key, value in pairs(saved) do
@@ -82,15 +118,24 @@ local function measure(draw, roughness, metallic, frames)
 end
 
 T.Test3DRayTracing("Graphics render3d radiance specular matches the path tracer", function(draw)
-	local cases = {{0, 1}, {0.1, 1}, {0.3, 1}, {0.6, 1}, {1, 1}, {0.05, 0}, {0.4, 0}, {0.9, 0}}
-
-	if os.getenv("ONLY") then
-		local r, m = os.getenv("ONLY"):match("([%d.]+),(%d)")
-		cases = {{tonumber(r), tonumber(m)}}
-	end
-
-	for _, case in ipairs(cases) do
+	for _, case in ipairs{
+		{0, 1, 0.03},
+		{0.1, 1, 0.03},
+		{0.3, 1, 0.05},
+		{0.6, 1, 0.04},
+		{1, 1, 0.04},
+		{0.05, 0, 0.03},
+		{0.4, 0, 0.03},
+		{0.9, 0, 0.03},
+	} do
 		local r = measure(draw, case[1], case[2], tonumber(os.getenv("FRAMES") or 90))
-		print(string.format("SPEC roughness %.2f metallic %d: raster/path %.3f, mean abs error %.1f%% (path %.4g raster %.4g, %d samples)", case[1], case[2], r.ratio, r.relative_error * 100, r.path, r.raster, r.samples))
+		logf(
+			"radiance specular roughness %.2f metallic %d: raster/path %.3f, mean abs error %.1f%%\n",
+			case[1],
+			case[2],
+			r.ratio,
+			r.relative_error * 100
+		)
+		T(r.ratio)["~"](1, case[3])
 	end
 end)

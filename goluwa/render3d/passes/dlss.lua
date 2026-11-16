@@ -24,7 +24,7 @@ local function get_hit_distance_texture()
 
 	if not candidates.framebuffers then return nil end
 
-	return candidates:GetFramebuffer(1):GetAttachment(4)
+	return candidates:GetFramebuffer(1):GetAttachment(5)
 end
 
 local function guide_attachment(index)
@@ -93,7 +93,7 @@ return {
 				set_diffuse_albedo(vec4(albedo * max(1.0 - specular, vec3(0.0)) * (1.0 - metallic), 1.0));
 				set_specular_albedo(vec4(specular, 1.0));
 				set_normal_roughness(vec4(N, perceptual_roughness));
-				float hit_distance = guide_data.hit_distance_tex != -1 ? texelFetch(TEXTURE(guide_data.hit_distance_tex), ivec2(uv * vec2(textureSize(TEXTURE(guide_data.hit_distance_tex), 0))), 0).a : 0.0;
+				float hit_distance = guide_data.hit_distance_tex != -1 ? texelFetch(TEXTURE(guide_data.hit_distance_tex), ivec2(uv * vec2(textureSize(TEXTURE(guide_data.hit_distance_tex), 0))), 0).r : 0.0;
 
 				if (hit_distance <= 0.0) hit_distance = 1000.0;
 

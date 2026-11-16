@@ -602,13 +602,14 @@ local function pass_candidates()
 			{"r16g16b16a16_sfloat", {"restir_candidate_normal", "rgb"}},
 			{
 				"r32g32b32a32_sfloat",
-				{"restir_candidate_specular", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+				{"restir_candidate_specular", "rgba", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
+			{"r32_sfloat", {"restir_candidate_specular_distance", "r"}},
 		},
 		framebuffer_count = 1,
 		scale = radiance.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(4),
+		storage_images = storage_images(5),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		storage_buffers = {{binding_index = BINDING_EMITTERS}},
 		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
@@ -634,6 +635,7 @@ local function pass_candidates()
 			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_b;
 			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_c;
 			layout(set = 0, binding = 3, rgba32f) uniform writeonly image2D out_d;
+			layout(set = 0, binding = 4, r32f) uniform writeonly image2D out_e;
 		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
 		-- temporal and spatial reuse stand in for more candidates: one by each of the emitter tree's weighings
 		shader = TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. surface_weather.GetRainSurfaceGLSL("restir_data") .. ibl.GetBRDFGLSLCode() .. scene_hits.GetDirectionGLSL() .. [[
@@ -645,8 +647,20 @@ local function pass_candidates()
 				return roughness;
 			}
 
+			// the rays follow the visible normals and the lobe also masks the light along each: the weight of that (the lobe over the density the rays are drawn at), which the sum of the weighted rays divides by their weights in the accumulation, so the average is the light over the lobe and not over the density
+			float radiance_specular_weight(vec3 N, vec3 V, float roughness, vec3 L) {
+				float a2 = max(roughness * roughness, 0.001);
+				a2 *= a2;
+				float NoV = max(dot(N, V), 1e-4);
+				float NoL = max(dot(N, L), 1e-4);
+				float lambda_v = 0.5 * (sqrt(1.0 + a2 * (1.0 - NoV * NoV) / (NoV * NoV)) - 1.0);
+				float lambda_l = 0.5 * (sqrt(1.0 + a2 * (1.0 - NoL * NoL) / (NoL * NoL)) - 1.0);
+				return (1.0 + lambda_v) / (1.0 + lambda_v + lambda_l);
+			}
+
 			// the rays are averaged unweighted over the visible normal distribution, so an emitter sample must enter at that density of its direction
-			vec3 radiance_specular_emitter_light(vec3 origin, vec3 N, vec3 geometric_N, vec3 V, float alpha, uint index) {
+			vec3 radiance_specular_emitter_light(vec3 origin, vec3 N, vec3 geometric_N, vec3 V, float roughness, uint index) {
+				float alpha = roughness * roughness;
 				float NoV = max(dot(N, V), 1e-4);
 				float a = max(0.001, alpha);
 				float G1 = 2.0 * NoV / (NoV + sqrt(a * a + (1.0 - a * a) * NoV * NoV));
@@ -683,10 +697,10 @@ local function pass_candidates()
 
 				if (restir_data.light_transmittance != 0) chosen *= get_light_transmittance_local(origin, chosen_dir, chosen_dist, 0.0);
 
-				return chosen * (total / float(EMITTER_CANDIDATES)) / chosen_target;
+								return chosen * (total / float(EMITTER_CANDIDATES)) / chosen_target * radiance_specular_weight(N, V, roughness, chosen_dir);
 			}
 
-			vec4 radiance_specular(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth, int index) {
+			vec4 radiance_specular(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth, int index, out float hit_distance) {
 				vec3 V = normalize(restir_data.camera_position - P);
 				vec3 geometric_N = get_geometric_normal(gpos, P, depth, V, N);
 				float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * restir_data.inv_projection[1][1] / float(textureSize(TEXTURE(restir_data.depth_tex), 0).y);
@@ -698,7 +712,8 @@ local function pass_candidates()
 
 				if (below < 0.01) R = normalize(R + geometric_N * (0.01 - 2.0 * below));
 
-				bool sample_emitters = radiance_cache_data.radiance_cache_emitter_count > 0 && roughness >= max(restir_data.specular_emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0);
+				// an emitter sample reads low across a broad lobe (half of the light a furnace gives a rough metal at roughness 1), where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
+				bool sample_emitters = radiance_cache_data.radiance_cache_emitter_count > 0 && roughness >= max(restir_data.specular_emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0) && restir_random(pos, 52u) < 1.0 - smoothstep(0.35, 0.6, roughness);
 				radiance_hit_emission = !sample_emitters;
 				vec3 origin = P + geometric_N * (0.0002 + 0.0001 * view_depth);
 				float hit_t;
@@ -710,12 +725,18 @@ local function pass_candidates()
 				}
 
 				radiance_hit_emission = true;
+				float ray_weight = mix(1.0, radiance_specular_weight(N, V, roughness, R), smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness));
+				radiance *= ray_weight;
 
-				if (sample_emitters) radiance += radiance_specular_emitter_light(origin, N, geometric_N, V, roughness * roughness, uint(index));
+				if (sample_emitters) radiance += radiance_specular_emitter_light(origin, N, geometric_N, V, roughness, uint(index));
 
-				if (any(isnan(radiance)) || any(isinf(radiance))) radiance = vec3(0.0);
+				if (any(isnan(radiance)) || any(isinf(radiance))) {
+					radiance = vec3(0.0);
+					ray_weight = 0.0;
+				}
 
-				return vec4(radiance, hit_t);
+				hit_distance = hit_t;
+				return vec4(radiance, ray_weight);
 			}
 
 			void main() {
@@ -738,6 +759,7 @@ local function pass_candidates()
 					imageStore(out_b, pos, vec4(0.0));
 					imageStore(out_c, pos, vec4(0.0));
 					imageStore(out_d, pos, vec4(0.0));
+					imageStore(out_e, pos, vec4(0.0));
 					return;
 				}
 
@@ -848,7 +870,9 @@ local function pass_candidates()
 				imageStore(out_a, pos, vec4(restir_stored_x(chosen), w_sum));
 				imageStore(out_b, pos, vec4(chosen.L, chosen_target));
 				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0) | (guided_share > 0.0 ? RESTIR_FLAG_GUIDE_MIX : 0))));
-				imageStore(out_d, pos, radiance_specular(pos, gpos, P, N, view_depth, depth, pos.y * size.x + pos.x));
+				float specular_distance;
+				imageStore(out_d, pos, radiance_specular(pos, gpos, P, N, view_depth, depth, pos.y * size.x + pos.x, specular_distance));
+				imageStore(out_e, pos, vec4(specular_distance));
 			}
 		]],
 	}
@@ -1369,7 +1393,7 @@ local function pass_accumulate()
 				vec4 history = vec4(0.0);
 				vec4 history_moments = vec4(0.0);
 				vec3 history_irradiance = vec3(0.0);
-				vec3 history_specular = vec3(0.0);
+				vec4 history_specular = vec4(0.0);
 				ivec2 base;
 				vec4 weights;
 
@@ -1388,7 +1412,7 @@ local function pass_accumulate()
 						vec4 value = texelFetch(TEXTURE(restir_data.accum_history_tex), q, 0);
 						vec4 moments = texelFetch(TEXTURE(restir_data.accum_history_moments_tex), q, 0);
 						vec3 plain = texelFetch(TEXTURE(restir_data.accum_history_irradiance_tex), q, 0).rgb;
-						vec3 specular = texelFetch(TEXTURE(restir_data.accum_history_specular_tex), q, 0).rgb;
+						vec4 specular = texelFetch(TEXTURE(restir_data.accum_history_specular_tex), q, 0);
 
 						if (any(isnan(value)) || any(isnan(moments)) || any(isnan(plain)) || any(isnan(specular))) continue;
 
@@ -1430,7 +1454,7 @@ local function pass_accumulate()
 				imageStore(out_color, pos, mix(history, current, alpha));
 				imageStore(out_moments, pos, vec4(history_length, moments, specular_length));
 				imageStore(out_irradiance, pos, vec4(mix(history_irradiance, texelFetch(TEXTURE(restir_data.raw_tex), pos, 0).rgb, alpha), 1.0));
-				vec3 accumulated_specular = history_specular;
+				vec4 accumulated_specular = history_specular;
 
 				if ((int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5) & RESTIR_FLAG_TRACED) != 0) {
 					vec3 specular_mean = vec3(0.0);
@@ -1447,10 +1471,13 @@ local function pass_accumulate()
 					specular_mean /= 9.0;
 					// a reflected thing that moved leaves the history behind: the history is held in what this frame's neighbourhood shows
 					vec3 specular_spread = 3.0 * sqrt(max(specular_squared / 9.0 - specular_mean * specular_mean, vec3(0.0))) + 0.05 * specular_mean + 1e-3;
-					accumulated_specular = mix(clamp(history_specular, specular_mean - specular_spread, specular_mean + specular_spread), texelFetch(TEXTURE(restir_data.raw_specular_tex), pos, 0).rgb, 1.0 / specular_length);
+					// a rough lobe is its own noise and a clamp to the neighbourhood of heavy tailed samples (an emitter sample) darkens it: only a smooth surface holds its history
+					specular_spread = mix(specular_spread, vec3(1e30), smoothstep(0.1, 0.3, sqrt(lobe_width)));
+					vec4 raw_specular = texelFetch(TEXTURE(restir_data.raw_specular_tex), pos, 0);
+					accumulated_specular = mix(vec4(clamp(history_specular.rgb, specular_mean - specular_spread, specular_mean + specular_spread), history_specular.a), raw_specular, 1.0 / specular_length);
 				}
 
-				imageStore(out_specular, pos, vec4(accumulated_specular, 1.0));
+				imageStore(out_specular, pos, accumulated_specular);
 			}
 		]],
 	}
@@ -1538,10 +1565,10 @@ local function pass_filter(iteration)
 				}
 
 				vec4 center = texelFetch(TEXTURE(restir_data.filter_source_tex), pos, 0);
-				vec3 specular = texelFetch(TEXTURE(restir_data.filter_specular_source_tex), pos, 0).rgb;
+				vec4 specular = texelFetch(TEXTURE(restir_data.filter_specular_source_tex), pos, 0);
 				// a smooth surface keeps its reflection sharp: the specular is only averaged out as far as its lobe is wide
 				float specular_reach = 9.0 * smoothstep(0.04, 0.6, sqrt(gbuffer_roughness(gpos)));
-								float specular_gate = clamp(specular_reach - float(restir_data.filter_step) + 1.0, 0.0, 1.0);
+												float specular_gate = clamp(specular_reach - float(restir_data.filter_step) + 1.0, 0.0, 1.0);
 				float deviation = restir_filter_deviation(pos, center);
 				vec3 result = center.rgb;
 				float result_deviation = deviation;
@@ -1551,7 +1578,7 @@ local function pass_filter(iteration)
 					float luminance_tolerance = restir_data.filter_luminance * deviation + 0.01 * center_luminance + 1e-6;
 					float plane_tolerance = 0.01 + 0.01 * view_depth;
 					vec3 sum = vec3(0.0);
-					vec3 specular_sum = vec3(0.0);
+					vec4 specular_sum = vec4(0.0);
 					float specular_total = 0.0;
 					float total = 0.0;
 					float variance = 0.0;
@@ -1564,7 +1591,7 @@ local function pass_filter(iteration)
 
 							float w = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25);
 							vec4 value = center;
-							vec3 q_specular = specular;
+							vec4 q_specular = specular;
 
 							if (q != pos) {
 								ivec2 q_gpos;
@@ -1576,7 +1603,7 @@ local function pass_filter(iteration)
 								if (!restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth)) continue;
 
 								value = texelFetch(TEXTURE(restir_data.filter_source_tex), q, 0);
-								q_specular = texelFetch(TEXTURE(restir_data.filter_specular_source_tex), q, 0).rgb;
+								q_specular = texelFetch(TEXTURE(restir_data.filter_specular_source_tex), q, 0);
 
 								if (any(isnan(value)) || any(isnan(q_specular))) continue;
 
@@ -1607,7 +1634,7 @@ local function pass_filter(iteration)
 				imageStore(out_color, pos, min(vec4(result, result_deviation), vec4(65000.0)));
 				#endif
 				imageStore(out_geometry, pos, vec4(N, view_depth));
-				imageStore(out_specular, pos, vec4(min(specular, vec3(65000.0)), 1.0));
+				imageStore(out_specular, pos, min(specular, vec4(65000.0)));
 			}
 		]],
 	}
