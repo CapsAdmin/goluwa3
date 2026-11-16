@@ -19,7 +19,7 @@ Temporary print logging and code edits are fine for finding causes; remove them 
 - On loss the engine always prints the `VK_EXT_device_fault` description and on Linux the recent `NVRM: Xid` kernel log lines (`checkpoints.Report`).
 - `GOLUWA_NO_RAY_TRACING=1` disables ray tracing, useful to bisect.
 - GPU assisted validation (`VK_LAYER_GPUAV_ENABLE=true VK_LAYER_VALIDATE_CORE=false GOLUWA_VALIDATE=1`, plus `GOLUWA_VALIDATE_NO_TRACEBACK=1`: the message callback tracebacks the host Lua state, which is not safe from the layer's own threads and segfaults) instruments every shader, and with the engine's uber shaders one translucent pipeline took ten minutes to compile, so it did not get as far as the failing pass; `GOLUWA_TEST_KILL_SECONDS` and `GOLUWA_TEST_TIMEOUT` raise the test runner's 120 s file and 20 s per test limits for such runs.
-- Intermittent Xid losses in the biggest `vkCmdTraceRaysKHR` launch of a frame (radiance_cache_shade, reflections_trace) were timing dependent and traced to the driver, not to engine objects or synchronization; do not spend long hunting it in engine code.
+- Intermittent Xid losses in the biggest `vkCmdTraceRaysKHR` launch of a frame (radiance_cache_shade, radiance_candidates) were timing dependent and traced to the driver, not to engine objects or synchronization; do not spend long hunting it in engine code.
 
 # Profiling
 
