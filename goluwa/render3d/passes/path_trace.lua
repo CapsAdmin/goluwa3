@@ -713,6 +713,7 @@ local uniform_block = {
 	{"pt_split", "float"},
 	{"pt_difference_stops", "float"},
 	{"pt_caustics", "int"},
+	{"pt_raw", "int"},
 }
 
 local function write_block(self, block, photons)
@@ -734,6 +735,7 @@ local function write_block(self, block, photons)
 	block.pt_split = path_trace.split:Get()
 	block.pt_difference_stops = path_trace.difference_stops:Get()
 	block.pt_caustics = caustic and 1 or 0
+	block.pt_raw = render3d.IsAntiAliasingEnabled("dlss_rr") and 1 or 0
 	return caustics.WriteBlock(
 		self,
 		block,
@@ -911,6 +913,8 @@ return {
 					return;
 				}
 
+				vec3 frame_color = vec3(0.0);
+
 				if (lighting_data.pt_trace != 0) {
 					vec3 sum = vec3(0.0);
 					uint frame_sample = uint(lighting_data.pt_samples_before);
@@ -922,6 +926,7 @@ return {
 					}
 
 					if (!any(isnan(sum)) && !any(isinf(sum))) {
+						frame_color = sum / float(lighting_data.pt_samples_per_frame);
 						float count = accum.a + float(lighting_data.pt_samples_per_frame);
 						accum = vec4(accum.rgb + (sum - accum.rgb * float(lighting_data.pt_samples_per_frame)) / count, count);
 					}
@@ -947,7 +952,7 @@ return {
 
 				if (accum.a <= 0.0) return;
 
-				vec3 color = accum.rgb;
+				vec3 color = lighting_data.pt_raw != 0 ? frame_color : accum.rgb;
 
 				if (view == 1) return;
 

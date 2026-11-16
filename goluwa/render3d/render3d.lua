@@ -129,7 +129,7 @@ end
 function render3d.GetMaterialMipBias()
 	local bias = math.log(render3d.GetRenderSize().y / render.GetRenderImageSize().y) / math.log(2)
 
-	if render3d.IsAntiAliasingEnabled("taa") then return bias - 1 end
+	if render3d.IsJitteredAntiAliasingEnabled() then return bias - 1 end
 
 	return bias
 end
@@ -410,6 +410,7 @@ local default_passes = {
 	},
 	{"edge_aa", "goluwa/render3d/passes/edge_aa.lua"},
 	{"taa", "goluwa/render3d/passes/taa.lua", group = "anti aliasing"},
+	{"dlss", "goluwa/render3d/passes/dlss.lua", group = "anti aliasing"},
 	{"ssaa", "goluwa/render3d/passes/ssaa.lua"},
 	{"fxaa", "goluwa/render3d/passes/fxaa.lua"},
 	{"easu", "goluwa/render3d/passes/easu.lua"},
@@ -513,8 +514,8 @@ pvars.StartGroup("Post", "Anti-aliasing", {store = false})
 local anti_aliasing = pvars.Setup2{
 	key = "r_aa",
 	default = "taa",
-	enums = {"taa", "edge_aa", "edge_aa_t", "fxaa", "ssaa", "none"},
-	help = "taa resolves jittered frames over time, edge_aa smooths detected edges by their shape, edge_aa_t is edge_aa with two jittered frames averaged on top, fxaa blurs along high contrast edges, ssaa averages jittered frames while the camera is still, as a reference",
+	enums = {"taa", "dlss", "dlss_rr", "edge_aa", "edge_aa_t", "fxaa", "ssaa", "none"},
+	help = "taa resolves jittered frames over time, dlss is nvidia dlss super resolution (anti-aliasing and upscaling by a network, nvidia gpus only), dlss_rr is dlss ray reconstruction (the network also denoises, it takes albedo and normal guides beside the color), edge_aa smooths detected edges by their shape, edge_aa_t is edge_aa with two jittered frames averaged on top, fxaa blurs along high contrast edges, ssaa averages jittered frames while the camera is still, as a reference",
 }
 local upscale_height = pvars.Setup2{
 	key = "r_upscale_height",
@@ -551,14 +552,18 @@ function render3d.IsUpscaling()
 	return internal.x ~= output.x or internal.y ~= output.y
 end
 
-function render3d.IsAntiAliasingEnabled(mode)
-	if anti_aliasing:Get() ~= mode then return false end
+do
+	local pass_of_mode = {dlss_rr = "dlss"}
 
-	if mode == "edge_aa_t" then
-		return render3d.IsPassEnabled("edge_aa") and render3d.IsPassEnabled("taa")
+	function render3d.IsAntiAliasingEnabled(mode)
+		if anti_aliasing:Get() ~= mode then return false end
+
+		if mode == "edge_aa_t" then
+			return render3d.IsPassEnabled("edge_aa") and render3d.IsPassEnabled("taa")
+		end
+
+		return render3d.IsPassEnabled(pass_of_mode[mode] or mode)
 	end
-
-	return render3d.IsPassEnabled(mode)
 end
 
 function render3d.GetNoisePhase()
@@ -581,8 +586,14 @@ function render3d.GetTemporalFrame()
 	return 0
 end
 
-function render3d.IsTemporalAntiAliasingEnabled()
+function render3d.IsJitteredAntiAliasingEnabled()
 	return render3d.IsAntiAliasingEnabled("taa") or
+		render3d.IsAntiAliasingEnabled("dlss") or
+		render3d.IsAntiAliasingEnabled("dlss_rr")
+end
+
+function render3d.IsTemporalAntiAliasingEnabled()
+	return render3d.IsJitteredAntiAliasingEnabled() or
 		render3d.IsAntiAliasingEnabled("edge_aa_t") or
 		render3d.IsAntiAliasingEnabled("ssaa")
 end

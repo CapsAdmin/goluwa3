@@ -95,12 +95,26 @@ function post_source.GetEffectLayerTexture()
 end
 
 local function get_anti_aliased_scene_texture(self)
-	if self.name ~= "easu" and render3d.pipelines.easu and render3d.pipelines.easu.is_enabled() then
+	if
+		self.name ~= "easu" and
+		render3d.pipelines.easu and
+		render3d.pipelines.easu.is_enabled()
+	then
 		if render3d.pipelines.easu_sharpen.is_enabled() then
 			return render3d.pipelines.easu_sharpen:GetFramebuffer():GetAttachment(1)
 		end
 
 		return render3d.pipelines.easu:GetFramebuffer():GetAttachment(1)
+	end
+
+	if
+		self.name ~= "dlss" and
+		(
+			render3d.IsAntiAliasingEnabled("dlss") or
+			render3d.IsAntiAliasingEnabled("dlss_rr")
+		)
+	then
+		return render3d.pipelines.dlss:GetFramebuffer():GetAttachment(1)
 	end
 
 	if self.name ~= "taa" and render3d.IsAntiAliasingEnabled("taa") then
@@ -156,6 +170,7 @@ function post_source.GetSceneSourceTexture(self)
 
 	if
 		self.name ~= "taa" and
+		self.name ~= "dlss" and
 		self.name ~= "dof" and
 		self.name ~= "motion_blur" and
 		self.name ~= "screen_fields" and
@@ -166,6 +181,7 @@ function post_source.GetSceneSourceTexture(self)
 
 	if
 		self.name ~= "taa" and
+		self.name ~= "dlss" and
 		self.name ~= "dof" and
 		self.name ~= "motion_blur" and
 		render3d.IsPassEnabled("motion_blur") and
@@ -176,6 +192,7 @@ function post_source.GetSceneSourceTexture(self)
 
 	if
 		self.name ~= "taa" and
+		self.name ~= "dlss" and
 		self.name ~= "dof" and
 		render3d.IsPassEnabled("dof") and
 		render3d.dof_enabled:Get()
@@ -183,7 +200,7 @@ function post_source.GetSceneSourceTexture(self)
 		return render3d.pipelines.dof:GetFramebuffer():GetAttachment(1)
 	end
 
-	if self.name ~= "taa" and post_source.IsEffectLayerActive() then
+	if self.name ~= "taa" and self.name ~= "dlss" and post_source.IsEffectLayerActive() then
 		return render3d.pipelines.effects_post:GetFramebuffer():GetAttachment(1)
 	end
 

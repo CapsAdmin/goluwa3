@@ -28,7 +28,14 @@ local function get_jitter_phase_count(input, viewport)
 	return math.ceil(8 * (viewport.w / input.x) ^ 2)
 end
 
-local frame_state = {history_valid = 0, last_frame = -1, last_width = 0, last_height = 0, last_input_width = 0, last_input_height = 0}
+local frame_state = {
+	history_valid = 0,
+	last_frame = -1,
+	last_width = 0,
+	last_height = 0,
+	last_input_width = 0,
+	last_input_height = 0,
+}
 local EXPOSURE_GLSL = "float get_compress_exposure(int pre_exposure_tex) { return pre_exposure_tex != -1 ? " .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. " : 1.0; }"
 
 local function is_enabled()
@@ -76,7 +83,7 @@ return {
 			local camera = render3d.GetMainCamera()
 			render3d.previous_jitter = camera:GetJitter():Copy()
 
-			if not render3d.IsAntiAliasingEnabled("taa") then
+			if not render3d.IsJitteredAntiAliasingEnabled() then
 				camera:SetJitter(ZERO)
 				return
 			end
@@ -220,7 +227,7 @@ return {
 				set_view_depth(depth > 0.0 ? min(get_view_depth(uv, depth), FP16_MAX) : FP16_MAX);
 				set_translucency(vec2(reactive, transparency));
 			}
-		]] ,
+		]],
 		},
 		CullMode = "none",
 		DepthTest = false,

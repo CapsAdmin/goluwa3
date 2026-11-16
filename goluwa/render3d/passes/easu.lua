@@ -4,7 +4,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local rcas = import("goluwa/render3d/rcas.lua")
 
 local function is_enabled()
-	return not render3d.IsAntiAliasingEnabled("taa") and render3d.IsUpscaling()
+	return not render3d.IsJitteredAntiAliasingEnabled() and render3d.IsUpscaling()
 end
 
 return {
