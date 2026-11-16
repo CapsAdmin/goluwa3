@@ -35,20 +35,48 @@ local function get_jitter_phase_count(input, viewport)
 	return math.ceil(8 * (viewport.w / input.x) ^ 2)
 end
 
-local REQUIRED_TEXTURES = {"source_tex", "depth_tex", "history_tex", "history_state_tex"}
-local last_frame = -1
-local last_width, last_height = 0, 0
-local last_input_width, last_input_height = 0, 0
+local frame_state = {history_valid = 0, last_frame = -1, last_width = 0, last_height = 0, last_input_width = 0, last_input_height = 0}
 local EXPOSURE_GLSL = "float get_compress_exposure(int pre_exposure_tex) { return pre_exposure_tex != -1 ? " .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. " : 1.0; }"
+
+local function is_enabled()
+	return render3d.IsAntiAliasingEnabled("taa")
+end
+
+local function attachment(name, previous, index)
+	local frame = system.GetFrameNumber()
+	return render3d.pipelines[name]:GetFramebuffer((previous and frame + 1 or frame) % 2 + 1):GetAttachment(index)
+end
+
+local function write_jitter_delta(block)
+	local camera = render3d.GetCamera()
+	local jitter = camera:GetJitter()
+	local viewport = camera:GetViewport()
+	block.jitter_delta[0] = (render3d.previous_jitter.x - jitter.x) / viewport.w
+	block.jitter_delta[1] = (render3d.previous_jitter.y - jitter.y) / viewport.h
+end
+
+local REPROJECT_GLSL = [[
+	const float FP16_MIN = 6.10e-05;
+	const float FP16_MAX = 65504.0;
+
+	bool is_uv_inside(vec2 uv) {
+		return all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)));
+	}
+
+	float min_divided_by_max(float a, float b) {
+		float m = max(a, b);
+		return m > 0.0 ? min(a, b) / m : 0.0;
+	}
+]]
 return {
 	{
-		name = "taa",
-		is_enabled = function()
-			return render3d.IsAntiAliasingEnabled("taa")
-		end,
+		name = "taa_inputs",
+		resolution = "internal",
+		is_enabled = is_enabled,
 		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			{"r16g16_sfloat", {"history_state", "rg"}},
+			{"r16g16b16a16_sfloat", {"inputs", "rgba"}},
+			{"r16_sfloat", {"view_depth", "r"}},
+			{"r16g16_sfloat", {"translucency", "rg"}},
 		},
 		framebuffer_count = 2,
 		pre_render = function()
@@ -73,39 +101,24 @@ return {
 		fragment = {
 			uniform_buffers = {
 				{
-					name = "taa_data",
+					name = "inputs_data",
 					binding_index = 2,
 					block = {
 						render3d.camera_block,
 						render3d.prev_camera_block,
-						{"jitter", "vec2"},
-						{"jitter_phase_count", "float"},
 						{"source_tex", "int"},
-						{"history_tex", "int"},
-						{"history_state_tex", "int"},
 						{"water_distance_tex", "int"},
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
 						{"translucent_motion_tex", "int"},
 						{"translucent_additive_tex", "int"},
 						post_source.pre_exposure_block,
-						{"history_valid", "int"},
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
 						render3d.WritePreviousCameraBlock(self, block)
-						local camera = render3d.GetCamera()
-						local jitter = camera:GetJitter()
-						local viewport = camera:GetViewport()
-						local input = render3d.GetRenderSize()
-						block.jitter[0] = jitter.x * input.x / viewport.w
-						block.jitter[1] = jitter.y * input.y / viewport.h
-						block.jitter_phase_count = get_jitter_phase_count(input, viewport)
 						local frame = system.GetFrameNumber()
-						local history = render3d.pipelines.taa:GetFramebuffer((frame + 1) % 2 + 1)
 						block.source_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "taa"}))
-						block.history_tex = self:GetTextureIndex(history:GetAttachment(1))
-						block.history_state_tex = self:GetTextureIndex(history:GetAttachment(2))
 						block.water_distance_tex = (
 								render3d.IsOceanEnabled() or
 								render3d.IsWaterEnabled()
@@ -125,38 +138,369 @@ return {
 							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(3)) or
 							-1
 						post_source.WritePreExposureBlock(self, block)
-
-						for _, key in ipairs(REQUIRED_TEXTURES) do
-							if block[key] == -1 then error("taa has no " .. key) end
-						end
-
 						local size = render.GetRenderImageSize()
-						block.history_valid = (
+						local input = render3d.GetRenderSize()
+						local state = frame_state
+						state.history_valid = (
 								not render3d.IsCameraCut() and
-								last_frame == frame - 1 and
-								last_width == size.x and
-								last_height == size.y and
-								last_input_width == input.x and
-								last_input_height == input.y
+								state.last_frame == frame - 1 and
+								state.last_width == size.x and
+								state.last_height == size.y and
+								state.last_input_width == input.x and
+								state.last_input_height == input.y
 							)
 							and
 							1 or
 							0
-						last_frame = frame
-						last_width, last_height = size.x, size.y
-						last_input_width, last_input_height = input.x, input.y
+						state.last_frame = frame
+						state.last_width, state.last_height = size.x, size.y
+						state.last_input_width, state.last_input_height = input.x, input.y
+						return block
+					end,
+				},
+			},
+			shader = REPROJECT_GLSL .. post_source.GetCompressGLSL() .. post_source.GetPreExposureGLSL("inputs_data") .. EXPOSURE_GLSL .. screen_reconstruct.GetViewRayFromUVGLSL("inputs_data") .. screen_reconstruct.GetViewDepthGLSL("inputs_data") .. screen_reconstruct.GetViewPosGLSL("inputs_data") .. [[
+			void main() {
+				ivec2 size = textureSize(TEXTURE(inputs_data.depth_tex), 0);
+				ivec2 pixel = ivec2(gl_FragCoord.xy);
+				vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+				float depth = texelFetch(TEXTURE(inputs_data.depth_tex), pixel, 0).r;
+				float closest_depth = 0.0;
+				ivec2 closest_pixel = pixel;
+
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						ivec2 p = clamp(pixel + ivec2(x, y), ivec2(0), size - 1);
+						float d = texelFetch(TEXTURE(inputs_data.depth_tex), p, 0).r;
+
+						if (d > closest_depth) {
+							closest_depth = d;
+							closest_pixel = p;
+						}
+					}
+				}
+
+				vec2 closest_uv = (vec2(closest_pixel) + 0.5) / vec2(size);
+				vec2 motion;
+				float expected_depth = -1.0;
+
+				if (closest_depth > 0.0 && inputs_data.velocity_tex != -1) {
+					motion = texelFetch(TEXTURE(inputs_data.velocity_tex), closest_pixel, 0).xy;
+					expected_depth = depth > 0.0 ? texelFetch(TEXTURE(inputs_data.velocity_tex), pixel, 0).z : -1.0;
+				} else {
+					vec4 world_pos = inputs_data.inv_view * vec4(get_view_pos(closest_uv, closest_depth), 1.0);
+					vec4 prev_clip = inputs_data.prev_projection * inputs_data.prev_view * vec4(world_pos.xyz, 1.0);
+					motion = closest_uv - (prev_clip.xy / prev_clip.w * 0.5 + 0.5);
+				}
+
+				float water_distance = inputs_data.water_distance_tex != -1 ? texelFetch(TEXTURE(inputs_data.water_distance_tex), pixel, 0).r : -1.0;
+
+				if (water_distance > 0.0) {
+					vec4 water_clip = inputs_data.prev_projection * inputs_data.prev_view * vec4(inputs_data.camera_position + get_view_ray(uv) * water_distance, 1.0);
+					motion = uv - (water_clip.xy / water_clip.w * 0.5 + 0.5);
+					expected_depth = -1.0;
+				}
+
+				float reactive = 0.0;
+				float transparency = 0.0;
+
+				if (inputs_data.translucent_motion_tex != -1) {
+					vec4 translucent = texelFetch(TEXTURE(inputs_data.translucent_motion_tex), pixel, 0);
+					float coverage = min(translucent.b, 1.0);
+					float emission = dot(texelFetch(TEXTURE(inputs_data.translucent_additive_tex), pixel, 0).rgb, vec3(1.0));
+					reactive = max(smoothstep(0.0, 0.02, emission), 0.6 * smoothstep(0.0, 0.2, coverage));
+
+					if (coverage > 0.0) {
+						vec2 translucent_motion = translucent.rg / translucent.b;
+						transparency = 2.0 * min(coverage, 1.0 - coverage) * smoothstep(0.5, 2.0, length((translucent_motion - motion) * vec2(size)));
+
+						if (coverage > 0.5) {
+							motion = translucent_motion;
+							expected_depth = -1.0;
+						}
+					}
+				}
+
+				float exposure = get_compress_exposure(inputs_data.pre_exposure_tex);
+				float luma = compress(max(texelFetch(TEXTURE(inputs_data.source_tex), pixel, 0).rgb, vec3(0.0)), exposure).x;
+				set_inputs(vec4(motion, expected_depth, luma));
+				set_view_depth(depth > 0.0 ? min(get_view_depth(uv, depth), FP16_MAX) : FP16_MAX);
+				set_translucency(vec2(reactive, transparency));
+			}
+		]] ,
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	},
+	{
+		name = "taa_reactivity",
+		resolution = "internal",
+		is_enabled = is_enabled,
+		ColorFormat = {{"r16g16b16a16_sfloat", {"masks", "rgba"}}},
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "reactivity_data",
+					binding_index = 2,
+					block = {
+						{"jitter_delta", "vec2"},
+						{"inputs_tex", "int"},
+						{"view_depth_tex", "int"},
+						{"translucency_tex", "int"},
+						{"prev_inputs_tex", "int"},
+						{"prev_view_depth_tex", "int"},
+						{"history_valid", "int"},
+					},
+					write = function(self, block)
+						write_jitter_delta(block)
+						block.inputs_tex = self:GetTextureIndex(attachment("taa_inputs", false, 1))
+						block.view_depth_tex = self:GetTextureIndex(attachment("taa_inputs", false, 2))
+						block.translucency_tex = self:GetTextureIndex(attachment("taa_inputs", false, 3))
+						block.prev_inputs_tex = self:GetTextureIndex(attachment("taa_inputs", true, 1))
+						block.prev_view_depth_tex = self:GetTextureIndex(attachment("taa_inputs", true, 2))
+						block.history_valid = frame_state.history_valid
+						return block
+					end,
+				},
+			},
+			shader = REPROJECT_GLSL .. [[
+			const ivec2 CROSS[5] = ivec2[5](ivec2(0, 0), ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
+
+			ivec2 size;
+
+			void sort5(inout float s[5]) {
+				float t;
+				#define SWAP(i, j) t = min(s[i], s[j]); s[j] = max(s[i], s[j]); s[i] = t;
+				SWAP(0, 3) SWAP(1, 4) SWAP(0, 2) SWAP(1, 3) SWAP(0, 1) SWAP(2, 4) SWAP(1, 2) SWAP(3, 4) SWAP(2, 3)
+				#undef SWAP
+			}
+
+			float minimum_difference(float a_set[5], float b_set[5]) {
+				sort5(a_set);
+				sort5(b_set);
+				float min_diff = FP16_MAX - 1.0;
+
+				if (min(a_set[4], b_set[4]) <= 1.175494351e-38) return 0.0;
+
+				int a = 0;
+				int b = 0;
+
+				for (int i = 0; i < 5 && min_diff < FP16_MAX; i++) {
+					float diff = a_set[a] - b_set[b];
+
+					if (abs(diff) > FP16_MIN) {
+						diff = sign(diff) * (1.0 - min_divided_by_max(a_set[a], b_set[b]));
+						min_diff = abs(diff) < abs(min_diff) ? diff : min_diff;
+						a = min(a + int(a_set[a] < b_set[b]), 4);
+						b = min(b + int(a_set[a] >= b_set[b]), 4);
+					} else {
+						min_diff = FP16_MAX;
+					}
+				}
+
+				return min_diff * float(min_diff < FP16_MAX - 1.0);
+			}
+
+			void main() {
+				size = textureSize(TEXTURE(reactivity_data.inputs_tex), 0);
+				ivec2 pixel = ivec2(gl_FragCoord.xy);
+				vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+				vec4 inputs = texelFetch(TEXTURE(reactivity_data.inputs_tex), pixel, 0);
+				vec2 motion = inputs.xy;
+				float expected_depth = inputs.z;
+				vec2 prev_uv = uv - motion + reactivity_data.jitter_delta;
+				bool inside = reactivity_data.history_valid != 0 && is_uv_inside(prev_uv);
+				float disocclusion = 0.0;
+				float shading_difference = 0.0;
+
+				if (inside) {
+					if (expected_depth > 0.0) {
+						vec4 previous = textureGather(TEXTURE(reactivity_data.prev_view_depth_tex), prev_uv, 0);
+						disocclusion = smoothstep(0.02, 0.1, (expected_depth - max(max(previous.x, previous.y), max(previous.z, previous.w))) / expected_depth);
+					}
+
+					ivec2 prev_base = ivec2(floor(prev_uv * vec2(size)));
+					float current_set[5];
+					float previous_set[5];
+
+					for (int i = 0; i < 5; i++) {
+						current_set[i] = max(texelFetch(TEXTURE(reactivity_data.inputs_tex), clamp(pixel + CROSS[i], ivec2(0), size - 1), 0).w, FP16_MIN);
+						previous_set[i] = max(texelFetch(TEXTURE(reactivity_data.prev_inputs_tex), clamp(prev_base + CROSS[i], ivec2(0), size - 1), 0).w, FP16_MIN);
+					}
+
+					shading_difference = minimum_difference(current_set, previous_set);
+				}
+
+				ivec2 reprojected_pixel = clamp(ivec2((uv - motion) * vec2(size)), ivec2(0), size - 1);
+				float velocity_4k = length(motion * vec2(3840.0, 2160.0));
+				float reprojected_velocity_4k = length(texelFetch(TEXTURE(reactivity_data.inputs_tex), reprojected_pixel, 0).xy * vec2(3840.0, 2160.0));
+				float divergence = velocity_4k > 0.0 ?
+					(1.0 - clamp(reprojected_velocity_4k / velocity_4k, 0.0, 1.0)) *
+					min_divided_by_max(texelFetch(TEXTURE(reactivity_data.view_depth_tex), reprojected_pixel, 0).r, texelFetch(TEXTURE(reactivity_data.view_depth_tex), pixel, 0).r) *
+					clamp(velocity_4k / 10.0, 0.0, 1.0) :
+					0.0;
+				float reactive_input = 0.0;
+
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						reactive_input = max(reactive_input, texelFetch(TEXTURE(reactivity_data.translucency_tex), clamp(pixel + ivec2(x, y), ivec2(0), size - 1), 0).r);
+					}
+				}
+
+				float transparency = texelFetch(TEXTURE(reactivity_data.translucency_tex), pixel, 0).g;
+				set_masks(vec4(max(divergence, transparency), disocclusion, shading_difference, reactive_input));
+			}
+		]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	},
+	{
+		name = "taa_shading",
+		resolution = "internal",
+		is_enabled = is_enabled,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"reactivity", "rgba"}},
+			{"r16g16b16a16_sfloat", {"luma_history", "rgba"}},
+		},
+		framebuffer_count = 2,
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "shading_data",
+					binding_index = 2,
+					block = {
+						{"jitter_delta", "vec2"},
+						{"masks_tex", "int"},
+						{"inputs_tex", "int"},
+						{"prev_luma_history_tex", "int"},
+						{"history_valid", "int"},
+					},
+					write = function(self, block)
+						write_jitter_delta(block)
+						block.masks_tex = self:GetTextureIndex(render3d.pipelines.taa_reactivity:GetFramebuffer():GetAttachment(1))
+						block.inputs_tex = self:GetTextureIndex(attachment("taa_inputs", false, 1))
+						block.prev_luma_history_tex = self:GetTextureIndex(attachment("taa_shading", true, 2))
+						block.history_valid = frame_state.history_valid
+						return block
+					end,
+				},
+			},
+			shader = REPROJECT_GLSL .. [[
+			void main() {
+				ivec2 size = textureSize(TEXTURE(shading_data.masks_tex), 0);
+				ivec2 pixel = ivec2(gl_FragCoord.xy);
+				vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+				vec4 masks = texelFetch(TEXTURE(shading_data.masks_tex), pixel, 0);
+				float reactive = clamp(masks.x, 0.0, 1.0);
+				float disocclusion = clamp(masks.y, 0.0, 1.0);
+				float shading_change = 0.0;
+
+				for (int level = 0; level < 3; level++) {
+					int block = 1 << level;
+					ivec2 base = (pixel / block) * block;
+					float difference = 0.0;
+					float sign_sum = 0.0;
+
+					for (int y = 0; y < block; y++) {
+						for (int x = 0; x < block; x++) {
+							float d = texelFetch(TEXTURE(shading_data.masks_tex), min(base + ivec2(x, y), size - 1), 0).z;
+							difference += d;
+							sign_sum += d != 0.0 ? sign(d) : 0.0;
+						}
+					}
+
+					float value = abs(difference * sign_sum) / float(block * block * block * block);
+
+					if (value > 0.0) shading_change = max(shading_change, value);
+				}
+
+				shading_change = clamp(max(shading_change, masks.w), 0.0, 1.0);
+				vec4 inputs = texelFetch(TEXTURE(shading_data.inputs_tex), pixel, 0);
+				vec2 prev_uv = uv - inputs.xy + shading_data.jitter_delta;
+				vec4 luma_history = vec4(0.0);
+				float instability = 0.0;
+
+				if (shading_data.history_valid != 0 && is_uv_inside(prev_uv) && disocclusion < 0.1 && shading_change < 0.1) {
+					luma_history = textureLod(TEXTURE(shading_data.prev_luma_history_tex), prev_uv, 0.0);
+					float luma = inputs.w;
+					float diff0 = luma - luma_history.x;
+					float similarity0 = min_divided_by_max(luma, luma_history.x);
+					float max_similarity = similarity0;
+
+					if (similarity0 < 1.0) {
+						for (int i = 1; i < 4; i++) {
+							if (sign(diff0) == sign(luma - luma_history[i])) max_similarity = max(max_similarity, min_divided_by_max(luma, luma_history[i]));
+						}
+
+						instability = float(max_similarity > similarity0);
+					}
+
+					luma_history = vec4(luma, luma_history.xyz);
+					instability *= float(luma_history.w != 0.0);
+					instability *= (1.0 - clamp(length(inputs.xy * vec2(3840.0, 2160.0)) / 20.0, 0.0, 1.0)) * (1.0 - disocclusion) * (1.0 - reactive) * (1.0 - shading_change);
+				}
+
+				set_reactivity(vec4(reactive, disocclusion, shading_change, instability));
+				set_luma_history(luma_history);
+			}
+		]],
+		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
+	},
+	{
+		name = "taa",
+		is_enabled = is_enabled,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16_sfloat", {"history_state", "rg"}},
+		},
+		framebuffer_count = 2,
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "taa_data",
+					binding_index = 2,
+					block = {
+						render3d.camera_block,
+						{"jitter", "vec2"},
+						{"jitter_phase_count", "float"},
+						{"source_tex", "int"},
+						{"history_tex", "int"},
+						{"history_state_tex", "int"},
+						{"inputs_tex", "int"},
+						{"view_depth_tex", "int"},
+						{"reactivity_tex", "int"},
+						post_source.pre_exposure_block,
+						{"history_valid", "int"},
+					},
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						local camera = render3d.GetCamera()
+						local jitter = camera:GetJitter()
+						local viewport = camera:GetViewport()
+						local input = render3d.GetRenderSize()
+						block.jitter[0] = jitter.x * input.x / viewport.w
+						block.jitter[1] = jitter.y * input.y / viewport.h
+						block.jitter_phase_count = get_jitter_phase_count(input, viewport)
+						block.source_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "taa"}))
+						block.history_tex = self:GetTextureIndex(attachment("taa", true, 1))
+						block.history_state_tex = self:GetTextureIndex(attachment("taa", true, 2))
+						block.inputs_tex = self:GetTextureIndex(attachment("taa_inputs", false, 1))
+						block.view_depth_tex = self:GetTextureIndex(attachment("taa_inputs", false, 2))
+						block.reactivity_tex = self:GetTextureIndex(attachment("taa_shading", false, 1))
+						post_source.WritePreExposureBlock(self, block)
+						block.history_valid = frame_state.history_valid
 						return block
 					end,
 				},
 			},
 			shader = [[
-]] .. post_source.GetCompressGLSL() .. post_source.GetPreExposureGLSL("taa_data") .. EXPOSURE_GLSL .. [[
-
-]] .. screen_reconstruct.GetViewRayFromUVGLSL("taa_data") .. [[
-
-]] .. screen_reconstruct.GetViewDepthGLSL("taa_data") .. screen_reconstruct.GetViewPosGLSL("taa_data") .. [[
-
-			const float FP16_MIN = 6.10e-05;
+]] .. post_source.GetCompressGLSL() .. post_source.GetPreExposureGLSL("taa_data") .. EXPOSURE_GLSL .. screen_reconstruct.GetViewDepthGLSL("taa_data") .. REPROJECT_GLSL .. [[
 			const float AVERAGE_LANCZOS_WEIGHT_PER_FRAME = 0.74 / 16.0;
 			const float ACCUMULATION_ADDED_PER_FRAME = 1.0 / 3.0;
 			const float MIN_DISOCCLUSION_ACCUMULATION = -1.0 / 3.0;
@@ -246,87 +590,18 @@ return {
 				exposure = get_compress_exposure(taa_data.pre_exposure_tex);
 
 				ivec2 nucleus = clamp(ivec2(hr_uv * vec2(input_size)), ivec2(0), input_size - 1);
-				float nucleus_depth = texelFetch(TEXTURE(taa_data.depth_tex), nucleus, 0).r;
-				float closest_depth = 0.0;
-				float farthest_depth = 1.0;
-				ivec2 closest_pixel = nucleus;
-
-				for (int y = -1; y <= 1; y++) {
-					for (int x = -1; x <= 1; x++) {
-						ivec2 p = clamp(nucleus + ivec2(x, y), ivec2(0), input_size - 1);
-						float depth = texelFetch(TEXTURE(taa_data.depth_tex), p, 0).r;
-
-						if (depth > closest_depth) {
-							closest_depth = depth;
-							closest_pixel = p;
-						}
-
-						farthest_depth = min(farthest_depth, depth);
-					}
-				}
-
-				vec2 input_uv = (vec2(closest_pixel) + 0.5) / vec2(input_size);
-				float view_depth = get_view_depth((vec2(nucleus) + 0.5) / vec2(input_size), nucleus_depth);
-				vec2 motion;
-				float expected_depth = -1.0;
-
-				if (closest_depth > 0.0 && taa_data.velocity_tex != -1) {
-					motion = texelFetch(TEXTURE(taa_data.velocity_tex), closest_pixel, 0).xy;
-					expected_depth = nucleus_depth > 0.0 ? texelFetch(TEXTURE(taa_data.velocity_tex), nucleus, 0).z : -1.0;
-				} else {
-					vec4 world_pos = taa_data.inv_view * vec4(get_view_pos(input_uv, closest_depth), 1.0);
-					vec4 prev_clip = taa_data.prev_projection * taa_data.prev_view * vec4(world_pos.xyz, 1.0);
-					motion = input_uv - (prev_clip.xy / prev_clip.w * 0.5 + 0.5);
-				}
-
-				float water_distance = taa_data.water_distance_tex != -1 ? texelFetch(TEXTURE(taa_data.water_distance_tex), nucleus, 0).r : -1.0;
-				vec2 nucleus_uv = (vec2(nucleus) + 0.5) / vec2(input_size);
-
-				if (water_distance > 0.0) {
-					vec4 water_clip = taa_data.prev_projection * taa_data.prev_view * vec4(taa_data.camera_position + get_view_ray(nucleus_uv) * water_distance, 1.0);
-					motion = nucleus_uv - (water_clip.xy / water_clip.w * 0.5 + 0.5);
-					expected_depth = -1.0;
-				}
-
-				float shading_change = 0.0;
-
-				if (taa_data.translucent_motion_tex != -1) {
-					vec4 translucent = texelFetch(TEXTURE(taa_data.translucent_motion_tex), nucleus, 0);
-					float coverage = min(translucent.b, 1.0);
-					float emission = dot(texelFetch(TEXTURE(taa_data.translucent_additive_tex), nucleus, 0).rgb, vec3(1.0));
-					shading_change = max(smoothstep(0.0, 0.02, emission), 0.6 * smoothstep(0.0, 0.2, coverage));
-
-					if (coverage > 0.0) {
-						vec2 translucent_motion = translucent.rg / translucent.b;
-						shading_change = max(shading_change, 2.0 * min(coverage, 1.0 - coverage) * smoothstep(0.5, 2.0, length((translucent_motion - motion) * vec2(input_size))));
-
-						if (coverage > 0.5) {
-							motion = translucent_motion;
-							expected_depth = -1.0;
-						}
-					}
-				}
+				vec2 motion = texelFetch(TEXTURE(taa_data.inputs_tex), nucleus, 0).xy;
+				float view_depth = texelFetch(TEXTURE(taa_data.view_depth_tex), nucleus, 0).r;
+				vec2 lr_uv_jittered = hr_uv + taa_data.jitter / vec2(input_size);
+				vec4 reactivity = clamp(textureLod(TEXTURE(taa_data.reactivity_tex), clamp_uv(lr_uv_jittered, vec2(input_size)), 0.0), 0.0, 1.0);
+				float reactive = reactivity.x;
+				float disocclusion = reactivity.y;
+				float shading_change = reactivity.z;
+				float luma_instability = reactivity.w;
 
 				vec2 reprojected_uv = hr_uv - motion;
-				bool existing_sample = taa_data.history_valid != 0 && all(greaterThanEqual(reprojected_uv, vec2(0.0))) && all(lessThanEqual(reprojected_uv, vec2(1.0)));
+				bool existing_sample = taa_data.history_valid != 0 && is_uv_inside(reprojected_uv);
 				float velocity_4k = length(motion * vec2(3840.0, 2160.0));
-
-				float disocclusion = 0.0;
-
-				if (existing_sample && expected_depth > 0.0) {
-					vec2 footprint = 0.5 / vec2(input_size);
-					vec4 farthest = max(
-						max(
-							textureGather(TEXTURE(taa_data.history_tex), clamp_uv(reprojected_uv + vec2(-footprint.x, -footprint.y), output_size), 3),
-							textureGather(TEXTURE(taa_data.history_tex), clamp_uv(reprojected_uv + vec2(footprint.x, -footprint.y), output_size), 3)
-						),
-						max(
-							textureGather(TEXTURE(taa_data.history_tex), clamp_uv(reprojected_uv + vec2(-footprint.x, footprint.y), output_size), 3),
-							textureGather(TEXTURE(taa_data.history_tex), clamp_uv(reprojected_uv + vec2(footprint.x, footprint.y), output_size), 3)
-						)
-					);
-					disocclusion = smoothstep(0.02, 0.1, (expected_depth - max(max(farthest.x, farthest.y), max(farthest.z, farthest.w))) / expected_depth);
-				}
 
 				vec2 history_state = existing_sample ? textureLod(TEXTURE(taa_data.history_state_tex), clamp_uv(reprojected_uv, output_size), 0.0).rg : vec2(0.0);
 				float accumulation = clamp(history_state.x, 0.0, 1.0);
@@ -337,21 +612,20 @@ return {
 				bool initial_sample = accumulation == 0.0;
 
 				float lock = history_state.y;
-				float lock_decrease = max(shading_change, disocclusion);
+				float lock_decrease = max(shading_change, max(reactive, disocclusion));
 				lock = max(0.0, lock - lock_decrease * LOCK_MAX);
 				float lock_contribution = clamp(clamp(lock - LOCK_THRESHOLD, 0.0, 1.0) * (LOCK_MAX - LOCK_THRESHOLD), 0.0, 1.0);
 				vec2 lr_scale = vec2(input_size) / output_size;
 				ivec2 landing = ivec2(ceil(vec2(pixel) * lr_scale + taa_data.jitter - 0.5));
 
 				if (all(lessThan(vec2(landing) + 0.5 - taa_data.jitter, (vec2(pixel) + 1.0) * lr_scale)) && all(greaterThanEqual(landing, ivec2(0))) && all(lessThan(landing, input_size))) {
-					float new_lock = thin_feature_confidence(landing);
+					float new_lock = thin_feature_confidence(landing) * (1.0 - reactive);
 
 					if (new_lock > 0.01) lock = min(lock + new_lock, LOCK_MAX);
 				}
 
 				lock = max(0.0, lock - 0.1 / taa_data.jitter_phase_count * (1.0 - lock_decrease));
-				vec2 next_uv = hr_uv + motion;
-				lock *= float(all(greaterThanEqual(next_uv, vec2(0.0))) && all(lessThanEqual(next_uv, vec2(1.0))));
+				lock *= float(is_uv_inside(hr_uv + motion));
 
 				vec3 history = vec3(0.0);
 
@@ -381,14 +655,17 @@ return {
 				vec3 aabb_min = vec3(1e9);
 				vec3 aabb_max = vec3(-1e9);
 				float box_weight = 0.0;
+				float farthest_view_depth = 0.0;
 
 				for (int row = 0; row < 3; row++) {
 					for (int col = 0; col < 3; col++) {
 						ivec2 col_row = ivec2(flip.x ? 3 - col : col, flip.y ? 3 - row : row);
 						vec2 sample_offset = base_offset + vec2(offset_tl + col_row);
 						ivec2 sample_pos = src_input_pos + offset_tl + col_row;
+						ivec2 clamped_pos = clamp(sample_pos, ivec2(0), input_size - 1);
 						float on_screen = float(all(greaterThanEqual(sample_pos, ivec2(0))) && all(lessThan(sample_pos, input_size)));
-						vec3 c = compress(max(texelFetch(TEXTURE(taa_data.source_tex), clamp(sample_pos, ivec2(0), input_size - 1), 0).rgb, vec3(0.0)), exposure);
+						vec3 c = compress(max(texelFetch(TEXTURE(taa_data.source_tex), clamped_pos, 0).rgb, vec3(0.0)), exposure);
+						farthest_view_depth = max(farthest_view_depth, texelFetch(TEXTURE(taa_data.view_depth_tex), clamped_pos, 0).r);
 
 						if (!initial_sample) {
 							vec2 biased = sample_offset * kernel_bias;
@@ -423,12 +700,11 @@ return {
 					history_weight = 0.0;
 				}
 
-				float farthest_meters = farthest_depth > 0.0 ? get_view_depth(hr_uv, farthest_depth) / taa_data.view_scale : 1e6;
 				float box_t = max(
 					clamp(velocity_4k / 20.0, 0.0, 1.0),
 					max(
-						clamp(0.75 - farthest_meters / 20.0, 0.0, 1.0),
-						max(1.0 - accumulation, shading_change)
+						clamp(0.75 - farthest_view_depth / taa_data.view_scale / 20.0, 0.0, 1.0),
+						max(1.0 - accumulation, max(sqrt(reactive), shading_change))
 					)
 				);
 				vec3 scaled_box_vec = box_vec * vec3(1.7, 1.0, 1.0) * mix(3.0, 1.0, box_t);
@@ -436,7 +712,7 @@ return {
 
 				if (length(transformed_history) > 1.0) {
 					vec3 clamped = normalize(transformed_history) * scaled_box_vec + box_center;
-					history = mix(clamped, history, clamp(lock_contribution * accumulation * (1.0 - disocclusion), 0.0, 1.0));
+					history = mix(clamped, history, clamp(max(luma_instability, lock_contribution) * accumulation * (1.0 - disocclusion), 0.0, 1.0));
 				}
 
 				history_weight *= float(history_weight > FP16_MIN);
@@ -468,7 +744,7 @@ return {
 						post_source.pre_exposure_block,
 					},
 					write = function(self, block)
-						block.source_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
+						block.source_tex = self:GetTextureIndex(attachment("taa", false, 1))
 						block.sharpness = sharpness:Get()
 						post_source.WritePreExposureBlock(self, block)
 						return block
