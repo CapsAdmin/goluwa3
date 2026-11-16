@@ -796,32 +796,31 @@ function emitters.GetGLSL()
 			}
 
 			uint first = node * span;
-			vec2 importances[EMITTER_CLUSTER];
 			vec2 total = vec2(0.0);
+			uint leaf = first;
+			vec2 chosen = vec2(0.0);
+			seed = seed * 747796405u + 2891336453u;
+			float pick = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0);
 
+			// one pass that keeps each leaf with its share of the weight so far, an array of the cluster's importances lived in local memory
 			for (uint i = 0u; i < span; i++) {
-				importances[i] = emitter_node_importance(first + i, origin, normal, radius);
-				total += importances[i];
+				vec2 importance = emitter_node_importance(first + i, origin, normal, radius);
+
+				if (!(importance.x > 0.0)) continue;
+
+				total += importance;
+				float share = by_centre ? importance.y / total.y : importance.x / total.x;
+
+				if (pick < share) {
+					leaf = first + i;
+					chosen = importance;
+					pick /= share;
+				} else {
+					pick = (pick - share) / (1.0 - share);
+				}
 			}
 
 			if (!(total.x > 0.0)) return -1;
-
-			seed = seed * 747796405u + 2891336453u;
-			float pick = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0) * (by_centre ? total.y : total.x);
-			float running = 0.0;
-			uint leaf = first + span - 1u;
-			vec2 chosen = vec2(0.0);
-
-			for (uint i = 0u; i < span; i++) {
-				running += by_centre ? importances[i].y : importances[i].x;
-
-				if (importances[i].x > 0.0) {
-					leaf = first + i;
-					chosen = importances[i];
-
-					if (pick < running) break;
-				}
-			}
 
 			path *= chosen / total;
 			pdf = 0.5 * (path.x + path.y);
