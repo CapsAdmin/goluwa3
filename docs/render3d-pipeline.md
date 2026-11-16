@@ -83,6 +83,8 @@ How the 3D frame is put together and the invariants that are easy to break. Pass
 
 Common helpers live in one place: `glsl_common.lua` (`luminance`, `pcg3d`/`pcg4d`/`pcg3d_unorm`, `value_noise2/3`, every block `#ifndef` guarded) and `screen_reconstruct.lua` (`get_view_pos`, `get_view_depth`, world position getters). A shader calling `luminance()` must include `GetLuminanceGLSL()` itself (`compute_helpers.GetScreenHelpersGLSL`/`GetColorHelpersGLSL` do). A local named `luminance` shadows the function. Check the list before writing a hash, noise or luminance helper. Low level render3d helpers (`batch_table`, `instance_batcher`) must not import `render3d`, and importers of content modules must not import `render3d` or `weather` at top level; `cry_engine/level.lua` imports `Material` inside the function that needs it.
 
+A texture's mean is `texture_average(idx)` (in the bindless header every shader gets), never `textureLod(TEXTURE(idx), vec2(0.5), 16.0)`: loaded mip chains can stop above 1x1 (Source 2 textures end at 8x4, and streaming keeps the file's tail), so the top mip read is one spot of the texture, not its mean. An atlas's centre is often black: the antlion tank's glass read as opaque black and hid its own light from the gi.
+
 ## Culling invariants
 
 - The Hi-Z pyramid mips are floor sized (`floor(dim / 2^m)`), so the reduce lets the last texel of a row/column take the remainder and the cull shaders map uv to texels with `uv * base_size / 2^mip`, clamped. Otherwise large boxes near the camera pick a coarse mip that only covers the top left and get culled as occluded.

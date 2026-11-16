@@ -654,7 +654,23 @@ local function build_shader_header(
 		end
 	end
 
-	return header .. "\n"
+	-- some loaded textures stop their mips above 1x1 (source 2 at 8x4): a read of the smallest mip at one point is a corner, not the mean, so each bilinear tap averages a 2x2 block of it
+	return header .. [[
+
+	vec4 texture_average(int idx) {
+		int level = textureQueryLevels(TEXTURE(idx)) - 1;
+		ivec2 taps = clamp(textureSize(TEXTURE(idx), level) / 2, ivec2(1), ivec2(4));
+		vec4 sum = vec4(0.0);
+
+		for (int y = 0; y < taps.y; y++) {
+			for (int x = 0; x < taps.x; x++) {
+				sum += textureLod(TEXTURE(idx), (vec2(x, y) + 0.5) / vec2(taps), float(level));
+			}
+		}
+
+		return sum / float(taps.x * taps.y);
+	}
+]]
 end
 
 local function build_base_descriptor_sets(

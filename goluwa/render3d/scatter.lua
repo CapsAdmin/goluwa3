@@ -515,7 +515,7 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 			return pow(max(pow(base, vec3(1.0 / 2.2)) + (albedo - 0.5) * detail, vec3(0.0)), vec3(2.2)) * additive;
 		}
 
-		vec3 average = textureLod(TEXTURE(tex), vec2(0.5), 16.0).rgb;
+		vec3 average = texture_average(tex).rgb;
 		return base * mix(vec3(1.0), albedo / max(average, vec3(0.01)), detail);
 	}
 

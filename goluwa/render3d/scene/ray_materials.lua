@@ -368,7 +368,7 @@ function ray_materials.GetMaterialGLSL()
 					if (weight <= 0.0) continue;
 
 					if (layer_tex >= 0) {
-						vec3 average = textureLod(TEXTURE(layer_tex), vec2(0.5), 16.0).rgb;
+						vec3 average = texture_average(layer_tex).rgb;
 						float detail = second ? material.terrain_detail2[slot] : material.terrain_detail[slot];
 						float additive = second ? material.terrain_additive_detail2[slot] : material.terrain_additive_detail[slot];
 
@@ -388,7 +388,7 @@ function ray_materials.GetMaterialGLSL()
 			vec3 albedo = material.albedo;
 
 			if (material.albedo_tex >= 0) {
-				albedo *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
+				albedo *= texture_average(material.albedo_tex).rgb;
 			}
 
 			return albedo;
@@ -407,7 +407,7 @@ float ray_bounce_share(ray_material material) {
 	float metallic = material.metallic;
 
 	if (material.metallic_tex >= 0) {
-		metallic *= textureLod(TEXTURE(material.metallic_tex), vec2(0.5), 16.0)[material.metallic_channel];
+		metallic *= texture_average(material.metallic_tex)[material.metallic_channel];
 	}
 
 	metallic = clamp(metallic, 0.0, 1.0);
@@ -417,7 +417,7 @@ float ray_bounce_share(ray_material material) {
 	float roughness = material.roughness;
 
 	if (material.roughness_tex >= 0) {
-		roughness *= mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), vec2(0.5), 16.0)[material.roughness_channel]);
+		roughness *= mix(material.roughness_min, material.roughness_max, texture_average(material.roughness_tex)[material.roughness_channel]);
 	}
 
 	return mix(1.0, smoothstep(0.1, 0.9, roughness), metallic);
@@ -428,7 +428,7 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 			vec3 emission = material.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE;
 
 			if (material.emissive_alpha != 0 && material.albedo_tex >= 0) {
-				emission *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).a;
+				emission *= texture_average(material.albedo_tex).a;
 			}
 
 			return min(emission, vec3(EMISSIVE_MAX_LUMINANCE));
@@ -446,9 +446,8 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 			return material.emissive_alpha != 0 && material.albedo_tex >= 0 ? material.albedo_tex : material.emissive_tex;
 		}
 
-		vec3 ray_material_texel_emission(ray_material material, vec3 albedo, vec2 coord, float lod) {
+		vec3 ray_material_texel_emission(ray_material material, vec3 albedo, vec4 texel) {
 			bool alpha_mask = material.emissive_alpha != 0 && material.albedo_tex >= 0;
-			vec4 texel = textureLod(TEXTURE(ray_material_emission_texture(material)), coord, lod);
 			vec3 source;
 
 			if (alpha_mask) {
@@ -476,7 +475,7 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 			float w = (d00 * d21 - d01 * d20) * inv;
 			scene_uv uv = scene_hit_uv(instance, primitive);
 			ivec2 size = textureSize(TEXTURE(ray_material_emission_texture(material)), 0);
-			return ray_material_texel_emission(material, albedo, uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w, max(log2(float(max(size.x, size.y)) / RAY_EMISSIVE_TEXELS), 0.0));
+			return ray_material_texel_emission(material, albedo, textureLod(TEXTURE(ray_material_emission_texture(material)), uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w, max(log2(float(max(size.x, size.y)) / RAY_EMISSIVE_TEXELS), 0.0)));
 		}
 	]]
 end

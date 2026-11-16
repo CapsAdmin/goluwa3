@@ -1965,7 +1965,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 
 				if (fade > 0.0) {
 					if (albedo_tex != -1) {
-						albedo += textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0) * fade;
+						albedo += texture_average(albedo_tex) * fade;
 					}
 
 					if (normal_tex != -1) {
@@ -1979,7 +1979,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 							vec3 base_gamma = pow(base, vec3(1.0 / 2.2));
 							albedo.rgb = pow(max(base_gamma + (albedo.rgb - 0.5) * detail_strength, vec3(0.0)), vec3(2.2)) * additive_detail;
 						} else {
-							vec3 average = textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0).rgb;
+							vec3 average = texture_average(albedo_tex).rgb;
 							albedo.rgb = base * mix(vec3(1.0), albedo.rgb / max(average, vec3(0.01)), detail_strength);
 						}
 						albedo.a = 1.0;

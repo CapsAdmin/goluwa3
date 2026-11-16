@@ -383,8 +383,8 @@ do
 						vec2 a = (uv.uv1 - uv.uv0) * size;
 						vec2 b = (uv.uv2 - uv.uv0) * size;
 						float texels = sqrt(abs(a.x * b.y - a.y * b.x) * 0.5);
-						float own = luminance(ray_material_texel_emission(material, albedo, (uv.uv0 + uv.uv1 + uv.uv2) / 3.0, log2(max(texels, 1.0))));
-						float mean = luminance(ray_material_texel_emission(material, albedo, vec2(0.5), 16.0));
+						float own = luminance(ray_material_texel_emission(material, albedo, textureLod(TEXTURE(ray_material_emission_texture(material)), (uv.uv0 + uv.uv1 + uv.uv2) / 3.0, log2(max(texels, 1.0)))));
+						float mean = luminance(ray_material_texel_emission(material, albedo, texture_average(ray_material_emission_texture(material))));
 						return max(own, 0.01 * mean);
 					}
 				]]
