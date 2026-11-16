@@ -211,7 +211,7 @@ function render3d.GetRenderSize()
 
 	if context and context.render_size then return context.render_size end
 
-	return render.GetRenderImageSize()
+	return render3d.GetInternalRenderSize()
 end
 
 function render3d.GetDrawGeometry()
@@ -474,7 +474,49 @@ local anti_aliasing = pvars.Setup2{
 	enums = {"taa", "edge_aa", "edge_aa_t", "fxaa", "ssaa", "none"},
 	help = "taa resolves jittered frames over time, edge_aa smooths detected edges by their shape, edge_aa_t is edge_aa with two jittered frames averaged on top, fxaa blurs along high contrast edges, ssaa averages jittered frames while the camera is still, as a reference",
 }
+local upscale_height = pvars.Setup2{
+	key = "r_upscale_height",
+	default = 1080,
+	integer = true,
+	store = true,
+	help = "the height in pixels the 3d scene is rendered at before taa upscales it to the window, the width follows the window's aspect. 0, or a height at or above the window's, renders at the window size. only taa upscales, the other anti-aliasing modes render at the window size",
+	callback = function(value)
+		assert(value >= 0, "r_upscale_height must be 0 or more")
+	end,
+}
 pvars.EndGroup()
+
+do
+	local cached = Vec2(0, 0)
+
+	function render3d.GetInternalRenderSize()
+		local size = render.GetRenderImageSize()
+		local height = upscale_height:Get()
+
+		if
+			height == 0 or
+			height >= size.y or
+			anti_aliasing:Get() ~= "taa" or
+			not pass_vars.taa:Get()
+			or
+			quality.Get().disabled_passes.taa
+		then
+			return size
+		end
+
+		local width = math.max(1, math.floor(size.x * height / size.y + 0.5))
+
+		if cached.x ~= width or cached.y ~= height then cached = Vec2(width, height) end
+
+		return cached
+	end
+end
+
+function render3d.IsUpscaling()
+	local internal = render3d.GetRenderSize()
+	local output = render.GetRenderImageSize()
+	return internal.x ~= output.x or internal.y ~= output.y
+end
 
 function render3d.IsAntiAliasingEnabled(mode)
 	if anti_aliasing:Get() ~= mode then return false end
@@ -532,11 +574,16 @@ local function fill_pipeline_bundle(bundle)
 	local include_names = options.include_names
 	local exclude_names = options.exclude_names or {}
 	local pass_name_of_module = {}
+	local output_pass_names = {}
 	bundle.variants = {}
 
 	for _, entry in ipairs(default_passes) do
 		local module = import(entry[2])
 		pass_name_of_module[entry[1] == "light_grid" and module.pass or module] = entry[1]
+
+		if entry[1] == "taa" or output_pass_names.taa then
+			output_pass_names[entry[1]] = true
+		end
 	end
 
 	local pass_of_config = {}
@@ -612,6 +659,16 @@ local function fill_pipeline_bundle(bundle)
 					x = framebuffer_size.x,
 					y = framebuffer_size.y,
 				}
+			elseif
+				not config.FramebufferSize and
+				(
+					config.resolution == "internal" or
+					config.resolution == nil and
+					not output_pass_names[pass_name]
+				)
+			then
+				config.FramebufferSize = render3d.GetInternalRenderSize
+				config.internal_resolution = true
 			end
 
 			local pipeline = decorate_pipeline_instance(EasyPipeline.New(config), config)
@@ -880,6 +937,31 @@ function render3d.RemovePipelineBundle(bundle)
 	remove_pipeline_bundle(bundle)
 end
 
+do
+	local last_width, last_height = 0, 0
+
+	function render3d.UpdateInternalRenderSize()
+		local size = render3d.GetInternalRenderSize()
+
+		if size.x == last_width and size.y == last_height then return end
+
+		local first = last_width == 0
+		last_width, last_height = size.x, size.y
+
+		if first then return end
+
+		for bundle in pairs(render3d.bundles) do
+			for _, pipeline in ipairs(bundle.pipelines_i) do
+				if pipeline.config.internal_resolution and pipeline.framebuffers then
+					pipeline:RecreateFramebuffers()
+				end
+			end
+		end
+
+		event.Call("Render3DInternalSizeChanged", size)
+	end
+end
+
 function render3d.RunPipelineBundle(bundle, cmd, context)
 	if not bundle or not bundle.pipelines_i then return end
 
@@ -991,6 +1073,7 @@ function render3d.Initialize(config)
 		if not render3d.pipelines.gbuffer then return end
 
 		local pre_render_started = startup.Start()
+		render3d.UpdateInternalRenderSize()
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
 			if pipeline.pre_render then pipeline:pre_render() end

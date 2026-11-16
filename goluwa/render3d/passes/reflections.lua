@@ -51,7 +51,7 @@ local resolution = pvars.Setup2{
 }
 
 local function get_trace_size()
-	local size = render.GetRenderImageSize()
+	local size = render3d.GetRenderSize()
 	local scale = SCALES[resolution:Get()]
 	return math.max(1, math.floor(size.x * scale + 0.5)),
 	math.max(1, math.floor(size.y * scale + 0.5))

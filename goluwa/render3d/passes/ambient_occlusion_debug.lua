@@ -6,6 +6,7 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 return {
 	{
 		name = "ambient_occlusion_debug",
+		resolution = "internal",
 		lazy_framebuffers = true,
 		is_enabled = function()
 			return ambient_occlusion.GetDebugView() ~= 0 and

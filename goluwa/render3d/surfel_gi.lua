@@ -333,7 +333,7 @@ function surfel_gi.IsDebugGI()
 end
 
 function surfel_gi.GetResolveScale()
-	local size = render.GetRenderImageSize()
+	local size = render3d.GetRenderSize()
 	return math.min(
 		1,
 		math.sqrt(RESOLVE_MEGAPIXELS[resolve_resolution:Get()] * 1000000 / (size.x * size.y))
@@ -341,7 +341,7 @@ function surfel_gi.GetResolveScale()
 end
 
 function surfel_gi.GetTouchSize()
-	local size = render.GetRenderImageSize()
+	local size = render3d.GetRenderSize()
 	local width = math.max(1, math.floor(math.sqrt(surfel_gi.TOUCH_SAMPLES * size.x / size.y)))
 	return width, math.max(1, math.floor(surfel_gi.TOUCH_SAMPLES / width))
 end

@@ -339,14 +339,14 @@ local trace_pass = {
 			binding_index = BINDING_OUT,
 			dst_stage = "compute",
 			get_texture = function()
-				return clouds.EnsureViewResources(render.GetRenderImageSize()).trace
+				return clouds.EnsureViewResources(render3d.GetRenderSize()).trace
 			end,
 		},
 		{
 			binding_index = BINDING_OUT2,
 			dst_stage = "compute",
 			get_texture = function()
-				return clouds.EnsureViewResources(render.GetRenderImageSize()).trace_depth
+				return clouds.EnsureViewResources(render3d.GetRenderSize()).trace_depth
 			end,
 		},
 	},

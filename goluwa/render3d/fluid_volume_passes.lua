@@ -31,7 +31,7 @@ fluid_volume_passes.BINDING_SLOT_VISIBILITY = 20
 local view = {}
 
 local function ensure_view_textures()
-	local size = render.GetRenderImageSize()
+	local size = render3d.GetRenderSize()
 
 	if view.width == size.x and view.height == size.y then return view end
 

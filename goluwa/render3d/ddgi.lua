@@ -312,7 +312,7 @@ function ddgi.GetScreenSpecularTexture()
 end
 
 function ddgi.GetResolveScale()
-	local size = render.GetRenderImageSize()
+	local size = render3d.GetRenderSize()
 	return math.min(
 		1,
 		math.sqrt(RESOLVE_MEGAPIXELS[resolve_resolution:Get()] * 1000000 / (size.x * size.y))

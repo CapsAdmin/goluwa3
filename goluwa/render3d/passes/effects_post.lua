@@ -5,6 +5,7 @@ local translucent_extras = import("goluwa/render3d/translucent_extras.lua")
 local passes = {
 	{
 		name = "effects_post_layer",
+		resolution = "internal",
 		lazy_framebuffers = true,
 		is_enabled = translucent_extras.IsPostActive,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
