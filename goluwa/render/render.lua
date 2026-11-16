@@ -1044,6 +1044,10 @@ function render.GetDevice()
 	return vulkan_instance.device
 end
 
+function render.GetVulkanInstance()
+	return vulkan_instance.instance
+end
+
 function render.GetQueue()
 	return vulkan_instance.queue
 end

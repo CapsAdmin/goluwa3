@@ -543,6 +543,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 	)
 	local device = Device:CreateObject{
 		ptr = ptr,
+		enabled_extensions = finalExtensions,
 		independent_blend = physical_features.independentBlend == 1,
 		supports_depth_bias_clamp = enabled_features[0].depthBiasClamp == 1,
 		fill_mode_non_solid_enabled = physical_features.fillModeNonSolid == 1,

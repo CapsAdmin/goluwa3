@@ -141,6 +141,9 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		"VK_KHR_ray_tracing_pipeline",
 		"VK_KHR_ray_query",
 		"VK_EXT_device_fault",
+		"VK_NVX_binary_import",
+		"VK_NVX_image_view_handle",
+		"VK_KHR_push_descriptor",
 	}
 
 	if os.getenv("GOLUWA_CHECKPOINTS") then
@@ -176,7 +179,9 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
 
-	if self.physical_device:GetQueueFamilyProperties()[self.graphics_queue_family + 1].queueCount >= 2 then
+	if
+		self.physical_device:GetQueueFamilyProperties()[self.graphics_queue_family + 1].queueCount >= 2
+	then
 		self.present_queue = self.device:GetQueue(self.graphics_queue_family, 1)
 	end
 
