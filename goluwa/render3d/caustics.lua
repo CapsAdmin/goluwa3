@@ -54,6 +54,12 @@ caustics.history = pvars.Setup2{
 	integer = true,
 	help = "most frames the caustic light averages. more is smoother, but moving caustics (waves) trail behind",
 }
+caustics.water_history = pvars.Setup2{
+	key = "r_caustics_water_history",
+	default = 1,
+	integer = true,
+	help = "most frames the caustic light averages while a lit caster is moving water. waves move the pattern many pixels a frame, so a long history smears it into flat blobs",
+}
 caustics.filter_radius = pvars.Setup2{
 	key = "r_caustics_filter_radius",
 	default = 8,
@@ -143,6 +149,7 @@ local function add_caster(count, x, y, z, radius, camera, volume, key)
 	local dx, dy, dz = x - camera.x, y - camera.y, z - camera.z
 	c.x, c.y, c.z, c.radius, c.volume, c.key = x, y, z, radius, volume, key
 	c.importance = 1 / math.max(dx * dx + dy * dy + dz * dz - radius * radius, radius * radius, 0.25)
+	c.animated = volume and volume:GetWaveHeight() > 0
 	return count + 1
 end
 
@@ -294,6 +301,7 @@ local function add_sun_entries(count, caster_count, sun_index, axes, lux)
 		e.s = c.x * sx + c.y * sy + c.z * sz
 		e.start = c.radius + optical_rays.SUN_DISTANCE
 		e.weight = (u1 - u0) * (v1 - v0) * c.importance
+		e.animated = c.animated
 		e.rank = e.weight * lux
 		e.solid_angle, e.distance = 0, 0
 	end
@@ -351,6 +359,7 @@ local function add_lamp_entries(count, caster_count, light, index)
 			e.s, e.start = 0, 0
 			e.solid_angle, e.distance = solid_angle, math.max(distance - c.radius, 0.01)
 			e.weight = area * c.importance
+			e.animated = c.animated
 			e.rank = intensity * solid_angle * c.importance
 		end
 	end
@@ -432,11 +441,14 @@ local function prepare()
 
 	table.sort(entries, by_weight)
 	frame_state.count = math.min(count, caustics.MAX_CASTERS)
+	frame_state.animated = false
 
 	for i = 1, frame_state.count do
 		local seen = efficiency[entries[i].key]
 
 		if seen then seen.frame = frame end
+
+		if entries[i].animated then frame_state.animated = true end
 	end
 
 	return frame_state
@@ -444,6 +456,10 @@ end
 
 function caustics.HasCasters()
 	return prepare().count > 0
+end
+
+function caustics.GetHistory()
+	return prepare().animated and caustics.water_history:Get() or caustics.history:Get()
 end
 
 function caustics.IsLit()

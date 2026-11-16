@@ -376,7 +376,7 @@ return {
 					gbuffer_layout.WriteBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
 					block.current_tex = self:GetTextureIndex(attachment("caustics_filter_v", 1, 1))
-					block.max_history = caustics.history:Get()
+					block.max_history = caustics.GetHistory()
 					block.photons = caustics.filter_photons:Get()
 					local frame = system.GetFrameNumber()
 
