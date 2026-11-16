@@ -4,136 +4,136 @@ local system = import("goluwa/system.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
-local restir_gi = {}
-restir_gi.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
-pvars.StartGroup("Lighting", "ReSTIR GI", {store = false, prefix = "restir_gi_"})
-restir_gi.resolution = pvars.Setup2{
-	key = "restir_gi_resolution",
+local global_illumination = {}
+global_illumination.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
+pvars.StartGroup("Lighting", "ReSTIR GI", {store = false, prefix = "global_illumination_"})
+global_illumination.resolution = pvars.Setup2{
+	key = "global_illumination_resolution",
 	default = "full",
 	enums = {"full", "half", "quarter"},
-	help = "the resolution the gi reservoirs are kept, resampled and denoised at, relative to the screen. below full a gi pixel stands for one of the 2x2 screen pixels below it, a different one each frame, and loses its history where those pixels are different surfaces (foliage). restir_gi_rays sets how many of them trace",
+	help = "the resolution the gi reservoirs are kept, resampled and denoised at, relative to the screen. below full a gi pixel stands for one of the 2x2 screen pixels below it, a different one each frame, and loses its history where those pixels are different surfaces (foliage). global_illumination_rays sets how many of them trace",
 	callback = function()
 		local pipelines = render3d.pipelines
 
-		if not pipelines or not pipelines.restir_gi_temporal then return end
+		if not pipelines or not pipelines.global_illumination_temporal then return end
 
 		for _, name in ipairs{
-			"restir_gi_candidates",
-			"restir_gi_temporal",
-			"restir_gi_spatial",
-			"restir_gi_accumulate",
-			"restir_gi_filter_0",
-			"restir_gi_filter_1",
-			"restir_gi_filter_2",
-			"restir_gi_filter",
+			"global_illumination_candidates",
+			"global_illumination_temporal",
+			"global_illumination_spatial",
+			"global_illumination_accumulate",
+			"global_illumination_filter_0",
+			"global_illumination_filter_1",
+			"global_illumination_filter_2",
+			"global_illumination_filter",
 		} do
 			pipelines[name]:RecreateFramebuffers()
 		end
 	end,
 }
-restir_gi.RAY_SHARES = {every = 1, half = 2, quarter = 4}
-restir_gi.rays = pvars.Setup2{
-	key = "restir_gi_rays",
+global_illumination.RAY_SHARES = {every = 1, half = 2, quarter = 4}
+global_illumination.rays = pvars.Setup2{
+	key = "global_illumination_rays",
 	default = "every",
 	enums = {"every", "half", "quarter"},
 	help = "which gi pixels trace a new ray each frame: every one, half of them (a checkerboard) or one of each 2x2 (a different one every frame). the others keep their reservoir and take this frame's new samples from their neighbours, so every pixel has a history of its own surface at a fraction of the rays",
 }
-restir_gi.temporal = pvars.Setup2{
-	key = "restir_gi_temporal",
+global_illumination.temporal = pvars.Setup2{
+	key = "global_illumination_temporal",
 	default = true,
-	help = "each pixel's reservoir keeps its sample from last frame and resamples it against this frame's, so a rare bright sample (sky through a small opening, a hidden emitter) lasts several frames instead of flashing as a firefly. a moving pixel keeps a shorter history so samples are not dragged into streaks. restir_gi_rays half and quarter need it: a pixel that did not trace has no sample of its own hemisphere without it and the shade comes out dark",
+	help = "each pixel's reservoir keeps its sample from last frame and resamples it against this frame's, so a rare bright sample (sky through a small opening, a hidden emitter) lasts several frames instead of flashing as a firefly. a moving pixel keeps a shorter history so samples are not dragged into streaks. global_illumination_rays half and quarter need it: a pixel that did not trace has no sample of its own hemisphere without it and the shade comes out dark",
 }
-restir_gi.max_history = pvars.Setup2{
-	key = "restir_gi_max_history",
+global_illumination.max_history = pvars.Setup2{
+	key = "global_illumination_max_history",
 	default = 12,
 	integer = true,
 	min = 1,
 	max = 100,
 	help = "the most frames of samples a reservoir stands for. more is less noise and a slower answer when the light changes",
 }
-restir_gi.permutation = pvars.Setup2{
-	key = "restir_gi_permutation",
+global_illumination.permutation = pvars.Setup2{
+	key = "global_illumination_permutation",
 	default = false,
 	help = "each frame every pixel takes its old reservoir from a neighbour (the same swap for the whole screen), so a lucky bright sample wanders instead of staying a blotch for its whole history. it brings fireflies back (a swapped sample is weighed at a receiver it was not found from) and the motion scaled history already keeps moving samples from streaking",
 }
-restir_gi.boiling_filter = pvars.Setup2{
-	key = "restir_gi_boiling_filter",
+global_illumination.boiling_filter = pvars.Setup2{
+	key = "global_illumination_boiling_filter",
 	default = 0,
 	min = 0,
 	max = 100,
 	help = "a reservoir whose light is more than this many times the mean of its 8x8 pixel group drops its history for this frame's sample. it darkens shade lit through small gaps, where the few reservoirs that found the gap are rightly far brighter than the rest. 0 is off",
 }
-restir_gi.hit_gi_share = pvars.Setup2{
-	key = "restir_gi_hit_gi_share",
+global_illumination.hit_gi_share = pvars.Setup2{
+	key = "global_illumination_hit_gi_share",
 	default = 1,
 	min = 0.05,
 	max = 1,
 	help = "share of frames an 8x8 pixel group looks its off screen ray hits up in the world cache (the light past the first bounce, with its visibility rays), scaled up by 1/share when it does. unbiased and leak free at any share and the cheapest saving in the candidate pass (a quarter saved 1.8 ms in foliage), but the groups that looked up stand out as mottling while the camera moves and the denoiser has little history: 0.5 is faint, 0.25 clearly visible",
 }
-restir_gi.guided = pvars.Setup2{
-	key = "restir_gi_guided",
+global_illumination.guided = pvars.Setup2{
+	key = "global_illumination_guided",
 	default = 0.5,
 	min = 0,
 	max = 0.95,
 	help = "share of the gi rays aimed by the nearest ddgi probe's radiance guide instead of the cosine, weighted by the mix of both densities so it stays unbiased. light through a small opening or from a sunlit patch next to a dark room is found that much more often instead of as rare bright samples. only with the ddgi cache",
 }
-restir_gi.spatial = pvars.Setup2{
-	key = "restir_gi_spatial",
+global_illumination.spatial = pvars.Setup2{
+	key = "global_illumination_spatial",
 	default = true,
 	help = "each pixel also resamples the reservoirs of pixels around it on the same surface, reconnecting their hit points to its own position",
 }
-restir_gi.spatial_samples = pvars.Setup2{
-	key = "restir_gi_spatial_samples",
+global_illumination.spatial_samples = pvars.Setup2{
+	key = "global_illumination_spatial_samples",
 	default = 2,
 	integer = true,
 	min = 1,
 	max = 16,
 	help = "neighbouring reservoirs each pixel resamples",
 }
-restir_gi.spatial_radius = pvars.Setup2{
-	key = "restir_gi_spatial_radius",
+global_illumination.spatial_radius = pvars.Setup2{
+	key = "global_illumination_spatial_radius",
 	default = 32,
 	min = 2,
 	max = 64,
 	help = "radius in gi pixels the neighbours are picked from",
 }
-restir_gi.visibility = pvars.Setup2{
-	key = "restir_gi_visibility",
+global_illumination.visibility = pvars.Setup2{
+	key = "global_illumination_visibility",
 	default = true,
 	help = "a neighbour's hit point is only taken after a ray from this pixel reaches it. off, light from behind nearby walls and corners leaks in and contact shadows fade",
 }
-restir_gi.validation = pvars.Setup2{
-	key = "restir_gi_validation",
+global_illumination.validation = pvars.Setup2{
+	key = "global_illumination_validation",
 	default = false,
-	help = "every 4th frame a pixel traces again to the hit point its reservoir holds and drops the history if the hit is gone or its light changed more than 4x, which resets the denoiser around it. it darkens light seen through gaps (canopies): the retrace cannot start where the sample was found, and the samples it loses are the bright ones. off, a changed light is followed within restir_gi_max_history frames",
+	help = "every 4th frame a pixel traces again to the hit point its reservoir holds and drops the history if the hit is gone or its light changed more than 4x, which resets the denoiser around it. it darkens light seen through gaps (canopies): the retrace cannot start where the sample was found, and the samples it loses are the bright ones. off, a changed light is followed within global_illumination_max_history frames",
 }
-restir_gi.accumulation = pvars.Setup2{
-	key = "restir_gi_accumulation",
+global_illumination.accumulation = pvars.Setup2{
+	key = "global_illumination_accumulation",
 	default = 64,
 	integer = true,
 	min = 1,
 	max = 100000,
 	help = "most frames the denoiser averages. with temporal and spatial reuse and the filter off and a still camera a very large number accumulates a reference",
 }
-restir_gi.light_change = pvars.Setup2{
-	key = "restir_gi_light_change",
+global_illumination.light_change = pvars.Setup2{
+	key = "global_illumination_light_change",
 	default = 0.25,
 	min = 0,
 	max = 10,
 	help = "when the sun or moon changes in a frame by more than this (its relative change in illuminance plus how far its direction moved), the denoiser keeps only a few frames of history everywhere for a moment. exponential averaging otherwise takes as many history lengths to follow a drop as the drop has orders of magnitude (day to night is seconds). 0 is off",
 }
-restir_gi.filter = pvars.Setup2{
-	key = "restir_gi_filter",
+global_illumination.filter = pvars.Setup2{
+	key = "global_illumination_filter",
 	default = true,
 	help = "the denoiser's spatial filter: a-trous passes stopped by plane, normal and a luminance difference beyond the pixel's noise, so a noisy pixel blurs wide and a settled one keeps its detail",
 }
-restir_gi.filter_luminance = pvars.Setup2{
-	key = "restir_gi_filter_luminance",
+global_illumination.filter_luminance = pvars.Setup2{
+	key = "global_illumination_filter_luminance",
 	default = 4,
 	help = "how many standard deviations of a pixel's estimate a neighbour may differ by and still be blurred in, higher blurs noisy areas wider and loses more contrast",
 }
-restir_gi.debug = pvars.Setup2{
-	key = "restir_gi_debug",
+global_illumination.debug = pvars.Setup2{
+	key = "global_illumination_debug",
 	default = false,
 	help = "shows the gi irradiance the lighting gets instead of the lit scene",
 }
@@ -147,7 +147,7 @@ do
 	local fast_until = -1
 	local reference
 
-	function restir_gi.GetHistoryCap()
+	function global_illumination.GetHistoryCap()
 		local frame = system.GetFrameNumber()
 
 		if frame == last_frame then return cap end
@@ -156,7 +156,7 @@ do
 		local lights = render3d.GetLights()
 		local direction = directional_shadows.GetPrimarySunDirection(lights)
 		local illuminance = directional_shadows.GetPrimarySunIlluminance(lights) * math.smoothstep(-0.08, 0.02, direction.y)
-		local threshold = restir_gi.light_change:Get()
+		local threshold = global_illumination.light_change:Get()
 
 		if reference and threshold > 0 then
 			local change = math.abs(illuminance - reference.illuminance) / math.max(illuminance, reference.illuminance, 1e-3) + (
@@ -176,7 +176,7 @@ end
 
 do
 	local CHANGE_FRAMES = 60
-	restir_gi.MAX_CHANGED_LIGHTS = 8
+	global_illumination.MAX_CHANGED_LIGHTS = 8
 	local tracked = setmetatable({}, {__mode = "k"})
 	local changed = {}
 	local last_frame = -1
@@ -236,7 +236,7 @@ do
 		return a.intensity > b.intensity
 	end
 
-	function restir_gi.GetChangedLights()
+	function global_illumination.GetChangedLights()
 		local frame = system.GetFrameNumber()
 
 		if frame == last_frame then return changed end
@@ -292,7 +292,7 @@ do
 
 		table.sort(changed, by_intensity)
 
-		for i = #changed, restir_gi.MAX_CHANGED_LIGHTS + 1, -1 do
+		for i = #changed, global_illumination.MAX_CHANGED_LIGHTS + 1, -1 do
 			changed[i] = nil
 		end
 
@@ -300,42 +300,42 @@ do
 	end
 end
 
-function restir_gi.GetRayShare()
-	return restir_gi.RAY_SHARES[restir_gi.rays:Get()]
+function global_illumination.GetRayShare()
+	return global_illumination.RAY_SHARES[global_illumination.rays:Get()]
 end
 
-function restir_gi.GetScale()
-	return restir_gi.RESOLUTION_SCALES[restir_gi.resolution:Get()]
+function global_illumination.GetScale()
+	return global_illumination.RESOLUTION_SCALES[global_illumination.resolution:Get()]
 end
 
 do
 	local reset_frame = 0
 
-	function restir_gi.ResetHistory()
+	function global_illumination.ResetHistory()
 		reset_frame = system.GetFrameNumber()
 	end
 
-	function restir_gi.GetResetFrame()
+	function global_illumination.GetResetFrame()
 		return reset_frame
 	end
 end
 
-function restir_gi.IsDebugGI()
-	return restir_gi.debug:Get()
+function global_illumination.IsDebugGI()
+	return global_illumination.debug:Get()
 end
 
-function restir_gi.GetOutputTexture(index)
-	return render3d.pipelines.restir_gi_filter:GetFramebuffer(1):GetAttachment(index)
+function global_illumination.GetOutputTexture(index)
+	return render3d.pipelines.global_illumination_filter:GetFramebuffer(1):GetAttachment(index)
 end
 
-function restir_gi.GetSpecularTexture()
-	return restir_gi.GetOutputTexture(3)
+function global_illumination.GetSpecularTexture()
+	return global_illumination.GetOutputTexture(3)
 end
 
-function restir_gi.GetHitIrradianceTextures()
+function global_illumination.GetHitIrradianceTextures()
 	local current = system.GetFrameNumber() % 2 + 1
-	return render3d.pipelines.restir_gi_accumulate:GetFramebuffer(current):GetAttachment(3),
-	render3d.pipelines.restir_gi_temporal:GetFramebuffer(current):GetAttachment(4)
+	return render3d.pipelines.global_illumination_accumulate:GetFramebuffer(current):GetAttachment(3),
+	render3d.pipelines.global_illumination_temporal:GetFramebuffer(current):GetAttachment(4)
 end
 
-return restir_gi
+return global_illumination

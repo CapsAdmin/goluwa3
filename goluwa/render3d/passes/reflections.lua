@@ -15,7 +15,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local render = import("goluwa/render/render.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
-local restir_gi = import("goluwa/render3d/restir_gi.lua")
+local global_illumination = import("goluwa/render3d/global_illumination.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_hits.RAY_QUERY
@@ -199,8 +199,8 @@ local function get_uniform_buffers(with_ddgi)
 				block.single_ray_roughness = single_ray_roughness:Get()
 				block.emitter_roughness = emitter_roughness:Get()
 
-				if render3d.IsPassEnabled("restir_gi") then
-					local irradiance, geometry = restir_gi.GetHitIrradianceTextures()
+				if render3d.IsPassEnabled("global_illumination") then
+					local irradiance, geometry = global_illumination.GetHitIrradianceTextures()
 					block.screen_gi_tex = self:GetTextureIndex(irradiance)
 					block.screen_geometry_tex = self:GetTextureIndex(geometry)
 				else

@@ -13,7 +13,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
-local restir_gi = import("goluwa/render3d/restir_gi.lua")
+local global_illumination = import("goluwa/render3d/global_illumination.lua")
 local BINDING_OUTPUT = 0
 local BINDING_DATA = 8
 local BINDING_GI = 9
@@ -31,8 +31,8 @@ local FILTER_ITERATIONS = 4
 
 local function filter_name(iteration)
 	return iteration == FILTER_ITERATIONS - 1 and
-		"restir_gi_filter" or
-		"restir_gi_filter_" .. iteration
+		"global_illumination_filter" or
+		"global_illumination_filter_" .. iteration
 end
 
 local function restir_uniform(trace, filter_iteration)
@@ -52,8 +52,8 @@ local function restir_uniform(trace, filter_iteration)
 		{"permutation", "int"},
 		{"history_cap", "float"},
 		{"changed_light_count", "int"},
-		{"changed_lights", "vec4", restir_gi.MAX_CHANGED_LIGHTS},
-		{"changed_light_intensities", "vec4", restir_gi.MAX_CHANGED_LIGHTS},
+		{"changed_lights", "vec4", global_illumination.MAX_CHANGED_LIGHTS},
+		{"changed_light_intensities", "vec4", global_illumination.MAX_CHANGED_LIGHTS},
 		{"filter_luminance", "float"},
 		{"filter_source_tex", "int"},
 		{"filter_specular_source_tex", "int"},
@@ -122,8 +122,8 @@ local function restir_uniform(trace, filter_iteration)
 			)
 			block.frame = frame % 65536
 			block.phase = render3d.GetTemporalFrame() % 4
-			local trace_pipeline = render3d.pipelines.restir_gi_temporal
-			local accumulate_pipeline = render3d.pipelines.restir_gi_accumulate
+			local trace_pipeline = render3d.pipelines.global_illumination_temporal
+			local accumulate_pipeline = render3d.pipelines.global_illumination_accumulate
 
 			if
 				trace_pipeline.restir_framebuffers ~= trace_pipeline.framebuffers or
@@ -131,11 +131,11 @@ local function restir_uniform(trace, filter_iteration)
 			then
 				trace_pipeline.restir_framebuffers = trace_pipeline.framebuffers
 				accumulate_pipeline.restir_framebuffers = accumulate_pipeline.framebuffers
-				restir_gi.ResetHistory()
+				global_illumination.ResetHistory()
 			end
 
 			block.history_valid = render3d.ShouldUseLastFrameHistory() and
-				frame > restir_gi.GetResetFrame()
+				frame > global_illumination.GetResetFrame()
 				and
 				1 or
 				0
@@ -147,11 +147,11 @@ local function restir_uniform(trace, filter_iteration)
 			local prev_projection = render3d.GetPreviousProjectionMatrix() or camera:BuildProjectionMatrix()
 			prev_view:CopyToFloatPointer(block.prev_view)
 			prev_projection:CopyToFloatPointer(block.prev_projection)
-			block.temporal = restir_gi.temporal:Get() and 1 or 0
-			block.max_history = restir_gi.max_history:Get()
-			block.permutation = restir_gi.permutation:Get() and 1 or 0
-			block.history_cap = restir_gi.GetHistoryCap()
-			local changed = restir_gi.GetChangedLights()
+			block.temporal = global_illumination.temporal:Get() and 1 or 0
+			block.max_history = global_illumination.max_history:Get()
+			block.permutation = global_illumination.permutation:Get() and 1 or 0
+			block.history_cap = global_illumination.GetHistoryCap()
+			local changed = global_illumination.GetChangedLights()
 			block.changed_light_count = #changed
 
 			for i, light in ipairs(changed) do
@@ -162,46 +162,46 @@ local function restir_uniform(trace, filter_iteration)
 				block.changed_light_intensities[i - 1][0] = light.intensity
 			end
 
-			block.filter_luminance = restir_gi.filter_luminance:Get()
-			block.hit_gi_share = restir_gi.hit_gi_share:Get()
-			block.guided = restir_gi.guided:Get()
-			block.ray_share = restir_gi.GetRayShare()
-			block.boiling_filter = restir_gi.boiling_filter:Get()
-			block.spatial = restir_gi.spatial:Get() and 1 or 0
-			block.spatial_samples = restir_gi.spatial_samples:Get()
-			block.spatial_radius = restir_gi.spatial_radius:Get()
-			block.visibility = restir_gi.visibility:Get() and 1 or 0
-			block.validation = restir_gi.validation:Get() and 1 or 0
-			block.accumulation = render3d.IsDenoisingBypassed() and 1 or restir_gi.accumulation:Get()
-			block.filter_enabled = restir_gi.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
-			block.reservoir_a_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 1))
-			block.reservoir_b_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 2))
-			block.reservoir_c_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 3))
-			block.geometry_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 4))
-			block.receiver_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 5))
+			block.filter_luminance = global_illumination.filter_luminance:Get()
+			block.hit_gi_share = global_illumination.hit_gi_share:Get()
+			block.guided = global_illumination.guided:Get()
+			block.ray_share = global_illumination.GetRayShare()
+			block.boiling_filter = global_illumination.boiling_filter:Get()
+			block.spatial = global_illumination.spatial:Get() and 1 or 0
+			block.spatial_samples = global_illumination.spatial_samples:Get()
+			block.spatial_radius = global_illumination.spatial_radius:Get()
+			block.visibility = global_illumination.visibility:Get() and 1 or 0
+			block.validation = global_illumination.validation:Get() and 1 or 0
+			block.accumulation = render3d.IsDenoisingBypassed() and 1 or global_illumination.accumulation:Get()
+			block.filter_enabled = global_illumination.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
+			block.reservoir_a_tex = self:GetTextureIndex(attachment("global_illumination_temporal", current, 1))
+			block.reservoir_b_tex = self:GetTextureIndex(attachment("global_illumination_temporal", current, 2))
+			block.reservoir_c_tex = self:GetTextureIndex(attachment("global_illumination_temporal", current, 3))
+			block.geometry_tex = self:GetTextureIndex(attachment("global_illumination_temporal", current, 4))
+			block.receiver_tex = self:GetTextureIndex(attachment("global_illumination_temporal", current, 5))
 			-- the history is last frame's spatial output, read before the spatial pass rewrites it: a sample one pixel found spreads to its neighbours and stays
-			block.history_a_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 2))
-			block.history_b_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 3))
-			block.history_c_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 4))
-			block.history_geometry_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 4))
-			block.history_receiver_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 5))
+			block.history_a_tex = self:GetTextureIndex(attachment("global_illumination_spatial", 1, 2))
+			block.history_b_tex = self:GetTextureIndex(attachment("global_illumination_spatial", 1, 3))
+			block.history_c_tex = self:GetTextureIndex(attachment("global_illumination_spatial", 1, 4))
+			block.history_geometry_tex = self:GetTextureIndex(attachment("global_illumination_temporal", previous, 4))
+			block.history_receiver_tex = self:GetTextureIndex(attachment("global_illumination_spatial", 1, 5))
 			-- last frame's raw estimate, read before the spatial pass rewrites it: feeding back the denoised output makes every bounce wait on its history
 			block.screen_gi_tex = block.history_valid == 1 and
-				self:GetTextureIndex(attachment("restir_gi_spatial", 1, 1)) or
+				self:GetTextureIndex(attachment("global_illumination_spatial", 1, 1)) or
 				-1
-			block.screen_geometry_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 4))
-			block.candidate_a_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 1))
-			block.candidate_b_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 2))
-			block.candidate_c_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 3))
-			block.raw_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 1))
-			block.raw_effective_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 6))
-			block.accum_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", current, 1))
-			block.accum_moments_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", current, 2))
-			block.accum_history_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 1))
-			block.accum_history_moments_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 2))
-			block.accum_history_irradiance_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 3))
-			block.raw_specular_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 7))
-			block.accum_history_specular_tex = self:GetTextureIndex(attachment("restir_gi_accumulate", previous, 4))
+			block.screen_geometry_tex = self:GetTextureIndex(attachment("global_illumination_temporal", previous, 4))
+			block.candidate_a_tex = self:GetTextureIndex(attachment("global_illumination_candidates", 1, 1))
+			block.candidate_b_tex = self:GetTextureIndex(attachment("global_illumination_candidates", 1, 2))
+			block.candidate_c_tex = self:GetTextureIndex(attachment("global_illumination_candidates", 1, 3))
+			block.raw_tex = self:GetTextureIndex(attachment("global_illumination_spatial", 1, 1))
+			block.raw_effective_tex = self:GetTextureIndex(attachment("global_illumination_spatial", 1, 6))
+			block.accum_tex = self:GetTextureIndex(attachment("global_illumination_accumulate", current, 1))
+			block.accum_moments_tex = self:GetTextureIndex(attachment("global_illumination_accumulate", current, 2))
+			block.accum_history_tex = self:GetTextureIndex(attachment("global_illumination_accumulate", previous, 1))
+			block.accum_history_moments_tex = self:GetTextureIndex(attachment("global_illumination_accumulate", previous, 2))
+			block.accum_history_irradiance_tex = self:GetTextureIndex(attachment("global_illumination_accumulate", previous, 3))
+			block.raw_specular_tex = self:GetTextureIndex(attachment("global_illumination_spatial", 1, 7))
+			block.accum_history_specular_tex = self:GetTextureIndex(attachment("global_illumination_accumulate", previous, 4))
 			block.brdf_lut_tex = self:GetTextureIndex(
 				assert(
 					assets.GetTexture("textures/render/brdf_lut.lua"),
@@ -213,12 +213,12 @@ local function restir_uniform(trace, filter_iteration)
 				block.filter_step = 2 ^ filter_iteration
 				block.filter_source_tex = self:GetTextureIndex(
 					filter_iteration == 0 and
-						attachment("restir_gi_accumulate", current, 1) or
+						attachment("global_illumination_accumulate", current, 1) or
 						attachment(filter_name(filter_iteration - 1), 1, 1)
 				)
 				block.filter_specular_source_tex = self:GetTextureIndex(
 					filter_iteration == 0 and
-						attachment("restir_gi_accumulate", current, 4) or
+						attachment("global_illumination_accumulate", current, 4) or
 						attachment(filter_name(filter_iteration - 1), 1, 3)
 				)
 			end
@@ -585,7 +585,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 -- traces this frame's new candidates for the pixels whose turn it is, one thread per tracing pixel so no warp traces a few rays at the cost of a full one
 local function pass_candidates()
 	return {
-		name = "restir_gi_candidates",
+		name = "global_illumination_candidates",
 		ComputePass = true,
 		ColorFormat = {
 			{"r32g32b32a32_sfloat", {"restir_candidate_position", "rgb", 0.01}},
@@ -596,7 +596,7 @@ local function pass_candidates()
 			{"r16g16b16a16_sfloat", {"restir_candidate_normal", "rgb"}},
 		},
 		framebuffer_count = 1,
-		scale = restir_gi.GetScale,
+		scale = global_illumination.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(3),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
@@ -608,7 +608,7 @@ local function pass_candidates()
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
-			local share = restir_gi.GetRayShare()
+			local share = global_illumination.GetRayShare()
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(
 				cmd,
@@ -762,7 +762,7 @@ end
 
 local function pass_temporal()
 	return {
-		name = "restir_gi_temporal",
+		name = "global_illumination_temporal",
 		ComputePass = true,
 		ColorFormat = {
 			{"r32g32b32a32_sfloat", {"restir_reservoir_position", "rgb", 0.01}},
@@ -775,7 +775,7 @@ local function pass_temporal()
 			{"r32g32b32a32_sfloat", {"restir_receiver", "rgb", 0.01}},
 		},
 		framebuffer_count = 2,
-		scale = restir_gi.GetScale,
+		scale = global_illumination.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(5),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
@@ -994,7 +994,7 @@ end
 
 local function pass_spatial()
 	return {
-		name = "restir_gi_spatial",
+		name = "global_illumination_spatial",
 		ComputePass = true,
 		ColorFormat = {
 			{
@@ -1018,7 +1018,7 @@ local function pass_spatial()
 			},
 		},
 		framebuffer_count = 1,
-		scale = restir_gi.GetScale,
+		scale = global_illumination.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(7),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
@@ -1245,7 +1245,7 @@ end
 
 local function pass_accumulate()
 	return {
-		name = "restir_gi_accumulate",
+		name = "global_illumination_accumulate",
 		ComputePass = true,
 		ColorFormat = {
 			{
@@ -1263,7 +1263,7 @@ local function pass_accumulate()
 			},
 		},
 		framebuffer_count = 2,
-		scale = restir_gi.GetScale,
+		scale = global_illumination.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(4),
 		uniform_buffers = {restir_uniform(false)},
@@ -1389,7 +1389,7 @@ local function pass_filter(iteration)
 			},
 		},
 		framebuffer_count = 1,
-		scale = restir_gi.GetScale,
+		scale = global_illumination.GetScale,
 		LocalSize = LOCAL_SIZE,
 		storage_images = {
 			{binding_index = 0, attachment = 1, dst_stage = {"compute", "fragment"}},

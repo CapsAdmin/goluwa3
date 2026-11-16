@@ -103,7 +103,7 @@ do
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
 				import("goluwa/render3d/passes/ddgi.lua"),
-				import("goluwa/render3d/passes/restir_gi.lua"),
+				import("goluwa/render3d/passes/global_illumination.lua"),
 				import("goluwa/render3d/passes/lighting.lua"),
 				import("goluwa/render3d/passes/blit.lua"),
 			},

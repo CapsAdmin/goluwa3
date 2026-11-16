@@ -372,10 +372,9 @@ local default_passes = {
 		gi = "ddgi",
 	},
 	{
-		"restir_gi",
-		"goluwa/render3d/passes/restir_gi.lua",
+		"global_illumination",
+		"goluwa/render3d/passes/global_illumination.lua",
 		group = "global illumination",
-		gi = "restir",
 	},
 	{"reflections", "goluwa/render3d/passes/reflections.lua", group = "reflections"},
 	{
@@ -453,40 +452,21 @@ end
 
 pvars.EndGroup()
 pvars.StartGroup("Lighting", "Global illumination", {store = false})
-local gi_mode = pvars.Setup2{
-	key = "r_gi",
-	default = "restir",
-	enums = {"restir", "none"},
-	help = "the global illumination: restir (a ray per pixel, resampled across neighbouring pixels and frames, with r_gi_cache for the light past the first bounce) or none (the sky's irradiance and no gi passes)",
+local gi_cache = pvars.Setup2{
+	key = "r_gi_cache",
+	default = "ddgi",
+	enums = {"ddgi", "none"},
+	help = "the world space gi cache under the global illumination pass: its rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. ddgi builds the probe cascades, none lights the hits with the sky through a few rays",
 	callback = function(value, initial)
 		if initial then return end
 
 		rebuild_default_bundles()
 	end,
 }
-local gi_cache = pvars.Setup2{
-	key = "r_gi_cache",
-	default = "ddgi",
-	enums = {"ddgi", "none"},
-	help = "the world space gi under r_gi restir: restir's rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. none lights the hits with the sky through a few rays",
-	callback = function(value, initial)
-		if initial or gi_mode:Get() ~= "restir" then return end
-
-		rebuild_default_bundles()
-	end,
-}
 pvars.EndGroup()
 
-function render3d.GetGIMode()
-	return gi_mode:Get()
-end
-
 local function is_gi_pass_wanted(name)
-	local mode = gi_mode:Get()
-
-	if mode == "restir" then return name == "restir" or name == gi_cache:Get() end
-
-	return name == mode
+	return name == gi_cache:Get()
 end
 
 function render3d.IsBundlePassEnabled(bundle, name)

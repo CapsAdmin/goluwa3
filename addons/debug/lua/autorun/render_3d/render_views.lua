@@ -428,7 +428,7 @@ local LIGHTING_MODES = {
 	},
 	{
 		name = "gi only",
-		key = "restir_gi_debug",
+		key = "global_illumination_debug",
 		value = true,
 		description = "only the irradiance of the global illumination",
 	},

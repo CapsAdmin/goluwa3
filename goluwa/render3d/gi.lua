@@ -1,7 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local restir_gi = import("goluwa/render3d/restir_gi.lua")
+local global_illumination = import("goluwa/render3d/global_illumination.lua")
 local gi = {}
 gi.MODES = {none = 0, ddgi = 1}
 gi.MIN_WEIGHT = ddgi.MIN_WEIGHT
@@ -13,29 +13,29 @@ function gi.GetMode()
 end
 
 function gi.IsPerPixel()
-	return render3d.IsPassEnabled("restir_gi")
+	return render3d.IsPassEnabled("global_illumination")
 end
 
 function gi.GetScreenTexture()
-	if gi.IsPerPixel() then return restir_gi.GetOutputTexture(1) end
+	if gi.IsPerPixel() then return global_illumination.GetOutputTexture(1) end
 
 	return nil
 end
 
 function gi.GetScreenGeometryTexture()
-	if gi.IsPerPixel() then return restir_gi.GetOutputTexture(2) end
+	if gi.IsPerPixel() then return global_illumination.GetOutputTexture(2) end
 
 	return nil
 end
 
 function gi.GetScreenSpecularTexture()
-	if gi.IsPerPixel() then return restir_gi.GetSpecularTexture() end
+	if gi.IsPerPixel() then return global_illumination.GetSpecularTexture() end
 
 	return nil
 end
 
 function gi.IsDebugGI()
-	if gi.IsPerPixel() then return restir_gi.IsDebugGI() end
+	if gi.IsPerPixel() then return global_illumination.IsDebugGI() end
 
 	return false
 end
@@ -48,7 +48,7 @@ end
 
 function gi.ResetHistory()
 	ddgi.ResetHistory()
-	restir_gi.ResetHistory()
+	global_illumination.ResetHistory()
 end
 
 function gi.GetProbeBlockLayout()
