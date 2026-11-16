@@ -663,7 +663,8 @@ local function pass_candidates()
 			}
 
 			// the rays are averaged unweighted over the visible normal distribution, so an emitter sample must enter at that density of its direction
-			vec3 radiance_specular_emitter_light(vec3 origin, vec3 N, vec3 geometric_N, vec3 V, float roughness, uint index) {
+			// the diffuse emitter sample's candidates, picked for its origin and normal: the light of each divides out that normal's cosine, so it is evaluated there and only the lobe uses the bent normal
+			vec3 radiance_specular_emitter_light(vec3 origin, vec3 receiver_N, vec3 N, vec3 geometric_N, vec3 V, float roughness, uint index, int triangles[EMITTER_CANDIDATES], float weights[EMITTER_CANDIDATES]) {
 				float alpha = roughness * roughness;
 				float NoV = max(dot(N, V), 1e-4);
 				float a = max(0.001, alpha);
@@ -674,12 +675,7 @@ local function pass_candidates()
 				float chosen_dist = 0.0;
 				float chosen_target = 0.0;
 				float total = 0.0;
-				// its own sequence, apart from the diffuse emitter sample of the same pixel
-				uint sequence = index | 0x80000000u;
-				int triangles[EMITTER_CANDIDATES];
-				float weights[EMITTER_CANDIDATES];
-
-				if (!emitter_candidates(sequence, frame, origin, N, 0.05, triangles, weights)) return vec3(0.0);
+				
 
 				for (int k = 0; k < EMITTER_CANDIDATES; k++) {
 					if (!(weights[k] > 0.0)) continue;
@@ -687,7 +683,7 @@ local function pass_candidates()
 					int emitter = int(uint(triangles[k]) | (uint(k) << 26u));
 					vec3 dir;
 					float dist;
-					vec3 light = emitter_light(emitter, emitter_candidate_point(sequence, frame, emitter), origin, N, weights[k], dir, dist);
+					vec3 light = emitter_light(emitter, emitter_candidate_point(index, frame, emitter), origin, receiver_N, weights[k], dir, dist);
 
 					if (dot(geometric_N, dir) <= 0.0) continue;
 
@@ -698,7 +694,7 @@ local function pass_candidates()
 
 					total += target;
 
-					if (emitter_random(sequence, frame, 0x68e31da4u + uint(k)).w * total < target) {
+					if (emitter_random(index, frame, 0x68e31da4u + uint(k)).w * total < target) {
 						chosen = value;
 						chosen_dir = dir;
 						chosen_dist = dist;
@@ -741,7 +737,7 @@ local function pass_candidates()
 				return ray;
 			}
 
-			vec4 radiance_specular_finish(radiance_specular_ray ray, vec3 radiance, float hit_t, int index) {
+			vec4 radiance_specular_finish(radiance_specular_ray ray, vec3 radiance, float hit_t, int index, vec3 emitter_origin, vec3 emitter_N, int triangles[EMITTER_CANDIDATES], float weights[EMITTER_CANDIDATES]) {
 				radiance = scene_radiance_through_air(radiance, ray.origin, ray.R, hit_t, SCENE_HIT_MAX_DISTANCE);
 
 				if (ray.roughness > REFLECTION_MIRROR_THRESHOLD && hit_t < SCENE_HIT_MAX_DISTANCE) {
@@ -752,7 +748,7 @@ local function pass_candidates()
 				float ray_weight = mix(1.0, ray.lobe_below ? 0.0 : radiance_specular_weight(ray.N, ray.V, ray.roughness, ray.R), smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, ray.roughness));
 				radiance *= ray_weight;
 
-				if (ray.sample_emitters) radiance += radiance_specular_emitter_light(ray.origin, ray.N, ray.geometric_N, ray.V, ray.roughness, uint(index));
+				if (ray.sample_emitters) radiance += radiance_specular_emitter_light(emitter_origin, emitter_N, ray.N, ray.geometric_N, ray.V, ray.roughness, uint(index), triangles, weights);
 
 				if (any(isnan(radiance)) || any(isinf(radiance))) {
 					radiance = vec3(0.0);
@@ -800,6 +796,9 @@ local function pass_candidates()
 					float guided_share = 0.0;
 						bool guided = false;
 						radiance_specular_ray specular;
+						int emitter_triangles[EMITTER_CANDIDATES];
+						float emitter_weights[EMITTER_CANDIDATES];
+						bool have_emitters = emitter_count > 0 && emitter_candidates(uint(pos.y * size.x + pos.x), frame, origin, N, 0.05, emitter_triangles, emitter_weights);
 						vec3 specular_L = vec3(0.0);
 						float specular_t = SCENE_HIT_MAX_DISTANCE;
 
@@ -895,10 +894,29 @@ local function pass_candidates()
 						miss = miss && !guided;
 					}
 
-					if (emitter_count > 0) {
-						int emitter;
-						vec3 point;
-						float weight = emitter_pick_sample(uint(pos.y * size.x + pos.x), frame, origin, N, 0.05, emitter, point);
+					if (have_emitters) {
+							float sum = 0.0;
+
+							for (int k = 0; k < EMITTER_CANDIDATES; k++) {
+								sum += emitter_weights[k];
+							}
+
+							float pick = emitter_random(uint(pos.y * size.x + pos.x), frame, 0x5bd1e995u).x * sum;
+							int chosen_k = EMITTER_CANDIDATES - 1;
+							float running = 0.0;
+
+							for (int k = 0; k < EMITTER_CANDIDATES; k++) {
+								running += emitter_weights[k];
+
+								if (pick < running) {
+									chosen_k = k;
+									break;
+								}
+							}
+
+							int emitter = int(uint(emitter_triangles[chosen_k]) | (uint(chosen_k) << 26u));
+							float weight = sum > 0.0 ? sum / float(EMITTER_CANDIDATES) : 0.0;
+							vec3 point = weight > 0.0 ? emitter_candidate_point(uint(pos.y * size.x + pos.x), frame, emitter) : origin;
 						vec3 to_point = point - origin;
 						float dist = length(to_point);
 						vec3 L_dir = to_point / max(dist, 1e-6);
@@ -937,7 +955,7 @@ local function pass_candidates()
 				imageStore(out_a, pos, vec4(restir_stored_x(chosen), w_sum));
 				imageStore(out_b, pos, vec4(chosen.L, chosen_target));
 				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0) | (guided_share > 0.0 ? RESTIR_FLAG_GUIDE_MIX : 0))));
-				imageStore(out_d, pos, radiance_specular_finish(specular, specular_L, specular_t, pos.y * size.x + pos.x));
+				imageStore(out_d, pos, radiance_specular_finish(specular, specular_L, specular_t, pos.y * size.x + pos.x, origin, N, emitter_triangles, emitter_weights));
 				imageStore(out_e, pos, vec4(specular_t));
 			}
 		]],
