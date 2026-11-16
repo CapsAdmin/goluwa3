@@ -152,7 +152,7 @@ local function restir_uniform(trace, filter_iteration)
 			local prev_projection = render3d.GetPreviousProjectionMatrix() or camera:BuildProjectionMatrix()
 			prev_view:CopyToFloatPointer(block.prev_view)
 			prev_projection:CopyToFloatPointer(block.prev_projection)
-			block.temporal = radiance.temporal:Get() and 1 or 0
+			block.temporal = radiance.temporal:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
 			block.max_history = radiance.max_history:Get()
 			block.permutation = radiance.permutation:Get() and 1 or 0
 			block.history_cap = radiance.GetHistoryCap()
