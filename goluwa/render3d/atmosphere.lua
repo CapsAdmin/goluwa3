@@ -332,17 +332,63 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		return max(0.0, 1.0 - abs(altitude - OZONE_CENTER_HEIGHT) / OZONE_WIDTH);
 	}
 
+	const float GROUND_FOG_NOISE_CELL = 0.09;
+	const float GROUND_FOG_NOISE_HEIGHT = 0.7;
+	const float GROUND_FOG_NOISE_DENSITY = 0.6;
+
+	float ground_fog_hash(ivec3 cell) {
+		uvec3 v = uvec3(cell) * 1664525u + 1013904223u;
+		v.x += v.y * v.z;
+		v.y += v.z * v.x;
+		v.z += v.x * v.y;
+		v ^= v >> 16u;
+		v.x += v.y * v.z;
+		v.y += v.z * v.x;
+		v.z += v.x * v.y;
+		return float(v.x ^ v.y ^ v.z) * (1.0 / 4294967296.0);
+	}
+
+	float ground_fog_value_noise(vec3 p) {
+		vec3 base = floor(p);
+		vec3 f = p - base;
+		f = f * f * (3.0 - 2.0 * f);
+		ivec3 c = ivec3(base);
+		return mix(
+			mix(
+				mix(ground_fog_hash(c), ground_fog_hash(c + ivec3(1, 0, 0)), f.x),
+				mix(ground_fog_hash(c + ivec3(0, 1, 0)), ground_fog_hash(c + ivec3(1, 1, 0)), f.x),
+				f.y
+			),
+			mix(
+				mix(ground_fog_hash(c + ivec3(0, 0, 1)), ground_fog_hash(c + ivec3(1, 0, 1)), f.x),
+				mix(ground_fog_hash(c + ivec3(0, 1, 1)), ground_fog_hash(c + ivec3(1, 1, 1)), f.x),
+				f.y
+			),
+			f.z
+		);
+	}
+
 	float ground_fog_extinction(vec3 point) {
 		if (GROUND_FOG_ENABLED < 0.5) return 0.0;
 
 		float altitude = max(length(point) - PLANET_RADIUS, 0.0);
+		float noise = 0.0;
+		float density_scale = 1.0;
+
+		if (ATMOSPHERE_GROUND_FOG_EXTINCTION > 0.0) {
+			vec3 noise_point = vec3(point.x, altitude, point.z) / GROUND_FOG_NOISE_CELL;
+			noise = (ground_fog_value_noise(noise_point) * 0.65 + ground_fog_value_noise(noise_point * 2.7 + 17.0) * 0.35 - 0.5) * 2.0;
+			density_scale = 1.0 + noise * GROUND_FOG_NOISE_DENSITY;
+			altitude = max(altitude - noise * GROUND_FOG_NOISE_HEIGHT * GROUND_FOG_SCALE_HEIGHT, 0.0);
+		}
+
 		float height_falloff = exp(-max(altitude - GROUND_FOG_START_HEIGHT, 0.0) / GROUND_FOG_SCALE_HEIGHT);
 		float top_fade = 1.0 - smoothstep(
 			max(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_TOP_SOFTNESS, GROUND_FOG_START_HEIGHT),
 			GROUND_FOG_TOP_HEIGHT,
 			altitude
 		);
-		return (ATMOSPHERE_GROUND_FOG_EXTINCTION * height_falloff + ATMOSPHERE_PRECIPITATION_EXTINCTION) * top_fade;
+		return (ATMOSPHERE_GROUND_FOG_EXTINCTION * density_scale * height_falloff + ATMOSPHERE_PRECIPITATION_EXTINCTION) * top_fade;
 	}
 
 	float mie_phase(float mu) {
