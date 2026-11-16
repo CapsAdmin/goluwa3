@@ -554,7 +554,8 @@ local function transition_render_attachments(self, cmd)
 				(
 					self.hdr_layer or
 					self.ui_layer
-				) and
+				)
+				and
 				"fragment" or
 				"color_attachment_output",
 			srcAccess = "none",
@@ -861,7 +862,7 @@ local function end_generated_frame(self, command_buffer)
 		present_generated and {ready_generated, ready_real} or {ready_real},
 		self.in_flight_fences[self.current_frame]
 	)
-	self.frame_pacer:Queue(present_generated)
+	self.frame_pacer:Queue(self.vulkan_instance.queue, present_generated)
 end
 
 function ImageRenderTarget:EndFrame()
@@ -945,7 +946,6 @@ function ImageRenderTarget:Capture()
 	if not cmd or not cmd.is_recording or not cmd.is_rendering then return nil end
 
 	if RENDER_NOOP then return nil end
-
 
 	local device = self.vulkan_instance.device
 	local queue = self.vulkan_instance.queue

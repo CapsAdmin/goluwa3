@@ -22,6 +22,8 @@ local STATE_DECL = string.format(
 		void *queue_submit;
 		void *queue_present;
 		void *reset_fences;
+		void *wait_for_fences;
+		void *frame_fences[%d];
 		uint32_t image_count;
 		void *acquire_semaphores[%d];
 		void *ready_semaphores[%d];
@@ -41,6 +43,7 @@ local STATE_DECL = string.format(
 		double present_times[64];
 	}
 ]],
+	frame_pacer.SLOTS,
 	PRESENTS,
 	PRESENTS,
 	MAX_IMAGES,
@@ -86,6 +89,8 @@ local WORKER = "local STATE_DECL = [==[" .. STATE_DECL .. "]==]\nlocal JOBS, MAX
 	local queue_submit = ffi.cast(ffi.typeof("int32_t (*)(void *, uint32_t, const $ *, void *)", submit_info_t), s.queue_submit)
 	local queue_present = ffi.cast(ffi.typeof("int32_t (*)(void *, const $ *)", present_info_t), s.queue_present)
 	local reset_fences = ffi.cast("int32_t (*)(void *, uint32_t, void *const *)", s.reset_fences)
+	local wait_for_fences = ffi.cast("int32_t (*)(void *, uint32_t, void *const *, uint32_t, uint64_t)", s.wait_for_fences)
+	local frame_fence = ffi.new("void *[1]")
 	local SUBOPTIMAL = 1000001003
 	local OUT_OF_DATE = -1000001004
 	local TRANSFER_STAGE = 0x1000
@@ -134,6 +139,7 @@ local WORKER = "local STATE_DECL = [==[" .. STATE_DECL .. "]==]\nlocal JOBS, MAX
 		assert(reset_fences(s.device, 1, fences) == 0)
 		assert(queue_submit(s.queue, 1, submit_info, s.copy_fences[index]) == 0, "frame pacer: submit failed")
 		result = queue_present(s.queue, present_info)
+		wait_for_fences(s.device, 1, fences, 1, 0xFFFFFFFFFFFFFFFFULL)
 		s.present_times[s.present_count % 64] = now()
 		s.present_count = s.present_count + 1
 
@@ -152,6 +158,9 @@ local WORKER = "local STATE_DECL = [==[" .. STATE_DECL .. "]==]\nlocal JOBS, MAX
 			local job = s.read_count % JOBS
 			local slot = s.job_slots[job]
 			local mask = s.job_masks[job]
+			-- pace from when the gpu finished the frame: the cpu submits a gpu bound frame long before it is done, and presents queued behind it would all go out together
+			frame_fence[0] = s.frame_fences[slot]
+			wait_for_fences(s.device, 1, frame_fence, 1, 0xFFFFFFFFFFFFFFFFULL)
 			local arrival = now()
 
 			if last_arrival then
@@ -235,6 +244,14 @@ do
 		s.queue_submit = ffi.cast("void *", vulkan.lib.vkGetDeviceProcAddr(device.ptr[0], "vkQueueSubmit"))
 		s.queue_present = ffi.cast("void *", vulkan.lib.vkGetDeviceProcAddr(device.ptr[0], "vkQueuePresentKHR"))
 		s.reset_fences = ffi.cast("void *", vulkan.lib.vkGetDeviceProcAddr(device.ptr[0], "vkResetFences"))
+		s.wait_for_fences = ffi.cast("void *", vulkan.lib.vkGetDeviceProcAddr(device.ptr[0], "vkWaitForFences"))
+		self.frame_fences = {}
+
+		for i = 1, frame_pacer.SLOTS do
+			self.frame_fences[i] = Fence.New(device)
+			s.frame_fences[i - 1] = self.frame_fences[i].ptr[0]
+		end
+
 		s.interval = 1 / 60
 
 		for i = 1, PRESENTS do
@@ -365,6 +382,8 @@ do
 		local generated = self.slot * 2 + 1
 		self.copy_fences[generated]:Wait()
 		self.copy_fences[generated + 1]:Wait()
+		self.frame_fences[self.slot + 1]:Wait()
+		self.frame_fences[self.slot + 1]:Reset()
 		return self.images[generated], self.images[generated + 1]
 	end
 
@@ -373,9 +392,13 @@ do
 		return self.ready_semaphores[generated], self.ready_semaphores[generated + 1]
 	end
 
-	-- the frame's graphics submit must signal the ready semaphores of the images in the mask before this runs
-	function META:Queue(present_generated)
+	-- the frame's graphics submit on queue must signal the ready semaphores of the images in the mask before this runs
+	function META:Queue(queue, present_generated)
 		local s = self.state
+		vulkan.assert(
+			vulkan.lib.vkQueueSubmit(queue.ptr[0], 0, nil, self.frame_fences[self.slot + 1].ptr[0]),
+			"frame pacer: fence submit failed"
+		)
 		local job = s.write_count % JOBS
 		s.job_slots[job] = self.slot
 		s.job_masks[job] = present_generated and 3 or 2
@@ -394,6 +417,10 @@ do
 			self.acquire_semaphores[i]:Remove()
 			self.ready_semaphores[i]:Remove()
 			self.copy_fences[i]:Remove()
+		end
+
+		for _, fence in ipairs(self.frame_fences) do
+			fence:Remove()
 		end
 
 		for _, semaphore in ipairs(self.done_semaphores) do
