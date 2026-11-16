@@ -50,8 +50,23 @@ local BLACKLISTED_MODEL_PREFIXES = {
 	"models/props/de_port/clouds2",
 }
 
+local function is_blacklisted_decal(texname)
+	texname = texname:lower()
+	return (
+			texname:starts_with("esther/") or
+			texname:starts_with("models/esther/")
+		) and
+		texname:find("caustics", nil, true) ~= nil
+end
+
 local function is_blacklisted(path)
 	path = path:lower()
+
+	if path:starts_with("models/esther/") then
+		if path:find("caustics", nil, true) then return true end
+
+		if path:find("lightshaft", nil, true) then return true end
+	end
 
 	for _, prefix in ipairs(BLACKLISTED_MODEL_PREFIXES) do
 		if path:starts_with(prefix) then return true end
@@ -561,6 +576,8 @@ function map_scene.Translate(data, map_name, map_path, offset)
 	startup.Begin("translate decals and water")
 
 	for index, decal in ipairs(data.decals) do
+		if is_blacklisted_decal(decal.Texname) then goto continue end
+
 		local frame
 
 		if decal.Mode == "overlay" then
@@ -586,6 +603,8 @@ function map_scene.Translate(data, map_name, map_path, offset)
 				},
 			},
 		}
+
+		::continue::
 	end
 
 	for index, info in ipairs(data.water_volumes or {}) do
