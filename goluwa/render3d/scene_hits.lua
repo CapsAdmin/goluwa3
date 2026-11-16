@@ -43,7 +43,6 @@ scene_hits.rough_rays = pvars.Setup2{
 	max = 16,
 	help = "rays a pixel traces once its surface is rough (the count rises from 1 between roughness 0.1 and 0.4), each in its own direction over the lobe, and their results are averaged. a single ray is one sharp point of the scene. the reflections and the water use it",
 }
-scene_hits.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
 scene_hits.filter_radius = pvars.Setup2{
 	key = "reflection_filter_radius",
 	default = 3,
@@ -62,11 +61,6 @@ local screenspace_roughness = pvars.Setup2{
 	min = 0,
 	max = 1,
 	help = "perceptual roughness below which the screen space reflection is used first and the ray trace only fills what the screen does not hold. from there up, and everywhere at 0, the trace is the reflection and the screen is not traced",
-}
-local reorder = pvars.Setup2{
-	key = "reflection_reorder",
-	default = false,
-	help = "the reflection rays are traced from a ray generation shader with a hit object and the threads are reordered by what they hit before it is shaded, off traces with ray queries in a compute shader. needs ray tracing invocation reorder, built into the shader",
 }
 pvars.EndGroup()
 
@@ -203,14 +197,6 @@ function scene_hits.GetDirectionGLSL()
 			return traced_luma > limit ? traced * (limit / traced_luma) : traced;
 		}
 	]]
-end
-
-function scene_hits.IsReordered()
-	return reorder:Get()
-end
-
-function scene_hits.IsEnabled()
-	return enabled:Get()
 end
 
 scene_hits.block = {

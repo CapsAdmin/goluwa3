@@ -350,7 +350,7 @@ function LayoutView:OnDraw()
 end
 
 LayoutView:Register()
-local PASS_NAMES = {"ambient_occlusion", "reflections", "ssgi_filter_1", "ssgi_filter_2", "ssgi"}
+local PASS_NAMES = {"ambient_occlusion", "ssgi_filter_1", "ssgi_filter_2", "ssgi"}
 local SWIZZLES = {r = "rrr", g = "ggg", b = "bbb", a = "aaa", rgb = "rgb"}
 
 local function show_fullscreen(spec)
@@ -449,12 +449,6 @@ local LIGHTING_MODES = {
 		key = "radiance_cache_debug_probes",
 		value = "hit_distance",
 		description = "markers at the radiance_cache probes colored by the mean distance their rays hit",
-	},
-	{
-		name = "reflection scene",
-		key = "reflection_debug_scene",
-		value = true,
-		description = "the scene the reflection rays trace, seen from the camera: the hit shading, lights, probes and fog a reflection of it has",
 	},
 	{
 		name = "radiance_cache scene albedo",

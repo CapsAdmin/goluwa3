@@ -183,7 +183,7 @@ end)
 T.Test3DRayTracing("Graphics render3d caustics show in a mirror through the world grid", function(draw)
 	with_ball(
 		{r_pass_caustics = true},
-		{"gbuffer", "reflections", "caustics", "lighting", "blit"},
+		{"gbuffer", "radiance_cache", "radiance", "caustics", "lighting", "blit"},
 		function(created)
 			render3d.camera:SetPosition(Vec3(-1.2, 2.2, 0))
 			render3d.camera:SetAngles{x = math.rad(-89), y = 0, z = 0}

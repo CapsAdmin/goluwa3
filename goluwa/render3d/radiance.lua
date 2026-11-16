@@ -31,6 +31,11 @@ radiance.resolution = pvars.Setup2{
 		end
 	end,
 }
+radiance.specular_emitter_roughness = pvars.Setup2{
+	key = "radiance_specular_emitter_roughness",
+	default = 0.2,
+	help = "perceptual roughness from which the specular rays leave emissive surfaces to emitter samples (the light tree, as the diffuse rays sample them), each weighed by the specular lobe. a ray finds a small emitter rarely, and a sample reaches it directly",
+}
 radiance.RAY_SHARES = {every = 1, half = 2, quarter = 4}
 radiance.rays = pvars.Setup2{
 	key = "radiance_rays",

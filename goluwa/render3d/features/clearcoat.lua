@@ -17,7 +17,7 @@ return {
 			kind = "unorm8",
 			default = "0.0",
 			material = "get_clearcoat()",
-			readers = {"lighting", "reflections"},
+			readers = {"lighting", "radiance"},
 		},
 		{
 			name = "clearcoat_roughness",
@@ -28,21 +28,21 @@ return {
 			default = "1.0",
 			encode = "sqrt(v)",
 			decode = "v * v",
-			readers = {"lighting", "reflections"},
+			readers = {"lighting", "radiance"},
 		},
 		{
 			name = "clearcoat_rain",
 			sheet = "clearcoat",
 			kind = "unorm8",
 			default = "0.0",
-			readers = {"lighting", "reflections"},
+			readers = {"lighting", "radiance"},
 		},
 		{
 			name = "clearcoat_normal",
 			sheet = "clearcoat",
 			kind = "octa",
 			member = false,
-			readers = {"lighting", "reflections"},
+			readers = {"lighting", "radiance"},
 		},
 	},
 	surface_members = [[
@@ -121,9 +121,7 @@ return {
 			float coat_NdotV = max(dot(s.coat_N, s.V), 0.001);
 			float coat_roughness = sqrt(clamp(s.clearcoat_alpha, 0.0, 1.0));
 			float Fc = F_SchlickScalar(CLEARCOAT_F0, coat_NdotV) * s.clearcoat;
-			vec3 tilt = mat3(lighting_data.view) * (s.coat_N - s.coat_smooth_N);
-			vec2 reflection_uv = in_uv + vec2(tilt.x, -tilt.y) * (0.1 / max(length(lighting_data.camera_position.xyz - s.world_pos), 1.0));
-			vec3 coat_reflection = get_reflection(s.coat_N, coat_roughness, 0.0, s.V, s.world_pos, sky_visibility, irradiance, reflection_uv, SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness));
+			vec3 coat_reflection = get_reflection(s.coat_N, coat_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness));
 			ambient_diffuse *= 1.0 - Fc;
 			ambient_specular = ambient_specular * (1.0 - Fc) + coat_reflection * Fc;
 		}

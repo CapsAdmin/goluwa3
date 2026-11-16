@@ -84,11 +84,6 @@ local rough_sky = pvars.Setup2{
 	max = 1.5,
 	help = "perceptual roughness above which a surface's ambient reflection is the probes' light and no raw sky (the sky fades out from 0.25), a rough surface's reflection is a blur of the gi, which already holds the sky. raise it to push the fade out towards rough surfaces only",
 }
-local gi_reflection_direction = pvars.Setup2{
-	key = "reflection_gi_direction",
-	default = true,
-	help = "the gi light that stands in for a rough reflection is read along the reflection direction. off, it is the light around the surface normal, the colour of the whole hemisphere and not of what the surface mirrors",
-}
 pvars.EndGroup()
 pvars.StartGroup("Lighting", "Lighting", {store = false, prefix = "lighting_"})
 local thin_specular = pvars.Setup2{
@@ -159,8 +154,6 @@ return {
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
 					{"reflection_debug", "int"},
-					{"reflection_tex", "int"},
-					ibl.reflection_weight_block,
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
@@ -173,7 +166,6 @@ return {
 					{"screen_shadow_steps", "int"},
 					{"thin_specular", "float"},
 					{"rough_sky", "float"},
-					{"gi_reflection_direction", "int"},
 					{"gi_per_pixel", "int"},
 					{"caustics_tex", "int"},
 				},
@@ -201,7 +193,6 @@ return {
 					block.screen_shadow_steps = math.max(math.floor(screen_shadow_steps:Get() * quality.Get().screen_shadow_step_scale), 2)
 					block.thin_specular = thin_specular:Get()
 					block.rough_sky = rough_sky:Get()
-					block.gi_reflection_direction = gi_reflection_direction:Get() and 1 or 0
 					block.gi_per_pixel = gi.IsPerPixel() and 1 or 0
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
@@ -221,17 +212,8 @@ return {
 						block.ray_shadow_tex = self:GetTextureIndex(render3d.pipelines.ray_shadow_filter:GetFramebuffer(1):GetAttachment(1))
 					end
 
-					ibl.WriteReflectionWeightBlock(block, gi.IsPerPixel())
 					local overlay = gi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
-
-					if render3d.IsPassEnabled("reflections") then
-						local current_idx = system.GetFrameNumber() % 2 + 1
-						local current_reflections_fb = render3d.pipelines.reflections:GetFramebuffer(current_idx)
-						block.reflection_tex = self:GetTextureIndex(current_reflections_fb:GetAttachment(1))
-					else
-						block.reflection_tex = -1
-					end
 
 					return block
 				end,
@@ -351,18 +333,16 @@ return {
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
-			vec3 get_reflection(vec3 normal, float roughness, float metallic, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv, float specular_occlusion) {
+			// the radiance pass's traced specular already holds the sky and the occluders, without it a reflection is the environment and the probes' light
+			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection, float specular_occlusion) {
+				if (lighting_data.gi_screen_specular_tex >= 0) return gi_reflection;
+
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
 				float sky_weight = sky_visibility * (1.0 - smoothstep(0.25, max(lighting_data.rough_sky, 0.26), roughness));
-				vec3 global_reflection = mix(gi_reflection_fallback, sky_reflection, sky_weight);
-				vec3 env_reflection = blend_probe_reflections(global_reflection, R, roughness, world_pos);
-
-				if (lighting_data.reflection_tex == -1) return env_reflection * specular_occlusion;
-
-				vec4 traced = get_filtered_reflection(reflection_uv);
-				return combine_reflections(env_reflection, specular_occlusion, vec4(traced.rgb / get_pre_exposure(), traced.a), get_reflection_traced_weight(roughness, metallic));
+				vec3 global_reflection = mix(gi_reflection, sky_reflection, sky_weight);
+				return blend_probe_reflections(global_reflection, R, roughness, world_pos) * specular_occlusion;
 			}
 
 			vec3 get_gi_irradiance(vec3 N, out float sky_visibility) {
@@ -461,17 +441,12 @@ return {
 				float sky_visibility;
 				vec3 irradiance = get_gi_irradiance(s.N, sky_visibility);
 				vec3 reflection_gi = irradiance;
-				bool traced_gi_reflection = false;
-				
-				if (lighting_data.gi_reflection_direction != 0 && lighting_data.gi_screen_specular_tex >= 0) {
-					reflection_gi = radiance_cache_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
-					traced_gi_reflection = lighting_data.gi_per_pixel != 0;
-				}
+
+				if (lighting_data.gi_screen_specular_tex >= 0) reflection_gi = radiance_cache_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
 				
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
 				float ambient_occlusion = screen_gi.a;
-				// the per pixel gi's reflection is its own rays weighed by the lobe: it holds the sky and the occlusion already
-				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.metallic, s.V, s.world_pos, traced_gi_reflection ? 0.0 : sky_visibility, reflection_gi, in_uv, traced_gi_reflection ? 1.0 : SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
+				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
@@ -600,7 +575,7 @@ return {
 				}
 
 				if (lighting_data.reflection_debug != 0) {
-					color = get_filtered_reflection(in_uv).rgb / get_pre_exposure();
+					color = radiance_cache_screen_specular_sample(in_uv, N, in_view_depth).rgb;
 				}
 
 				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));

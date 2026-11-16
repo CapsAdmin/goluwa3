@@ -17,35 +17,11 @@ local gi_fade = pvars.Setup2{
 	max = 1,
 	help = "how much perceptual roughness the fall from the traced reflection to the gi's light takes, starting at reflection_gi_threshold. a small value is a sharp edge on the surface where the roughness crosses it, a large one a smooth blend, and the rays are traced up to the end of it",
 }
-local trace_metals = pvars.Setup2{
-	key = "reflection_trace_metals",
-	default = true,
-	help = "metals are traced at every roughness and never fall to the gi's light (a partly metallic surface by its share). a metal's look is all reflection, and the probe gi's light is a far wider lobe than a rough metal's (it sees the whole hemisphere around the reflection), so a rough patch on a metal would change brightness where it crosses reflection_gi_threshold. ignored under restir gi, whose reflection weighs its own samples by the lobe",
-}
 pvars.EndGroup()
 
 function ibl.GetReflectionGIRange()
 	local start = gi_threshold:Get()
 	return start, start + gi_fade:Get()
-end
-
-ibl.reflection_weight_block = {
-	{"reflection_gi_start", "float"},
-	{"reflection_gi_end", "float"},
-	{"reflection_trace_metals", "float"},
-}
-
-function ibl.WriteReflectionWeightBlock(block, gi_reflects_lobe)
-	block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
-	block.reflection_trace_metals = trace_metals:Get() and not gi_reflects_lobe and 1 or 0
-end
-
-function ibl.GetReflectionWeightGLSL(uniform_name)
-	return [[
-			float get_reflection_traced_weight(float perceptual_roughness, float metallic) {
-				return 1.0 - smoothstep(]] .. uniform_name .. [[.reflection_gi_start, ]] .. uniform_name .. [[.reflection_gi_end, perceptual_roughness) * (1.0 - metallic * ]] .. uniform_name .. [[.reflection_trace_metals);
-			}
-	]]
 end
 
 function ibl.GetEONGLSL()
@@ -274,19 +250,6 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return mix(global_env, local_env, clamp(local_weight, 0.0, 1.0));
 			}
 
-			]] .. ibl.GetReflectionWeightGLSL(uniform_name) .. [[
-
-			vec4 get_filtered_reflection(vec2 uv) {
-				if (]] .. uniform_name .. [[.reflection_tex == -1) return vec4(0.0);
-				if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return vec4(0.0);
-
-				ivec2 size = textureSize(TEXTURE(]] .. uniform_name .. [[.reflection_tex), 0);
-				return texelFetch(TEXTURE(]] .. uniform_name .. [[.reflection_tex), min(ivec2(uv * vec2(size)), size - 1), 0);
-			}
-
-			vec3 combine_reflections(vec3 env_reflection, float env_occlusion, vec4 traced_reflection, float traced_weight) {
-				return mix(env_reflection * env_occlusion, traced_reflection.rgb, clamp(traced_reflection.a * traced_weight, 0.0, 1.0));
-			}
 		]]
 end
 

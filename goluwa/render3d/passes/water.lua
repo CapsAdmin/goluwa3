@@ -761,8 +761,7 @@ list.insert(
 					block.features = features
 					block.shaft_samples = shaft_samples_pvar:Get()
 					block.trace_steps = trace_steps_pvar:Get()
-					local scale = scene_hits.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
-					block.rough_rays = math.max(1, math.floor(scene_hits.rough_rays:Get() * scale * scale + 0.5))
+					block.rough_rays = math.max(1, math.floor(scene_hits.rough_rays:Get() / 4 + 0.5))
 					block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and
 						render3d.IsPassEnabled("volumetric_fog") and
 						self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture()) or

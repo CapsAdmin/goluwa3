@@ -499,7 +499,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 				pNextChain = ray_query_features
 			end
 
-			-- nvidia 615's EXT path hangs the gpu (Xid 109) in reflections_trace on the same SPIR-V the NV path runs fine
+			-- nvidia 615's EXT path hangs the gpu (Xid 109) in radiance_candidates on the same SPIR-V the NV path runs fine
 			for _, vendor in ipairs({"nv", "ext"}) do
 				if
 					not ray_reorder and

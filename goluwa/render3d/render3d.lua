@@ -376,7 +376,6 @@ local default_passes = {
 		"goluwa/render3d/passes/radiance.lua",
 		group = "global illumination",
 	},
-	{"reflections", "goluwa/render3d/passes/reflections.lua", group = "reflections"},
 	{
 		"fluid_volumes",
 		"goluwa/render3d/passes/fluid_volumes.lua",

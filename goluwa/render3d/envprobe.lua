@@ -1148,7 +1148,6 @@ local function get_probe_capture_bundle(size)
 		framebuffer_size = {x = size, y = size},
 		filter = function(name)
 			return name:find("^gbuffer") ~= nil or
-				name == "reflections" or
 				name == "lighting" or
 				name == "water"
 		end,
