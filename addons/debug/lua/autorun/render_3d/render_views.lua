@@ -350,7 +350,7 @@ function LayoutView:OnDraw()
 end
 
 LayoutView:Register()
-local PASS_NAMES = {"ambient_occlusion", "reflections", "ssgi_filter_1", "ssgi_filter_2", "ssgi", "ddgi_resolve"}
+local PASS_NAMES = {"ambient_occlusion", "reflections", "ssgi_filter_1", "ssgi_filter_2", "ssgi"}
 local SWIZZLES = {r = "rrr", g = "ggg", b = "bbb", a = "aaa", rgb = "rgb"}
 
 local function show_fullscreen(spec)
@@ -428,9 +428,9 @@ local LIGHTING_MODES = {
 	},
 	{
 		name = "gi only",
-		key = "ddgi_debug_gi",
+		key = "restir_gi_debug",
 		value = true,
-		description = "only the irradiance of the global illumination (ddgi)",
+		description = "only the irradiance of the global illumination",
 	},
 	{
 		name = "screen space shadows",

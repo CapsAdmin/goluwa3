@@ -13,7 +13,6 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local gi = import("goluwa/render3d/gi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
@@ -31,9 +30,6 @@ local BINDING_STATE = 9
 local BINDING_EMITTERS = 8
 local BINDING_SCENE = 10
 local BINDING_LIGHT_GRID = 11
-local BINDING_SCREEN_GEOMETRY = 13
-local BINDING_SCREEN_SPECULAR = 14
-local BINDING_SCREEN_VISIBILITY = 15
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local SCENE_DESCRIPTOR = scene_hit.GetDescriptorSets(BINDING_HIT, "compute", VISIBILITY_RAYS and BINDING_SCENE or nil)
 local SCENE_GLSL = VISIBILITY_RAYS and
@@ -1251,147 +1247,6 @@ local function pass_scene_debug()
 	}
 end
 
-local function pass_resolve()
-	return {
-		name = "ddgi_resolve",
-		ComputePass = true,
-		is_enabled = function()
-			return not gi.IsPerPixel()
-		end,
-		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"ddgi_screen", "rgba"}},
-			{"r16g16b16a16_sfloat", {"ddgi_screen_geometry", "rgba"}},
-			{"r16g16b16a16_sfloat", {"ddgi_screen_specular", "rgba"}},
-			{"r8g8b8a8_unorm", {"ddgi_visibility", "rgb"}},
-		},
-		framebuffer_count = 1,
-		scale = function()
-			return ddgi.GetResolveScale()
-		end,
-		LocalSize = {x = 8, y = 8, z = 1},
-		storage_images = {
-			{binding_index = BINDING_OUTPUT, dst_stage = {"compute", "fragment"}},
-			{
-				binding_index = BINDING_SCREEN_GEOMETRY,
-				attachment = 2,
-				dst_stage = {"compute", "fragment"},
-			},
-			{
-				binding_index = BINDING_SCREEN_SPECULAR,
-				attachment = 3,
-				dst_stage = {"compute", "fragment"},
-			},
-			{
-				binding_index = BINDING_SCREEN_VISIBILITY,
-				attachment = 4,
-				dst_stage = {"compute", "fragment"},
-			},
-		},
-		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
-		uniform_buffers = {data_uniform()},
-		on_pre_draw = VISIBILITY_RAYS and
-			function(self, cmd, frame, desc)
-				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
-			end or
-			nil,
-		custom_declarations = SCENE_GLSL .. [[
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			layout(set = 0, binding = ]] .. BINDING_SCREEN_GEOMETRY .. [[, rgba16f) uniform writeonly image2D out_geometry;
-			layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
-			layout(set = 0, binding = ]] .. BINDING_SCREEN_VISIBILITY .. [[, rgba8) uniform writeonly image2D out_visibility;
-		]],
-		shader = "#define DDGI_VISIBILITY_STATS\n" .. common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
-
-			void main() {
-				ivec2 pos = get_screen_pos();
-				ivec2 size = imageSize(out_color);
-
-				if (!is_screen_pos_in_bounds(pos, size)) return;
-
-				ivec2 depth_size = textureSize(TEXTURE(ddgi_data.depth_tex), 0);
-				mat4 inv_projection = ddgi_data.inv_projection;
-				vec3 position_sum = vec3(0.0);
-				vec3 normal_sum = vec3(0.0);
-				vec3 bent_sum = vec3(0.0);
-				float depth_sum = 0.0;
-				float roughness_sum = 0.0;
-				float count = 0.0;
-				float thin_count = 0.0;
-
-				for (int tap = 0; tap < 4; tap++) {
-					vec2 offset = vec2(tap & 1, tap >> 1) * 0.5 - 0.25;
-					vec2 tap_uv = (vec2(pos) + 0.5 + offset) / vec2(size);
-					ivec2 pixel = min(ivec2(tap_uv * vec2(depth_size)), depth_size - 1);
-					float depth = gbuffer_depth(pixel);
-
-					if (depth <= 0.0) continue;
-
-					vec2 uv = (vec2(pixel) + 0.5) / vec2(depth_size);
-					vec3 N = normalize(gbuffer_normal(pixel));
-					normal_sum += N;
-
-					bool thin = gbuffer_is_thin(pixel);
-
-					if (thin) {
-						bent_sum += vec3(N.x, abs(N.y), N.z);
-						thin_count += 1.0;
-					} else bent_sum += N;
-
-					if (ddgi_data.ddgi_bent_normal_tex >= 0 && !thin) {
-						vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
-						float bent_length = length(bent);
-
-						if (bent_length > 0.1) bent_sum += bent / bent_length - N;
-					}
-
-					depth_sum += -(inv_projection[2][2] * depth + inv_projection[3][2]) / (inv_projection[2][3] * depth + inv_projection[3][3]);
-					position_sum += get_world_pos(uv, depth);
-					roughness_sum += sqrt(gbuffer_roughness(pixel));
-					count += 1.0;
-				}
-
-				if (count == 0.0) {
-					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 1.0));
-					imageStore(out_geometry, pos, vec4(0.0, 0.0, 0.0, 1e30));
-					imageStore(out_specular, pos, vec4(0.0, 0.0, 0.0, 1.0));
-					imageStore(out_visibility, pos, vec4(0.0, 0.0, 0.0, 1.0));
-					return;
-				}
-
-				vec3 P = position_sum / count;
-				vec3 N = normalize(normal_sum / count + 1e-6);
-				vec3 L = normalize(bent_sum / count + 1e-6);
-				vec3 V = normalize(ddgi_data.camera_position - P);
-				float roughness = roughness_sum / count;
-				imageStore(out_geometry, pos, vec4(N, depth_sum / count));
-				bool rough = roughness > 0.25;
-				vec3 R = rough ? get_specular_dominant_direction(reflect(-V, N), N, roughness) : L;
-				float weight;
-				vec4 specular;
-				vec4 gi = ddgi_sample_irradiance_pair(P, N, L, R, V, ddgi_data.ddgi_smooth_blend != 0, thin_count * 2.0 > count ? DDGI_NO_VISIBILITY_RAYS : DDGI_VISIBILITY_MIN_WEIGHT, weight, specular);
-				float with_rays = luminance(gi.rgb);
-				float without_rays = luminance(ddgi_stats_unoccluded);
-				float change = (without_rays - with_rays) / max(max(without_rays, with_rays), 1e-6);
-				imageStore(out_visibility, pos, ddgi_in_volume(P) ? vec4(max(change, 0.0), ddgi_stats_hidden_share, max(-change, 0.0), 1.0) : vec4(0.0, 0.0, 0.0, 1.0));
-
-				if (weight <= 0.0 && !ddgi_in_volume(P)) {
-					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * ddgi_data.ddgi_strength, 1.0);
-				}
-
-				imageStore(out_color, pos, gi);
-
-				if (!rough) {
-					specular = gi;
-				} else if (weight <= 0.0 && !ddgi_in_volume(P)) {
-					specular = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, R) * ddgi_data.ddgi_strength, 1.0);
-				}
-
-				imageStore(out_specular, pos, specular);
-			}
-		]],
-	}
-end
-
 if not ddgi.RTSupported() then return {} end
 
 local passes = {
@@ -1407,7 +1262,6 @@ for _, pass in ipairs(passes) do
 	pass.queue = "compute"
 end
 
-list.insert(passes, pass_resolve())
 list.insert(passes, pass_probe_debug())
 list.insert(passes, pass_scene_debug())
 return passes

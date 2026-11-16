@@ -456,8 +456,8 @@ pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_mode = pvars.Setup2{
 	key = "r_gi",
 	default = "restir",
-	enums = {"ddgi", "restir", "none"},
-	help = "the global illumination: ddgi probe cascades, restir (a ray per pixel, resampled across neighbouring pixels and frames, with r_gi_cache for the light past the first bounce) or none (the sky's irradiance). the other systems' passes are not built",
+	enums = {"restir", "none"},
+	help = "the global illumination: restir (a ray per pixel, resampled across neighbouring pixels and frames, with r_gi_cache for the light past the first bounce) or none (the sky's irradiance and no gi passes)",
 	callback = function(value, initial)
 		if initial then return end
 

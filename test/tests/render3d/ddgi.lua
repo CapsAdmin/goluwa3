@@ -9,11 +9,12 @@ local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 
 local function gi_mean()
-	local downloaded = ddgi.GetScreenTexture():Download()
+	local downloaded = gi.GetScreenTexture():Download()
 	local sum = {0, 0, 0, 0}
 	local count = 0
 
@@ -28,7 +29,7 @@ local function gi_mean()
 	return sum[1] / count, sum[2] / count, sum[3] / count, sum[4] / count
 end
 
-T.Test3DRayTracing("Graphics render3d ddgi produces a screen gi texture", function(draw)
+T.Test3DRayTracing("Graphics render3d ddgi builds its probe passes and traces them", function(draw)
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
@@ -74,11 +75,13 @@ T.Test3DRayTracing("Graphics render3d ddgi produces a screen gi texture", functi
 		ent.visual:BuildAABB()
 		T(render3d.IsPassEnabled("ddgi"))["=="](true)
 		T(render3d.pipelines.ddgi_irradiance ~= nil)["=="](true)
-		T(render3d.pipelines.ddgi_resolve ~= nil)["=="](true)
-		draw()
-		T(ddgi.GetScreenTexture() ~= nil)["=="](true)
-		local _, _, _, sky_visibility = gi_mean()
-		T(sky_visibility > 0)["=="](true)
+		T(render3d.pipelines.ddgi_resolve == nil)["=="](true)
+		T(gi.GetMode())["=="]("ddgi")
+		T(gi.GetScreenTexture() == nil)["=="](true)
+
+		for _ = 1, 4 do
+			draw()
+		end
 	end)
 	restore()
 
@@ -91,6 +94,18 @@ do
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
 				import("goluwa/render3d/passes/ddgi.lua"),
+			},
+		}
+	end
+
+	local function use_gi()
+		render3d.Initialize{
+			passes = {
+				import("goluwa/render3d/passes/gbuffer.lua"),
+				import("goluwa/render3d/passes/ddgi.lua"),
+				import("goluwa/render3d/passes/restir_gi.lua"),
+				import("goluwa/render3d/passes/lighting.lua"),
+				import("goluwa/render3d/passes/blit.lua"),
 			},
 		}
 	end
@@ -230,7 +245,7 @@ do
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local created = {}
-		use_ddgi()
+		use_gi()
 		render3d.camera:SetPosition(Vec3(0, 2, 3))
 		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
 		local gap = 0.1
@@ -263,7 +278,7 @@ do
 		local hysteresis = pvars.Get("ddgi_hysteresis")
 		local change_power = pvars.Get("ddgi_change_power")
 		local ok, err = pcall(function()
-			ddgi.ResetHistory()
+			gi.ResetHistory()
 
 			for _ = 1, 400 do
 				draw()
@@ -302,7 +317,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3DRayTracing("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
+	T.Test3DRayTracing("Graphics render3d ddgi small emitter is registered in the emitter buffer", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -336,32 +351,26 @@ do
 		)
 		emitter.visual:BuildAABB()
 
-		local function gi_average(position, draws)
+		local function settle(position, draws)
 			emitter.transform:SetPosition(position)
 			ddgi.ResetHistory()
 
 			for _ = 1, draws do
 				draw()
 			end
-
-			local r, g, b = gi_mean()
-			return r + g + b
 		end
 
 		local ok, err = pcall(function()
 			local outside = Vec3(0, 1.5, -1000)
-			gi_average(outside, 6)
-			local before = gi_average(outside, 3)
+			settle(outside, 6)
 			local version = scene_emitters.GetActive().version
-			local lit = gi_average(Vec3(0, 1.5, 2.3), 3)
+			settle(Vec3(0, 1.5, 2.3), 3)
 			local emitters = scene_emitters.GetActive()
 			T(emitters.version)["=="](version)
 			local weight, count = scene_emitters.ReadBackHeader()
 			T(emitters.count)["=="](12)
 			T(count)["=="](12)
 			T(weight)["~"](6 * 0.01 * 30, 1e-3)
-			local after = gi_average(outside, 3)
-			T(lit > math.max(before, after) * 3)["=="](true)
 		end)
 
 		for _, e in ipairs(created) do
@@ -448,7 +457,18 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the
 	local fog = Entity.New{
 		Name = "ddgi_fog_volume",
 		transform = {Position = Vec3(0, 1, 0)},
-		fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, Size = Vec3(8, 4, 8), Medium = "smoke", Density = 0.5, HeightFalloff = 3, EdgeSoftness = 1},
+		fluid_volume = {
+			Simulation = "procedural",
+			Fill = 1,
+			Resolution = 32,
+			Floor = false,
+			Obstacles = false,
+			Size = Vec3(8, 4, 8),
+			Medium = "smoke",
+			Density = 0.5,
+			HeightFalloff = 3,
+			EdgeSoftness = 1,
+		},
 	}
 	local ok, err = pcall(function()
 		local id = materials.GetID(material)

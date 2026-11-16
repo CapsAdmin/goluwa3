@@ -182,18 +182,6 @@ local strength = pvars.Setup2{
 }
 ddgi.SKY_INTENSITY = 1.0
 ddgi.RANDOM_ROTATION = true
-local RESOLVE_MEGAPIXELS = {["0.25mp"] = 0.25, ["0.5mp"] = 0.5, ["1mp"] = 1, native = math.huge}
-local resolve_resolution = pvars.Setup2{
-	key = "ddgi_resolve_resolution",
-	default = "0.25mp",
-	enums = {"0.25mp", "0.5mp", "1mp", "native"},
-	help = "the pixel count the gi seen by the screen is resolved at, in megapixels, whatever the window size. it is upsampled to the screen with depth and normal weights. native resolves every pixel",
-	callback = function()
-		local resolve = render3d.pipelines and render3d.pipelines.ddgi_resolve
-
-		if resolve then resolve:RecreateFramebuffers() end
-	end,
-}
 local shade_ray_generation = pvars.Setup2{
 	key = "ddgi_shade_ray_generation",
 	default = true,
@@ -241,11 +229,6 @@ local debug_scene = pvars.Setup2{
 	enums = {"off", "albedo", "normals", "hit_distance"},
 	help = "show the scene the probe rays trace as its albedo, normals or hit distance",
 }
-local debug_gi = pvars.Setup2{
-	key = "ddgi_debug_gi",
-	default = false,
-	help = "show only the gi irradiance",
-}
 local debug_scale = pvars.Setup2{
 	key = "ddgi_debug_scale",
 	default = 1.0,
@@ -274,10 +257,6 @@ function ddgi.GetDebugProbes()
 	return DEBUG_PROBES[debug_probes:Get()]
 end
 
-function ddgi.IsDebugGI()
-	return debug_gi:Get()
-end
-
 function ddgi.GetCascadeSpacing(cascade)
 	return probe_spacing:Get() * render3d.GetSnappedViewScale() * cascade_ratio:Get() ^ cascade
 end
@@ -288,35 +267,6 @@ end
 
 function ddgi.GetRayCount()
 	return ddgi.GetProbeCount() * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES)
-end
-
-function ddgi.GetScreenTexture()
-	if not render3d.IsPassEnabled("ddgi") then return nil end
-
-	local resolve = render3d.pipelines.ddgi_resolve
-	return resolve and resolve:GetFramebuffer(1):GetAttachment(1) or nil
-end
-
-function ddgi.GetScreenGeometryTexture()
-	if not render3d.IsPassEnabled("ddgi") then return nil end
-
-	local resolve = render3d.pipelines.ddgi_resolve
-	return resolve and resolve:GetFramebuffer(1):GetAttachment(2) or nil
-end
-
-function ddgi.GetScreenSpecularTexture()
-	if not render3d.IsPassEnabled("ddgi") then return nil end
-
-	local resolve = render3d.pipelines.ddgi_resolve
-	return resolve and resolve:GetFramebuffer(1):GetAttachment(3) or nil
-end
-
-function ddgi.GetResolveScale()
-	local size = render3d.GetRenderSize()
-	return math.min(
-		1,
-		math.sqrt(RESOLVE_MEGAPIXELS[resolve_resolution:Get()] * 1000000 / (size.x * size.y))
-	)
 end
 
 function ddgi.GetScreenSampleGLSL(block_name)

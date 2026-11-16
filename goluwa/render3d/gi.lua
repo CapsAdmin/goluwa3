@@ -19,19 +19,11 @@ end
 function gi.GetScreenTexture()
 	if gi.IsPerPixel() then return restir_gi.GetOutputTexture(1) end
 
-	local mode = gi.GetMode()
-
-	if mode == "ddgi" then return ddgi.GetScreenTexture() end
-
 	return nil
 end
 
 function gi.GetScreenGeometryTexture()
 	if gi.IsPerPixel() then return restir_gi.GetOutputTexture(2) end
-
-	local mode = gi.GetMode()
-
-	if mode == "ddgi" then return ddgi.GetScreenGeometryTexture() end
 
 	return nil
 end
@@ -39,19 +31,11 @@ end
 function gi.GetScreenSpecularTexture()
 	if gi.IsPerPixel() then return restir_gi.GetSpecularTexture() end
 
-	local mode = gi.GetMode()
-
-	if mode == "ddgi" then return ddgi.GetScreenSpecularTexture() end
-
 	return nil
 end
 
 function gi.IsDebugGI()
 	if gi.IsPerPixel() then return restir_gi.IsDebugGI() end
-
-	local mode = gi.GetMode()
-
-	if mode == "ddgi" then return ddgi.IsDebugGI() end
 
 	return false
 end
