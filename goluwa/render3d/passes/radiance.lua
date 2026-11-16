@@ -674,11 +674,20 @@ local function pass_candidates()
 				float chosen_dist = 0.0;
 				float chosen_target = 0.0;
 				float total = 0.0;
+				// its own sequence, apart from the diffuse emitter sample of the same pixel
+				uint sequence = index | 0x80000000u;
+				int triangles[EMITTER_CANDIDATES];
+				float weights[EMITTER_CANDIDATES];
+
+				if (!emitter_candidates(sequence, frame, origin, N, 0.05, triangles, weights)) return vec3(0.0);
 
 				for (int k = 0; k < EMITTER_CANDIDATES; k++) {
+					if (!(weights[k] > 0.0)) continue;
+
+					int emitter = int(uint(triangles[k]) | (uint(k) << 26u));
 					vec3 dir;
 					float dist;
-					vec3 light = emitter_sample_light(index * uint(EMITTER_CANDIDATES) + uint(k), frame, origin, N, 0.05, dir, dist);
+					vec3 light = emitter_light(emitter, emitter_candidate_point(sequence, frame, emitter), origin, N, weights[k], dir, dist);
 
 					if (dot(geometric_N, dir) <= 0.0) continue;
 
@@ -689,7 +698,7 @@ local function pass_candidates()
 
 					total += target;
 
-					if (emitter_random(index, frame, 0x68e31da4u + uint(k)).w * total < target) {
+					if (emitter_random(sequence, frame, 0x68e31da4u + uint(k)).w * total < target) {
 						chosen = value;
 						chosen_dir = dir;
 						chosen_dist = dist;
