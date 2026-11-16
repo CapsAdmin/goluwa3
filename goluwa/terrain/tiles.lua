@@ -342,12 +342,12 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	material:SetMetallicMultiplier(0)
 	material:SetAcousticWindEmission(TERRAIN_WIND_EMISSION)
 
-	if shell and shell > 0 and chunk.heights then
+	if shell and shell > 0 then
 		chunk.height_texture = chunk.height_texture or
 			Texture.New{
-				buffer = chunk.heights,
-				width = chunk.request.samples,
-				height = chunk.request.samples,
+				buffer = chunk.border_heights,
+				width = chunk.request.samples + 2,
+				height = chunk.request.samples + 2,
 				format = "r32_sfloat",
 			}
 		material:SetTerrainHeightTexture(chunk.height_texture)

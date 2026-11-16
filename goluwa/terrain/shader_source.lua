@@ -287,15 +287,16 @@ do
 		local min_x, min_z, size = request.min_x, request.min_z, request.size
 
 		if request.samples then
+			local step = size / (request.samples - 1)
 			batch.height_textures[#batch.chunks + 1] = record_bake(
 				self,
 				batch,
-				request.samples,
+				request.samples + 2,
 				"r32_sfloat",
 				HEIGHT_BAKE,
-				min_x,
-				min_z,
-				size / (request.samples - 1)
+				min_x - step,
+				min_z - step,
+				step
 			)
 		end
 
@@ -439,6 +440,7 @@ function ShaderSource:ReleaseChunk(chunk)
 	end
 
 	chunk.heights = nil
+	chunk.border_heights = nil
 end
 
 function ShaderSource:GetPendingCount()
@@ -464,7 +466,7 @@ function ShaderSource:Submit()
 	for i, chunk in ipairs(batch.chunks) do
 		if batch.height_textures[i] then
 			offsets[i] = bytes
-			bytes = bytes + chunk.request.samples * chunk.request.samples * 4
+			bytes = bytes + (chunk.request.samples + 2) * (chunk.request.samples + 2) * 4
 		end
 	end
 
@@ -477,7 +479,7 @@ function ShaderSource:Submit()
 		}
 
 		for i, texture in pairs(batch.height_textures) do
-			local samples = batch.chunks[i].request.samples
+			local samples = batch.chunks[i].request.samples + 2
 			render.TransitionResourceTo(
 				texture,
 				"transfer_src_optimal",
@@ -518,9 +520,17 @@ function ShaderSource:CompleteBatch(batch)
 		local texture = batch.height_textures[i]
 
 		if texture then
-			local count = chunk.request.samples * chunk.request.samples
+			local samples = chunk.request.samples
+			local border = samples + 2
+			local count = samples * samples
+			local border_heights = FloatArray(border * border)
 			local heights = FloatArray(count)
-			ffi.copy(heights, mapped + batch.offsets[i] / 4, count * 4)
+			ffi.copy(border_heights, mapped + batch.offsets[i] / 4, border * border * 4)
+
+			for row = 0, samples - 1 do
+				ffi.copy(heights + row * samples, border_heights + (row + 1) * border + 1, samples * 4)
+			end
+
 			self:RecycleTexture(texture)
 			local min_height = math.huge
 			local max_height = -math.huge
@@ -534,6 +544,7 @@ function ShaderSource:CompleteBatch(batch)
 			end
 
 			chunk.heights = heights
+			chunk.border_heights = border_heights
 			chunk.min_height = min_height
 			chunk.max_height = max_height
 		end

@@ -63,6 +63,7 @@ function TerrainSource:ReleaseChunk(chunk)
 	end
 
 	chunk.heights = nil
+	chunk.border_heights = nil
 end
 
 return TerrainSource
