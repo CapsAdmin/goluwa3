@@ -54,7 +54,7 @@ table.insert(
 				void main() {
 					ivec2 pixel = ivec2(gl_FragCoord.xy);
 					vec4 scene = texelFetch(TEXTURE(effects_post_data.source_tex), pixel, 0);
-					vec4 layer = texelFetch(TEXTURE(effects_post_data.layer_tex), pixel, 0);
+					vec4 layer = textureLod(TEXTURE(effects_post_data.layer_tex), gl_FragCoord.xy / vec2(textureSize(TEXTURE(effects_post_data.source_tex), 0)), 0.0);
 					set_color(vec4(scene.rgb * (1.0 - min(layer.a, 1.0)) + layer.rgb, scene.a));
 				}
 			]],

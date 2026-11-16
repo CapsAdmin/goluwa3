@@ -88,15 +88,20 @@ local BLUR_GLSL = post_source.GetPreExposureGLSL("mb_data") .. exposure_model.Ge
 			const int TILE = ]] .. TILE .. [[;
 
 			ivec2 size;
+			vec2 gbuffer_scale;
 			float exposure;
 			float blur_scale;
+
+			ivec2 gbuffer_pixel(ivec2 pixel) {
+				return ivec2((vec2(pixel) + 0.5) * gbuffer_scale);
+			}
 
 			vec2 get_blur(ivec2 pixel, float depth) {
 				pixel = clamp(pixel, ivec2(0), size - 1);
 				vec2 motion;
 
 				if (depth > 0.0 && mb_data.velocity_tex != -1) {
-					motion = texelFetch(TEXTURE(mb_data.velocity_tex), pixel, 0).xy;
+					motion = texelFetch(TEXTURE(mb_data.velocity_tex), gbuffer_pixel(pixel), 0).xy;
 				} else {
 					vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
 					vec4 prev_clip;
@@ -112,7 +117,7 @@ local BLUR_GLSL = post_source.GetPreExposureGLSL("mb_data") .. exposure_model.Ge
 				}
 
 				if (mb_data.translucent_motion_tex != -1) {
-					vec4 translucent = texelFetch(TEXTURE(mb_data.translucent_motion_tex), pixel, 0);
+					vec4 translucent = texelFetch(TEXTURE(mb_data.translucent_motion_tex), gbuffer_pixel(pixel), 0);
 					float coverage = min(translucent.b, 1.0);
 
 					if (coverage > 0.0) motion = mix(motion, translucent.rg / translucent.b, coverage);
@@ -127,6 +132,7 @@ local BLUR_GLSL = post_source.GetPreExposureGLSL("mb_data") .. exposure_model.Ge
 
 			void init_blur() {
 				size = textureSize(TEXTURE(mb_data.source_tex), 0);
+				gbuffer_scale = vec2(textureSize(TEXTURE(mb_data.depth_tex), 0)) / vec2(size);
 				blur_scale = mb_data.pre_exposure_tex != -1 ? camera_settings(get_exposure()).z / mb_data.frame_time : 1.0;
 			}
 ]]
@@ -165,7 +171,7 @@ return {
 				for (int y = first.y + local_id.y; y < last.y; y += TILE) {
 					for (int x = first.x + local_id.x; x < last.x; x += TILE) {
 						ivec2 pixel = ivec2(x, y);
-						vec2 blur = get_blur(pixel, texelFetch(TEXTURE(mb_data.depth_tex), pixel, 0).r);
+						vec2 blur = get_blur(pixel, texelFetch(TEXTURE(mb_data.depth_tex), gbuffer_pixel(pixel), 0).r);
 
 						if (dot(blur, blur) > dot(best, best)) best = blur;
 					}
@@ -268,7 +274,7 @@ return {
 				vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
 				exposure = mb_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
 				vec4 center = texelFetch(TEXTURE(mb_data.source_tex), pixel, 0);
-				float center_depth = texelFetch(TEXTURE(mb_data.depth_tex), pixel, 0).r;
+				float center_depth = texelFetch(TEXTURE(mb_data.depth_tex), gbuffer_pixel(pixel), 0).r;
 				vec2 center_blur = get_blur(pixel, center_depth);
 				float center_z = get_view_depth(uv, center_depth);
 
@@ -313,7 +319,7 @@ return {
 					float t = (float(i) + 0.5 + noise) / float(count) - shift;
 					ivec2 p = clamp(pixel + ivec2(round(direction * t)), ivec2(0), size - 1);
 					float dist = abs(t) * len * reach_scale;
-					float depth = texelFetch(TEXTURE(mb_data.depth_tex), p, 0).r;
+					float depth = texelFetch(TEXTURE(mb_data.depth_tex), gbuffer_pixel(p), 0).r;
 					float z = get_view_depth((vec2(p) + 0.5) / vec2(size), depth);
 					float extent = 0.1 * center_z + 0.1 * mb_data.view_scale;
 					float in_front = clamp(1.0 - (z - center_z) / extent, 0.0, 1.0);

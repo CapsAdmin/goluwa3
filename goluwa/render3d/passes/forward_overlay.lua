@@ -39,10 +39,13 @@ return {
 			uniform_buffers = {
 				{
 					name = "overlay_view",
-					block = {render3d.camera_block, {"depth_tex", "int"}},
+					block = {render3d.camera_block, {"depth_tex", "int"}, {"screen_size", "vec2"}},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
 						block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
+						local size = render.GetRenderImageSize()
+						block.screen_size[0] = size.x
+						block.screen_size[1] = size.y
 						return block
 					end,
 				},
@@ -95,7 +98,7 @@ return {
 				}
 
 				if (model.OcclusionRadius > 0.0) {
-					vec2 screen_uv = gl_FragCoord.xy / overlay_view.render_size;
+					vec2 screen_uv = gl_FragCoord.xy / overlay_view.screen_size;
 					float scene_depth = texture(TEXTURE(overlay_view.depth_tex), screen_uv).r;
 
 					if (scene_depth > 0.0) {

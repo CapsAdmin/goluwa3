@@ -1,4 +1,5 @@
 local system = import("goluwa/system.lua")
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -75,7 +76,7 @@ return {
 						post_source.WritePreExposureBlock(self, block)
 						exposure_model.WriteCameraBlock(block)
 						local focus = update_focus()
-						local height = render3d.GetRenderSize().y
+						local height = render.GetRenderImageSize().y
 						local focal_mm = SENSOR_HEIGHT_MM / 2 / math.tan(render3d.GetCamera():GetFOV() / 2)
 						block.focus = focus
 						block.coc_k = 0.5 * focal_mm * focal_mm / math.max(focus / render3d.GetViewScale() * 1000 - focal_mm, 1) * height / SENSOR_HEIGHT_MM
@@ -91,17 +92,19 @@ return {
 			const int SAMPLES = ]] .. SAMPLES .. [[;
 
 			ivec2 size;
+			vec2 depth_scale;
 			float coc_scale;
 
 			float coc_at(ivec2 pixel, out float z) {
 				pixel = clamp(pixel, ivec2(0), size - 1);
-				float depth = texelFetch(TEXTURE(dof_data.depth_tex), pixel, 0).r;
+				float depth = texelFetch(TEXTURE(dof_data.depth_tex), ivec2((vec2(pixel) + 0.5) * depth_scale), 0).r;
 				z = depth > 0.0 ? get_view_depth((vec2(pixel) + 0.5) / vec2(size), depth) : 1e4;
 				return min(coc_scale * abs(z - dof_data.focus) / z, dof_data.max_radius);
 			}
 
 			void main() {
 				size = textureSize(TEXTURE(dof_data.source_tex), 0);
+				depth_scale = vec2(textureSize(TEXTURE(dof_data.depth_tex), 0)) / vec2(size);
 				ivec2 pixel = ivec2(gl_FragCoord.xy);
 				float exposure = dof_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
 				vec4 center = texelFetch(TEXTURE(dof_data.source_tex), pixel, 0);

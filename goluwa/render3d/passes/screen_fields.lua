@@ -77,7 +77,7 @@ return {
 				ivec2 size = textureSize(TEXTURE(sf_data.source_tex), 0);
 				vec2 uv = in_uv;
 				float aspect = float(size.x) / float(size.y);
-				float depth = texelFetch(TEXTURE(sf_data.depth_tex), ivec2(gl_FragCoord.xy), 0).r;
+				float depth = texelFetch(TEXTURE(sf_data.depth_tex), ivec2(gl_FragCoord.xy * vec2(textureSize(TEXTURE(sf_data.depth_tex), 0)) / vec2(size)), 0).r;
 				vec3 world = depth > 0.0 ? get_world_pos(uv, depth) : sf_data.camera_position + get_world_ray() * (]] .. SKY_DISTANCE .. [[.0 * sf_data.view_scale);
 				vec2 offset = vec2(0.0);
 				vec2 blur = vec2(0.0);
