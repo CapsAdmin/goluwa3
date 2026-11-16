@@ -818,7 +818,7 @@ local passes = {
 						if (reflected) {
 							if (reflection_rough) {
 								vec2 xi = pcg3d_unorm(uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.frame_index) * 16u + uint(ray))).xy;
-								dir = reflection_direction(N, V, perceptual_roughness, xi, environment_roughness);
+								dir = reflection_above(N, reflection_direction(N, V, perceptual_roughness, xi, environment_roughness), 0.001);
 							}
 						} else {
 							origin = refraction_ray_origin[k];

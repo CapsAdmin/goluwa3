@@ -708,9 +708,8 @@ local function pass_candidates()
 				N = bend_normal_to_view(N, V);
 				float environment_roughness;
 				vec3 R = reflection_direction(N, V, roughness, vec2(restir_random(pos, 50u), restir_random(pos, 51u)), environment_roughness);
-				float below = dot(R, geometric_N);
-
-				if (below < 0.01) R = normalize(R + geometric_N * (0.01 - 2.0 * below));
+				bool lobe_below = dot(N, R) <= 0.0;
+				R = reflection_above(geometric_N, reflection_above(N, R, 0.001), 0.01);
 
 				// an emitter sample reads low across a broad lobe (half of the light a furnace gives a rough metal at roughness 1), where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
 				bool sample_emitters = radiance_cache_data.radiance_cache_emitter_count > 0 && roughness >= max(restir_data.specular_emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0) && restir_random(pos, 52u) < 1.0 - smoothstep(0.35, 0.6, roughness);
@@ -725,7 +724,7 @@ local function pass_candidates()
 				}
 
 				radiance_hit_emission = true;
-				float ray_weight = mix(1.0, radiance_specular_weight(N, V, roughness, R), smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness));
+				float ray_weight = mix(1.0, lobe_below ? 0.0 : radiance_specular_weight(N, V, roughness, R), smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness));
 				radiance *= ray_weight;
 
 				if (sample_emitters) radiance += radiance_specular_emitter_light(origin, N, geometric_N, V, roughness, uint(index));

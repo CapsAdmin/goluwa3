@@ -2242,7 +2242,7 @@ if (w.volume >= 0) {
 
 					if (shade_mode == 2) {
 						if (refl_rough) {
-							dir = reflection_direction(refl_normal, refl_view, refl_perceptual, get_blue_noise2(ray), roughness);
+							dir = reflection_above(refl_normal, reflection_direction(refl_normal, refl_view, refl_perceptual, get_blue_noise2(ray), roughness), 0.001);
 							if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
 						}
 					} else if (ray == 0) {

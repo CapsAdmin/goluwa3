@@ -183,12 +183,12 @@ function scene_hits.GetDirectionGLSL()
 			float rough_mix = smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
 			vec3 R = normalize(mix(mirror, reflect(-V, H), rough_mix));
 			environment_roughness = roughness * (1.0 - rough_mix);
-
-			float below_normal = dot(N, R);
-
-			if (below_normal < 0.001) R = normalize(R + N * (0.001 - 2.0 * below_normal));
-
 			return R;
+		}
+
+		vec3 reflection_above(vec3 N, vec3 R, float margin) {
+			float below = dot(N, R);
+			return below < margin ? normalize(R + N * (margin - 2.0 * below)) : R;
 		}
 
 		vec3 reflection_limit_hit(vec3 traced, float limit) {
