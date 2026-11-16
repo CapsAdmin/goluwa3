@@ -15,7 +15,7 @@ pvars.StartGroup("Lighting", "Emitters", {store = false, prefix = "gi_"})
 local enabled = pvars.Setup2{
 	key = "gi_emitters",
 	default = true,
-	help = "emissive surfaces light the gi (probes, surfels, fog and particles) through emitter samples, off is for telling whether they cause noise",
+	help = "emissive surfaces light the gi (probes, fog and particles) through emitter samples, off is for telling whether they cause noise",
 }
 local additive = pvars.Setup2{
 	key = "gi_additive_emitters",

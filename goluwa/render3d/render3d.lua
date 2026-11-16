@@ -372,12 +372,6 @@ local default_passes = {
 		gi = "ddgi",
 	},
 	{
-		"surfel_gi",
-		"goluwa/render3d/passes/surfel_gi.lua",
-		group = "global illumination",
-		gi = "surfels",
-	},
-	{
 		"restir_gi",
 		"goluwa/render3d/passes/restir_gi.lua",
 		group = "global illumination",
@@ -462,8 +456,8 @@ pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_mode = pvars.Setup2{
 	key = "r_gi",
 	default = "restir",
-	enums = {"ddgi", "surfels", "restir", "none"},
-	help = "the global illumination: ddgi probe cascades, surfel radiance cascades, restir (a ray per pixel, resampled across neighbouring pixels and frames, with r_gi_cache for the light past the first bounce) or none (the sky's irradiance). the other systems' passes are not built",
+	enums = {"ddgi", "restir", "none"},
+	help = "the global illumination: ddgi probe cascades, restir (a ray per pixel, resampled across neighbouring pixels and frames, with r_gi_cache for the light past the first bounce) or none (the sky's irradiance). the other systems' passes are not built",
 	callback = function(value, initial)
 		if initial then return end
 
@@ -473,7 +467,7 @@ local gi_mode = pvars.Setup2{
 local gi_cache = pvars.Setup2{
 	key = "r_gi_cache",
 	default = "ddgi",
-	enums = {"ddgi", "surfels", "none"},
+	enums = {"ddgi", "none"},
 	help = "the world space gi under r_gi restir: restir's rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. none lights the hits with the sky through a few rays",
 	callback = function(value, initial)
 		if initial or gi_mode:Get() ~= "restir" then return end

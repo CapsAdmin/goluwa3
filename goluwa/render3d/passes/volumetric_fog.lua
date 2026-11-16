@@ -20,7 +20,6 @@ local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
-local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local FROXEL_HISTORY = 0.9
@@ -148,9 +147,6 @@ local gi_pass = {
 	FramebufferSize = {x = 1, y = 1},
 	framebuffer_count = 1,
 	LocalSize = {x = 8, y = 8, z = 1},
-	ray_generation = VISIBILITY_RAYS and
-		scene_hits.GetRayGeneration(surfel_gi.IsFogReordered()) or
-		nil,
 	storage_images = {
 		{
 			binding_index = BINDING_OUTPUT,
@@ -197,7 +193,6 @@ local gi_pass = {
 				atmosphere.GetBlockLayout(),
 				{"primary_sun_illuminance", "float"},
 				{"env_tex", "int"},
-				{"surfel_gather_distance", "float"},
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
@@ -218,7 +213,6 @@ local gi_pass = {
 				)
 				block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
 				block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-				block.surfel_gather_distance = surfel_gi.GetFogGatherDistance()
 				return block
 			end,
 		},
@@ -325,64 +319,6 @@ local gi_pass = {
 				float z = float(n & 0xffffu) / 32768.0 - 1.0;
 				float phi = float(n >> 16u) * (6.28318530718 / 65536.0);
 				vec3 dir = vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z);
-
-				#ifdef SCENE_HITS
-				if (ddgi_data.gi_mode == GI_MODE_SURFELS) {
-					float gather = saturate((froxel_data.surfel_gather_distance - depth) / (0.25 * froxel_data.surfel_gather_distance));
-
-					if (float(froxel_hash(uvec3(seed, id.z, 3u)) & 0xFFFFu) / 65536.0 >= gather) {
-						imageStore(out_gi, quad, vec4(-1.0));
-						return;
-					}
-
-					if (dir.y < 0.0) dir = -dir;
-
-					vec3 radiance = vec3(0.0);
-					float open_sky = 0.0;
-
-					for (int i = 0; i < 2; i++) {
-						vec3 d = i == 0 ? dir : -dir;
-						float t;
-						uint instance;
-						uint primitive;
-						vec2 barycentrics;
-						vec3 ray;
-
-						if (trace_scene_hit(P, d, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
-							ray = shade_scene_hit(P, d, 1.0, t, instance, primitive, barycentrics);
-						} else {
-							t = SCENE_HIT_MAX_DISTANCE;
-							ray = ddgi_sky(d);
-
-							if (i == 0) open_sky = 1.0;
-						}
-
-						if (froxel_data.light_transmittance != 0) ray *= get_light_transmittance(P, d, t, 0.0);
-
-						radiance += 0.5 * ray;
-					}
-
-					int emitter_count = ddgi_data.ddgi_emitter_count;
-					vec3 glow = vec3(0.0);
-
-					if (emitter_count > 0) {
-						vec3 to_light;
-						float dist;
-						vec3 light = emitter_sample_light(froxel_hash(uvec3(quad)), uint(froxel_data.frame), P, vec3(0.0), 0.1 + depth * 0.01, to_light, dist);
-
-						if (dot(light, vec3(1.0)) > 0.0 && (dist <= 0.02 || scene_hit_visible(P, to_light, dist - 0.02))) {
-							if (froxel_data.light_transmittance != 0) light *= get_light_transmittance(P, to_light, dist, 0.0);
-
-							glow = min(light / (4.0 * PI), vec3(60000.0));
-						}
-					}
-
-					radiance = dot(radiance, vec3(1.0)) >= 0.0 ? min(radiance, vec3(60000.0)) : vec3(0.0);
-					imageStore(out_gi, quad, vec4(radiance / PI, open_sky));
-					imageStore(out_gi_emitter, quad, vec4(glow / PI, other_visibility));
-					return;
-				}
-				#endif
 
 				float weight;
 				vec4 gi = gi_sample_medium(P, dir, weight);

@@ -30,7 +30,7 @@ NVIDIA DLSS super resolution and ray reconstruction through NGX, bound with ffi 
 - reflections keep their tracing resolution and spatial filter (one ray per pixel on rough surfaces is far noisier than the filtered signal the network was fed with, and it boiled) and drop only the temporal history (`history_tex` -1). `lighting_debug_reflections` shows the traced reflection the lighting reads.
 - ray shadows: the `ray_shadow_*` passes are disabled and the lighting traces its own ray per light (`ray_shadow_tex` -1).
 - caustics keep the spatial photon density filter (it is the estimator) and drop the temporal history (`history_tex` -1).
-- DDGI and surfel GI are not bypassed: their probes are already smooth.
+- DDGI is not bypassed: its probes are already smooth.
 
 The guides also hold the specular motion (the virtual image of the reflection: the surface point pushed along the view ray by the reflection hit distance, reprojected with the previous camera, `dlss_guides` attachment 4) and the reflection trace's hit distance (`RayTracingHitDistance`, only while the reflections pass runs).
 
