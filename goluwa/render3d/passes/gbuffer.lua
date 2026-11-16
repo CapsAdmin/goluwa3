@@ -393,9 +393,19 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			return inside;
 		}
 
-		float terrain_shell_ground(vec2 uv) {
-			vec2 size = vec2(textureSize(TEXTURE(terrain_model.TerrainHeightTexture), 0));
-			return textureLod(TEXTURE(terrain_model.TerrainHeightTexture), (clamp(uv, 0.0, 1.0) * (size - 1.0) + 0.5) / size, 0.0).r;
+		float terrain_shell_ground(vec2 uv, out float plane_cos) {
+			ivec2 size = textureSize(TEXTURE(terrain_model.TerrainHeightTexture), 0);
+			vec2 q = clamp(uv, 0.0, 1.0) * vec2(size - 1);
+			ivec2 cell = min(ivec2(q), size - 2);
+			vec2 f = q - vec2(cell);
+			float h00 = texelFetch(TEXTURE(terrain_model.TerrainHeightTexture), cell, 0).r;
+			float h10 = texelFetch(TEXTURE(terrain_model.TerrainHeightTexture), cell + ivec2(1, 0), 0).r;
+			float h01 = texelFetch(TEXTURE(terrain_model.TerrainHeightTexture), cell + ivec2(0, 1), 0).r;
+			float h11 = texelFetch(TEXTURE(terrain_model.TerrainHeightTexture), cell + ivec2(1, 1), 0).r;
+			float spacing = terrain_model.TerrainBounds.z / float(size.x - 1);
+			vec2 slope = f.x > f.y ? vec2(h10 - h00, h11 - h10) : vec2(h11 - h01, h01 - h00);
+			plane_cos = inversesqrt(1.0 + dot(slope, slope) / (spacing * spacing));
+			return h00 + dot(slope, f);
 		}
 
 		// steepest side the layer relief is assumed to have; lower values step over the flanks of boulders
@@ -538,7 +548,8 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 				vec2 uv = (p.xz - s.bounds.xy) / s.bounds.z;
 				s.coarse = terrain_shell_coarse(clamp(uv, 0.0, 1.0));
 				vec3 normal = s.coarse.normal;
-				float height = (p.y - terrain_shell_ground(uv)) * normal.y;
+				float plane_cos;
+				float height = (p.y - terrain_shell_ground(uv, plane_cos)) * plane_cos;
 				vec3 foot = p - normal * height;
 				r.foot = foot;
 				r.uv = (foot.xz - s.bounds.xy) / s.bounds.z;
