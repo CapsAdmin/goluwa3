@@ -38,6 +38,7 @@ local weight = 1
 return {
 	{
 		name = "ssaa",
+		resolution = "internal",
 		lazy_framebuffers = true,
 		is_enabled = function()
 			return render3d.IsAntiAliasingEnabled("ssaa")
@@ -83,7 +84,14 @@ return {
 			end
 
 			weight = 1 / count
-			camera:SetJitter(Vec2(halton(count, 2) - 0.5, halton(count, 3) - 0.5))
+			local input = render3d.GetRenderSize()
+			local viewport = camera:GetViewport()
+			camera:SetJitter(
+				Vec2(
+					(halton(count, 2) - 0.5) * viewport.w / input.x,
+					(halton(count, 3) - 0.5) * viewport.h / input.y
+				)
+			)
 		end,
 		fragment = {
 			uniform_buffers = {

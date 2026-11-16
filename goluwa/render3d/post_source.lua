@@ -95,6 +95,14 @@ function post_source.GetEffectLayerTexture()
 end
 
 local function get_anti_aliased_scene_texture(self)
+	if self.name ~= "easu" and render3d.pipelines.easu and render3d.pipelines.easu.is_enabled() then
+		if render3d.pipelines.easu_sharpen.is_enabled() then
+			return render3d.pipelines.easu_sharpen:GetFramebuffer():GetAttachment(1)
+		end
+
+		return render3d.pipelines.easu:GetFramebuffer():GetAttachment(1)
+	end
+
 	if self.name ~= "taa" and render3d.IsAntiAliasingEnabled("taa") then
 		if render3d.pipelines.taa_sharpen.is_enabled() then
 			return render3d.pipelines.taa_sharpen:GetFramebuffer():GetAttachment(1)
@@ -119,6 +127,10 @@ local function get_anti_aliased_scene_texture(self)
 	end
 
 	return post_source.GetRawSceneSourceTexture()
+end
+
+function post_source.GetPreUpscaleSceneTexture()
+	return get_anti_aliased_scene_texture({name = "easu"})
 end
 
 function post_source.GetAntiAliasedSceneTexture()

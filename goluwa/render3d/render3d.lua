@@ -127,9 +127,11 @@ function render3d.WriteCameraBlock(self, block)
 end
 
 function render3d.GetMaterialMipBias()
-	if not render3d.IsAntiAliasingEnabled("taa") then return 0 end
+	local bias = math.log(render3d.GetRenderSize().y / render.GetRenderImageSize().y) / math.log(2)
 
-	return math.log(render3d.GetRenderSize().y / render.GetRenderImageSize().y) / math.log(2) - 1
+	if render3d.IsAntiAliasingEnabled("taa") then return bias - 1 end
+
+	return bias
 end
 
 render3d.previous_jitter = Vec2(0, 0)
@@ -379,6 +381,7 @@ local default_passes = {
 	{"taa", "goluwa/render3d/passes/taa.lua"},
 	{"ssaa", "goluwa/render3d/passes/ssaa.lua"},
 	{"fxaa", "goluwa/render3d/passes/fxaa.lua"},
+	{"easu", "goluwa/render3d/passes/easu.lua"},
 	{"effects_post", "goluwa/render3d/passes/effects_post.lua"},
 	{"dof", "goluwa/render3d/passes/dof.lua"},
 	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua"},
@@ -487,7 +490,7 @@ local upscale_height = pvars.Setup2{
 	default = 1080,
 	integer = true,
 	store = true,
-	help = "the height in pixels the 3d scene is rendered at before taa upscales it to the window, the width follows the window's aspect. 0, or a height at or above the window's, renders at the window size. only taa upscales, the other anti-aliasing modes render at the window size",
+	help = "the height in pixels the 3d scene is rendered at before it is upscaled to the window, the width follows the window's aspect. taa upscales temporally (fsr3), the other anti-aliasing modes spatially (fsr1's easu). 0, or a height at or above the window's, renders at the window size",
 	callback = function(value)
 		assert(value >= 0, "r_upscale_height must be 0 or more")
 	end,
@@ -501,16 +504,7 @@ do
 		local size = render.GetRenderImageSize()
 		local height = upscale_height:Get()
 
-		if
-			height == 0 or
-			height >= size.y or
-			anti_aliasing:Get() ~= "taa" or
-			not pass_vars.taa:Get()
-			or
-			quality.Get().disabled_passes.taa
-		then
-			return size
-		end
+		if height == 0 or height >= size.y then return size end
 
 		local width = math.max(1, math.floor(size.x * height / size.y + 0.5))
 

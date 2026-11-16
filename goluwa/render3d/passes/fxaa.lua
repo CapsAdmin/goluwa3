@@ -3,6 +3,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 return {
 	{
 		name = "fxaa",
+		resolution = "internal",
 		lazy_framebuffers = true,
 		is_enabled = function()
 			return render3d.IsAntiAliasingEnabled("fxaa")
