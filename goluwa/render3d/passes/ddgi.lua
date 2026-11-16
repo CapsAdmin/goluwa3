@@ -17,6 +17,7 @@ local gi = import("goluwa/render3d/gi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
+local caustics = import("goluwa/render3d/caustics.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local P = ddgi.PROBES_PER_AXIS
@@ -231,7 +232,7 @@ local function pass_shade()
 				VISIBILITY_RAYS and
 				optical_rays.GetGLSL() or
 				optical_rays.GetStubGLSL()
-			) .. [[
+			) .. caustics.GetHitGLSL() .. [[
 
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -248,8 +249,10 @@ local function pass_shade()
 					vec3 fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
 					direct += ddgi_data.ddgi_sun_radiance.rgb * Fd_EON(albedo, roughness, NoL, NoV, dot(L, V)) * NoL * get_cloud_shadow(P) * fog;
 
-					if (ddgi_data.light_transmittance != 0) direct *= get_light_transmittance(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0);
+					if (ddgi_data.light_transmittance != 0) direct *= caustic_hit_covered(int(ddgi_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0) : get_light_transmittance(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0);
 				}
+
+				direct += EON_directional_albedo(albedo, roughness, NoV) * caustic_world_irradiance(P, N) / 3.14159265359;
 
 				#if RT_HIT_LIGHTS == 0
 				return direct;
@@ -259,6 +262,7 @@ local function pass_shade()
 				vec3 picked_light[DDGI_LIGHT_SAMPLES];
 				vec4 picked_ray[DDGI_LIGHT_SAMPLES];
 				float picked_weight[DDGI_LIGHT_SAMPLES];
+				int picked_index[DDGI_LIGHT_SAMPLES];
 
 				for (int k = 0; k < DDGI_LIGHT_SAMPLES; k++) {
 					picked_weight[k] = 0.0;
@@ -304,6 +308,7 @@ local function pass_shade()
 							picked_light[k] = light_radiance;
 							picked_ray[k] = vec4(light_to_surface, dot(to_light, light_to_surface));
 							picked_weight[k] = weight;
+							picked_index[k] = i;
 							u[k] /= p;
 						} else {
 							u[k] = (u[k] - p) / (1.0 - p);
@@ -332,7 +337,7 @@ local function pass_shade()
 					if (visible) {
 						vec3 sample_light = picked_light[k];
 
-						if (ddgi_data.light_transmittance != 0) sample_light *= get_light_transmittance_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
+						if (ddgi_data.light_transmittance != 0) sample_light *= caustic_hit_covered(picked_index[k], ddgi_data.lights[picked_index[k] ].position.xyz, P) ? get_light_transmittance_local_caustic(P, picked_ray[k].xyz, shadow_distance, 0.0) : get_light_transmittance_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
 
 						direct += sample_light * (total / (picked_weight[k] * float(DDGI_LIGHT_SAMPLES)));
 					}

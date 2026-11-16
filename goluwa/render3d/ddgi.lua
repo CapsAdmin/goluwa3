@@ -1401,6 +1401,8 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_guide_tex", "int"},
 		{"ddgi_bent_normal_tex", "int"},
 		clouds.GetShadowBlockLayout(),
+		-- imported here: caustics needs the render device, and this module loads before it exists
+		import("goluwa/render3d/caustics.lua").hit_block,
 	}
 end
 
@@ -1507,6 +1509,7 @@ function ddgi.WriteProbeBlock(self, block)
 	local bent_normal = ambient_occlusion.GetBentNormalTexture()
 	block.ddgi_bent_normal_tex = bent_normal and self:GetTextureIndex(bent_normal) or -1
 	clouds.WriteShadowBlock(self, block)
+	import("goluwa/render3d/caustics.lua").WriteHitBlock(self, block)
 	return block
 end
 

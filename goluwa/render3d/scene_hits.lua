@@ -12,6 +12,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local caustics = import("goluwa/render3d/caustics.lua")
 local ray_reorder = import("goluwa/render3d/ray_reorder.lua")
 local scene_hits = {}
 scene_hits.RAY_QUERY = render.GetDevice().ray_query_supported
@@ -261,7 +262,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			shared and
 			"" or
 			optical_rays.GetGLSL()
-		) .. glsl_common.GetHashGLSL() .. [[
+		) .. glsl_common.GetHashGLSL() .. caustics.GetHitGLSL() .. [[
 		#define SCENE_HIT_MAX_DISTANCE (]] .. block_name .. [[.hit_max_distance)
 
 		#define SCENE_HIT_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
@@ -427,7 +428,7 @@ function scene_hits.GetGLSL(block_name, shared)
 				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
 				vec3 sun_radiance = Fd_EON(albedo, hit_roughness, sun_NoL, hit_NoV, dot(sun_L, -dir)) * ddgi_data.ddgi_sun_radiance.rgb * sun_NoL * get_cloud_shadow(P) * ddgi_ground_fog_sun_transmittance(fog_altitude, sun_L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
 
-				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
+				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= caustic_hit_covered(int(ddgi_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
 
 				radiance += sun_radiance;
 			}
@@ -440,6 +441,7 @@ function scene_hits.GetGLSL(block_name, shared)
 				vec3 picked_light[RT_HIT_LIGHT_SAMPLES];
 				vec4 picked_ray[RT_HIT_LIGHT_SAMPLES];
 				float picked_weight[RT_HIT_LIGHT_SAMPLES];
+				int picked_index[RT_HIT_LIGHT_SAMPLES];
 				float u[RT_HIT_LIGHT_SAMPLES];
 
 				for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
@@ -479,6 +481,7 @@ function scene_hits.GetGLSL(block_name, shared)
 								picked_light[k] = contribution;
 								picked_ray[k] = vec4(L, dot(light.position.xyz - surface, L));
 								picked_weight[k] = weight;
+								picked_index[k] = i;
 								u[k] /= p;
 							} else {
 								u[k] = (u[k] - p) / (1.0 - p);
@@ -496,7 +499,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					vec3 contribution = picked_light[k];
 
-					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= caustic_hit_covered(picked_index[k], ]] .. block_name .. [[.lights[picked_index[k] ].position.xyz, P) ? get_light_transmittance_local_caustic(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0) : get_light_transmittance_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -533,12 +536,14 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
-					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance_local(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= caustic_hit_covered(i, light.position.xyz, P) ? get_light_transmittance_local_caustic(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0) : get_light_transmittance_local(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * light_weight;
 				}
 			}
 			#endif
+
+			radiance += EON_directional_albedo(albedo, hit_roughness, hit_NoV) * caustic_world_irradiance(P, hit_N) / 3.14159265359;
 
 			#if !RT_HIT_PROBES
 			return radiance;

@@ -21,6 +21,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local render = import("goluwa/render/render.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
+local caustics = import("goluwa/render3d/caustics.lua")
 local RAY_QUERY = scene_hits.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local BINDING_OCCLUSION = 10
@@ -704,6 +705,8 @@ list.insert(
 					{"ocean_enabled", "int"},
 					{"gi_tinted", "int"},
 					{"sun_tinted", "int"},
+					{"photon_caustics", "int"},
+					caustics.coverage_block,
 					{"ocean_level", "float"},
 					{"ocean_absorption", "vec4"},
 					{"ocean_scattering", "vec4"},
@@ -777,6 +780,8 @@ list.insert(
 					scene_lights.WriteShadowBlock(self, block.shadows, lights)
 					write_ocean(self, block)
 					medium_surface.WriteBlock(self, block)
+					caustics.WriteCoverageBlock(block)
+					block.photon_caustics = (optical_rays.IsEnabled() and caustics.IsLit()) and 1 or 0
 
 					if RAY_QUERY then
 						light_occlusion.WriteOcclusionBlock(block, lights)
@@ -1446,9 +1451,11 @@ list.insert(
 				return sun_scatter + sky_scatter + light_scatter;
 			}
 
+			]] .. caustics.GetCoverageGLSL("water_data") .. [[
+
 			vec3 relight_submerged(Water w, vec2 uv, vec3 scene_color, vec3 world_pos, vec3 caustic) {
 				float depth = w.surface_y - world_pos.y;
-				if (depth <= 0.0) return scene_color;
+				if (depth <= 0.0 || (w.volume >= 0 && water_data.photon_caustics != 0 && caustic_covered(int(water_data.caustic_sun.w), vec3(0.0), world_pos))) return scene_color;
 				vec3 sigma = get_extinction(w);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
@@ -1484,7 +1491,7 @@ if (w.volume >= 0) {
 			) .. [[
 
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail) {
-				if (w.caustics <= 0.0 || !water_feature(detail ? WATER_CAUSTICS : WATER_SHAFT_CAUSTICS)) return vec3(1.0);
+				if (w.caustics <= 0.0 || !water_feature(detail ? WATER_CAUSTICS : WATER_SHAFT_CAUSTICS) || (detail && w.volume >= 0 && water_data.photon_caustics != 0 && caustic_covered(int(water_data.caustic_sun.w), vec3(0.0), world_pos))) return vec3(1.0);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				float depth = max(w.surface_y - world_pos.y, 0.0);

@@ -5,6 +5,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
+local caustics = import("goluwa/render3d/caustics.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
@@ -168,6 +169,7 @@ return {
 					{"rough_sky", "float"},
 					{"gi_reflection_direction", "int"},
 					{"gi_per_pixel", "int"},
+					{"caustics_tex", "int"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -199,6 +201,13 @@ return {
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
 					else
 						block.ambient_occlusion_tex = -1
+					end
+
+					if caustics.IsLit() then
+						block.caustics = 1
+						block.caustics_tex = self:GetTextureIndex(render3d.pipelines.caustics:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
+					else
+						block.caustics_tex = -1
 					end
 
 					if render3d.IsPassEnabled("ray_shadows") then
@@ -411,6 +420,35 @@ return {
 				return thin;
 			}
 
+			vec3 get_caustic_light_direction(vec3 P, vec3 N) {
+				vec3 sum = vec3(0.0);
+				vec2 uv = vec2(dot(P, lighting_data.caustic_sun_u.xyz), dot(P, lighting_data.caustic_sun_v.xyz));
+
+				for (int k = 0; k < lighting_data.caustic_caster_count; k++) {
+					vec4 meta = lighting_data.caustic_rects[k * 2 + 1];
+					vec4 rect = lighting_data.caustic_rects[k * 2];
+					lights_t light = lighting_data.lights[int(meta.z)];
+					vec3 L;
+					float attenuation;
+
+					float inside;
+
+					if (meta.w > 0.5) {
+						float angle = acos(clamp(rect.w, -1.0, 1.0));
+						inside = smoothstep(cos(min(angle * 2.0 + 0.3, 3.14159265359)), rect.w, dot(normalize(P - light.position.xyz), rect.xyz));
+					} else {
+						vec2 outside = max(max(rect.xy - uv, uv - rect.zw), vec2(0.0));
+						inside = 1.0 - smoothstep(0.0, 0.5 * max(rect.z - rect.x, rect.w - rect.y), length(outside));
+					}
+
+					if (inside <= 0.0 || !get_light_vector_and_attenuation(light, P, L, attenuation) || dot(L, N) <= 0.0) continue;
+
+					sum += L * luminance(light.color.rgb) * light.color.a * attenuation * inside;
+				}
+
+				return dot(sum, sum) > 0.0 ? normalize(sum) : N;
+			}
+
 			vec3 get_indirect_light(in Surface s)
 			{
 				float sky_visibility;
@@ -434,7 +472,24 @@ return {
 				vec3 kD_ambient = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - s.metallic);
 				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * EON_directional_albedo(s.albedo, s.perceptual_roughness, s.NdotV);
 
-				vec3 ambient_specular = reflection * specular_albedo;
+				vec3 caustic_specular = vec3(0.0);
+
+				if (lighting_data.caustics_tex >= 0) {
+					vec3 caustic = texelFetch(TEXTURE(lighting_data.caustics_tex), in_pixel, 0).rgb / get_pre_exposure();
+
+					if (caustic.r + caustic.g + caustic.b > 0.0) {
+						// photons keep no direction, they shade as light from about the lights whose photons cover the pixel
+						vec3 L = get_caustic_light_direction(s.world_pos, s.N);
+						L = normalize(L + s.N * max(0.1 - dot(s.N, L), 0.0));
+						float NoL = saturate(dot(s.N, L));
+						vec3 H = normalize(s.V + L);
+						vec3 average_fresnel = s.F0 + (vec3(F90(s.F0)) - s.F0) / 21.0;
+						ambient_diffuse += Fd_EON(s.albedo, s.perceptual_roughness, NoL, s.NdotV, dot(L, s.V)) * kD_ambient * (1.0 - F_Schlick(s.F0, NoL)) / max(1.0 - average_fresnel, vec3(0.001)) * caustic;
+						caustic_specular = D_GGXAlpha(s.roughness_alpha, saturate(dot(s.N, H))) * V_SmithGGXCorrelated(s.roughness_alpha, s.NdotV, NoL) * F_Schlick(s.F0, saturate(dot(L, H))) * GGXEnergyCompensation(s.F0, envBRDF) * caustic;
+					}
+				}
+
+				vec3 ambient_specular = reflection * specular_albedo + caustic_specular;
 				ambient_specular *= mix(1.0, lighting_data.thin_specular, get_thin_feature(in_view_depth, s.geometric_N));
 
 				]] .. surface_features.GetIndirectGLSL() .. [[

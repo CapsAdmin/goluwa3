@@ -17,6 +17,7 @@ local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local caustics = import("goluwa/render3d/caustics.lua")
 local surface_lighting = {}
 pvars.StartGroup("Lighting", "Ray traced shadows", {store = false, prefix = "r_ray_shadow_"})
 local ray_shadows = pvars.Setup2{
@@ -62,6 +63,8 @@ surface_lighting.block = {
 	{"gi_screen_geometry_tex", "int"},
 	{"gi_screen_specular_tex", "int"},
 	{"light_transmittance", "int"},
+	{"caustics", "int"},
+	caustics.coverage_block,
 	{"optical_tint", "int"},
 	{"medium_thickness", "float"},
 	{"medium_base_height", "float"},
@@ -121,6 +124,8 @@ function surface_lighting.WriteBlock(self, block)
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
 	block.light_transmittance = (optical_rays.IsEnabled() and ray_materials.HasDirectTint()) and 1 or 0
+	block.caustics = 0
+	caustics.WriteCoverageBlock(block)
 	block.optical_tint = (
 			optical_rays.IsEnabled() and
 			(
@@ -191,10 +196,20 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			return vec3(1.0);
 		}
 
+		vec3 get_light_transmittance_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return vec3(1.0);
+		}
+
 		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
 			return vec3(1.0);
 		}
+
+		vec3 get_light_transmittance_local_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return vec3(1.0);
+		}
 		#endif
+
+		]] .. caustics.GetCoverageGLSL(block_name) .. [[
 
 		float get_sun_contact_visibility(vec3 origin, vec3 dir, float distance) {
 			]] .. (
@@ -575,7 +590,15 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				if (]] .. block_name .. [[.light_transmittance != 0 && brightest * shadow_factor * get_exposure() >= LIGHT_TRANSMITTANCE_MIN_SCREEN_RADIANCE) {
 					float glass_distance = type == 0 ? OPTICAL_SUN_DISTANCE : (type == 2 ? 50.0 : max(length(light.position.xyz - s.world_pos) - 0.05 * ]] .. block_name .. [[.view_scale, 0.0));
 					float glass_search = type == 0 && shadow_factor < 0.999 ? clamp(shadow_texel_world_size * 3.0, 0.05 * ]] .. block_name .. [[.view_scale, 0.5 * ]] .. block_name .. [[.view_scale) : 0.0;
-					radiance *= type == 0 ? get_light_transmittance(s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale, L, glass_distance, glass_search) : get_light_transmittance_local(s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale, L, glass_distance, glass_search);
+					vec3 glass_origin = s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale;
+
+					bool covered = ]] .. block_name .. [[.caustics != 0 && caustic_covered(i, light.position.xyz, s.world_pos);
+
+					if (type != 0) {
+						radiance *= covered ? get_light_transmittance_local_caustic(glass_origin, L, glass_distance, glass_search) : get_light_transmittance_local(glass_origin, L, glass_distance, glass_search);
+					} else {
+						radiance *= covered ? get_light_transmittance_caustic(glass_origin, L, glass_distance, glass_search) : get_light_transmittance(glass_origin, L, glass_distance, glass_search);
+					}
 				}
 				#endif
 
