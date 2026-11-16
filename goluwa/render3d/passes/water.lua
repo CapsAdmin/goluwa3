@@ -808,7 +808,7 @@ list.insert(
 					return block
 				end,
 			},
-			RAY_QUERY and scene_hits.GetDDGIUniformBuffer(8) or nil,
+			RAY_QUERY and scene_hits.GetGICacheUniformBuffer(8) or nil,
 		},
 		shader = medium_common.GetGLSL() .. [[
 			ivec2 water_pixel;
@@ -888,7 +888,7 @@ list.insert(
 				RAY_QUERY and
 				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("water_data") .. scene_hits.GetDirectionGLSL() .. light_occlusion.GetSamplingGLSL("water_data") .. scene_lights.GetPointShadowGLSL("water_data")
 				or
-				scene_hits.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
+				scene_hits.CONSTANTS_GLSL .. "#define GI_CACHE_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
 			) .. [[
 
 			float get_blue_noise() {
@@ -1439,7 +1439,7 @@ list.insert(
 				#ifdef SCENE_HITS
 				if (scene_hits_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float f = jitter;
-					ambient = get_ambient_irradiance(origin + dir * (min(len, 60.0) * f * f), DDGI_NO_VISIBILITY_RAYS, false);
+					ambient = get_ambient_irradiance(origin + dir * (min(len, 60.0) * f * f), GI_CACHE_NO_VISIBILITY_RAYS, false);
 				}
 				#endif
 
@@ -1859,7 +1859,7 @@ if (w.volume >= 0) {
 				foam = mix(foam, coverage * coverage * 0.5, smoothstep(0.15, 1.2, above_footprint)) * 0.95;
 
 				if (foam > 0.0) {
-					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), DDGI_NO_VISIBILITY_RAYS, true);
+					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), GI_CACHE_NO_VISIBILITY_RAYS, true);
 					float thickness = clamp((pattern.x - threshold) * 4.0 + 0.5, 0.0, 1.0);
 					vec3 foam_color = vec3(0.8) * mix(0.4, 1.0, thickness) * (0.9 + 0.1 * pattern.y) * foam_light;
 					color = mix(color, foam_color, foam * mix(0.6, 0.95, thickness));

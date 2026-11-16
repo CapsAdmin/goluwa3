@@ -230,9 +230,9 @@ return {
 			if (medium_body > 0.0) {
 				vec3 back_irradiance = irradiance;
 
-				if (ddgi_data.ddgi_cascade_count > 0 && ddgi_in_volume(s.world_pos)) {
+				if (gi_cache_data.gi_cache_cascade_count > 0 && gi_cache_in_volume(s.world_pos)) {
 					float back_weight;
-					vec4 back_probes = ddgi_sample_irradiance(s.world_pos, -s.N, -s.N, s.V, ddgi_data.ddgi_smooth_blend != 0, DDGI_NO_VISIBILITY_RAYS, back_weight);
+					vec4 back_probes = gi_cache_sample_irradiance(s.world_pos, -s.N, -s.N, s.V, gi_cache_data.gi_cache_smooth_blend != 0, GI_CACHE_NO_VISIBILITY_RAYS, back_weight);
 
 					if (back_weight > 0.0) back_irradiance = back_probes.rgb;
 				}

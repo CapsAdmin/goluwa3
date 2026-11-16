@@ -366,10 +366,10 @@ local default_passes = {
 		group = "ambient occlusion",
 	},
 	{
-		"ddgi",
-		"goluwa/render3d/passes/ddgi.lua",
+		"gi_cache",
+		"goluwa/render3d/passes/gi_cache.lua",
 		group = "global illumination",
-		gi = "ddgi",
+		gi = "probes",
 	},
 	{
 		"global_illumination",
@@ -454,9 +454,9 @@ pvars.EndGroup()
 pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_cache = pvars.Setup2{
 	key = "r_gi_cache",
-	default = "ddgi",
-	enums = {"ddgi", "none"},
-	help = "the world space gi cache under the global illumination pass: its rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. ddgi builds the probe cascades, none lights the hits with the sky through a few rays",
+	default = "probes",
+	enums = {"probes", "none"},
+	help = "the world space gi cache under the global illumination pass: its rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. probes builds the probe cascades (gi_cache pass), none lights the hits with the sky through a few rays",
 	callback = function(value, initial)
 		if initial then return end
 

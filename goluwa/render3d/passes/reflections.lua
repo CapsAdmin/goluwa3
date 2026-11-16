@@ -138,7 +138,7 @@ local HIT_SCREEN_GI_GLSL = [[
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local BINDING_EMITTERS = 10
 
-local function get_uniform_buffers(with_ddgi)
+local function get_uniform_buffers(with_gi_cache)
 	return {
 		{
 			name = "reflection_data",
@@ -266,9 +266,9 @@ local function get_uniform_buffers(with_ddgi)
 				return block
 			end,
 		},
-		with_ddgi and
+		with_gi_cache and
 		RAY_QUERY and
-		scene_hits.GetDDGIUniformBuffer(8) or
+		scene_hits.GetGICacheUniformBuffer(8) or
 		nil,
 	}
 end
@@ -609,7 +609,7 @@ return {
 
 				#ifdef SCENE_HITS
 				// below the mirror blend the rays' density is not the lobe's
-				emitters_sampled = scene_hits_ready() && !reflection_screen_first(roughness) && ddgi_data.ddgi_emitter_count > 0 && roughness >= max(reflection_data.emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0);
+				emitters_sampled = scene_hits_ready() && !reflection_screen_first(roughness) && gi_cache_data.gi_cache_emitter_count > 0 && roughness >= max(reflection_data.emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0);
 				reflection_hit_emission = !emitters_sampled;
 				#endif
 

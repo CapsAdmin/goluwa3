@@ -52,7 +52,7 @@ local function with_scene(build, check)
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),
-			import("goluwa/render3d/passes/ddgi.lua"),
+			import("goluwa/render3d/passes/gi_cache.lua"),
 			import("goluwa/render3d/passes/global_illumination.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
@@ -86,7 +86,7 @@ T.Test3DRayTracing("Graphics render3d restir gi produces a screen gi texture ove
 		add_slab(polygon3d, created, Vec3(-1, 0, -1), Vec3(1, 2, 1))
 	end, function()
 		T(gi.IsPerPixel())["=="](true)
-		T(gi.GetMode())["=="]("ddgi")
+		T(gi.GetMode())["=="]("gi_cache")
 		T(gi.GetScreenSpecularTexture() ~= nil)["=="](true)
 
 		for _ = 1, 8 do

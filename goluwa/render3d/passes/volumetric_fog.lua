@@ -25,7 +25,7 @@ local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
 local BINDING_OUTPUT = 0
-local BINDING_DDGI = 1
+local BINDING_GI_CACHE = 1
 local BINDING_HISTORY = 2
 local BINDING_OCCLUSION = 3
 local BINDING_FROXEL = 4
@@ -173,8 +173,8 @@ local gi_pass = {
 	},
 	uniform_buffers = {
 		{
-			name = "ddgi_data",
-			binding_index = BINDING_DDGI,
+			name = "gi_cache_data",
+			binding_index = BINDING_GI_CACHE,
 			block = gi.GetProbeBlockLayout(),
 			write = gi.WriteProbeBlock,
 		},
@@ -253,7 +253,7 @@ local gi_pass = {
 	]],
 	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. (
 			VISIBILITY_RAYS and
-			"#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. string.format("#define SCENE_HIT_MASK 0x%02X\n", scene_instances.MASK_SURFACES) .. post_source.GetPreExposureGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "froxel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("froxel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
+			"#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (gi_cache_data.gi_cache_emitter_count == 0)\n" .. string.format("#define SCENE_HIT_MASK 0x%02X\n", scene_instances.MASK_SURFACES) .. post_source.GetPreExposureGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "froxel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("froxel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
 			or
 			gi.GetCommonGLSL()
 		) .. gi.GetMediumGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[

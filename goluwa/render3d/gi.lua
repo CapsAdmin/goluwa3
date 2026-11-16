@@ -1,13 +1,13 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi_cache = import("goluwa/render3d/gi_cache.lua")
 local global_illumination = import("goluwa/render3d/global_illumination.lua")
 local gi = {}
-gi.MODES = {none = 0, ddgi = 1}
-gi.MIN_WEIGHT = ddgi.MIN_WEIGHT
+gi.MODES = {none = 0, gi_cache = 1}
+gi.MIN_WEIGHT = gi_cache.MIN_WEIGHT
 
 function gi.GetMode()
-	if render3d.IsPassEnabled("ddgi") then return "ddgi" end
+	if render3d.IsPassEnabled("gi_cache") then return "gi_cache" end
 
 	return "none"
 end
@@ -41,57 +41,57 @@ function gi.IsDebugGI()
 end
 
 function gi.GetDebugOverlayTexture()
-	if gi.GetMode() ~= "ddgi" then return nil end
+	if gi.GetMode() ~= "gi_cache" then return nil end
 
-	return ddgi.GetDebugOverlayTexture()
+	return gi_cache.GetDebugOverlayTexture()
 end
 
 function gi.ResetHistory()
-	ddgi.ResetHistory()
+	gi_cache.ResetHistory()
 	global_illumination.ResetHistory()
 end
 
 function gi.GetProbeBlockLayout()
-	local layout = table.copy(ddgi.GetProbeBlockLayout())
+	local layout = table.copy(gi_cache.GetProbeBlockLayout())
 	layout[#layout + 1] = {"gi_mode", "int"}
 	return layout
 end
 
 function gi.WriteProbeBlock(self, block)
-	ddgi.WriteProbeBlock(self, block)
+	gi_cache.WriteProbeBlock(self, block)
 	local mode = gi.GetMode()
 	block.gi_mode = gi.MODES[mode]
 
-	if mode ~= "ddgi" then
-		block.ddgi_cascade_count = 0
-		block.ddgi_reset_mask = 0
-		block.ddgi_update_mask = 0
-		block.ddgi_rt_ready = render.GetDevice().ray_query_supported and 1 or 0
+	if mode ~= "gi_cache" then
+		block.gi_cache_cascade_count = 0
+		block.gi_cache_reset_mask = 0
+		block.gi_cache_update_mask = 0
+		block.gi_cache_rt_ready = render.GetDevice().ray_query_supported and 1 or 0
 	end
 
 	return block
 end
 
 function gi.GetCommonGLSL()
-	return ddgi.GetCommonGLSL() .. [[
+	return gi_cache.GetCommonGLSL() .. [[
 
 		#define GI_MODE_NONE 0
-		#define GI_MODE_DDGI 1
+		#define GI_MODE_CACHE 1
 
 		bool gi_available() {
-			return ddgi_data.ddgi_cascade_count > 0;
+			return gi_cache_data.gi_cache_cascade_count > 0;
 		}
 
 		bool gi_in_volume(vec3 P) {
-			return ddgi_in_volume(P);
+			return gi_cache_in_volume(P);
 		}
 
 		bool gi_covers(vec3 P, float weight) {
-			return weight > 0.0 || ddgi_data.gi_mode == GI_MODE_DDGI && ddgi_in_volume(P);
+			return weight > 0.0 || gi_cache_data.gi_mode == GI_MODE_CACHE && gi_cache_in_volume(P);
 		}
 
 		vec4 gi_sample_irradiance_pair(vec3 P, vec3 N, vec3 L, vec3 L2, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight, out vec4 second) {
-			return ddgi_sample_irradiance_pair(P, N, L, L2, V, smooth_blend, visibility_min_weight, weight, second);
+			return gi_cache_sample_irradiance_pair(P, N, L, L2, V, smooth_blend, visibility_min_weight, weight, second);
 		}
 
 		vec4 gi_sample_irradiance(vec3 P, vec3 N, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
@@ -102,10 +102,10 @@ function gi.GetCommonGLSL()
 end
 
 function gi.GetMediumGLSL()
-	return ddgi.GetMediumGLSL() .. [[
+	return gi_cache.GetMediumGLSL() .. [[
 
 		vec4 gi_sample_medium(vec3 P, vec3 N, out float weight) {
-				return ddgi_sample_medium(P, N, weight);
+				return gi_cache_sample_medium(P, N, weight);
 		}
 	]]
 end

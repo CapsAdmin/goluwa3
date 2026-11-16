@@ -75,7 +75,7 @@ global_illumination.guided = pvars.Setup2{
 	default = 0.5,
 	min = 0,
 	max = 0.95,
-	help = "share of the gi rays aimed by the nearest ddgi probe's radiance guide instead of the cosine, weighted by the mix of both densities so it stays unbiased. light through a small opening or from a sunlit patch next to a dark room is found that much more often instead of as rare bright samples. only with the ddgi cache",
+	help = "share of the gi rays aimed by the nearest gi_cache probe's radiance guide instead of the cosine, weighted by the mix of both densities so it stays unbiased. light through a small opening or from a sunlit patch next to a dark room is found that much more often instead of as rare bright samples. only with the gi_cache cache",
 }
 global_illumination.spatial = pvars.Setup2{
 	key = "global_illumination_spatial",

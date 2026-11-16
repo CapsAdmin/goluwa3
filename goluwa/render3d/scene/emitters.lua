@@ -513,7 +513,7 @@ do
 				byte_size = ffi.sizeof(data),
 				buffer_usage = {"storage_buffer"},
 				memory_property = {"host_visible", "host_coherent"},
-				label = "ddgi_emitter_sources",
+				label = "gi_cache_emitter_sources",
 				data = data,
 			}
 			uploaded_version = emitter_list.sources_version

@@ -537,7 +537,7 @@ local RESOLVE_GLSL = [[
 		return s;
 	}
 ]]
-local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. [[
+local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (gi_cache_data.gi_cache_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. [[
 			vec3 restir_cosine_direction(vec3 N, vec2 xi) {
 				vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 				vec3 T = normalize(cross(up, N));
@@ -557,7 +557,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				miss = !trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
 
 				if (miss) {
-					s = restir_sample(dir, vec3(0.0), ddgi_sky(dir), RESTIR_SKY, vec3(0.0));
+					s = restir_sample(dir, vec3(0.0), gi_cache_sky(dir), RESTIR_SKY, vec3(0.0));
 					t = SCENE_HIT_MAX_DISTANCE;
 				} else {
 					scene_triangle tri = scene_hit_tri(instance, primitive);
@@ -574,7 +574,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				if (restir_data.optical_tint != 0) {
 					s.L *= get_optical_tint(origin, dir, t, !miss);
 
-					if (!miss) s.L += optical_inscatter_lit(origin, dir, t, ddgi_fog_ambient(), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true);
+					if (!miss) s.L += optical_inscatter_lit(origin, dir, t, gi_cache_fog_ambient(), gi_cache_data.gi_cache_sun_radiance.rgb, normalize(gi_cache_data.gi_cache_sun_direction.xyz), true);
 				}
 
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
@@ -601,7 +601,7 @@ local function pass_candidates()
 		storage_images = storage_images(3),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		storage_buffers = {{binding_index = BINDING_EMITTERS}},
-		uniform_buffers = {restir_uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetGICacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
 			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 			local emitters = scene_emitters.BuildActive(cmd)
@@ -657,7 +657,7 @@ local function pass_candidates()
 					restir_sample chosen;
 					float chosen_target = 0.0;
 					float w_sum = 0.0;
-					int emitter_count = ddgi_data.ddgi_emitter_count;
+					int emitter_count = gi_cache_data.gi_cache_emitter_count;
 
 					float guided_share = 0.0;
 					bool guided = false;
@@ -672,17 +672,17 @@ local function pass_candidates()
 						vec3 dir = restir_cosine_direction(N, xi);
 						ivec2 guide_tile = ivec2(0);
 
-						if (restir_data.guided > 0.0 && ddgi_data.ddgi_cascade_count > 0 && ddgi_data.ddgi_guide_tex >= 0 && ddgi_data.ddgi_uniform_rays < DDGI_RAYS) {
-							for (int c = 0; c < ddgi_data.ddgi_cascade_count; c++) {
-								float spacing = ddgi_spacing(c);
-								vec3 grid = (P + N * (0.5 * spacing)) / spacing - vec3(ddgi_volume_base(c));
+						if (restir_data.guided > 0.0 && gi_cache_data.gi_cache_cascade_count > 0 && gi_cache_data.gi_cache_guide_tex >= 0 && gi_cache_data.gi_cache_uniform_rays < GI_CACHE_RAYS) {
+							for (int c = 0; c < gi_cache_data.gi_cache_cascade_count; c++) {
+								float spacing = gi_cache_spacing(c);
+								vec3 grid = (P + N * (0.5 * spacing)) / spacing - vec3(gi_cache_volume_base(c));
 
-								if (any(lessThan(grid, vec3(0.0))) || any(greaterThan(grid, vec3(ddgi_volume_size(c) - 1)))) continue;
+								if (any(lessThan(grid, vec3(0.0))) || any(greaterThan(grid, vec3(gi_cache_volume_size(c) - 1)))) continue;
 
-								ivec3 world = ddgi_volume_base(c) + ivec3(floor(grid + 0.5));
-								guide_tile = ddgi_tile(ddgi_slot(world, c), c);
+								ivec3 world = gi_cache_volume_base(c) + ivec3(floor(grid + 0.5));
+								guide_tile = gi_cache_tile(gi_cache_slot(world, c), c);
 
-								if (ddgi_guide_valid(guide_tile, world, c)) guided_share = restir_data.guided;
+								if (gi_cache_guide_valid(guide_tile, world, c)) guided_share = restir_data.guided;
 
 								break;
 							}
@@ -691,7 +691,7 @@ local function pass_candidates()
 						guided = guided_share > 0.0 && restir_random(pos, 40u) < guided_share;
 
 						if (guided) {
-							dir = ddgi_guide_sample(restir_random(pos, 41u), vec2(restir_random(pos, 42u), restir_random(pos, 43u)), restir_random(pos, 44u), guide_tile);
+							dir = gi_cache_guide_sample(restir_random(pos, 41u), vec2(restir_random(pos, 42u), restir_random(pos, 43u)), restir_random(pos, 44u), guide_tile);
 						} else {
 							float below = dot(dir, geometric_N);
 
@@ -702,7 +702,7 @@ local function pass_candidates()
 
 						if (ray_cosine > 0.0 && dot(dir, geometric_N) > 0.0) {
 							ray_cosine = max(ray_cosine, 1e-4);
-							float pdf = (1.0 - guided_share) * ray_cosine / RESTIR_PI + (guided_share > 0.0 ? guided_share * ddgi_guide_density(dir, guide_tile) : 0.0);
+							float pdf = (1.0 - guided_share) * ray_cosine / RESTIR_PI + (guided_share > 0.0 ? guided_share * gi_cache_guide_density(dir, guide_tile) : 0.0);
 							chosen = restir_trace(origin, dir, false, miss);
 							chosen_target = luminance(chosen.L) * ray_cosine;
 							w_sum = chosen_target / pdf;
@@ -779,7 +779,7 @@ local function pass_temporal()
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(5),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		uniform_buffers = {restir_uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetGICacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
 			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 		end,
@@ -1022,7 +1022,7 @@ local function pass_spatial()
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(7),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		uniform_buffers = {restir_uniform(true), scene_hits.GetDDGIUniformBuffer(BINDING_GI)},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetGICacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
 			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 		end,

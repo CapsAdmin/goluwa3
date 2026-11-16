@@ -16,7 +16,7 @@ local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
-local BINDING_DDGI = 12
+local BINDING_GI_CACHE = 12
 local SCENE_BINDINGS = {scene = 6, hit = 30, materials = 8}
 local FILTER_ITERATIONS = 3
 pvars.StartGroup("Lighting", "Ray traced shadows", {store = false, prefix = "r_ray_shadow_"})
@@ -200,7 +200,7 @@ local passes = {
 					return block
 				end,
 			},
-			scene_hits.GetDDGIUniformBuffer(BINDING_DDGI),
+			scene_hits.GetGICacheUniformBuffer(BINDING_GI_CACHE),
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_raw;

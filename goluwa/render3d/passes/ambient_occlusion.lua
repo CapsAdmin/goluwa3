@@ -78,7 +78,7 @@ return {
 					{"frame", "int"},
 					{"gi_enabled", "int"},
 					{"gi_strength", "float"},
-					{"ddgi_screen_tex", "int"},
+					{"gi_cache_screen_tex", "int"},
 					{"radius", "float"},
 					{"screen_radius", "float"},
 					{"backface_threshold", "float"},
@@ -100,7 +100,7 @@ return {
 					block.gi_enabled = ambient_occlusion.IsGIEnabled() and block.last_frame_tex ~= -1 and 1 or 0
 					block.gi_strength = ambient_occlusion.GetGIStrength()
 					local screen = gi.GetScreenTexture()
-					block.ddgi_screen_tex = screen and self:GetTextureIndex(screen) or -1
+					block.gi_cache_screen_tex = screen and self:GetTextureIndex(screen) or -1
 					block.radius = ambient_occlusion.GetRadius()
 					block.screen_radius = ambient_occlusion.GetScreenRadius()
 					block.backface_threshold = ambient_occlusion.GetBackfaceThreshold()
@@ -157,9 +157,9 @@ return {
 
 				float probe_sky = 0.0;
 
-				if (lighting_data.ddgi_screen_tex != -1) {
+				if (lighting_data.gi_cache_screen_tex != -1) {
 					vec2 probe_uv = lighting_data.velocity_tex == -1 ? uv : uv - texture(TEXTURE(lighting_data.velocity_tex), uv).xy;
-					float visibility = texture(TEXTURE(lighting_data.ddgi_screen_tex), probe_uv).a;
+					float visibility = texture(TEXTURE(lighting_data.gi_cache_screen_tex), probe_uv).a;
 					probe_sky = clamp(visibility / max(0.5 * (1.0 + N.y), 0.05), 0.0, 1.0);
 				}
 
