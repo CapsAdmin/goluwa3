@@ -692,7 +692,7 @@ end
 
 function caustics.GetGLSL(block_name)
 	local normalization = caustics.SPECTRUM_NORMALIZATION
-	return glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. medium_surface.GetGLSL(block_name) .. caustics.GetWorldGLSL(block_name) .. (
+	return glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. medium_surface.GetGLSL(block_name) .. caustics.GetWorldGLSL(block_name) .. optical_rays.GetGlassThroughGLSL() .. (
 			[[
 		#define CAUSTIC_MASK ]] .. string.format("0x%02X", scene_instances.MASK_SURFACES) .. [[
 
@@ -807,18 +807,8 @@ function caustics.GetGLSL(block_name)
 			return exit;
 		}
 
-		vec3 caustic_body_tint(ray_material material, float distance) {
-			vec3 through;
-
-			if (ray_material_has_medium(material)) {
-				through = medium_transmittance(material.medium_extinction, medium_scattering_at(material.medium_scattering, material.medium_porous_scattering, material.medium_porosity), material.medium_g, distance);
-			} else {
-				through = material.albedo;
-
-				if (material.albedo_tex >= 0) through *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
-
-				through *= ]] .. string.format("%.2f", optical_rays.TRANSMITTANCE) .. [[;
-			}
+		vec3 caustic_body_tint(ray_material material, float distance, uint instance, uint primitive, vec2 barycentrics) {
+			vec3 through = ray_material_has_medium(material) ? medium_transmittance(material.medium_extinction, medium_scattering_at(material.medium_scattering, material.medium_porous_scattering, material.medium_porosity), material.medium_g, distance) : optical_glass_through(material, instance, primitive, barycentrics);
 
 			return clamp(material.glass_refraction * through + (1.0 - material.glass_refraction) * (1.0 - material.glass_covering), vec3(0.0), vec3(1.0));
 		}
@@ -911,7 +901,7 @@ function caustics.GetGLSL(block_name)
 					return CAUSTIC_LANDED;
 				}
 
-				if (!entering || material.double_sided != 0) flux *= caustic_body_tint(material, t);
+				if (!entering || material.double_sided != 0) flux *= caustic_body_tint(material, t, instance, primitive, barycentrics);
 
 				if (material.caustic == 0) {
 					origin = P + dir * (0.0005 * scale);

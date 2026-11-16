@@ -312,11 +312,7 @@ return {
 				scattering = medium_scattering_at(body.medium_scattering, body.medium_porous_scattering, body.medium_porosity);
 				wall_light *= get_material_medium_transmittance(body);
 			} else {
-				vec3 through = body.albedo;
-
-				if (body.albedo_tex >= 0) through *= textureLod(TEXTURE(body.albedo_tex), vec2(0.5), 16.0).rgb;
-
-				through *= ]] .. string.format("%.2f", optical_rays.TRANSMITTANCE) .. [[;
+				vec3 through = optical_glass_through(body, nearest_instance, nearest_primitive, nearest_barycentrics);
 				through = clamp(body.glass_refraction * through + (1.0 - body.glass_refraction) * (1.0 - body.glass_covering), vec3(0.001), vec3(1.0));
 				absorption = -log(through) / max(body.medium_thickness, 0.01);
 			}

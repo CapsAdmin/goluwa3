@@ -39,8 +39,24 @@ function optical_rays.GetDeclarationGLSL(bindings)
 	return hit.GetSceneGLSL("scene_tlas", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ray_materials.GetMaterialDeclarationsGLSL(bindings.materials)
 end
 
+function optical_rays.GetGlassThroughGLSL()
+	return [[
+		#ifndef OPTICAL_GLASS_THROUGH
+		#define OPTICAL_GLASS_THROUGH
+		vec3 optical_glass_through(ray_material material, uint instance, uint primitive, vec2 barycentrics) {
+			if (material.albedo_tex < 0) return material.albedo * ]] .. string.format("%.2f", optical_rays.TRANSMITTANCE) .. [[;
+
+			scene_uv uv = scene_hit_uv(instance, primitive);
+			ivec2 size = textureSize(TEXTURE(material.albedo_tex), 0);
+			vec4 texel = textureLod(TEXTURE(material.albedo_tex), uv.uv0 * (1.0 - barycentrics.x - barycentrics.y) + uv.uv1 * barycentrics.x + uv.uv2 * barycentrics.y, max(log2(float(max(size.x, size.y)) / 64.0), 0.0));
+			return mix(vec3(1.0), material.albedo * texel.rgb, texel.a) * ]] .. string.format("%.2f", optical_rays.TRANSMITTANCE) .. [[;
+		}
+		#endif
+	]]
+end
+
 function optical_rays.GetGLSL()
-	return ray_materials.GetOpticalTintGLSL() .. hit.GetOccludedGLSL("scene_tlas") .. [[
+	return ray_materials.GetOpticalTintGLSL() .. hit.GetOccludedGLSL("scene_tlas") .. optical_rays.GetGlassThroughGLSL() .. [[
 		#define OPTICAL_RAYS
 		#define OPTICAL_SUN_DISTANCE ]] .. string.format("%.1f", optical_rays.SUN_DISTANCE) .. [[
 
@@ -62,7 +78,8 @@ function optical_rays.GetGLSL()
 			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
-				ray_material material = ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+				uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+				ray_material material = ray_materials[scene_instance_material(instance)];
 				bool front = rayQueryGetIntersectionFrontFaceEXT(query, false);
 
 				if (material.glass != 0) {
@@ -71,17 +88,7 @@ function optical_rays.GetGLSL()
 
 					if (material.double_sided == 0 && front) continue;
 
-					vec3 through;
-
-					if (ray_material_has_medium(material)) {
-						through = get_material_medium_transmittance(material);
-					} else {
-						through = material.albedo;
-
-						if (material.albedo_tex >= 0) through *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
-
-						through *= ]] .. string.format("%.2f", optical_rays.TRANSMITTANCE) .. [[;
-					}
+					vec3 through = ray_material_has_medium(material) ? get_material_medium_transmittance(material) : optical_glass_through(material, instance, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false));
 
 					transmitted *= clamp(material.glass_refraction * through + (1.0 - material.glass_refraction) * (1.0 - material.glass_covering), vec3(0.0), vec3(1.0));
 				} else if (through_medium && ray_material_has_medium(material)) {

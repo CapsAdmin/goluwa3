@@ -613,7 +613,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 						vec3 Ng = -tri.normal;
 						bool entering = dot(dir, Ng) < 0.0;
 
-						if (!entering) throughput *= caustic_body_tint(material, t);
+						if (!entering) throughput *= caustic_body_tint(material, t, instance, primitive, barycentrics);
 
 						if (wavelength <= 0.0 && caustic_splits(material.medium_ior, material.abbe, lighting_data.caustic_dispersion_spread)) {
 							wavelength = mix(CAUSTIC_WAVELENGTH_MIN, CAUSTIC_WAVELENGTH_MAX, pt_random());
