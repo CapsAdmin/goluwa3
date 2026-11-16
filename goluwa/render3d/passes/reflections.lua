@@ -52,7 +52,7 @@ local resolution = pvars.Setup2{
 
 local function get_trace_size()
 	local size = render3d.GetRenderSize()
-	local scale = SCALES[resolution:Get()]
+	local scale = render3d.IsDenoisingBypassed() and 1 or SCALES[resolution:Get()]
 	return math.max(1, math.floor(size.x * scale + 0.5)),
 	math.max(1, math.floor(size.y * scale + 0.5))
 end
@@ -167,6 +167,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"trace_size", "ivec2"},
 				ibl.reflection_weight_block,
 				{"hit_reprojection", "int"},
+				{"raw_output", "int"},
 				{"jitter_shift", "vec2"},
 				{"prev_view", "mat4"},
 				{"prev_projection", "mat4"},
@@ -208,6 +209,7 @@ local function get_uniform_buffers(with_ddgi)
 				end
 
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
+				block.raw_output = render3d.IsDenoisingBypassed() and 1 or 0
 				block.trace_size[0], block.trace_size[1] = get_trace_size()
 				ibl.WriteReflectionWeightBlock(block, gi.IsPerPixel())
 				local camera = render3d.GetCamera()
@@ -226,8 +228,6 @@ local function get_uniform_buffers(with_ddgi)
 
 				if
 					render3d.ShouldUseLastFrameHistory() and
-					not render3d.IsDenoisingBypassed()
-					and
 					frame > reflections.reflection_history_reset_frame
 				then
 					local history_fb = reflections:GetFramebuffer((frame + 1) % 2 + 1)
@@ -758,6 +758,13 @@ return {
 				ivec2 block_pixel = min(get_reflection_gbuffer_pos(block, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 				vec4 own = texelFetch(TEXTURE(reflection_data.raw_tex), pos, 0);
 				bool has_own = own.a >= 0.0;
+
+				if (reflection_data.raw_output != 0) {
+					imageStore(out_reflection, pos, has_own ? own : vec4(0.0));
+					imageStore(out_reflection_depth, pos, vec4(-linearize_depth(uv, depth)));
+					imageStore(out_reflection_moment, pos, vec4(0.0));
+					return;
+				}
 
 				vec3 N = gbuffer_normal(pos);
 				float roughness = sqrt(gbuffer_roughness(pos));

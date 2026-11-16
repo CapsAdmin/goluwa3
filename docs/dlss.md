@@ -27,7 +27,7 @@ NVIDIA DLSS super resolution and ray reconstruction through NGX, bound with ffi 
 `render3d.IsDenoisingBypassed()` (true with `r_aa dlss_rr`) switches the passes' own denoisers off so the network sees noisy but unbiased light:
 
 - ReSTIR GI keeps its candidate, temporal and spatial resampling (that is the sampler) and skips the accumulation (`accumulation` 1) and the a-trous filters (`filter_enabled` 0).
-- reflections keep their tracing resolution and spatial filter (one ray per pixel on rough surfaces is far noisier than the filtered signal the network was fed with, and it boiled) and drop only the temporal history (`history_tex` -1). `lighting_debug_reflections` shows the traced reflection the lighting reads.
+- reflections trace every pixel (`get_trace_size` is the render size) and the `reflections` pass writes the raw sample without the spatial disc filter or the history. `lighting_debug_reflections` shows the traced reflection the lighting reads.
 - ray shadows: the `ray_shadow_*` passes are disabled and the lighting traces its own ray per light (`ray_shadow_tex` -1).
 - caustics keep the spatial photon density filter (it is the estimator) and drop the temporal history (`history_tex` -1).
 - DDGI is not bypassed: its probes are already smooth.
