@@ -10,7 +10,7 @@ local function use_passes()
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),
-			import("goluwa/render3d/passes/gi_cache.lua"),
+			import("goluwa/render3d/passes/radiance_cache.lua"),
 			import("goluwa/render3d/passes/fluid_volumes.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/volumetric_fog.lua"),

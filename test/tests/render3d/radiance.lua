@@ -52,8 +52,8 @@ local function with_scene(build, check)
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),
-			import("goluwa/render3d/passes/gi_cache.lua"),
-			import("goluwa/render3d/passes/global_illumination.lua"),
+			import("goluwa/render3d/passes/radiance_cache.lua"),
+			import("goluwa/render3d/passes/radiance.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		},
@@ -86,7 +86,7 @@ T.Test3DRayTracing("Graphics render3d restir gi produces a screen gi texture ove
 		add_slab(polygon3d, created, Vec3(-1, 0, -1), Vec3(1, 2, 1))
 	end, function()
 		T(gi.IsPerPixel())["=="](true)
-		T(gi.GetMode())["=="]("gi_cache")
+		T(gi.GetMode())["=="]("radiance_cache")
 		T(gi.GetScreenSpecularTexture() ~= nil)["=="](true)
 
 		for _ = 1, 8 do
@@ -149,10 +149,10 @@ end)
 
 T.Slow(T.Test3DRayTracing, "Graphics render3d restir gi reuse adds no light and loses none against plain rays", function(draw)
 	local keys = {
-		"global_illumination_temporal",
-		"global_illumination_spatial",
-		"global_illumination_filter",
-		"global_illumination_accumulation",
+		"radiance_temporal",
+		"radiance_spatial",
+		"radiance_filter",
+		"radiance_accumulation",
 	}
 	local saved = {}
 
@@ -169,10 +169,10 @@ T.Slow(T.Test3DRayTracing, "Graphics render3d restir gi reuse adds no light and 
 		add_slab(polygon3d, created, Vec3(1.5, 0, -1.6), Vec3(2, 3, 1))
 	end, function()
 		local function converged(reuse)
-			pvars.SetSession("global_illumination_temporal", reuse)
-			pvars.SetSession("global_illumination_spatial", reuse)
-			pvars.SetSession("global_illumination_filter", false)
-			pvars.SetSession("global_illumination_accumulation", 100000)
+			pvars.SetSession("radiance_temporal", reuse)
+			pvars.SetSession("radiance_spatial", reuse)
+			pvars.SetSession("radiance_filter", false)
+			pvars.SetSession("radiance_accumulation", 100000)
 			gi.ResetHistory()
 
 			for _ = 1, 300 do

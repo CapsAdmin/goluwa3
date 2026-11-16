@@ -12,7 +12,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
-local gi_cache = import("goluwa/render3d/gi_cache.lua")
+local radiance_cache = import("goluwa/render3d/radiance_cache.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
@@ -28,7 +28,7 @@ local BINDING_OUTPUT_DIFFUSE = 1
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
-local BINDING_GI_CACHE = 12
+local BINDING_RADIANCE_CACHE = 12
 local SCENE_BINDINGS = {scene = 6, hit = 30, materials = 8}
 local SCREEN_SHADOW_MAX_STEPS = 64
 local SCREEN_SHADOW_STRIDE = 1.5
@@ -236,7 +236,7 @@ return {
 					return block
 				end,
 			},
-			scene_hits.GetGICacheUniformBuffer(BINDING_GI_CACHE),
+			scene_hits.GetRadianceCacheUniformBuffer(BINDING_RADIANCE_CACHE),
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
@@ -347,7 +347,7 @@ return {
 				optical_rays.GetGLSL() .. ray_materials.GetAlphaTestGLSL()
 				or
 				""
-			) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. gi_cache.GetScreenSampleGLSL("lighting_data") .. gi_cache.GetCommonGLSL() .. [[
+			) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. radiance_cache.GetScreenSampleGLSL("lighting_data") .. radiance_cache.GetCommonGLSL() .. [[
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
@@ -371,7 +371,7 @@ return {
 					return sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
 				}
 
-				vec4 gi = gi_cache_screen_sample(in_uv, N, in_view_depth);
+				vec4 gi = radiance_cache_screen_sample(in_uv, N, in_view_depth);
 				sky_visibility = gi.a;
 				return gi.rgb;
 			}
@@ -464,7 +464,7 @@ return {
 				bool traced_gi_reflection = false;
 				
 				if (lighting_data.gi_reflection_direction != 0 && lighting_data.gi_screen_specular_tex >= 0) {
-					reflection_gi = gi_cache_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
+					reflection_gi = radiance_cache_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
 					traced_gi_reflection = lighting_data.gi_per_pixel != 0;
 				}
 				

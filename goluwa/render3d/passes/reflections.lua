@@ -15,7 +15,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local render = import("goluwa/render/render.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
-local global_illumination = import("goluwa/render3d/global_illumination.lua")
+local radiance = import("goluwa/render3d/radiance.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_hits.RAY_QUERY
@@ -138,7 +138,7 @@ local HIT_SCREEN_GI_GLSL = [[
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local BINDING_EMITTERS = 10
 
-local function get_uniform_buffers(with_gi_cache)
+local function get_uniform_buffers(with_radiance_cache)
 	return {
 		{
 			name = "reflection_data",
@@ -199,8 +199,8 @@ local function get_uniform_buffers(with_gi_cache)
 				block.single_ray_roughness = single_ray_roughness:Get()
 				block.emitter_roughness = emitter_roughness:Get()
 
-				if render3d.IsPassEnabled("global_illumination") then
-					local irradiance, geometry = global_illumination.GetHitIrradianceTextures()
+				if render3d.IsPassEnabled("radiance") then
+					local irradiance, geometry = radiance.GetHitIrradianceTextures()
 					block.screen_gi_tex = self:GetTextureIndex(irradiance)
 					block.screen_geometry_tex = self:GetTextureIndex(geometry)
 				else
@@ -266,9 +266,9 @@ local function get_uniform_buffers(with_gi_cache)
 				return block
 			end,
 		},
-		with_gi_cache and
+		with_radiance_cache and
 		RAY_QUERY and
-		scene_hits.GetGICacheUniformBuffer(8) or
+		scene_hits.GetRadianceCacheUniformBuffer(8) or
 		nil,
 	}
 end
@@ -609,7 +609,7 @@ return {
 
 				#ifdef SCENE_HITS
 				// below the mirror blend the rays' density is not the lobe's
-				emitters_sampled = scene_hits_ready() && !reflection_screen_first(roughness) && gi_cache_data.gi_cache_emitter_count > 0 && roughness >= max(reflection_data.emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0);
+				emitters_sampled = scene_hits_ready() && !reflection_screen_first(roughness) && radiance_cache_data.radiance_cache_emitter_count > 0 && roughness >= max(reflection_data.emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0);
 				reflection_hit_emission = !emitters_sampled;
 				#endif
 

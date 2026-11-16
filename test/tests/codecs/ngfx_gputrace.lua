@@ -137,9 +137,9 @@ if io.open(named_sample, "rb") and ngfx_gputrace.GetKeystream() then
 		for _, entry in ipairs(profile.profiles) do
 			local name = entry.pipeline and entry.pipeline.name
 
-			if name == "gi_cache_shade" then
+			if name == "radiance_cache_shade" then
 				local rt = trace:GetSourceProfile(entry.pipeline)
-				T(rt.lines[1].file)["=="]("gi_cache_shade.rgen")
+				T(rt.lines[1].file)["=="]("radiance_cache_shade.rgen")
 				T(rt.unmapped < rt.samples * 0.05)["=="](true)
 			elseif name == "motion_blur" then
 				local top, best = nil, 0

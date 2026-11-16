@@ -28,7 +28,7 @@ particles.MAX_SYSTEMS = 8
 particles.LOCAL_SIZE = 64
 particles.RELIGHT_INTERVAL = 4
 local LOCAL_LIGHT_LIMIT = 8
-local BINDING_GI_CACHE = 1
+local BINDING_RADIANCE_CACHE = 1
 local BINDING_DATA = 2
 local BINDING_OCCLUSION = 3
 local BINDING_LIGHT_GRID = 4
@@ -445,7 +445,7 @@ function particles.GetSimulationGLSL()
 			if (!gi_available() || !gi_in_volume(P)) return environment;
 
 			float weight;
-			vec4 probes = gi_sample_irradiance(P, N, vec3(0.0), gi_cache_data.gi_cache_smooth_blend != 0, GI_CACHE_VISIBILITY_MIN_WEIGHT, weight);
+			vec4 probes = gi_sample_irradiance(P, N, vec3(0.0), radiance_cache_data.radiance_cache_smooth_blend != 0, RADIANCE_CACHE_VISIBILITY_MIN_WEIGHT, weight);
 			return mix(environment, probes.rgb, saturate(weight / ]] .. gi.MIN_WEIGHT .. [[));
 		}
 
@@ -563,8 +563,8 @@ function particles.BuildSimulationPasses()
 	local bvh_ready = false
 	local uniform_buffers = {
 		{
-			name = "gi_cache_data",
-			binding_index = BINDING_GI_CACHE,
+			name = "radiance_cache_data",
+			binding_index = BINDING_RADIANCE_CACHE,
 			block = gi.GetProbeBlockLayout(),
 			write = gi.WriteProbeBlock,
 		},

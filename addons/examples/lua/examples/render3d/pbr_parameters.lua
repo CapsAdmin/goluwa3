@@ -5,7 +5,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local media = import("goluwa/render3d/media.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local assets = import("goluwa/assets.lua")
-import("goluwa/render3d/gi_cache.lua").VISIBILITY_RAYS = 0
+import("goluwa/render3d/radiance_cache.lua").VISIBILITY_RAYS = 0
 local root = Entity.New{Name = "pbr_parameters"}
 local STATIC = {MotionType = "static"}
 local COLUMNS = 9

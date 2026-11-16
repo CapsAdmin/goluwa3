@@ -38,5 +38,5 @@ Visuals with `InSceneBVH = false` are not ray traced (mask 0) but are still draw
 
 - `test/tests/render3d/scene_store.lua` (rows, TLAS, LOD by distance, skinned refit) and `scene_cull.lua` (cull against a cpu reference: frustum, distance, size, LOD, depth pyramid, shadow cascades).
 - `draw.ReadBackCull(kind)` / `draw.ReadBackShadowCull` copy the last cull to the host and stall: tests and debugging only. `r_scene_draw_debug` reads it back about once a second for the CULLING tab; `scene_draw_dump` lists drawn rows.
-- `gi_cache_debug_scene albedo` shows what rays see. `rt_build` is the gpu time scope of the update and build.
+- `radiance_cache_debug_scene albedo` shows what rays see. `rt_build` is the gpu time scope of the update and build.
 - Blocking gpu waits (`render.SubmitAndWait`) exist only outside the per frame path (probe bakes, scene view screenshots, pool setup, terrain bake results).

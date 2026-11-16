@@ -687,7 +687,7 @@ function caustics.GetWorldGLSL(block_name)
 end
 
 function caustics.GetHitGLSL()
-	return "#ifndef CAUSTIC_HIT_GLSL\n#define CAUSTIC_HIT_GLSL\n" .. caustics.GetCoverageGLSL("gi_cache_data", "caustic_hit_covered") .. caustics.GetWorldGLSL("gi_cache_data") .. "\n#endif\n"
+	return "#ifndef CAUSTIC_HIT_GLSL\n#define CAUSTIC_HIT_GLSL\n" .. caustics.GetCoverageGLSL("radiance_cache_data", "caustic_hit_covered") .. caustics.GetWorldGLSL("radiance_cache_data") .. "\n#endif\n"
 end
 
 function caustics.GetGLSL(block_name)

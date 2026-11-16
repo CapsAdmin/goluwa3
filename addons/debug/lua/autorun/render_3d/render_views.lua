@@ -428,7 +428,7 @@ local LIGHTING_MODES = {
 	},
 	{
 		name = "gi only",
-		key = "global_illumination_debug",
+		key = "radiance_debug",
 		value = true,
 		description = "only the irradiance of the global illumination",
 	},
@@ -439,16 +439,16 @@ local LIGHTING_MODES = {
 		description = "what the screen space shadows darken, white is untouched",
 	},
 	{
-		name = "gi_cache probe irradiance",
-		key = "gi_cache_debug_probes",
+		name = "radiance_cache probe irradiance",
+		key = "radiance_cache_debug_probes",
 		value = "irradiance",
-		description = "markers at the gi_cache probes colored by their irradiance (the cascade is gi_cache_debug_cascade)",
+		description = "markers at the radiance_cache probes colored by their irradiance (the cascade is radiance_cache_debug_cascade)",
 	},
 	{
-		name = "gi_cache probe hit distance",
-		key = "gi_cache_debug_probes",
+		name = "radiance_cache probe hit distance",
+		key = "radiance_cache_debug_probes",
 		value = "hit_distance",
-		description = "markers at the gi_cache probes colored by the mean distance their rays hit",
+		description = "markers at the radiance_cache probes colored by the mean distance their rays hit",
 	},
 	{
 		name = "reflection scene",
@@ -457,22 +457,22 @@ local LIGHTING_MODES = {
 		description = "the scene the reflection rays trace, seen from the camera: the hit shading, lights, probes and fog a reflection of it has",
 	},
 	{
-		name = "gi_cache scene albedo",
-		key = "gi_cache_debug_scene",
+		name = "radiance_cache scene albedo",
+		key = "radiance_cache_debug_scene",
 		value = "albedo",
-		description = "the albedo of the scene the gi_cache probe rays trace",
+		description = "the albedo of the scene the radiance_cache probe rays trace",
 	},
 	{
-		name = "gi_cache scene normals",
-		key = "gi_cache_debug_scene",
+		name = "radiance_cache scene normals",
+		key = "radiance_cache_debug_scene",
 		value = "normals",
-		description = "the normals of the scene the gi_cache probe rays trace",
+		description = "the normals of the scene the radiance_cache probe rays trace",
 	},
 	{
-		name = "gi_cache scene hit distance",
-		key = "gi_cache_debug_scene",
+		name = "radiance_cache scene hit distance",
+		key = "radiance_cache_debug_scene",
 		value = "hit_distance",
-		description = "the hit distance of the scene the gi_cache probe rays trace",
+		description = "the hit distance of the scene the radiance_cache probe rays trace",
 	},
 }
 

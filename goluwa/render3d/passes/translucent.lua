@@ -162,7 +162,7 @@ table.insert(
 table.insert(
 	surface_uniform_buffers,
 	{
-		name = "gi_cache_data",
+		name = "radiance_cache_data",
 		block = gi.GetProbeBlockLayout(),
 		write = scene_hits.WriteProbeBlock,
 		upload_scope = "frame",
@@ -418,7 +418,7 @@ local passes = {
 					if (!use_probes || !gi_available() || !gi_in_volume(world_pos)) return irradiance;
 
 					float weight;
-					vec4 probes = gi_sample_irradiance(world_pos, facing_N, V, gi_cache_data.gi_cache_smooth_blend != 0, GI_CACHE_VISIBILITY_MIN_WEIGHT, weight);
+					vec4 probes = gi_sample_irradiance(world_pos, facing_N, V, radiance_cache_data.radiance_cache_smooth_blend != 0, RADIANCE_CACHE_VISIBILITY_MIN_WEIGHT, weight);
 					float confidence = saturate(weight / ]] .. gi.MIN_WEIGHT .. [[);
 					sky_visibility = mix(sky_visibility, probes.a, confidence);
 					return mix(irradiance, probes.rgb, confidence);
@@ -642,7 +642,7 @@ local passes = {
 
 						if (gi_available() && gi_in_volume(world_pos)) {
 							float simple_weight;
-							vec4 simple_probes = gi_sample_irradiance(world_pos, N, V, false, GI_CACHE_NO_VISIBILITY_RAYS, simple_weight);
+							vec4 simple_probes = gi_sample_irradiance(world_pos, N, V, false, RADIANCE_CACHE_NO_VISIBILITY_RAYS, simple_weight);
 							simple_irradiance = mix(simple_irradiance, simple_probes.rgb, saturate(simple_weight / ]] .. gi.MIN_WEIGHT .. [[));
 						}
 

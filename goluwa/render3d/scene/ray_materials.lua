@@ -327,7 +327,7 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 
 		]] .. OPTICAL_VOLUME_STRUCT_GLSL .. [[
 
-		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer GICacheMaterials {
+		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer RadianceCacheMaterials {
 			ivec3 optical_counts;
 			ivec4 optical_ranges;
 			int optical_layer;

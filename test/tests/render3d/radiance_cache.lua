@@ -8,7 +8,7 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
-local gi_cache = import("goluwa/render3d/gi_cache.lua")
+local radiance_cache = import("goluwa/render3d/radiance_cache.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -29,7 +29,7 @@ local function gi_mean()
 	return sum[1] / count, sum[2] / count, sum[3] / count, sum[4] / count
 end
 
-T.Test3DRayTracing("Graphics render3d gi_cache builds its probe passes and traces them", function(draw)
+T.Test3DRayTracing("Graphics render3d radiance_cache builds its probe passes and traces them", function(draw)
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
@@ -38,7 +38,7 @@ T.Test3DRayTracing("Graphics render3d gi_cache builds its probe passes and trace
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),
-			import("goluwa/render3d/passes/gi_cache.lua"),
+			import("goluwa/render3d/passes/radiance_cache.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/blit.lua"),
 		},
@@ -61,22 +61,22 @@ T.Test3DRayTracing("Graphics render3d gi_cache builds its probe passes and trace
 	local ok, err = pcall(function()
 		render3d.camera:SetPosition(Vec3(0, 4, 10))
 		render3d.camera:SetAngles{x = -15, y = 0, z = 0}
-		local ent = Entity.New{Name = "gi_cache_box"}
+		local ent = Entity.New{Name = "radiance_cache_box"}
 		created[#created + 1] = ent
 		ent:AddComponent("transform")
 		ent.transform:SetPosition(Vec3(0, 0, 0))
 		ent.transform:SetScale(Vec3(2, 2, 2))
 		ent:AddComponent("visual")
-		local p = Entity.New{Name = "gi_cache_box_p", Parent = ent}
+		local p = Entity.New{Name = "radiance_cache_box_p", Parent = ent}
 		created[#created + 1] = p
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
 		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9, MetallicMultiplier = 0})
 		ent.visual:BuildAABB()
-		T(render3d.IsPassEnabled("gi_cache"))["=="](true)
-		T(render3d.pipelines.gi_cache_irradiance ~= nil)["=="](true)
-		T(render3d.pipelines.gi_cache_resolve == nil)["=="](true)
-		T(gi.GetMode())["=="]("gi_cache")
+		T(render3d.IsPassEnabled("radiance_cache"))["=="](true)
+		T(render3d.pipelines.radiance_cache_irradiance ~= nil)["=="](true)
+		T(render3d.pipelines.radiance_cache_resolve == nil)["=="](true)
+		T(gi.GetMode())["=="]("radiance_cache")
 		T(gi.GetScreenTexture() == nil)["=="](true)
 
 		for _ = 1, 4 do
@@ -89,11 +89,11 @@ T.Test3DRayTracing("Graphics render3d gi_cache builds its probe passes and trace
 end)
 
 do
-	local function use_gi_cache()
+	local function use_radiance_cache()
 		render3d.Initialize{
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
-				import("goluwa/render3d/passes/gi_cache.lua"),
+				import("goluwa/render3d/passes/radiance_cache.lua"),
 			},
 		}
 	end
@@ -102,8 +102,8 @@ do
 		render3d.Initialize{
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
-				import("goluwa/render3d/passes/gi_cache.lua"),
-				import("goluwa/render3d/passes/global_illumination.lua"),
+				import("goluwa/render3d/passes/radiance_cache.lua"),
+				import("goluwa/render3d/passes/radiance.lua"),
 				import("goluwa/render3d/passes/lighting.lua"),
 				import("goluwa/render3d/passes/blit.lua"),
 			},
@@ -120,39 +120,39 @@ do
 	end
 
 	local function add_slab(polygon3d, created, min, max)
-		local ent = Entity.New{Name = "gi_cache_slab"}
+		local ent = Entity.New{Name = "radiance_cache_slab"}
 		created[#created + 1] = ent
 		ent:AddComponent("transform")
 		ent.transform:SetPosition((min + max) * 0.5)
 		ent.transform:SetScale((max - min) * 0.5)
 		ent:AddComponent("visual")
-		local p = Entity.New{Name = "gi_cache_slab_p", Parent = ent}
+		local p = Entity.New{Name = "radiance_cache_slab_p", Parent = ent}
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
 		p.visual_primitive:SetMaterial(Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), MetallicMultiplier = 0})
 		ent.visual:BuildAABB()
 	end
 
-	T.Test3DRayTracing("Graphics render3d gi_cache rays hit scene geometry", function(draw)
+	T.Test3DRayTracing("Graphics render3d radiance_cache rays hit scene geometry", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local created = {}
-		use_gi_cache()
+		use_radiance_cache()
 		render3d.camera:SetPosition(Vec3(0, 4, 10))
 		add_slab(polygon3d, created, Vec3(-100, -1, -100), Vec3(100, 0, 100))
 		local ok, err = pcall(function()
 			draw()
-			local state = gi_cache.GetFrameState()
-			local hits = ffi.cast("float*", gi_cache.GetRayHitBuffer():Map(0, gi_cache.GetRayHitBuffer():GetSize()))
+			local state = radiance_cache.GetFrameState()
+			local hits = ffi.cast("float*", radiance_cache.GetRayHitBuffer():Map(0, radiance_cache.GetRayHitBuffer():GetSize()))
 			local cascade = state.cascades[1]
 			local height = 2 * cascade.spacing
 			local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
 
-			for ray = 0, gi_cache.GetUniformRays() - 1 do
-				local _, dy = gi_cache.GetRayDirection(ray, gi_cache.GetUniformRays(), state.rotation)
-				local hit_t = hits[(probe * (gi_cache.RAYS_PER_PROBE + gi_cache.EMITTER_SAMPLES) + ray) * 4]
+			for ray = 0, radiance_cache.GetUniformRays() - 1 do
+				local _, dy = radiance_cache.GetRayDirection(ray, radiance_cache.GetUniformRays(), state.rotation)
+				local hit_t = hits[(probe * (radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES) + ray) * 4]
 
 				if dy < -0.1 then
 					T(hit_t)["~"](height / -dy, 0.01 * height / -dy)
@@ -172,15 +172,15 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3DRayTracing("Graphics render3d gi_cache rays skip moving instances until they settle", function(draw)
+	T.Test3DRayTracing("Graphics render3d radiance_cache rays skip moving instances until they settle", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local created = {}
-		use_gi_cache()
+		use_radiance_cache()
 		render3d.camera:SetPosition(Vec3(0, 4, 10))
-		local floor = Entity.New{Name = "gi_cache_moving_slab"}
+		local floor = Entity.New{Name = "radiance_cache_moving_slab"}
 		created[#created + 1] = floor
 		floor:AddComponent("transform")
 		floor.transform:SetPosition(Vec3(0, -0.5, 0))
@@ -193,21 +193,21 @@ do
 			}
 		)
 		floor:AddComponent("visual")
-		local p = Entity.New{Name = "gi_cache_moving_slab_p", Parent = floor}
+		local p = Entity.New{Name = "radiance_cache_moving_slab_p", Parent = floor}
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
 		p.visual_primitive:SetMaterial(Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), MetallicMultiplier = 0})
 		floor.visual:BuildAABB()
 		local ok, err = pcall(function()
 			local function probe_hits()
-				local state = gi_cache.GetFrameState()
-				local hits = ffi.cast("float*", gi_cache.GetRayHitBuffer():Map(0, gi_cache.GetRayHitBuffer():GetSize()))
+				local state = radiance_cache.GetFrameState()
+				local hits = ffi.cast("float*", radiance_cache.GetRayHitBuffer():Map(0, radiance_cache.GetRayHitBuffer():GetSize()))
 				local cascade = state.cascades[1]
 				local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
 				local count = 0
 
-				for ray = 0, gi_cache.GetUniformRays() - 1 do
-					if hits[(probe * (gi_cache.RAYS_PER_PROBE + gi_cache.EMITTER_SAMPLES) + ray) * 4] >= 0 then
+				for ray = 0, radiance_cache.GetUniformRays() - 1 do
+					if hits[(probe * (radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES) + ray) * 4] >= 0 then
 						count = count + 1
 					end
 				end
@@ -226,7 +226,7 @@ do
 				draw()
 			end
 
-			T(probe_hits() > gi_cache.GetUniformRays() / 4)["=="](true)
+			T(probe_hits() > radiance_cache.GetUniformRays() / 4)["=="](true)
 		end)
 
 		for _, e in ipairs(created) do
@@ -239,7 +239,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Slow(T.Test3DRayTracing, "Graphics render3d gi_cache a room lit through a pinhole is as bright as its slow average", function(draw)
+	T.Slow(T.Test3DRayTracing, "Graphics render3d radiance_cache a room lit through a pinhole is as bright as its slow average", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -275,8 +275,8 @@ do
 			return sum / 24
 		end
 
-		local hysteresis = pvars.Get("gi_cache_hysteresis")
-		local change_power = pvars.Get("gi_cache_change_power")
+		local hysteresis = pvars.Get("radiance_cache_hysteresis")
+		local change_power = pvars.Get("radiance_cache_change_power")
 		local ok, err = pcall(function()
 			gi.ResetHistory()
 
@@ -284,16 +284,16 @@ do
 				draw()
 			end
 
-			pvars.SetSession("gi_cache_hysteresis", 0.998)
-			pvars.SetSession("gi_cache_change_power", 1)
+			pvars.SetSession("radiance_cache_hysteresis", 0.998)
+			pvars.SetSession("radiance_cache_change_power", 1)
 
 			for _ = 1, 900 do
 				draw()
 			end
 
 			local slow = gi_average()
-			pvars.SetSession("gi_cache_hysteresis", hysteresis)
-			pvars.SetSession("gi_cache_change_power", change_power)
+			pvars.SetSession("radiance_cache_hysteresis", hysteresis)
+			pvars.SetSession("radiance_cache_change_power", change_power)
 
 			for _ = 1, 60 do
 				draw()
@@ -304,8 +304,8 @@ do
 			T(default >= slow * 0.7)["=="](true)
 			T(default <= slow * 1.35)["=="](true)
 		end)
-		pvars.SetSession("gi_cache_hysteresis", hysteresis)
-		pvars.SetSession("gi_cache_change_power", change_power)
+		pvars.SetSession("radiance_cache_hysteresis", hysteresis)
+		pvars.SetSession("radiance_cache_change_power", change_power)
 
 		for _, e in ipairs(created) do
 			if e:IsValid() then e:Remove() end
@@ -317,13 +317,13 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3DRayTracing("Graphics render3d gi_cache small emitter is registered in the emitter buffer", function(draw)
+	T.Test3DRayTracing("Graphics render3d radiance_cache small emitter is registered in the emitter buffer", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
 		polygon3d:Upload()
 		local created = {}
-		use_gi_cache()
+		use_radiance_cache()
 		render3d.camera:SetPosition(Vec3(0, 3, 2))
 		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
 		add_slab(polygon3d, created, Vec3(-6, -3, -6), Vec3(6, 0, 6))
@@ -332,13 +332,13 @@ do
 		add_slab(polygon3d, created, Vec3(-3, 0, -6), Vec3(3, 6, -3))
 		add_slab(polygon3d, created, Vec3(-3, 0, 3), Vec3(3, 6, 6))
 		add_slab(polygon3d, created, Vec3(-6, 6, -6), Vec3(6, 9, 6))
-		local emitter = Entity.New{Name = "gi_cache_test_emitter"}
+		local emitter = Entity.New{Name = "radiance_cache_test_emitter"}
 		created[#created + 1] = emitter
 		emitter:AddComponent("transform")
 		emitter.transform:SetPosition(Vec3(0, 1.5, 2.3))
 		emitter.transform:SetScale(Vec3(0.05, 0.05, 0.05))
 		emitter:AddComponent("visual")
-		local p = Entity.New{Name = "gi_cache_test_emitter_p", Parent = emitter}
+		local p = Entity.New{Name = "radiance_cache_test_emitter_p", Parent = emitter}
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
 		p.visual_primitive:SetMaterial(
@@ -353,7 +353,7 @@ do
 
 		local function settle(position, draws)
 			emitter.transform:SetPosition(position)
-			gi_cache.ResetHistory()
+			radiance_cache.ResetHistory()
 
 			for _ = 1, draws do
 				draw()
@@ -384,17 +384,17 @@ do
 	end)
 end
 
-T.Test3DRayTracing("Graphics render3d gi_cache material buffer marks materials without an albedo texture", function(draw)
+T.Test3DRayTracing("Graphics render3d radiance_cache material buffer marks materials without an albedo texture", function(draw)
 	local ffi = require("ffi")
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
 	polygon3d:Upload()
 	local material = Material.New{ColorMultiplier = Color(0.25, 0.5, 0.75, 1)}
-	local ent = Entity.New{Name = "gi_cache_material_box"}
+	local ent = Entity.New{Name = "radiance_cache_material_box"}
 	ent:AddComponent("transform")
 	ent:AddComponent("visual")
-	local p = Entity.New{Name = "gi_cache_material_box_p", Parent = ent}
+	local p = Entity.New{Name = "radiance_cache_material_box_p", Parent = ent}
 	p:AddComponent("transform")
 	p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
 	p.visual_primitive:SetMaterial(material)
@@ -442,7 +442,7 @@ T.Test3DRayTracing("Graphics render3d gi_cache material buffer marks materials w
 	if not ok then error(err, 0) end
 end)
 
-T.Test3DRayTracing("Graphics render3d gi_cache material buffer carries media and the water volumes in its optical prefix", function(draw)
+T.Test3DRayTracing("Graphics render3d radiance_cache material buffer carries media and the water volumes in its optical prefix", function(draw)
 	local materials = import("goluwa/render3d/scene/materials.lua")
 	local previous_ocean_enabled = render3d.IsOceanEnabled()
 	local previous_fog_visibility = atmosphere.GetGroundFogVisibility()
@@ -450,12 +450,12 @@ T.Test3DRayTracing("Graphics render3d gi_cache material buffer carries media and
 	atmosphere.SetGroundFogVisibility(3000)
 	local material = Material.New{Medium = "ice", MediumDensity = 2}
 	local volume = Entity.New{
-		Name = "gi_cache_water_volume",
+		Name = "radiance_cache_water_volume",
 		transform = {Position = Vec3(0, 1, 0)},
 		water_volume = {Size = Vec3(4, 2, 6), Medium = "lake", WaveHeight = 0.1},
 	}
 	local fog = Entity.New{
-		Name = "gi_cache_fog_volume",
+		Name = "radiance_cache_fog_volume",
 		transform = {Position = Vec3(0, 1, 0)},
 		fluid_volume = {
 			Simulation = "procedural",

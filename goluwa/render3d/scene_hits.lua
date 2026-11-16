@@ -126,7 +126,7 @@ function scene_hits.GetDeclarationGLSL(bindings, shared)
 		]] .. (
 			shared and
 			"" or
-			"#define GI_CACHE_VISIBILITY_RAYS"
+			"#define RADIANCE_CACHE_VISIBILITY_RAYS"
 		) .. [[
 
 		#define SCENE_HITS
@@ -239,14 +239,14 @@ end
 function scene_hits.WriteProbeBlock(self, block)
 	gi.WriteProbeBlock(self, block)
 
-	if not enabled:Get() then block.gi_cache_rt_ready = 0 end
+	if not enabled:Get() then block.radiance_cache_rt_ready = 0 end
 
 	return block
 end
 
-function scene_hits.GetGICacheUniformBuffer(binding)
+function scene_hits.GetRadianceCacheUniformBuffer(binding)
 	return {
-		name = "gi_cache_data",
+		name = "radiance_cache_data",
 		binding_index = binding,
 		block = gi.GetProbeBlockLayout(),
 		write = scene_hits.WriteProbeBlock,
@@ -257,7 +257,7 @@ function scene_hits.GetGLSL(block_name, shared)
 	return ray_materials.GetHitDefinesGLSL() .. (
 			shared and
 			"" or
-			gi.GetCommonGLSL() .. clouds.GetShadowGLSL("gi_cache_data") .. scene_lights.GetLightGLSLCode()
+			gi.GetCommonGLSL() .. clouds.GetShadowGLSL("radiance_cache_data") .. scene_lights.GetLightGLSLCode()
 		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. ibl.GetEONGLSL() .. (
 			shared and
 			"" or
@@ -278,7 +278,7 @@ function scene_hits.GetGLSL(block_name, shared)
 		#endif
 
 		float scene_hit_random(vec3 p, int light) {
-			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(gi_cache_data.gi_cache_frame) * 40503u))).x);
+			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(radiance_cache_data.radiance_cache_frame) * 40503u))).x);
 		}
 
 		float scene_hit_light_weight(vec3 contribution, vec3 p, int light) {
@@ -290,7 +290,7 @@ function scene_hits.GetGLSL(block_name, shared)
 		}
 
 		bool scene_hits_ready() {
-			return gi_cache_data.gi_cache_rt_ready != 0;
+			return radiance_cache_data.radiance_cache_rt_ready != 0;
 		}
 
 		bool reflection_screen_first(float roughness) {
@@ -421,14 +421,14 @@ function scene_hits.GetGLSL(block_name, shared)
 			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive) : vec3(0.0);
 			hit_roughness = clamp(hit_roughness, 0.045, 1.0);
 			float hit_NoV = max(dot(hit_N, -dir), 1e-4);
-			vec3 sun_L = normalize(gi_cache_data.gi_cache_sun_direction.xyz);
+			vec3 sun_L = normalize(radiance_cache_data.radiance_cache_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 
 			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_hit_visible(surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
 				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-				vec3 sun_radiance = Fd_EON(albedo, hit_roughness, sun_NoL, hit_NoV, dot(sun_L, -dir)) * gi_cache_data.gi_cache_sun_radiance.rgb * sun_NoL * get_cloud_shadow(P) * gi_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, gi_cache_data.gi_cache_ground_fog.x, gi_cache_data.gi_cache_ground_fog.y, gi_cache_data.gi_cache_ground_fog.z, gi_cache_data.gi_cache_ground_fog_range.x, gi_cache_data.gi_cache_ground_fog_range.y);
+				vec3 sun_radiance = Fd_EON(albedo, hit_roughness, sun_NoL, hit_NoV, dot(sun_L, -dir)) * radiance_cache_data.radiance_cache_sun_radiance.rgb * sun_NoL * get_cloud_shadow(P) * radiance_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);
 
-				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= caustic_hit_covered(int(gi_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
+				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
 
 				radiance += sun_radiance;
 			}
@@ -560,7 +560,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			#endif
 
 			float weight;
-			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, GI_CACHE_CONTRAST_VISIBILITY_RAYS, weight);
+			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight);
 
 			if (!gi_covers(P, weight)) {
 				vec3 tangent = normalize(cross(hit_N, abs(hit_N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
@@ -575,7 +575,7 @@ function scene_hits.GetGLSL(block_name, shared)
 					if (scene_hit_visible(surface, sky_dir, SCENE_HIT_MAX_DISTANCE)) open_sky += 1.0 / float(SCENE_HIT_SKY_RAYS);
 				}
 
-				gi.rgb = sample_environment_irradiance(gi_cache_data.gi_cache_env_irradiance_tex, hit_N) * open_sky;
+				gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, hit_N) * open_sky;
 			}
 
 			#ifdef SCENE_HIT_GI_SHARE
@@ -594,7 +594,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 			if (fog_hit) {
 				vec3 fog_origin = get_atmosphere_camera_origin(origin);
-				vec3 fog_ambient = gi_cache_fog_ambient();
+				vec3 fog_ambient = radiance_cache_fog_ambient();
 				vec3 fog_sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_origin, ATMOSPHERE_SKY_SUN_DIRECTION) * ATMOSPHERE_FOG_RAY_STRENGTH;
 				radiance += optical_inscatter_lit(origin, dir, hit_t, fog_ambient, fog_sun, ATMOSPHERE_SKY_SUN_DIRECTION, true);
 			}

@@ -20,7 +20,7 @@ local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
 local SCENE_BINDINGS = {scene = 6, hit = 30, materials = 8, light_grid = 9}
-local BINDING_GI_CACHE = 12
+local BINDING_RADIANCE_CACHE = 12
 local SCREEN_EDGE_BLEND = 0.03
 local MAX_BOUNCES = 3
 local MIN_REFLECTED = 0.08
@@ -205,7 +205,7 @@ return {
 					return block
 				end,
 			},
-			scene_hits.GetGICacheUniformBuffer(BINDING_GI_CACHE),
+			scene_hits.GetRadianceCacheUniformBuffer(BINDING_RADIANCE_CACHE),
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;

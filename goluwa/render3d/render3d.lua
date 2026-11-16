@@ -366,14 +366,14 @@ local default_passes = {
 		group = "ambient occlusion",
 	},
 	{
-		"gi_cache",
-		"goluwa/render3d/passes/gi_cache.lua",
+		"radiance_cache",
+		"goluwa/render3d/passes/radiance_cache.lua",
 		group = "global illumination",
 		gi = "probes",
 	},
 	{
-		"global_illumination",
-		"goluwa/render3d/passes/global_illumination.lua",
+		"radiance",
+		"goluwa/render3d/passes/radiance.lua",
 		group = "global illumination",
 	},
 	{"reflections", "goluwa/render3d/passes/reflections.lua", group = "reflections"},
@@ -452,11 +452,11 @@ end
 
 pvars.EndGroup()
 pvars.StartGroup("Lighting", "Global illumination", {store = false})
-local gi_cache = pvars.Setup2{
-	key = "r_gi_cache",
+local radiance_cache = pvars.Setup2{
+	key = "r_radiance_cache",
 	default = "probes",
 	enums = {"probes", "none"},
-	help = "the world space gi cache under the global illumination pass: its rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. probes builds the probe cascades (gi_cache pass), none lights the hits with the sky through a few rays",
+	help = "the world space radiance cache under the radiance pass: its rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. probes builds the probe cascades (radiance_cache pass), none lights the hits with the sky through a few rays",
 	callback = function(value, initial)
 		if initial then return end
 
@@ -466,7 +466,7 @@ local gi_cache = pvars.Setup2{
 pvars.EndGroup()
 
 local function is_gi_pass_wanted(name)
-	return name == gi_cache:Get()
+	return name == radiance_cache:Get()
 end
 
 function render3d.IsBundlePassEnabled(bundle, name)
