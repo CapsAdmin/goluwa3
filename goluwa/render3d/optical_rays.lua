@@ -180,6 +180,11 @@ function optical_rays.GetGLSL()
 		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
 			if (get_optical_header().y + get_optical_header().z == 0) return vec3(0.0);
 
+			// what scatters in is what the volumes take out along the ray: a ray that loses nothing to them needs none of the visibility rays below
+			vec3 through = get_medium_volume_tint(origin, dir, distance, false, with_layer, false);
+
+			if (min(through.r, min(through.g, through.b)) > 0.9999) return vec3(0.0);
+
 			vec3 sun_visibility = vec3(0.0);
 
 			if (dot(sun_radiance, sun_radiance) > 0.0) {
