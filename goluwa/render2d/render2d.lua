@@ -141,14 +141,14 @@ local function blend_preset(blend, src_color, dst_color, color_op, src_alpha, ds
 end
 
 render2d.blend_modes = {
-	alpha = blend_preset(true, "src_alpha", "one_minus_src_alpha", "add", "one", "zero", "add"),
+	alpha = blend_preset(true, "src_alpha", "one_minus_src_alpha", "add", "one", "one_minus_src_alpha", "add"),
 	additive = blend_preset(true, "src_alpha", "one", "add", "zero", "one", "add"),
 	multiply = blend_preset(true, "dst_color", "zero", "add", "dst_alpha", "zero", "add"),
 	premultiplied = blend_preset(true, "one", "one_minus_src_alpha", "add", "one", "one_minus_src_alpha", "add"),
 	screen = blend_preset(true, "one", "one_minus_src_color", "add", "one", "one_minus_src_alpha", "add"),
 	subtract = blend_preset(true, "src_alpha", "one", "reverse_subtract", "one", "one", "reverse_subtract"),
 	none = blend_preset(false, "one", "zero", "add", "one", "zero", "add"),
-	subpixel = blend_preset(true, "src1_color", "one_minus_src1_color", "add", "one", "zero", "add"),
+	subpixel = blend_preset(true, "src1_color", "one_minus_src1_color", "add", "one", "one_minus_src_alpha", "add"),
 }
 
 local function stencil_mode(stencil_test, pass_op, compare_op, color_write_mask)

@@ -385,7 +385,7 @@ T.Test2D("Graphics render2d alpha multiplier rendering", function()
 	return function()
 		T.AssertScreenPixel{
 			pos = {20, 20},
-			color = {0.736, 0.736, 0.736, 0.5},
+			color = {0.736, 0.736, 0.736, 1.0},
 			tolerance = 0.02,
 		}
 	end
