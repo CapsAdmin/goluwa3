@@ -38,6 +38,11 @@ local debug_direct = pvars.Setup2{
 	default = false,
 	help = "show only the direct light",
 }
+local debug_reflections = pvars.Setup2{
+	key = "lighting_debug_reflections",
+	default = false,
+	help = "shows the traced reflection the lighting reads (after the reflection pass's filter and history) instead of the lit scene, black where nothing was traced",
+}
 pvars.StartGroup(
 	"Lighting",
 	"Screen space shadows",
@@ -153,6 +158,7 @@ return {
 					render3d.last_frame_block,
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
+					{"reflection_debug", "int"},
 					{"reflection_tex", "int"},
 					ibl.reflection_weight_block,
 					{"ambient_occlusion_tex", "int"},
@@ -178,6 +184,7 @@ return {
 					render3d.WriteLastFrameBlock(self, block)
 					block.gi_debug = gi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
+					block.reflection_debug = debug_reflections:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
 					block.sky_air = (
 							render3d.GetActiveRenderContext() or
@@ -590,6 +597,10 @@ return {
 				if (lighting_data.gi_debug != 0) {
 					float debug_sky_visibility;
 					color = get_gi_irradiance(N, debug_sky_visibility);
+				}
+
+				if (lighting_data.reflection_debug != 0) {
+					color = get_filtered_reflection(in_uv).rgb / get_pre_exposure();
 				}
 
 				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));
