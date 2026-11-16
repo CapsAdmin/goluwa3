@@ -6,6 +6,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local perf = import("lua/perf.lua")
+local slice_color = import("lua/gpu_slice_color.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local WIDTH, HEIGHT = 660, 430
 local PIE_X, PIE_Y, PIE_RADIUS, PIE_INNER = 200, 232, 150, 84
@@ -41,11 +42,6 @@ local function pass_label(group, name)
 	end
 
 	return label:sub(#word + 2)
-end
-
-local function slice_color(index, shade)
-	local c = Color.FromHSV(index * 0.381966, 0.62 - shade * 0.25, 0.95 - shade * 0.35)
-	return c.r, c.g, c.b
 end
 
 local META = Panel:CreateTemplate("gpu_pie")
@@ -96,12 +92,26 @@ local function collect()
 		total = total + entry.ms
 	end
 
-	for i, entry in ipairs(entries) do
-		entry.r, entry.g, entry.b = slice_color(i, group and (i % 2) * 0.5 or 0)
-		entry.fraction = total > 0 and entry.ms / total or 0
+	local frame = get_ms("gpu_frame")
+	local ring = total
+
+	if not group and frame > total then
+		ring = frame
+		entries[#entries + 1] = {label = "unaccounted", ms = frame - total, static = true}
 	end
 
-	return group, entries, total
+	for i, entry in ipairs(entries) do
+		if entry.static then
+			entry.r, entry.g, entry.b = 0.3, 0.32, 0.38
+		else
+			entry.r, entry.g, entry.b = slice_color(i, group and (i % 2) * 0.5 or 0)
+		end
+
+		entry.fraction = ring > 0 and entry.ms / ring or 0
+		entry.share = frame > 0 and entry.ms / frame or 0
+	end
+
+	return group, entries, total, frame
 end
 
 local function entry_at(entries, local_x, local_y)
@@ -155,7 +165,7 @@ function META:OnMouseInput(button, press, local_pos)
 
 	local index = entry_at(entries, local_pos.x, local_pos.y)
 
-	if index and not group then
+	if index and not group and not entries[index].static then
 		selected = entries[index].id
 		switch_time = system.GetUnscaledElapsedTime()
 	end
@@ -164,7 +174,7 @@ function META:OnMouseInput(button, press, local_pos)
 end
 
 function META:OnDraw()
-	local group, entries, total = collect()
+	local group, entries, total, frame = collect()
 	local mouse = self.mouse_input:GetMousePosition()
 	local hovered = self.mouse_input.Hovered and entry_at(entries, mouse.x, mouse.y)
 	local ease = math.clamp((system.GetUnscaledElapsedTime() - switch_time) / ZOOM_SECONDS, 0, 1)
@@ -223,7 +233,7 @@ function META:OnDraw()
 		size = 20,
 		foreground_color = TEXT,
 	}
-	local sub = string.format("%.2f ms", total)
+	local sub = string.format("%.2f ms in passes", total)
 	local sub_w = render2d.GetTextSize(sub, nil, 15)
 	render2d.DrawText{
 		text = sub,
@@ -232,10 +242,10 @@ function META:OnDraw()
 		size = 15,
 		foreground_color = TEXT_DIM,
 	}
-	local frame = string.format("frame %.2f ms", get_ms("gpu_frame"))
-	local frame_w = render2d.GetTextSize(frame, nil, 12)
+	local frame_text = string.format("frame %.2f ms", frame)
+	local frame_w = render2d.GetTextSize(frame_text, nil, 12)
 	render2d.DrawText{
-		text = frame,
+		text = frame_text,
 		x = PIE_X - frame_w / 2,
 		y = PIE_Y + 22,
 		size = 12,
@@ -246,6 +256,17 @@ function META:OnDraw()
 			"click the center or right click to go back" or
 			"click a slice to zoom in",
 		x = 16,
+		y = HEIGHT - 24,
+		size = 12,
+		foreground_color = TEXT_DIM,
+	}
+	render2d.DrawText{
+		text = string.format(
+			"compute queue %.2f ms, overlap %.2f ms",
+			get_ms("gpu_compute"),
+			math.max(total - frame, 0)
+		),
+		x = LIST_X,
 		y = HEIGHT - 24,
 		size = 12,
 		foreground_color = TEXT_DIM,
@@ -277,7 +298,7 @@ function META:OnDraw()
 			size = 12,
 			foreground_color = dim and TEXT_DIM or TEXT,
 		}
-		local text = string.format("%.3f  %4.1f%%", entry.ms, entry.fraction * 100)
+		local text = string.format("%.3f  %4.1f%%", entry.ms, entry.share * 100)
 		local text_w = render2d.GetTextSize(text, nil, 12)
 		render2d.DrawText{
 			text = text,

@@ -348,7 +348,7 @@ do
 		local by_id = {}
 
 		for _, name in ipairs(slot_order) do
-			if name ~= TOTAL_NAME and name ~= "gpu_frame" then
+			if name ~= TOTAL_NAME and name ~= "gpu_frame" and name ~= "gpu_compute" then
 				local group = scope_groups[name]
 				local id = group or name
 				local entry = by_id[id]
