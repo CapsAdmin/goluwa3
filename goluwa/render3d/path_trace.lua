@@ -42,6 +42,17 @@ path_trace.difference_stops = pvars.Setup2{
 	default = 1,
 	help = "the difference in stops (factors of two) between the raster lighting and the reference that the difference view shows in full colour",
 }
+path_trace.caustics = pvars.Setup2{
+	key = "path_trace_caustics",
+	default = true,
+	help = "light is bent by glass and water: paths refract and reflect through glass bodies, and photons traced from the sun through glass and water tops land on the surfaces the camera sees (the caustics a path from the surface cannot find the small sun through). off glass only tints the light passing straight through it, as in the raster lighting",
+}
+path_trace.photons = pvars.Setup2{
+	key = "path_trace_photons",
+	default = 1048576,
+	integer = true,
+	help = "photons traced from the sun through glass and water each frame for the caustics, more converges the caustics in fewer frames",
+}
 path_trace.reset_on_scene_change = pvars.Setup2{
 	key = "path_trace_reset_on_scene_change",
 	default = false,
@@ -53,6 +64,8 @@ local state = {
 	samples = 0,
 	reset = true,
 	signature = {},
+	before = 0,
+	trace = false,
 }
 
 function path_trace.Reset()
@@ -112,6 +125,7 @@ do
 		any = changed(signature, 15, instances.GetCount()) or any
 		any = changed(signature, 16, render3d.GetEnvironmentTexture()) or any
 		any = changed(signature, 17, path_trace.bounces:Get()) or any
+		any = changed(signature, 18, path_trace.caustics:Get()) or any
 		local scene_all, scene_boxes = bridge.ConsumeDirty(dirty_queue)
 
 		if path_trace.reset_on_scene_change:Get() and (scene_all or scene_boxes[1]) then
@@ -131,8 +145,24 @@ do
 			state.samples = before + path_trace.samples_per_frame:Get()
 		end
 
+		state.before = before
+		state.trace = trace
 		return before, trace
 	end
+
+	function path_trace.GetFrame()
+		return state.before, state.trace
+	end
+end
+
+function path_trace.AreCausticsTraced()
+	return render3d.IsPassEnabled("path_trace") and path_trace.caustics:Get()
+end
+
+function path_trace.AreCausticsShown()
+	return render3d.IsPassEnabled("path_trace") and
+		path_trace.caustics:Get() and
+		path_trace.view:Get() == "path"
 end
 
 local function attachment(index)

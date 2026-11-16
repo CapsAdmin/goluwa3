@@ -11,6 +11,7 @@ local medium_surface = import("goluwa/render3d/medium_surface.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local scene_materials = import("goluwa/render3d/scene/materials.lua")
+local path_trace = import("goluwa/render3d/path_trace.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local Material = import("goluwa/render3d/material.lua")
 local caustics = {}
@@ -428,7 +429,7 @@ function caustics.IsLit()
 end
 
 function caustics.IsActive()
-	return render3d.IsPassEnabled("caustics")
+	return render3d.IsPassEnabled("caustics") or path_trace.AreCausticsTraced()
 end
 
 local function write_coverage(block, state)

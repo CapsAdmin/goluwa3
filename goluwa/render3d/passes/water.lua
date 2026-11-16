@@ -21,6 +21,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local render = import("goluwa/render/render.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
+local path_trace = import("goluwa/render3d/path_trace.lua")
 local caustics = import("goluwa/render3d/caustics.lua")
 local RAY_QUERY = scene_hits.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
@@ -781,7 +782,16 @@ list.insert(
 					write_ocean(self, block)
 					medium_surface.WriteBlock(self, block)
 					caustics.WriteCoverageBlock(block)
-					block.photon_caustics = (optical_rays.IsEnabled() and caustics.IsLit()) and 1 or 0
+					block.photon_caustics = (
+							optical_rays.IsEnabled() and
+							(
+								caustics.IsLit() or
+								path_trace.AreCausticsShown()
+							)
+						)
+						and
+						1 or
+						0
 
 					if RAY_QUERY then
 						light_occlusion.WriteOcclusionBlock(block, lights)

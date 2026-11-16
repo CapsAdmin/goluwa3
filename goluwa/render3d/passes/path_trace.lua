@@ -14,6 +14,7 @@ local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local path_trace = import("goluwa/render3d/path_trace.lua")
+local caustics = import("goluwa/render3d/caustics.lua")
 
 if not optical_rays.RAY_QUERY then return {} end
 
@@ -26,6 +27,9 @@ local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
 local BINDING_SUBSURFACE = 7
 local BINDING_VIEW = 9
+local BINDING_PHOTONS = 10
+local PHOTON_LOCAL_SIZE = {x = 64, y = 1, z = 1}
+local PHOTON_ROW = 65536
 local SCENE_BINDINGS = {scene = 6, hit = 30, materials = 8}
 local VIEW_INDEX = {}
 
@@ -38,99 +42,7 @@ local function lighting_attachment(index)
 end
 
 local SUN_ONE_MINUS_COS = 2 * math.sin(atmosphere.SUN_ANGULAR_RADIUS / 2) ^ 2
-return {
-	{
-		name = "path_trace",
-		ComputePass = true,
-		is_enabled = function()
-			return render3d.IsPassEnabled("lighting")
-		end,
-		ColorFormat = {
-			{"r32g32b32a32_sfloat", {"path_trace", "rgba"}},
-			{"r32g32b32a32_sfloat", {"path_trace_raster", "rgba"}},
-			{"r16g16b16a16_sfloat", {"path_trace_view", "rgba"}},
-		},
-		framebuffer_count = 1,
-		LocalSize = COMPUTE_LOCAL_SIZE,
-		storage_images = {
-			{binding_index = BINDING_ACCUM, attachment = 1, dst_stage = "compute"},
-			{binding_index = BINDING_RASTER, attachment = 2, dst_stage = "compute"},
-			{binding_index = BINDING_VIEW, attachment = 3, dst_stage = "compute"},
-			{
-				binding_index = BINDING_SCENE_COLOR,
-				dst_stage = {"compute", "fragment"},
-				get_texture = function()
-					return lighting_attachment(1)
-				end,
-			},
-			{
-				binding_index = BINDING_SUBSURFACE,
-				dst_stage = "compute",
-				get_texture = function()
-					return lighting_attachment(2)
-				end,
-			},
-		},
-		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
-		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		on_pre_draw = function(self, cmd, frame, desc)
-			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
-			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
-		end,
-		sampled_images = {
-			{
-				binding_index = BINDING_OCCLUSION_MAP,
-				get_texture = function()
-					return light_occlusion.GetOcclusionTexture()
-				end,
-			},
-		},
-		uniform_buffers = {
-			{
-				-- the surface features' decode snippets read the block as lighting_data
-				name = "lighting_data",
-				binding_index = BINDING_UNIFORM,
-				block = {
-					surface_lighting.block,
-					gbuffer_layout.block,
-					surface_weather.rain_surface_block,
-					render3d.last_frame_block,
-					{"hit_max_distance", "float"},
-					{"pt_samples_before", "int"},
-					{"pt_samples_per_frame", "int"},
-					{"pt_trace", "int"},
-					{"pt_bounces", "int"},
-					{"pt_view", "int"},
-					{"pt_split", "float"},
-					{"pt_difference_stops", "float"},
-				},
-				write = function(self, block)
-					surface_lighting.WriteBlock(self, block)
-					gbuffer_layout.WriteBlock(self, block)
-					surface_weather.WriteRainSurfaceBlock(self, block)
-					render3d.WriteLastFrameBlock(self, block)
-					block.hit_max_distance = scene_hits.max_distance:Get()
-					local before, trace = path_trace.Update(block.lights)
-					block.pt_samples_before = before
-					block.pt_samples_per_frame = path_trace.samples_per_frame:Get()
-					block.pt_trace = trace and 1 or 0
-					block.pt_bounces = path_trace.bounces:Get()
-					block.pt_view = VIEW_INDEX[path_trace.view:Get()]
-					block.pt_split = path_trace.split:Get()
-					block.pt_difference_stops = path_trace.difference_stops:Get()
-					return block
-				end,
-			},
-		},
-		custom_declarations = [[
-			layout(set = 0, binding = ]] .. BINDING_ACCUM .. [[, rgba32f) uniform image2D path_accum;
-			layout(set = 0, binding = ]] .. BINDING_RASTER .. [[, rgba32f) uniform writeonly image2D path_raster;
-			layout(set = 0, binding = ]] .. BINDING_SCENE_COLOR .. [[, rgba16f) uniform image2D scene_color;
-			layout(set = 0, binding = ]] .. BINDING_SUBSURFACE .. [[, rgba16f) uniform writeonly image2D scene_subsurface_diffuse;
-			layout(set = 0, binding = ]] .. BINDING_VIEW .. [[, rgba16f) uniform writeonly image2D path_view;
-			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. optical_rays.GetDeclarationGLSL(SCENE_BINDINGS) .. [[
-		]],
-		shader = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
+local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
 			vec2 in_uv;
 			ivec2 in_pixel;
 			float in_view_depth;
@@ -141,7 +53,7 @@ return {
 
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_at"}) .. [[
 
-			]] .. screen_reconstruct.GetGeometricNormalGLSL("lighting_data") .. [[
+			]] .. screen_reconstruct.GetGeometricNormalGLSL("lighting_data") .. caustics.GetGLSL("lighting_data") .. [[
 
 			#define PT_PI 3.14159265359
 			#define PT_MASK ]] .. string.format("0x%02X", scene_instances.MASK_SURFACES) .. [[
@@ -169,7 +81,8 @@ return {
 			#define PT_PROCEED(query) \
 				while (rayQueryProceedEXT(query)) { \
 					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)); \
-					if (ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
+					ray_material candidate_material = ray_materials[scene_instance_material(candidate)]; \
+					if ((lighting_data.pt_caustics != 0 && candidate_material.caustic != 0) || (candidate_material.transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false)))) rayQueryConfirmIntersectionEXT(query); \
 				}
 
 			bool pt_trace(vec3 origin, vec3 dir, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
@@ -327,7 +240,7 @@ return {
 
 						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !ray_shadow_visible(origin, L, lighting_data.hit_max_distance, 0u)) continue;
 
-						if (lighting_data.light_transmittance != 0) contribution *= get_light_transmittance(origin, L, OPTICAL_SUN_DISTANCE, 0.0);
+						if (lighting_data.light_transmittance != 0) contribution *= lighting_data.pt_caustics != 0 ? get_light_transmittance_caustic(origin, L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(origin, L, OPTICAL_SUN_DISTANCE, 0.0);
 
 						radiance += contribution * pt_power_heuristic(1.0 / PT_SUN_SOLID_ANGLE, bsdf_pdf);
 						continue;
@@ -382,7 +295,7 @@ return {
 
 				if (dist <= 0.0 || !ray_shadow_visible(origin, L, dist, ]] .. string.format("0x%02Xu", scene_instances.MASK_LIGHT_BODY) .. [[)) return radiance;
 
-				if (lighting_data.light_transmittance != 0) contribution *= get_light_transmittance_local(origin, L, dist, 0.0);
+				if (lighting_data.light_transmittance != 0) contribution *= lighting_data.pt_caustics != 0 ? get_light_transmittance_local_caustic(origin, L, dist, 0.0) : get_light_transmittance_local(origin, L, dist, 0.0);
 
 				return radiance + contribution;
 			}
@@ -421,13 +334,47 @@ return {
 				return radiance;
 			}
 
+			vec3 pt_light_hit_bent(vec3 origin, vec3 dir, float scene_distance, bool primary, vec3 primary_P) {
+				vec3 radiance = vec3(0.0);
+
+				for (int i = 0; i < lighting_data.light_count; i++) {
+					lights_t light = lighting_data.lights[i];
+					int type = get_light_type(light);
+
+					if (type != 1 && type != 3) continue;
+
+					vec3 axis;
+					float attenuation;
+
+					if (!get_light_vector_and_attenuation(light, origin, axis, attenuation)) continue;
+
+					float one_minus_cos = pt_light_one_minus_cos(light, distance(light.position.xyz, origin));
+
+					if (one_minus_cos <= 0.0 || 1.0 - dot(dir, axis) > one_minus_cos) continue;
+
+					float dist = pt_sphere_distance(origin, dir, light.position.xyz, light.direction.w);
+
+					if (dist <= 0.0 || dist > scene_distance) continue;
+
+					if (primary && caustic_covered(i, light.position.xyz, primary_P)) continue;
+
+					vec3 contribution = light.color.rgb * light.color.a * attenuation / (2.0 * PT_PI * one_minus_cos);
+
+					if (lighting_data.optical_tint != 0) contribution *= get_optical_tint(origin, dir, dist, false);
+
+					radiance += contribution;
+				}
+
+				return radiance;
+			}
+
 			vec3 pt_sky(vec3 dir) {
 				if (lighting_data.env_tex == -1) return vec3(0.0);
 
 				return textureLod(TEXTURE(lighting_data.env_tex), dir_to_equirect_uv(correct_environment_lookup_dir(dir)), 0.0).rgb;
 			}
 
-			vec3 pt_sun_hit(vec3 dir, vec3 P, float bsdf_pdf) {
+			vec3 pt_sun_hit(vec3 dir, vec3 P, float bsdf_pdf, bool bent, bool primary) {
 				vec3 radiance = vec3(0.0);
 
 				for (int i = 0; i < lighting_data.light_count; i++) {
@@ -435,7 +382,9 @@ return {
 
 					if (get_light_type(light) != 0 || 1.0 - dot(dir, -get_light_direction(light)) > PT_SUN_ONE_MINUS_COS) continue;
 
-					radiance += pt_sun_irradiance(light, P) / PT_SUN_SOLID_ANGLE * pt_power_heuristic(bsdf_pdf, 1.0 / PT_SUN_SOLID_ANGLE);
+					// the photons carry the sun through glass and water tops to the first surface
+					float weight = bent ? (primary && caustic_covered(i, vec3(0.0), P) ? 0.0 : 1.0) : pt_power_heuristic(bsdf_pdf, 1.0 / PT_SUN_SOLID_ANGLE);
+					radiance += pt_sun_irradiance(light, P) / PT_SUN_SOLID_ANGLE * weight;
 				}
 
 				return radiance;
@@ -594,6 +543,8 @@ return {
 			vec3 pt_path(pt_vertex v) {
 				vec3 radiance = vec3(0.0);
 				vec3 throughput = vec3(1.0);
+				float wavelength = 0.0;
+				bool caustics = lighting_data.pt_caustics != 0;
 
 				for (int bounce = 0; ; bounce++) {
 					float light_total;
@@ -618,27 +569,75 @@ return {
 					}
 
 					vec3 origin = pt_offset(v.P, v.Ng);
+					vec3 dir = L;
+					bool through_glass = false;
+					bool through_water = false;
+					bool surface = false;
 					float t;
 					uint instance;
 					uint primitive;
 					vec2 barycentrics;
 
-					bool hit = pt_trace(origin, L, t, instance, primitive, barycentrics);
+					for (int event = 0; event <= lighting_data.caustic_bounces; event++) {
+						bool hit = pt_trace(origin, dir, t, instance, primitive, barycentrics);
+						float reach = hit ? t : lighting_data.hit_max_distance;
+						float top_t;
 
-					if (light_total > 0.0) radiance += throughput * pt_light_hit(v, origin, L, pdf, hit ? t : lighting_data.hit_max_distance, light_total);
+						if (caustics && caustic_water_top(origin, dir, reach, top_t) >= 0) through_water = true;
 
-					if (!hit) {
-						if (lighting_data.optical_tint != 0) throughput *= get_optical_tint(origin, L, OPTICAL_SUN_DISTANCE, false);
+						if (through_glass || through_water) {
+							radiance += throughput * pt_light_hit_bent(origin, dir, reach, bounce == 0, v.P);
+						} else if (light_total > 0.0) {
+							radiance += throughput * pt_light_hit(v, origin, dir, pdf, reach, light_total);
+						}
 
-						radiance += throughput * (pt_sky(L) + pt_sun_hit(L, v.P, pdf));
-						break;
+						if (!hit) {
+							if (lighting_data.optical_tint != 0) throughput *= get_optical_tint(origin, dir, OPTICAL_SUN_DISTANCE, false);
+
+							radiance += throughput * (pt_sky(dir) + pt_sun_hit(dir, v.P, pdf, through_glass || through_water, bounce == 0));
+							return radiance;
+						}
+
+						// stops short of the hit, a caster's own face is absorbed below
+						if (lighting_data.optical_tint != 0) throughput *= get_optical_tint(origin, dir, t * 0.999, false);
+
+						scene_triangle tri = scene_hit_tri(instance, primitive);
+						ray_material material = ray_materials[tri.material];
+
+						if (!caustics || material.caustic == 0) {
+							surface = true;
+							break;
+						}
+
+						vec3 P = origin + dir * t;
+						vec3 Ng = -tri.normal;
+						bool entering = dot(dir, Ng) < 0.0;
+
+						if (!entering) throughput *= caustic_body_tint(material, t);
+
+						if (wavelength <= 0.0 && caustic_splits(material.medium_ior, material.abbe, lighting_data.caustic_dispersion_spread)) {
+							wavelength = mix(CAUSTIC_WAVELENGTH_MIN, CAUSTIC_WAVELENGTH_MAX, pt_random());
+							throughput *= caustic_spectrum(wavelength);
+						}
+
+						vec3 N = scene_hit_smooth_normal(instance, primitive, barycentrics);
+
+						if (dot(N, Ng) <= 0.0) N = Ng;
+
+						float ior = caustic_ior(material.medium_ior, material.abbe, wavelength);
+						caustic_rng = pt_rng;
+						bool refracted;
+						dir = caustic_scatter(dir, entering ? N : -N, material.roughness * material.roughness, entering ? 1.0 / ior : ior, refracted);
+						pt_rng = caustic_rng;
+						origin = pt_offset(P, dot(dir, Ng) > 0.0 ? Ng : -Ng);
+						through_glass = true;
 					}
 
-					if (lighting_data.optical_tint != 0) throughput *= get_optical_tint(origin, L, t, false);
+					if (!surface) break;
 
 					vec3 emission;
 
-					if (!pt_hit_vertex(L, instance, primitive, barycentrics, v, emission)) break;
+					if (!pt_hit_vertex(dir, instance, primitive, barycentrics, v, emission)) break;
 
 					radiance += throughput * emission;
 				}
@@ -646,19 +645,266 @@ return {
 				return radiance;
 			}
 
+			bool pt_primary(ivec2 pos, ivec2 size, bool refine, out pt_vertex primary, out vec3 emissive) {
+				in_uv = get_screen_uv(pos, size);
+				in_pixel = pos;
+				float depth = gbuffer_depth(in_uv);
+				emissive = vec3(0.0);
+
+				if (depth == 0.0 || gbuffer_alpha(in_uv) == 0.0) return false;
+
+				in_view_depth = -(lighting_data.inv_projection[2][2] * depth + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * depth + lighting_data.inv_projection[3][3]);
+				vec3 world_pos = get_world_pos(depth);
+				vec3 V = normalize(lighting_data.camera_position.xyz - world_pos);
+				vec3 N = bend_normal_to_view(gbuffer_normal(in_uv), V);
+
+				Surface surface;
+				surface.NdotV = max(dot(N, V), 0.001);
+				surface.world_pos = world_pos;
+				surface.V = V;
+				surface.N = N;
+				surface.geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N);
+				decode_surface_features(surface, in_uv, size);
+				finish_surface_features(surface);
+
+				primary.P = world_pos + surface.geometric_N * (0.001 * lighting_data.view_scale + 0.0005 * in_view_depth);
+				primary.Ng = surface.geometric_N;
+
+				if (refine) {
+					float camera_distance = distance(world_pos, lighting_data.camera_position.xyz);
+					float tolerance = 0.002 * camera_distance + 0.01 * lighting_data.view_scale;
+					float t;
+					uint instance;
+					uint primitive;
+					vec2 barycentrics;
+
+					if (pt_trace(lighting_data.camera_position.xyz, -V, t, instance, primitive, barycentrics) && abs(t - camera_distance) < tolerance) {
+						vec3 Ng = -scene_hit_tri(instance, primitive).normal;
+						primary.Ng = dot(Ng, V) < 0.0 ? -Ng : Ng;
+						primary.P = pt_offset(lighting_data.camera_position.xyz - V * t, primary.Ng);
+					}
+				}
+
+				primary.N = surface.N;
+				primary.V = V;
+				primary.albedo = surface.albedo;
+				primary.F0 = surface.F0;
+				primary.alpha = surface.roughness_alpha;
+				primary.perceptual_roughness = surface.perceptual_roughness;
+				primary.metallic = surface.metallic;
+				pt_prepare(primary);
+				emissive = surface.emissive;
+				return true;
+			}
+
+]]
+local uniform_block = {
+	surface_lighting.block,
+	gbuffer_layout.block,
+	surface_weather.rain_surface_block,
+	render3d.last_frame_block,
+	caustics.block,
+	{"hit_max_distance", "float"},
+	{"pt_samples_before", "int"},
+	{"pt_samples_per_frame", "int"},
+	{"pt_trace", "int"},
+	{"pt_bounces", "int"},
+	{"pt_view", "int"},
+	{"pt_split", "float"},
+	{"pt_difference_stops", "float"},
+	{"pt_caustics", "int"},
+}
+
+local function write_block(self, block, photons)
+	surface_lighting.WriteBlock(self, block)
+	gbuffer_layout.WriteBlock(self, block)
+	surface_weather.WriteRainSurfaceBlock(self, block)
+	render3d.WriteLastFrameBlock(self, block)
+
+	if photons then path_trace.Update(block.lights) end
+
+	local before, trace = path_trace.GetFrame()
+	local caustic = path_trace.caustics:Get() and optical_rays.IsEnabled()
+	block.hit_max_distance = scene_hits.max_distance:Get()
+	block.pt_samples_before = before
+	block.pt_samples_per_frame = path_trace.samples_per_frame:Get()
+	block.pt_trace = trace and 1 or 0
+	block.pt_bounces = path_trace.bounces:Get()
+	block.pt_view = VIEW_INDEX[path_trace.view:Get()]
+	block.pt_split = path_trace.split:Get()
+	block.pt_difference_stops = path_trace.difference_stops:Get()
+	block.pt_caustics = caustic and 1 or 0
+	return caustics.WriteBlock(
+		self,
+		block,
+		photons and trace and caustic and path_trace.photons:Get() or 0,
+		true
+	)
+end
+
+local function bind_photons(self, cmd, desc)
+	local size = render3d.GetRenderSize()
+	local buffer = caustics.GetBuffer("path", cmd, size.x, size.y)
+	self:UpdateDescriptorSet("storage_buffer", desc, BINDING_PHOTONS, 0, buffer, buffer:GetSize())
+end
+
+local function is_enabled()
+	return render3d.IsPassEnabled("lighting")
+end
+
+local occlusion_map = {
+	binding_index = BINDING_OCCLUSION_MAP,
+	get_texture = function()
+		return light_occlusion.GetOcclusionTexture()
+	end,
+}
+local declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. optical_rays.GetDeclarationGLSL(SCENE_BINDINGS) .. caustics.GetBufferDeclarationGLSL(BINDING_PHOTONS)
+return {
+	{
+		name = "path_trace_photons",
+		ComputePass = true,
+		is_enabled = is_enabled,
+		ColorFormat = {{"r8_unorm", {"path_trace_photons_dummy", "r"}}},
+		FramebufferSize = {x = 1, y = 1},
+		framebuffer_count = 1,
+		LocalSize = PHOTON_LOCAL_SIZE,
+		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}, {binding_index = BINDING_PHOTONS}},
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		on_pre_draw = function(self, cmd, frame, desc)
+			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
+			bind_photons(self, cmd, desc)
+		end,
+		on_draw = function(self, cmd, fb, frame, desc)
+			caustics.Barrier(cmd, "path")
+			self:UploadConstants()
+
+			if self.photon_count > 0 then
+				self.pipeline:DispatchForSize(
+					cmd,
+					PHOTON_ROW,
+					math.ceil(self.photon_count / PHOTON_ROW),
+					1,
+					desc,
+					self.dynamic_offsets
+				)
+			end
+
+			caustics.Barrier(cmd, "path")
+		end,
+		sampled_images = {occlusion_map},
+		uniform_buffers = {
+			{
+				-- the surface features' decode snippets read the block as lighting_data
+				name = "lighting_data",
+				binding_index = BINDING_UNIFORM,
+				block = uniform_block,
+				write = function(self, block)
+					self.photon_count = write_block(self, block, true)
+					return block
+				end,
+			},
+		},
+		custom_declarations = declarations,
+		shader = GLSL .. [[
+			bool caustic_land(vec3 P, vec3 Ng, vec3 incoming, vec3 flux) {
+				ivec2 pixel = caustic_screen_pixel(P, Ng);
+
+				if (pixel.x < 0) return false;
+
+				pt_vertex primary;
+				vec3 emissive;
+
+				if (!pt_primary(pixel, ivec2(lighting_data.render_size), false, primary, emissive)) return false;
+
+				float pdf;
+				vec3 f = pt_bsdf(primary, -incoming, pdf);
+				caustic_add(uint(pixel.y) * uint(lighting_data.render_size.x) + uint(pixel.x), f * flux / caustic_pixel_area(P, Ng) * get_pre_exposure());
+				return true;
+			}
+
+			void main() {
+				uint id = gl_GlobalInvocationID.y * ]] .. PHOTON_ROW .. [[u + gl_GlobalInvocationID.x;
+
+				uvec4 seed = pcg4d(uvec4(id, uint(lighting_data.pt_samples_before), 0x2545F491u, 0x68E31DA4u));
+				caustic_rng = seed.x ^ seed.w;
+				caustic_run(id, lighting_data.caustic_bounces, lighting_data.caustic_dispersion_spread, lighting_data.view_scale);
+			}
+		]],
+	},
+	{
+		name = "path_trace",
+		ComputePass = true,
+		is_enabled = is_enabled,
+		ColorFormat = {
+			{"r32g32b32a32_sfloat", {"path_trace", "rgba"}},
+			{"r32g32b32a32_sfloat", {"path_trace_raster", "rgba"}},
+			{"r16g16b16a16_sfloat", {"path_trace_view", "rgba"}},
+		},
+		framebuffer_count = 1,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{binding_index = BINDING_ACCUM, attachment = 1, dst_stage = "compute"},
+			{binding_index = BINDING_RASTER, attachment = 2, dst_stage = "compute"},
+			{binding_index = BINDING_VIEW, attachment = 3, dst_stage = "compute"},
+			{
+				binding_index = BINDING_SCENE_COLOR,
+				dst_stage = {"compute", "fragment"},
+				get_texture = function()
+					return lighting_attachment(1)
+				end,
+			},
+			{
+				binding_index = BINDING_SUBSURFACE,
+				dst_stage = "compute",
+				get_texture = function()
+					return lighting_attachment(2)
+				end,
+			},
+		},
+		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}, {binding_index = BINDING_PHOTONS}},
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		on_pre_draw = function(self, cmd, frame, desc)
+			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
+			bind_photons(self, cmd, desc)
+		end,
+		sampled_images = {occlusion_map},
+		uniform_buffers = {
+			{
+				name = "lighting_data",
+				binding_index = BINDING_UNIFORM,
+				block = uniform_block,
+				write = function(self, block)
+					write_block(self, block, false)
+					return block
+				end,
+			},
+		},
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_ACCUM .. [[, rgba32f) uniform image2D path_accum;
+			layout(set = 0, binding = ]] .. BINDING_RASTER .. [[, rgba32f) uniform writeonly image2D path_raster;
+			layout(set = 0, binding = ]] .. BINDING_SCENE_COLOR .. [[, rgba16f) uniform image2D scene_color;
+			layout(set = 0, binding = ]] .. BINDING_SUBSURFACE .. [[, rgba16f) uniform writeonly image2D scene_subsurface_diffuse;
+			layout(set = 0, binding = ]] .. BINDING_VIEW .. [[, rgba16f) uniform writeonly image2D path_view;
+		]] .. declarations,
+		shader = GLSL .. [[
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(path_accum);
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
-				in_uv = get_screen_uv(pos, size);
-				in_pixel = pos;
 				vec4 raster = imageLoad(scene_color, pos);
-				float depth = gbuffer_depth(in_uv);
 				vec4 accum = lighting_data.pt_samples_before > 0 ? imageLoad(path_accum, pos) : vec4(0.0);
+				vec3 caustic = vec3(0.0);
 
-				if (depth == 0.0 || gbuffer_alpha(in_uv) == 0.0) {
+				if (lighting_data.pt_trace != 0 && lighting_data.pt_caustics != 0) caustic = caustic_take(uint(pos.y * size.x + pos.x)) / get_pre_exposure();
+
+				pt_vertex primary;
+				vec3 emissive;
+
+				if (!pt_primary(pos, size, lighting_data.pt_trace != 0, primary, emissive)) {
 					imageStore(path_accum, pos, accum);
 					imageStore(path_raster, pos, vec4(0.0));
 					imageStore(path_view, pos, vec4(vec3(0.02), 1.0));
@@ -666,55 +912,13 @@ return {
 				}
 
 				if (lighting_data.pt_trace != 0) {
-					in_view_depth = -(lighting_data.inv_projection[2][2] * depth + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * depth + lighting_data.inv_projection[3][3]);
-					vec3 world_pos = get_world_pos(depth);
-					vec3 V = normalize(lighting_data.camera_position.xyz - world_pos);
-					vec3 N = bend_normal_to_view(gbuffer_normal(in_uv), V);
-
-					Surface surface;
-					surface.NdotV = max(dot(N, V), 0.001);
-					surface.world_pos = world_pos;
-					surface.V = V;
-					surface.N = N;
-					surface.geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N);
-					decode_surface_features(surface, in_uv, size);
-					finish_surface_features(surface);
-
-					pt_vertex primary;
-					primary.P = world_pos + surface.geometric_N * (0.001 * lighting_data.view_scale + 0.0005 * in_view_depth);
-					primary.Ng = surface.geometric_N;
-
-					{
-						float camera_distance = distance(world_pos, lighting_data.camera_position.xyz);
-						float tolerance = 0.002 * camera_distance + 0.01 * lighting_data.view_scale;
-						float t;
-						uint instance;
-						uint primitive;
-						vec2 barycentrics;
-
-						if (pt_trace(lighting_data.camera_position.xyz, -V, t, instance, primitive, barycentrics) && abs(t - camera_distance) < tolerance) {
-							vec3 Ng = -scene_hit_tri(instance, primitive).normal;
-							primary.Ng = dot(Ng, V) < 0.0 ? -Ng : Ng;
-							primary.P = pt_offset(lighting_data.camera_position.xyz - V * t, primary.Ng);
-						}
-					}
-
-					primary.N = surface.N;
-					primary.V = V;
-					primary.albedo = surface.albedo;
-					primary.F0 = surface.F0;
-					primary.alpha = surface.roughness_alpha;
-					primary.perceptual_roughness = surface.perceptual_roughness;
-					primary.metallic = surface.metallic;
-					pt_prepare(primary);
-
 					vec3 sum = vec3(0.0);
 					uint frame_sample = uint(lighting_data.pt_samples_before);
 
 					for (int s = 0; s < lighting_data.pt_samples_per_frame; s++) {
 						uvec4 seed = pcg4d(uvec4(uint(pos.x), uint(pos.y), frame_sample + uint(s), 0x9E3779B9u));
 						pt_rng = seed.x ^ seed.y;
-						sum += surface.emissive + pt_path(primary);
+						sum += emissive + caustic + pt_path(primary);
 					}
 
 					if (!any(isnan(sum)) && !any(isinf(sum))) {
