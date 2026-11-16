@@ -210,7 +210,7 @@ return {
 						block.caustics_tex = -1
 					end
 
-					if render3d.IsPassEnabled("ray_shadows") then
+					if render3d.IsPassEnabled("ray_shadows") and not render3d.IsDenoisingBypassed() then
 						block.ray_shadow_tex = self:GetTextureIndex(render3d.pipelines.ray_shadow_filter:GetFramebuffer(1):GetAttachment(1))
 					end
 

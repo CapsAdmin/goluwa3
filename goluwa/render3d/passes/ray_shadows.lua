@@ -167,7 +167,7 @@ local function pass_filter(iteration)
 	}
 end
 
-return {
+local passes = {
 	{
 		name = "ray_shadow_trace",
 		ComputePass = true,
@@ -401,3 +401,13 @@ return {
 	pass_filter(1),
 	pass_filter(2),
 }
+
+local function is_enabled()
+	return not render3d.IsDenoisingBypassed()
+end
+
+for _, config in ipairs(passes) do
+	config.is_enabled = is_enabled
+end
+
+return passes

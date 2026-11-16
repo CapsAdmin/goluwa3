@@ -172,8 +172,8 @@ local function restir_uniform(trace, filter_iteration)
 			block.spatial_radius = restir_gi.spatial_radius:Get()
 			block.visibility = restir_gi.visibility:Get() and 1 or 0
 			block.validation = restir_gi.validation:Get() and 1 or 0
-			block.accumulation = restir_gi.accumulation:Get()
-			block.filter_enabled = restir_gi.filter:Get() and 1 or 0
+			block.accumulation = render3d.IsDenoisingBypassed() and 1 or restir_gi.accumulation:Get()
+			block.filter_enabled = restir_gi.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
 			block.reservoir_a_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 1))
 			block.reservoir_b_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 2))
 			block.reservoir_c_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 3))

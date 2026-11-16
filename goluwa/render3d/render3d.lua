@@ -586,6 +586,10 @@ function render3d.GetTemporalFrame()
 	return 0
 end
 
+function render3d.IsDenoisingBypassed()
+	return render3d.IsAntiAliasingEnabled("dlss_rr")
+end
+
 function render3d.IsJitteredAntiAliasingEnabled()
 	return render3d.IsAntiAliasingEnabled("taa") or
 		render3d.IsAntiAliasingEnabled("dlss") or

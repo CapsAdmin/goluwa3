@@ -226,6 +226,8 @@ local function get_uniform_buffers(with_ddgi)
 
 				if
 					render3d.ShouldUseLastFrameHistory() and
+					not render3d.IsDenoisingBypassed()
+					and
 					frame > reflections.reflection_history_reset_frame
 				then
 					local history_fb = reflections:GetFramebuffer((frame + 1) % 2 + 1)
@@ -756,6 +758,7 @@ return {
 				ivec2 block_pixel = min(get_reflection_gbuffer_pos(block, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 				vec4 own = texelFetch(TEXTURE(reflection_data.raw_tex), pos, 0);
 				bool has_own = own.a >= 0.0;
+
 				vec3 N = gbuffer_normal(pos);
 				float roughness = sqrt(gbuffer_roughness(pos));
 				float view_depth = -linearize_depth(uv, depth);

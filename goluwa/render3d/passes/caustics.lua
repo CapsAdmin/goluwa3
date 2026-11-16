@@ -385,7 +385,11 @@ return {
 						self.history_reset_frame = frame
 					end
 
-					if frame > self.history_reset_frame and render3d.ShouldUseLastFrameHistory() then
+					if
+						frame > self.history_reset_frame and
+						render3d.ShouldUseLastFrameHistory() and
+						not render3d.IsDenoisingBypassed()
+					then
 						local history = self:GetFramebuffer((frame + 1) % 2 + 1)
 						block.history_tex = self:GetTextureIndex(history:GetAttachment(1))
 						block.history_geometry_tex = self:GetTextureIndex(history:GetAttachment(2))
