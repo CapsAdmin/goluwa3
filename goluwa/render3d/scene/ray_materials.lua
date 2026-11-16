@@ -151,7 +151,7 @@ function ray_materials.GetOpticalTintGLSL()
 			return volume.extinction * (below + above) + vec3(volume.softness * (to - from));
 		}
 
-		vec3 optical_volume_tint(int index, vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer) {
+		vec3 optical_volume_tint(int index, vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer, bool caustic) {
 			optical_volume volume = optical_volumes[index];
 
 			if (volume.kind > 2.5) {
@@ -183,6 +183,14 @@ function ray_materials.GetOpticalTintGLSL()
 
 			vec3 local_origin = (volume.to_local * vec4(origin, 1.0)).xyz;
 			vec3 local_dir = (volume.to_local * vec4(dir, 0.0)).xyz;
+			// the caustic photons carry light that crosses a water volume's top, either way
+			if (caustic && volume.kind < 0.5 && abs(local_dir.y) > 1e-6) {
+				float top_t = -local_origin.y / local_dir.y;
+				vec3 crossing = local_origin + local_dir * top_t;
+
+				if (top_t > 0.0 && top_t < distance && abs(crossing.x) <= volume.shape.x && abs(crossing.z) <= volume.shape.z) return vec3(0.0);
+			}
+
 			vec3 averaged = vec3(0.0);
 
 			for (int w = 0; w < 3; w++) {
@@ -210,11 +218,11 @@ function ray_materials.GetOpticalTintGLSL()
 			return averaged;
 		}
 
-		vec3 optical_range_tint(int first, int count, vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer) {
+		vec3 optical_range_tint(int first, int count, vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer, bool caustic) {
 			vec3 transmitted = vec3(1.0);
 
 			for (int k = 0; k < count; k++) {
-				transmitted *= optical_volume_tint(first + k, origin, dir, distance, light_ray, with_layer);
+				transmitted *= optical_volume_tint(first + k, origin, dir, distance, light_ray, with_layer, caustic);
 			}
 
 			return transmitted;
@@ -234,9 +242,9 @@ function ray_materials.GetOpticalTintGLSL()
 				vec3 previous = vec3(1.0);
 
 				for (int k = 0; k < 3; k++) {
-					vec3 transmittance_end = optical_volume_tint(i, origin, dir, distance * float(k + 1) / 3.0, false, true);
+					vec3 transmittance_end = optical_volume_tint(i, origin, dir, distance * float(k + 1) / 3.0, false, true, false);
 					vec3 middle = origin + dir * (distance * (float(k) + 0.5) / 3.0);
-					vec3 sun_transmittance = optical_volume_tint(i, middle, sun_dir, 1.0e5, false, true);
+					vec3 sun_transmittance = optical_volume_tint(i, middle, sun_dir, 1.0e5, false, true, false);
 					vec3 sun_phase = medium_multiple_scattering(-log(max(sun_transmittance, vec3(1e-6))), mu, volume.g, 0.0, 0.0, 1.0 - dot(sun_transmittance, vec3(1.0 / 3.0)));
 					scattered += (ambient * ambient_visibility[k] + sun_radiance * sun_visibility[k] * sun_phase) * albedo * (previous - transmittance_end);
 					previous = transmittance_end;
@@ -302,6 +310,8 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 			float medium_wave_height;
 			float medium_wave_length;
 			float medium_caustics;
+			float abbe;
+			int caustic;
 			int normal_tex;
 			int normal2_tex;
 			int normal_ssbump;
@@ -641,6 +651,8 @@ local MaterialEntry = ffi.typeof([[struct {
 	float medium_wave_height;
 	float medium_wave_length;
 	float medium_caustics;
+	float abbe;
+	int32_t caustic;
 	int32_t normal_tex;
 	int32_t normal2_tex;
 	int32_t normal_ssbump;
@@ -1020,6 +1032,15 @@ function ray_materials.WriteMaterialBuffer(self)
 			entry.medium_wave_height = material:GetMediumWaveHeight()
 			entry.medium_wave_length = material:GetMediumWaveLength()
 			entry.medium_caustics = material:GetMediumCaustics()
+			entry.abbe = material:GetAbbeNumber()
+			entry.caustic = (
+					entry.glass ~= 0 and
+					material:GetCastsCaustics() and
+					not material:GetDoubleSided()
+				)
+				and
+				1 or
+				0
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local normal = material:GetNormalTexture()

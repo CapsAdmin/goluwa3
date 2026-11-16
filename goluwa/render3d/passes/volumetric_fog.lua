@@ -497,7 +497,7 @@ local scatter_pass = {
 			"froxel_data",
 			LOCAL_LIGHT_LIMIT,
 			{
-				attenuation = "(optical_layer >= 0 ? optical_volume_tint(optical_layer, world_pos, L, max(dist, 0.0), true, true) : vec3(1.0))",
+				attenuation = "(optical_layer >= 0 ? optical_volume_tint(optical_layer, world_pos, L, max(dist, 0.0), true, true, false) : vec3(1.0))",
 			}
 		) .. medium_lighting.GetLocalLightsGLSL(
 			"froxel_data",
@@ -505,7 +505,7 @@ local scatter_pass = {
 			{
 				visibility = false,
 				name = "get_volume_light_scattering",
-				attenuation = "optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, L, max(dist, 0.0), false, false)",
+				attenuation = "optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, L, max(dist, 0.0), false, false, false)",
 			}
 		) .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {

@@ -52,7 +52,7 @@ function optical_rays.GetGLSL()
 			return optical_counts;
 		}
 
-		vec3 get_optical_tint_ray(vec3 origin, vec3 dir, float distance, bool through_medium) {
+		vec3 get_optical_tint_ray(vec3 origin, vec3 dir, float distance, bool through_medium, bool caustic) {
 			ivec3 header = get_optical_header();
 
 			if (header.x == 0 && (!through_medium || header.y == 0)) return vec3(1.0);
@@ -66,6 +66,9 @@ function optical_rays.GetGLSL()
 				bool front = rayQueryGetIntersectionFrontFaceEXT(query, false);
 
 				if (material.glass != 0) {
+					// the caustic photons carry this light
+					if (caustic && material.caustic != 0) return vec3(0.0);
+
 					if (material.double_sided == 0 && front) continue;
 
 					vec3 through;
@@ -91,8 +94,8 @@ function optical_rays.GetGLSL()
 			return transmitted;
 		}
 
-		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer) {
-			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray, with_layer);
+		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer, bool caustic) {
+			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray, with_layer, caustic);
 		}
 
 		float get_body_exit(vec3 origin, vec3 dir, float max_distance, out vec3 outward_normal) {
@@ -133,30 +136,38 @@ function optical_rays.GetGLSL()
 		}
 
 		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance, bool with_layer) {
-			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false, with_layer);
+			return get_optical_tint_ray(origin, dir, distance, true, false) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false, with_layer, false);
 		}
 
-		vec3 get_light_transmittance_with(vec3 origin, vec3 dir, float distance, float search_radius, bool with_layer) {
-			vec3 transmitted = get_optical_tint_ray(origin, dir, distance, false);
+		vec3 get_light_transmittance_with(vec3 origin, vec3 dir, float distance, float search_radius, bool with_layer, bool caustic_glass, bool caustic_water) {
+			vec3 transmitted = get_optical_tint_ray(origin, dir, distance, false, caustic_glass);
 
 			if (search_radius > 0.0 && min(transmitted.r, min(transmitted.g, transmitted.b)) > 0.999) {
 				vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))) * search_radius;
 				vec3 bitangent = normalize(cross(dir, tangent)) * search_radius;
-				transmitted = min(transmitted, get_optical_tint_ray(origin + tangent, dir, distance, false));
-				transmitted = min(transmitted, get_optical_tint_ray(origin - tangent, dir, distance, false));
-				transmitted = min(transmitted, get_optical_tint_ray(origin + bitangent, dir, distance, false));
-				transmitted = min(transmitted, get_optical_tint_ray(origin - bitangent, dir, distance, false));
+				transmitted = min(transmitted, get_optical_tint_ray(origin + tangent, dir, distance, false, caustic_glass));
+				transmitted = min(transmitted, get_optical_tint_ray(origin - tangent, dir, distance, false, caustic_glass));
+				transmitted = min(transmitted, get_optical_tint_ray(origin + bitangent, dir, distance, false, caustic_glass));
+				transmitted = min(transmitted, get_optical_tint_ray(origin - bitangent, dir, distance, false, caustic_glass));
 			}
 
-			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, with_layer);
+			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, with_layer, caustic_water);
 		}
 
 		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_light_transmittance_with(origin, dir, distance, search_radius, false);
+			return get_light_transmittance_with(origin, dir, distance, search_radius, false, false, false);
+		}
+
+		vec3 get_light_transmittance_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return get_light_transmittance_with(origin, dir, distance, search_radius, false, true, true);
 		}
 
 		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_light_transmittance_with(origin, dir, distance, search_radius, true);
+			return get_light_transmittance_with(origin, dir, distance, search_radius, true, false, false);
+		}
+
+		vec3 get_light_transmittance_local_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return get_light_transmittance_with(origin, dir, distance, search_radius, true, true, true);
 		}
 
 		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
@@ -186,7 +197,15 @@ function optical_rays.GetStubGLSL()
 			return vec3(1.0);
 		}
 
+		vec3 get_light_transmittance_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return vec3(1.0);
+		}
+
 		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return vec3(1.0);
+		}
+
+		vec3 get_light_transmittance_local_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
 			return vec3(1.0);
 		}
 

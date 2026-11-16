@@ -5,7 +5,18 @@ return {
 	params = {
 		{name = "Refraction", default = 0.0, callback = "InvalidateTransparency"},
 		{name = "IndexOfRefraction", default = 0.0, requires = "Refraction"},
-		{name = "AbbeNumber", default = 0, requires = "Refraction"},
+		{
+			name = "AbbeNumber",
+			default = 0,
+			requires = "Refraction",
+			callback = "InvalidateRayMaterial",
+		},
+		{
+			name = "CastsCaustics",
+			default = true,
+			requires = "Refraction",
+			callback = "InvalidateRayMaterial",
+		},
 		{name = "RefractionThickness", default = -1.0, requires = "Refraction"},
 	},
 }
