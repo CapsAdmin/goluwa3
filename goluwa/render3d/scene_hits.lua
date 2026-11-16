@@ -571,9 +571,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			return radiance + EON_directional_albedo(albedo, hit_roughness, hit_NoV) * gi.rgb;
 		}
 
-		vec3 trace_scene_radiance(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
-			vec3 radiance = trace_scene_radiance_unfogged(origin, dir, N, roughness, max_distance, hit_t);
-
+		vec3 scene_radiance_through_air(vec3 radiance, vec3 origin, vec3 dir, float hit_t, float max_distance) {
 			bool fog_hit = ]] .. block_name .. [[.hit_fog != 0 && hit_t < max_distance;
 
 			if (]] .. block_name .. [[.optical_tint != 0) radiance *= get_optical_tint(origin, dir, hit_t, fog_hit);
@@ -586,6 +584,11 @@ function scene_hits.GetGLSL(block_name, shared)
 			}
 
 			return radiance;
+		}
+
+		vec3 trace_scene_radiance(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
+			vec3 radiance = trace_scene_radiance_unfogged(origin, dir, N, roughness, max_distance, hit_t);
+			return scene_radiance_through_air(radiance, origin, dir, hit_t, max_distance);
 		}
 	]]
 end

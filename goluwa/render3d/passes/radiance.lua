@@ -554,15 +554,10 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 			}
 
 			// rays leave emission to the emitter samples, so an emitter sample holds only emission and a ray hit only reflected light
-			restir_sample restir_trace(vec3 origin, vec3 dir, bool emitter, out bool miss) {
-				float t;
-				uint instance;
-				uint primitive;
-				vec2 barycentrics;
+			restir_sample restir_hit_sample(vec3 origin, vec3 dir, bool hit, float t, uint instance, uint primitive, vec2 barycentrics, bool emitter, vec3 shaded) {
 				restir_sample s;
-				miss = !trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
 
-				if (miss) {
+				if (!hit) {
 					s = restir_sample(dir, vec3(0.0), radiance_cache_sky(dir), RESTIR_SKY, vec3(0.0));
 					t = SCENE_HIT_MAX_DISTANCE;
 				} else {
@@ -574,17 +569,26 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 					vec3 P = origin + dir * t;
 					s = emitter ?
 						restir_sample(P, hit_N, ray_hit_emission(tri, ray_material_albedo(ray_materials[tri.material], P), P, instance, primitive), RESTIR_EMITTER, restir_emitter_id(instance, primitive, barycentrics, dot(hit_N, tri.normal) > 0.0)) :
-						restir_sample(P, hit_N, shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE, vec3(0.0));
+						restir_sample(P, hit_N, shaded, RESTIR_SURFACE, vec3(0.0));
 				}
 
 				if (restir_data.optical_tint != 0) {
-					s.L *= get_optical_tint(origin, dir, t, !miss);
+					s.L *= get_optical_tint(origin, dir, t, hit);
 
-					if (!miss) s.L += optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true);
+					if (hit) s.L += optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true);
 				}
 
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
 				return s;
+			}
+
+			restir_sample restir_trace(vec3 origin, vec3 dir, bool emitter, out bool miss) {
+				float t;
+				uint instance;
+				uint primitive;
+				vec2 barycentrics;
+				miss = !trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
+				return restir_hit_sample(origin, dir, !miss, t, instance, primitive, barycentrics, emitter, miss || emitter ? vec3(0.0) : shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics));
 			}
 ]] .. RESOLVE_GLSL
 
@@ -638,7 +642,7 @@ local function pass_candidates()
 			layout(set = 0, binding = 4, r32f) uniform writeonly image2D out_e;
 		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
 		-- temporal and spatial reuse stand in for more candidates: one by each of the emitter tree's weighings
-		shader = TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. surface_weather.GetRainSurfaceGLSL("restir_data") .. ibl.GetBRDFGLSLCode() .. scene_hits.GetDirectionGLSL() .. [[
+		shader = "#extension GL_EXT_control_flow_attributes : require\n" .. TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. surface_weather.GetRainSurfaceGLSL("restir_data") .. ibl.GetBRDFGLSLCode() .. scene_hits.GetDirectionGLSL() .. [[
 			// the specular lobe: one ray a pixel, over the visible normals of the pixel's surface (a mirror's own direction when it is smooth enough), shaded like every other ray hit. the accumulation and the filter average it over frames and pixels by the lobe
 			float radiance_specular_roughness(ivec2 gbuffer_pos, vec3 world_pos, float footprint, inout vec3 N) {
 				float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
@@ -700,41 +704,52 @@ local function pass_candidates()
 								return chosen * (total / float(EMITTER_CANDIDATES)) / chosen_target * radiance_specular_weight(N, V, roughness, chosen_dir);
 			}
 
-			vec4 radiance_specular(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth, int index, out float hit_distance) {
-				vec3 V = normalize(restir_data.camera_position - P);
-				vec3 geometric_N = get_geometric_normal(gpos, P, depth, V, N);
-				float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * restir_data.inv_projection[1][1] / float(textureSize(TEXTURE(restir_data.depth_tex), 0).y);
-				float roughness = radiance_specular_roughness(gpos, P, footprint, N);
-				N = bend_normal_to_view(N, V);
+			struct radiance_specular_ray {
+				vec3 V;
+				vec3 N;
+				vec3 geometric_N;
+				vec3 R;
+				vec3 origin;
+				float roughness;
 				float environment_roughness;
-				vec3 R = reflection_direction(N, V, roughness, vec2(restir_random(pos, 50u), restir_random(pos, 51u)), environment_roughness);
-				bool lobe_below = dot(N, R) <= 0.0;
-				R = reflection_above(geometric_N, reflection_above(N, R, 0.001), 0.01);
+				bool lobe_below;
+				bool sample_emitters;
+			};
 
+			radiance_specular_ray radiance_specular_setup(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
+				radiance_specular_ray ray;
+				ray.V = normalize(restir_data.camera_position - P);
+				ray.geometric_N = get_geometric_normal(gpos, P, depth, ray.V, N);
+				float footprint = view_depth / sqrt(max(abs(dot(ray.geometric_N, ray.V)), 0.01)) * 2.0 * restir_data.inv_projection[1][1] / float(textureSize(TEXTURE(restir_data.depth_tex), 0).y);
+				ray.roughness = radiance_specular_roughness(gpos, P, footprint, N);
+				ray.N = bend_normal_to_view(N, ray.V);
+				ray.R = reflection_direction(ray.N, ray.V, ray.roughness, vec2(restir_random(pos, 50u), restir_random(pos, 51u)), ray.environment_roughness);
+				ray.lobe_below = dot(ray.N, ray.R) <= 0.0;
+				ray.R = reflection_above(ray.geometric_N, reflection_above(ray.N, ray.R, 0.001), 0.01);
 				// an emitter sample reads low across a broad lobe (half of the light a furnace gives a rough metal at roughness 1), where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
-				bool sample_emitters = radiance_cache_data.radiance_cache_emitter_count > 0 && roughness >= max(restir_data.specular_emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0) && restir_random(pos, 52u) < 1.0 - smoothstep(0.35, 0.6, roughness);
-				radiance_hit_emission = !sample_emitters;
-				vec3 origin = P + geometric_N * (0.0002 + 0.0001 * view_depth);
-				float hit_t;
-				vec3 radiance = trace_scene_radiance(origin, R, N, environment_roughness, SCENE_HIT_MAX_DISTANCE, hit_t);
+				ray.sample_emitters = radiance_cache_data.radiance_cache_emitter_count > 0 && ray.roughness >= max(restir_data.specular_emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0) && restir_random(pos, 52u) < 1.0 - smoothstep(0.35, 0.6, ray.roughness);
+				ray.origin = P + ray.geometric_N * (0.0002 + 0.0001 * view_depth);
+				return ray;
+			}
 
-				if (roughness > REFLECTION_MIRROR_THRESHOLD && hit_t < SCENE_HIT_MAX_DISTANCE) {
+			vec4 radiance_specular_finish(radiance_specular_ray ray, vec3 radiance, float hit_t, int index) {
+				radiance = scene_radiance_through_air(radiance, ray.origin, ray.R, hit_t, SCENE_HIT_MAX_DISTANCE);
+
+				if (ray.roughness > REFLECTION_MIRROR_THRESHOLD && hit_t < SCENE_HIT_MAX_DISTANCE) {
 					float limit = restir_data.pre_exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(get_exposure(), 1e-8) : 1e30;
 					radiance = reflection_limit_hit(radiance, limit);
 				}
 
-				radiance_hit_emission = true;
-				float ray_weight = mix(1.0, lobe_below ? 0.0 : radiance_specular_weight(N, V, roughness, R), smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness));
+				float ray_weight = mix(1.0, ray.lobe_below ? 0.0 : radiance_specular_weight(ray.N, ray.V, ray.roughness, ray.R), smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, ray.roughness));
 				radiance *= ray_weight;
 
-				if (sample_emitters) radiance += radiance_specular_emitter_light(origin, N, geometric_N, V, roughness, uint(index));
+				if (ray.sample_emitters) radiance += radiance_specular_emitter_light(ray.origin, ray.N, ray.geometric_N, ray.V, ray.roughness, uint(index));
 
 				if (any(isnan(radiance)) || any(isinf(radiance))) {
 					radiance = vec3(0.0);
 					ray_weight = 0.0;
 				}
 
-				hit_distance = hit_t;
 				return vec4(radiance, ray_weight);
 			}
 
@@ -774,7 +789,10 @@ local function pass_candidates()
 					int emitter_count = radiance_cache_data.radiance_cache_emitter_count;
 
 					float guided_share = 0.0;
-					bool guided = false;
+						bool guided = false;
+						radiance_specular_ray specular;
+						vec3 specular_L = vec3(0.0);
+						float specular_t = SCENE_HIT_MAX_DISTANCE;
 
 					{
 						vec2 xi = vec2(0.5);
@@ -814,15 +832,56 @@ local function pass_candidates()
 
 						float ray_cosine = dot(N, dir);
 
-						if (ray_cosine > 0.0 && dot(dir, geometric_N) > 0.0) {
-							ray_cosine = max(ray_cosine, 1e-4);
-							float pdf = (1.0 - guided_share) * ray_cosine / RESTIR_PI + (guided_share > 0.0 ? guided_share * radiance_cache_guide_density(dir, guide_tile) : 0.0);
-							chosen = restir_trace(origin, dir, false, miss);
-							chosen_target = luminance(chosen.L) * ray_cosine;
-							w_sum = chosen_target / pdf;
-						} else {
-							chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY, vec3(0.0));
-						}
+						bool diffuse_ray = ray_cosine > 0.0 && dot(dir, geometric_N) > 0.0;
+							specular = radiance_specular_setup(pos, gpos, P, N, view_depth, depth);
+							vec3 diffuse_L = vec3(0.0);
+							bool diffuse_hit = false;
+							float diffuse_t = SCENE_HIT_MAX_DISTANCE;
+							uint diffuse_instance = 0u;
+							uint diffuse_primitive = 0u;
+							vec2 diffuse_barycentrics = vec2(0.0);
+
+							// both rays go through one call of the hit shading: unrolled, the shader carried it twice and stalled on instruction fetch
+							]] .. "[[dont_unroll]]" .. [[ for (int r = 0; r < 2; r++) {
+								bool reflected = r == 1;
+
+								if (!reflected && !diffuse_ray) continue;
+
+								vec3 ray_origin = reflected ? specular.origin : origin;
+								vec3 ray_dir = reflected ? specular.R : dir;
+								radiance_hit_emission = reflected ? !specular.sample_emitters : emitter_count == 0;
+								float t;
+								uint instance;
+								uint primitive;
+								vec2 barycentrics;
+								bool hit = trace_scene_hit(ray_origin, ray_dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
+								vec3 L = hit ? shade_scene_hit(ray_origin, ray_dir, reflected ? specular.environment_roughness : 1.0, t, instance, primitive, barycentrics) : vec3(0.0);
+
+								if (reflected) {
+									specular_L = hit ? L : sample_environment_specular(restir_data.env_tex, ray_dir, specular.N, specular.environment_roughness);
+									specular_t = hit ? t : SCENE_HIT_MAX_DISTANCE;
+								} else {
+									diffuse_L = L;
+									diffuse_hit = hit;
+									diffuse_t = t;
+									diffuse_instance = instance;
+									diffuse_primitive = primitive;
+									diffuse_barycentrics = barycentrics;
+								}
+							}
+
+							radiance_hit_emission = true;
+
+							if (diffuse_ray) {
+								ray_cosine = max(ray_cosine, 1e-4);
+								float pdf = (1.0 - guided_share) * ray_cosine / RESTIR_PI + (guided_share > 0.0 ? guided_share * radiance_cache_guide_density(dir, guide_tile) : 0.0);
+								miss = !diffuse_hit;
+								chosen = restir_hit_sample(origin, dir, diffuse_hit, diffuse_t, diffuse_instance, diffuse_primitive, diffuse_barycentrics, false, diffuse_L);
+								chosen_target = luminance(chosen.L) * ray_cosine;
+								w_sum = chosen_target / pdf;
+							} else {
+								chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY, vec3(0.0));
+							}
 
 						miss = miss && !guided;
 					}
@@ -869,9 +928,8 @@ local function pass_candidates()
 				imageStore(out_a, pos, vec4(restir_stored_x(chosen), w_sum));
 				imageStore(out_b, pos, vec4(chosen.L, chosen_target));
 				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0) | (guided_share > 0.0 ? RESTIR_FLAG_GUIDE_MIX : 0))));
-				float specular_distance;
-				imageStore(out_d, pos, radiance_specular(pos, gpos, P, N, view_depth, depth, pos.y * size.x + pos.x, specular_distance));
-				imageStore(out_e, pos, vec4(specular_distance));
+				imageStore(out_d, pos, radiance_specular_finish(specular, specular_L, specular_t, pos.y * size.x + pos.x));
+				imageStore(out_e, pos, vec4(specular_t));
 			}
 		]],
 	}
