@@ -1644,8 +1644,8 @@ function model_pipeline.GetPBRUniformBuffers()
 	return buffers
 end
 
-function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
-	return glsl_common.GetLuminanceGLSL() .. Material.FlagSet:BuildGlsl("model.Flags") .. [=[
+function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
+	local glsl = glsl_common.GetLuminanceGLSL() .. Material.FlagSet:BuildGlsl("model.Flags") .. [=[
 			vec3 get_surface_camera_position() {
 				return ]=] .. camera_block_name .. [=[.camera_position;
 			}
@@ -2494,6 +2494,34 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			]] .. surface_features.GetSurfaceGLSL() .. surface_features.GetInitFunctionGLSL() .. [[
 	]]
+
+	if not mip_bias then return glsl end
+
+	return (
+		glsl:gsub("%f[%w_]texture(%b())", function(args)
+			local inner = args:sub(2, -2)
+			local depth = 0
+			local commas = {}
+
+			for i = 1, #inner do
+				local c = inner:sub(i, i)
+
+				if c == "(" then
+					depth = depth + 1
+				elseif c == ")" then
+					depth = depth - 1
+				elseif c == "," and depth == 0 then
+					commas[#commas + 1] = i
+				end
+			end
+
+			if commas[2] then
+				return "texture(" .. inner:sub(1, commas[2]) .. " (" .. inner:sub(commas[2] + 1) .. ") + " .. camera_block_name .. ".mip_bias)"
+			end
+
+			return "texture(" .. inner .. ", " .. camera_block_name .. ".mip_bias)"
+		end)
+	)
 end
 
 return model_pipeline

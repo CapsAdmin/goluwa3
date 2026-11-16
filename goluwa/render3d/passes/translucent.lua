@@ -277,7 +277,7 @@ local passes = {
 		},
 		fragment = {
 			uniform_buffers = moments_uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. translucent_moments.GLSL .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("translucent_camera", true) .. translucent_moments.GLSL .. [[
 				void main() {
 					float alpha = get_alpha();
 
@@ -387,7 +387,7 @@ local passes = {
 				) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = medium_common.GetGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_overlays.GetGLSL("translucent_camera") .. exposure_compensation.GetGLSL() .. (
+			shader = medium_common.GetGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera", true) .. surface_overlays.GetGLSL("translucent_camera") .. exposure_compensation.GetGLSL() .. (
 					scene_hits.RAY_QUERY and
 					optical_rays.GetGLSL() or
 					""

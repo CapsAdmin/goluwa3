@@ -103,6 +103,7 @@ render3d.camera_block = {
 	{"terrain_only", "int"},
 	{"noise_phase", "float"},
 	{"view_scale", "float"},
+	{"mip_bias", "float"},
 }
 
 function render3d.WriteCameraBlock(self, block)
@@ -121,7 +122,14 @@ function render3d.WriteCameraBlock(self, block)
 	block.terrain_only = gbuffer_inspect.IsTerrainOnly() and 1 or 0
 	block.noise_phase = render3d.GetNoisePhase()
 	block.view_scale = camera:GetScale()
+	block.mip_bias = render3d.GetMaterialMipBias()
 	return block
+end
+
+function render3d.GetMaterialMipBias()
+	if not render3d.IsAntiAliasingEnabled("taa") then return 0 end
+
+	return math.log(render3d.GetRenderSize().y / render.GetRenderImageSize().y) / math.log(2) - 1
 end
 
 render3d.previous_jitter = Vec2(0, 0)

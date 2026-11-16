@@ -68,7 +68,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		DepthClear = 0.0,
 		fragment = {
 			uniform_buffers = uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. surface_conditions.GetGLSL("gbuffer_data") .. surface_overlays.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data", true) .. surface_weather.GetGLSL("gbuffer_data") .. surface_conditions.GetGLSL("gbuffer_data") .. surface_overlays.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
 
 					vec3 get_screen_velocity(vec3 world_pos, vec3 prev_world_pos) {
 						vec4 clip = gbuffer_data.projection * gbuffer_data.view * vec4(world_pos, 1.0);
