@@ -156,6 +156,10 @@ local function by_weight(a, b)
 	return a.weight > b.weight
 end
 
+local function by_rank(a, b)
+	return a.rank > b.rank
+end
+
 local glass_ids = {}
 local glass_key = {}
 
@@ -257,7 +261,7 @@ local function gather_casters(camera)
 	return count
 end
 
-local function add_sun_entries(count, caster_count, sun_index, axes)
+local function add_sun_entries(count, caster_count, sun_index, axes, lux)
 	local sx, sy, sz, tx, ty, tz, bx, by, bz = unpack(axes, 1, 9)
 
 	for i = 1, caster_count do
@@ -290,6 +294,7 @@ local function add_sun_entries(count, caster_count, sun_index, axes)
 		e.s = c.x * sx + c.y * sy + c.z * sz
 		e.start = c.radius + optical_rays.SUN_DISTANCE
 		e.weight = (u1 - u0) * (v1 - v0) * c.importance
+		e.rank = e.weight * lux
 		e.solid_angle, e.distance = 0, 0
 	end
 
@@ -346,6 +351,7 @@ local function add_lamp_entries(count, caster_count, light, index)
 			e.s, e.start = 0, 0
 			e.solid_angle, e.distance = solid_angle, math.max(distance - c.radius, 0.01)
 			e.weight = area * c.importance
+			e.rank = intensity * solid_angle * c.importance
 		end
 	end
 
@@ -393,7 +399,7 @@ local function prepare()
 			local bx, by, bz = sy * tz - sz * ty, sz * tx - sx * tz, sx * ty - sy * tx
 			local axes = frame_state.axes
 			axes[1], axes[2], axes[3], axes[4], axes[5], axes[6], axes[7], axes[8], axes[9] = sx, sy, sz, tx, ty, tz, bx, by, bz
-			count = add_sun_entries(count, caster_count, sun_index, axes)
+			count = add_sun_entries(count, caster_count, sun_index, axes, sun:GetPhotometricAmount())
 		end
 	end
 
@@ -406,17 +412,33 @@ local function prepare()
 		local seen = efficiency[e.key]
 
 		if seen then
-			seen.frame = frame
 			e.weight = e.weight * math.max(seen.landed, MIN_EFFICIENCY)
+			e.rank = e.rank * seen.landed
 		end
 	end
 
 	for i = count + 1, #entries do
 		entries[i].weight = -1
+		entries[i].rank = -1
+	end
+
+	if count > caustics.MAX_CASTERS then
+		table.sort(entries, by_rank)
+
+		for i = caustics.MAX_CASTERS + 1, #entries do
+			entries[i].weight = -1
+		end
 	end
 
 	table.sort(entries, by_weight)
 	frame_state.count = math.min(count, caustics.MAX_CASTERS)
+
+	for i = 1, frame_state.count do
+		local seen = efficiency[entries[i].key]
+
+		if seen then seen.frame = frame end
+	end
+
 	return frame_state
 end
 
