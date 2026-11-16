@@ -96,7 +96,7 @@ local BLUR_GLSL = post_source.GetPreExposureGLSL("mb_data") .. exposure_model.Ge
 				return ivec2((vec2(pixel) + 0.5) * gbuffer_scale);
 			}
 
-			vec2 get_blur(ivec2 pixel, float depth) {
+			vec2 get_motion(ivec2 pixel, float depth) {
 				pixel = clamp(pixel, ivec2(0), size - 1);
 				vec2 motion;
 
@@ -123,10 +123,18 @@ local BLUR_GLSL = post_source.GetPreExposureGLSL("mb_data") .. exposure_model.Ge
 					if (coverage > 0.0) motion = mix(motion, translucent.rg / translucent.b, coverage);
 				}
 
+				return motion;
+			}
+
+			vec2 motion_to_blur(vec2 motion) {
 				vec2 blur = motion * vec2(size) * blur_scale;
 				float len = length(blur);
 				float keep = smoothstep(1.0, 2.5, len) * min(mb_data.max_length / max(len, 1e-4), 1.0);
 				return blur * keep;
+			}
+
+			vec2 get_blur(ivec2 pixel, float depth) {
+				return motion_to_blur(get_motion(pixel, depth));
 			}
 
 
@@ -253,7 +261,10 @@ return {
 	{
 		name = "motion_blur",
 		is_enabled = is_enabled,
-		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16_sfloat", {"blurred_motion", "rg"}},
+		},
 		fragment = {
 			uniform_buffers = {uniform_buffer(2, true)},
 			shader = post_source.GetCompressGLSL() .. BLUR_GLSL .. [[
@@ -275,7 +286,8 @@ return {
 				exposure = mb_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
 				vec4 center = texelFetch(TEXTURE(mb_data.source_tex), pixel, 0);
 				float center_depth = texelFetch(TEXTURE(mb_data.depth_tex), gbuffer_pixel(pixel), 0).r;
-				vec2 center_blur = get_blur(pixel, center_depth);
+				vec2 center_motion = get_motion(pixel, center_depth);
+				vec2 center_blur = motion_to_blur(center_motion);
 				float center_z = get_view_depth(uv, center_depth);
 
 				float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)) + float(mb_data.frame % 8) * 0.618034));
@@ -303,6 +315,7 @@ return {
 
 				if (len < 1.0) {
 					set_color(center);
+					set_blurred_motion(center_motion);
 					return;
 				}
 
@@ -313,6 +326,7 @@ return {
 				float total = 0.0;
 				float center_weight = float(count) / max(len, 1.0);
 				sum += compress(center.rgb, exposure) * center_weight;
+				vec2 motion_sum = center_motion * center_weight;
 				total += center_weight;
 
 				for (int i = 0; i < count; i++) {
@@ -324,15 +338,18 @@ return {
 					float extent = 0.1 * center_z + 0.1 * mb_data.view_scale;
 					float in_front = clamp(1.0 - (z - center_z) / extent, 0.0, 1.0);
 					float behind = clamp(1.0 - (center_z - z) / extent, 0.0, 1.0);
-					float sample_len = length(get_blur(p, depth));
+					vec2 sample_motion = get_motion(p, depth);
+					float sample_len = length(motion_to_blur(sample_motion));
 					float weight = in_front * cone(dist, sample_len) +
 						behind * cone(dist, length(center_blur)) +
 						2.0 * cylinder(dist, sample_len) * cylinder(dist, length(center_blur));
 					sum += compress(texelFetch(TEXTURE(mb_data.source_tex), p, 0).rgb, exposure) * weight;
+					motion_sum += sample_motion * weight;
 					total += weight;
 				}
 
 				set_color(vec4(decompress(sum / total, exposure), center.a));
+				set_blurred_motion(motion_sum / total);
 			}
 		]],
 		},

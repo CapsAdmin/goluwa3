@@ -205,6 +205,7 @@ local FI_BLOCK = {
 	{"color_pyramid_mips", "int"},
 	{"of_size", "vec2"},
 	{"of_scale", "vec2"},
+	{"blurred_motion_tex", "int"},
 }
 local PUSH_BLOCK = {
 	{"mode", "int"},
@@ -237,6 +238,7 @@ local function write_fi(self, block)
 	block.of_size[1] = resources.of_height
 	block.of_scale[0] = 1 / resources.display_width
 	block.of_scale[1] = 1 / resources.display_height
+	block.blurred_motion_tex = state.blurred_motion and self:GetTextureIndex(state.blurred_motion) or -1
 	return block
 end
 
@@ -331,6 +333,13 @@ local DILATE_SHADER = [[
 		} else {
 			vec4 prev_clip = fi.reproject * vec4(uv * 2.0 - 1.0, nearest, 1.0);
 			mv = (prev_clip.xy / prev_clip.w * 0.5 + 0.5) - uv;
+		}
+
+		// a motion blur trail lies outside the moving silhouette, over pixels whose own vectors are the background's; the blur's weighted motion moves it with what left it
+		if (fi.blurred_motion_tex != -1) {
+			vec2 blurred = -textureLod(TEXTURE(fi.blurred_motion_tex), (vec2(p) + 0.5) / vec2(size), 0.0).xy;
+
+			if (dot(blurred, blurred) > dot(mv, mv)) mv = blurred;
 		}
 
 		imageStore(dilated_depth, p, vec4(nearest));
@@ -935,6 +944,14 @@ local function interpolate(cmd, scene)
 
 	render.TransitionResourceToShaderRead(scene, {cmd = cmd, srcStage = "all_commands"})
 	render.TransitionResourceToShaderRead(r.history, {cmd = cmd, srcStage = "all_commands"})
+	state.blurred_motion = render3d.HasPass("motion_blur") and
+		render3d.pipelines.motion_blur.is_enabled() and
+		render3d.pipelines.motion_blur:GetFramebuffer():GetAttachment(2) or
+		nil
+
+	if state.blurred_motion then
+		render.TransitionResourceToShaderRead(state.blurred_motion, {cmd = cmd, srcStage = "all_commands"})
+	end
 	render.TransitionResourceToShaderRead(gbuffer_layout.GetDepthTexture(), {cmd = cmd, srcStage = "all_commands"})
 
 	if render3d.velocity_enabled:Get() then
