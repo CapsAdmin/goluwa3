@@ -145,14 +145,21 @@ do
 		local ok, err = pcall(function()
 			draw()
 			local state = radiance_cache.GetFrameState()
-			local hits = ffi.cast("float*", radiance_cache.GetRayHitBuffer():Map(0, radiance_cache.GetRayHitBuffer():GetSize()))
+			local hits = ffi.cast(
+				"float*",
+				radiance_cache.GetRayHitBuffer():Map(0, radiance_cache.GetRayHitBuffer():GetSize())
+			)
 			local cascade = state.cascades[1]
 			local height = 2 * cascade.spacing
 			local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
 
 			for ray = 0, radiance_cache.GetUniformRays() - 1 do
 				local _, dy = radiance_cache.GetRayDirection(ray, radiance_cache.GetUniformRays(), state.rotation)
-				local hit_t = hits[(probe * (radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES) + ray) * 4]
+				local hit_t = hits[(
+					probe * (
+						radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES
+					) + ray
+				) * 4]
 
 				if dy < -0.1 then
 					T(hit_t)["~"](height / -dy, 0.01 * height / -dy)
@@ -201,13 +208,22 @@ do
 		local ok, err = pcall(function()
 			local function probe_hits()
 				local state = radiance_cache.GetFrameState()
-				local hits = ffi.cast("float*", radiance_cache.GetRayHitBuffer():Map(0, radiance_cache.GetRayHitBuffer():GetSize()))
+				local hits = ffi.cast(
+					"float*",
+					radiance_cache.GetRayHitBuffer():Map(0, radiance_cache.GetRayHitBuffer():GetSize())
+				)
 				local cascade = state.cascades[1]
 				local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
 				local count = 0
 
 				for ray = 0, radiance_cache.GetUniformRays() - 1 do
-					if hits[(probe * (radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES) + ray) * 4] >= 0 then
+					if
+						hits[(
+							probe * (
+								radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES
+							) + ray
+						) * 4] >= 0
+					then
 						count = count + 1
 					end
 				end
@@ -370,7 +386,7 @@ do
 			local weight, count = scene_emitters.ReadBackHeader()
 			T(emitters.count)["=="](12)
 			T(count)["=="](12)
-			T(weight)["~"](6 * 0.01 * 30, 1e-3)
+			T(weight / render3d.EMISSIVE_REFERENCE_LUMINANCE)["~"](6 * 0.01 * 30, 1e-3)
 		end)
 
 		for _, e in ipairs(created) do

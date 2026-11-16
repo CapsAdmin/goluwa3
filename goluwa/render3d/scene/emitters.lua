@@ -8,6 +8,8 @@ local materials = import("goluwa/render3d/scene/materials.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local store = import("goluwa/render3d/scene/store.lua")
+local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local emitters = {}
@@ -28,13 +30,13 @@ local HEADER_WORDS = 4
 local EMITTER_WORDS = 4
 local NODE_WORDS = 12
 local LOCAL_SIZE = 256
+local BINDING_MATERIALS = 6
 local list = {count = 0, version = -1}
 local Source = ffi.typeof([[struct {
 	uint32_t first;
 	uint32_t instance;
 	uint32_t triangle_count;
 	uint32_t flags;
-	float luminance;
 }]])
 local SourceArray = ffi.typeof("$[?]", Source)
 local sources_buffer
@@ -120,7 +122,6 @@ do
 				uint instance;
 				uint triangle_count;
 				uint flags;
-				float luminance;
 			};
 
 			layout(scalar, set = 0, binding = 4) readonly buffer EmitterSources { emitter_source sources[]; };
@@ -200,18 +201,24 @@ do
 			}
 		]]
 
-		local function create(name, shader)
+		local function create(name, shader, material_glsl)
+			local storage_buffers = {
+				{binding_index = 0},
+				{binding_index = 1},
+				{binding_index = 2},
+				{binding_index = 4},
+				{binding_index = 5},
+			}
+
+			if material_glsl then
+				storage_buffers[#storage_buffers + 1] = {binding_index = BINDING_MATERIALS}
+			end
+
 			return EasyPipeline.Compute{
 				name = name,
 				DescriptorSetCount = slots,
 				LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
-				storage_buffers = {
-					{binding_index = 0},
-					{binding_index = 1},
-					{binding_index = 2},
-					{binding_index = 4},
-					{binding_index = 5},
-				},
+				storage_buffers = storage_buffers,
 				block = {
 					{"source_count", "int"},
 					{"triangle_count", "int"},
@@ -229,7 +236,7 @@ do
 
 					return block
 				end,
-				custom_declarations = declarations,
+				custom_declarations = declarations .. (material_glsl or ""),
 				shader = helpers .. shader,
 			}
 		end
@@ -347,7 +354,7 @@ do
 					float power = 0.0;
 
 					if ((scene_instance_flags(source.instance) & 16u) == 0u) {
-						power = 0.5 * length(cross(tri.e1, tri.e2)) * source.luminance;
+						power = 0.5 * length(cross(tri.e1, tri.e2)) * emitter_triangle_luminance(tri, source.instance, t - source.first);
 
 						if (!(power > 0.0) || isinf(power)) power = 0.0;
 					}
@@ -362,7 +369,25 @@ do
 					// cross(e1, e2) points into the mesh, the light leaves the other side; a leaf keeps its plane offset where nodes keep the cone angle
 					write_node(node, min(tri.v0, min(a, b)), max(tri.v0, max(a, b)), power, -tri.normal, dot(-tri.normal, tri.v0), t | (source.flags & EMITTER_DOUBLE_SIDED));
 				}
-			]]
+			]],
+				ray_materials.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. glsl_common.GetLuminanceGLSL() .. render3d.GetEmissiveGLSL() .. ray_materials.GetMaterialGLSL() .. [[
+					// the floor keeps a triangle pickable when the one mip read misses its lit texels
+					float emitter_triangle_luminance(scene_triangle tri, uint instance, uint primitive) {
+						ray_material material = ray_materials[tri.material];
+						vec3 albedo = ray_material_albedo(material, tri.v0 + (tri.e1 + tri.e2) / 3.0);
+
+						if (!ray_material_emission_textured(material)) return luminance(ray_material_emission(tri, albedo));
+
+						scene_uv uv = scene_hit_uv(instance, primitive);
+						vec2 size = vec2(textureSize(TEXTURE(ray_material_emission_texture(material)), 0));
+						vec2 a = (uv.uv1 - uv.uv0) * size;
+						vec2 b = (uv.uv2 - uv.uv0) * size;
+						float texels = sqrt(abs(a.x * b.y - a.y * b.x) * 0.5);
+						float own = luminance(ray_material_texel_emission(material, albedo, (uv.uv0 + uv.uv1 + uv.uv2) / 3.0, log2(max(texels, 1.0))));
+						float mean = luminance(ray_material_texel_emission(material, albedo, vec2(0.5), 16.0));
+						return max(own, 0.01 * mean);
+					}
+				]]
 			),
 			level = create(
 				"scene_emitter_level",
@@ -450,6 +475,15 @@ do
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 5, 0, buffers[2], buffers[2]:GetSize())
 			last[2] = buffers[2]
 		end
+
+		if pipeline == pipelines.leaves then
+			local materials = ray_materials.WriteMaterialBuffer(pipeline)
+
+			if last[3] ~= materials then
+				pipeline:UpdateDescriptorSet("storage_buffer", slot, BINDING_MATERIALS, 0, materials, materials:GetSize())
+				last[3] = materials
+			end
+		end
 	end
 
 	local function dispatch(cmd, slot, buffers, name, threads)
@@ -504,7 +538,6 @@ do
 				data[i - 1].instance = source.instance
 				data[i - 1].triangle_count = source.triangle_count
 				data[i - 1].flags = source.flags
-				data[i - 1].luminance = source.luminance
 			end
 
 			if sources_buffer then sources_buffer:Remove() end
@@ -645,6 +678,10 @@ function emitters.GetGLSL()
 
 		float emitter_power(int e) {
 			return uintBitsToFloat(emitter_words[EMITTER_HEADER + uint(e) * 4u + 3u]);
+		}
+
+		float emitter_luminance(int e, scene_triangle tri) {
+			return emitter_power(e) / (0.5 * length(cross(tri.e1, tri.e2)));
 		}
 
 		vec3 emitter_point(scene_triangle tri, vec2 u) {
@@ -869,7 +906,7 @@ function emitters.GetLightGLSL()
 			scene_triangle tri = scene_hit_tri(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED);
 			ray_material material = ray_materials[tri.material];
 			float receiving = normal == vec3(0.0) ? 1.0 : max(dot(normal, dir), 1e-3);
-			return ray_hit_emission(tri, ray_material_albedo(material, point), point, emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED) / (dot(material.emissive, vec3(0.2126, 0.7152, 0.0722)) * receiving) * weight;
+			return ray_hit_emission(tri, ray_material_albedo(material, point), point, emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED) / (emitter_luminance(e, tri) * receiving) * weight;
 		}
 
 		vec3 emitter_sample_light(uint index, uint frame, vec3 origin, vec3 normal, float radius, out vec3 dir, out float dist) {

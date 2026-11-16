@@ -175,7 +175,10 @@ local function pass_shade()
 				{"radiance_cache_ray_radiance", "rgba"},
 			},
 		},
-		FramebufferSize = {x = (radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES) * CASCADES, y = P ^ 3},
+		FramebufferSize = {
+			x = (radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES) * CASCADES,
+			y = P ^ 3,
+		},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
 		ray_generation = VISIBILITY_RAYS and
@@ -192,7 +195,9 @@ local function pass_shade()
 			self.pipeline:DispatchForSize(
 				cmd,
 				fb.height,
-				(radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES) * radiance_cache.GetFrameState().cascade_count,
+				(
+						radiance_cache.RAYS_PER_PROBE + radiance_cache.EMITTER_SAMPLES
+					) * radiance_cache.GetFrameState().cascade_count,
 				1,
 				desc,
 				self.dynamic_offsets
@@ -376,7 +381,7 @@ local function pass_shade()
 						vec3 point = emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
 						vec3 emission = ray_hit_emission(tri, ray_hit_albedo(ray_materials[tri.material], point, emitter_instance, emitter_triangle), point, emitter_instance, emitter_triangle);
-						float emissive_luma = luminance(ray_materials[tri.material].emissive);
+						float emissive_luma = emitter_luminance(emitter_index, tri);
 						vec3 estimate = emission / emissive_luma * weight;
 						if (radiance_cache_data.light_transmittance != 0) estimate *= get_light_transmittance_local(origin, dir, length(point - origin), 0.0);
 
@@ -670,14 +675,22 @@ local function pass_probe_data()
 		storage_images = {
 			{
 				binding_index = BINDING_OUTPUT,
-				dst_stage = radiance_cache.RTSupported() and {"compute", "ray_tracing_shader_khr"} or "compute",
+				dst_stage = radiance_cache.RTSupported() and
+					{"compute", "ray_tracing_shader_khr"} or
+					"compute",
 			},
 		},
 		uniform_buffers = {data_uniform()},
 		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
 		on_pre_draw = VISIBILITY_RAYS and
 			function(self, cmd, frame, desc)
-				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, radiance_cache.GetFrameState().tlas)
+				self:UpdateDescriptorSet(
+					"acceleration_structure_khr",
+					desc,
+					BINDING_SCENE,
+					0,
+					radiance_cache.GetFrameState().tlas
+				)
 			end or
 			nil,
 		on_draw = function(self, cmd, fb, frame, desc)
@@ -800,13 +813,18 @@ local function pass_guide()
 		name = "radiance_cache_guide",
 		ComputePass = true,
 		ColorFormat = {{"r32g32b32a32_sfloat", {"radiance_cache_guide", "rgba"}}},
-		FramebufferSize = {x = P * P * radiance_cache.GUIDE_TEXELS, y = P * radiance_cache.GUIDE_TEXELS * CASCADES},
+		FramebufferSize = {
+			x = P * P * radiance_cache.GUIDE_TEXELS,
+			y = P * radiance_cache.GUIDE_TEXELS * CASCADES,
+		},
 		framebuffer_count = 1,
 		LocalSize = {x = 8, y = 8, z = 1},
 		storage_images = {
 			{
 				binding_index = BINDING_OUTPUT,
-				dst_stage = radiance_cache.RTSupported() and {"compute", "ray_tracing_shader_khr"} or "compute",
+				dst_stage = radiance_cache.RTSupported() and
+					{"compute", "ray_tracing_shader_khr"} or
+					"compute",
 			},
 		},
 		uniform_buffers = {data_uniform()},
@@ -1252,7 +1270,11 @@ if not radiance_cache.RTSupported() then return {} end
 local passes = {
 	pass_trace(),
 	pass_shade(),
-	pass_update("radiance_cache_irradiance", radiance_cache.IRRADIANCE_TEXELS, IRRADIANCE_INTEGRATE),
+	pass_update(
+		"radiance_cache_irradiance",
+		radiance_cache.IRRADIANCE_TEXELS,
+		IRRADIANCE_INTEGRATE
+	),
 	pass_update("radiance_cache_distance", radiance_cache.DISTANCE_TEXELS, DISTANCE_INTEGRATE),
 	pass_probe_data(),
 	pass_guide(),

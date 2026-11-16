@@ -438,11 +438,32 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 		#define RAY_EMISSIVE_TEXELS 128.0
 		#endif
 
+		bool ray_material_emission_textured(ray_material material) {
+			return material.emissive_tex >= 0 || material.emissive_alpha != 0 && material.albedo_tex >= 0;
+		}
+
+		int ray_material_emission_texture(ray_material material) {
+			return material.emissive_alpha != 0 && material.albedo_tex >= 0 ? material.albedo_tex : material.emissive_tex;
+		}
+
+		vec3 ray_material_texel_emission(ray_material material, vec3 albedo, vec2 coord, float lod) {
+			bool alpha_mask = material.emissive_alpha != 0 && material.albedo_tex >= 0;
+			vec4 texel = textureLod(TEXTURE(ray_material_emission_texture(material)), coord, lod);
+			vec3 source;
+
+			if (alpha_mask) {
+				source = albedo * clamp((texel.a - material.emissive_floor) / (1.0 - material.emissive_floor), 0.0, 1.0);
+			} else {
+				source = material.emissive_color != 0 ? mix(texel.rgb, texel.rgb * albedo, material.emissive_albedo) : albedo * texel.r;
+			}
+
+			return min(material.emissive_scale * source * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+		}
+
 		vec3 ray_hit_emission(scene_triangle tri, vec3 albedo, vec3 P, uint instance, uint primitive) {
 			ray_material material = ray_materials[tri.material];
-			bool alpha_mask = material.emissive_alpha != 0 && material.albedo_tex >= 0;
 
-			if (material.emissive_tex < 0 && !alpha_mask) return ray_material_emission(tri, albedo);
+			if (!ray_material_emission_textured(material)) return ray_material_emission(tri, albedo);
 
 			vec3 p = P - tri.v0;
 			float d00 = dot(tri.e1, tri.e1);
@@ -454,20 +475,8 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 			float v = (d11 * d20 - d01 * d21) * inv;
 			float w = (d00 * d21 - d01 * d20) * inv;
 			scene_uv uv = scene_hit_uv(instance, primitive);
-			vec2 coord = uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w;
-			int tex = alpha_mask ? material.albedo_tex : material.emissive_tex;
-			ivec2 size = textureSize(TEXTURE(tex), 0);
-			float lod = max(log2(float(max(size.x, size.y)) / RAY_EMISSIVE_TEXELS), 0.0);
-			vec4 texel = textureLod(TEXTURE(tex), coord, lod);
-			vec3 source;
-
-			if (alpha_mask) {
-				source = albedo * clamp((texel.a - material.emissive_floor) / (1.0 - material.emissive_floor), 0.0, 1.0);
-			} else {
-				source = material.emissive_color != 0 ? mix(texel.rgb, texel.rgb * albedo, material.emissive_albedo) : albedo * texel.r;
-			}
-
-			return min(material.emissive_scale * source * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+			ivec2 size = textureSize(TEXTURE(ray_material_emission_texture(material)), 0);
+			return ray_material_texel_emission(material, albedo, uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w, max(log2(float(max(size.x, size.y)) / RAY_EMISSIVE_TEXELS), 0.0));
 		}
 	]]
 end

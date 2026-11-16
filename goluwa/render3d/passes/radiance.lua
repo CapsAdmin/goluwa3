@@ -849,7 +849,7 @@ local function pass_candidates()
 							if (restir_data.light_transmittance != 0) L *= get_light_transmittance_local(origin, L_dir, dist, 0.0);
 
 							float target = luminance(L) * cosine;
-							float w = target * weight / (max(dot(material.emissive, vec3(0.2126, 0.7152, 0.0722)), 1e-6) * max(cosine, 1e-3));
+							float w = target * weight / (max(emitter_luminance(e, tri), 1e-6) * max(cosine, 1e-3));
 
 							if (w > 0.0 && !isinf(w)) {
 								w_sum += w;
