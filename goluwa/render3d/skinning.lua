@@ -472,7 +472,7 @@ function skinning.Dispatch(cmd)
 	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
 	job_count = jobs
 	group_count = groups
-	gpu_timing.BeginScope(cmd, "skinning")
+	gpu_timing.BeginScope(cmd, "skinning", "scene acceleration")
 	get_pipeline():Dispatch(cmd, math.min(groups, ROW), math.ceil(groups / ROW), 1, 1)
 	gpu_timing.EndScope(cmd, "skinning")
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "all_commands", memoryBarrier = true}

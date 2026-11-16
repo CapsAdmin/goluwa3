@@ -625,7 +625,7 @@ function light_occlusion.Draw(cmd)
 	pipeline:UploadConstants()
 	local size = get_map_size()
 	light_occlusion.last_dispatches = dirty_count
-	gpu_timing.BeginScope(cmd, "light_occlusion")
+	gpu_timing.BeginScope(cmd, "light_occlusion", "lighting")
 	pipeline.pipeline:Dispatch(
 		cmd,
 		math.ceil(size / 8),

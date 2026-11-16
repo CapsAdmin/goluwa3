@@ -356,42 +356,73 @@ function render3d.WithRenderContext(context, callback)
 end
 
 local default_passes = {
-	{"light_grid", "goluwa/render3d/light_grid.lua"},
+	{"light_grid", "goluwa/render3d/light_grid.lua", group = "lighting"},
 	{"gbuffer", "goluwa/render3d/passes/gbuffer.lua"},
 	{"clouds", "goluwa/render3d/passes/clouds.lua"},
 	{"terrain_shadow", "goluwa/render3d/passes/terrain_shadow.lua"},
-	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
-	{"ddgi", "goluwa/render3d/passes/ddgi.lua", gi = "ddgi"},
-	{"surfel_gi", "goluwa/render3d/passes/surfel_gi.lua", gi = "surfels"},
-	{"restir_gi", "goluwa/render3d/passes/restir_gi.lua", gi = "restir"},
-	{"reflections", "goluwa/render3d/passes/reflections.lua"},
-	{"fluid_volumes", "goluwa/render3d/passes/fluid_volumes.lua"},
+	{
+		"ambient_occlusion",
+		"goluwa/render3d/passes/ambient_occlusion.lua",
+		group = "ambient occlusion",
+	},
+	{
+		"ddgi",
+		"goluwa/render3d/passes/ddgi.lua",
+		group = "global illumination",
+		gi = "ddgi",
+	},
+	{
+		"surfel_gi",
+		"goluwa/render3d/passes/surfel_gi.lua",
+		group = "global illumination",
+		gi = "surfels",
+	},
+	{
+		"restir_gi",
+		"goluwa/render3d/passes/restir_gi.lua",
+		group = "global illumination",
+		gi = "restir",
+	},
+	{"reflections", "goluwa/render3d/passes/reflections.lua", group = "reflections"},
+	{
+		"fluid_volumes",
+		"goluwa/render3d/passes/fluid_volumes.lua",
+		group = "fluid volumes",
+	},
 	{"ray_shadows", "goluwa/render3d/passes/ray_shadows.lua"},
 	{"caustics", "goluwa/render3d/passes/caustics.lua", optional = true},
-	{"lighting", "goluwa/render3d/passes/lighting.lua"},
+	{"lighting", "goluwa/render3d/passes/lighting.lua", group = "lighting"},
 	{"path_trace", "goluwa/render3d/passes/path_trace.lua", optional = true},
-	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
-	{"water", "goluwa/render3d/passes/water.lua"},
-	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},
+	{"subsurface", "goluwa/render3d/passes/subsurface.lua", group = "subsurface"},
+	{"water", "goluwa/render3d/passes/water.lua", group = "water"},
+	{
+		"volumetric_fog",
+		"goluwa/render3d/passes/volumetric_fog.lua",
+		group = "volumetrics",
+	},
 	{"camera_medium", "goluwa/render3d/passes/camera_medium.lua"},
-	{"particles", "goluwa/render3d/passes/particles.lua"},
-	{"translucent", "goluwa/render3d/passes/translucent.lua"},
-	{"forward_overlay", "goluwa/render3d/passes/forward_overlay.lua"},
+	{"particles", "goluwa/render3d/passes/particles.lua", group = "particles"},
+	{"translucent", "goluwa/render3d/passes/translucent.lua", group = "translucency"},
+	{
+		"forward_overlay",
+		"goluwa/render3d/passes/forward_overlay.lua",
+		group = "post processing",
+	},
 	{"edge_aa", "goluwa/render3d/passes/edge_aa.lua"},
-	{"taa", "goluwa/render3d/passes/taa.lua"},
+	{"taa", "goluwa/render3d/passes/taa.lua", group = "anti aliasing"},
 	{"ssaa", "goluwa/render3d/passes/ssaa.lua"},
 	{"fxaa", "goluwa/render3d/passes/fxaa.lua"},
 	{"easu", "goluwa/render3d/passes/easu.lua"},
 	{"effects_post", "goluwa/render3d/passes/effects_post.lua"},
-	{"dof", "goluwa/render3d/passes/dof.lua"},
-	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua"},
+	{"dof", "goluwa/render3d/passes/dof.lua", group = "post processing"},
+	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua", group = "motion blur"},
 	{"screen_fields", "goluwa/render3d/passes/screen_fields.lua"},
 	{
 		"ambient_occlusion_debug",
 		"goluwa/render3d/passes/ambient_occlusion_debug.lua",
 	},
 	{"gbuffer_inspect", "goluwa/render3d/passes/gbuffer_inspect.lua"},
-	{"blit", "goluwa/render3d/passes/blit.lua"},
+	{"blit", "goluwa/render3d/passes/blit.lua", group = "post processing"},
 }
 local pass_vars = {}
 render3d.bundles = render3d.bundles or table.weak("k")
@@ -589,6 +620,12 @@ local function fill_pipeline_bundle(bundle)
 	end
 
 	local pass_of_config = {}
+	local pass_groups = {}
+
+	for _, entry in ipairs(default_passes) do
+		pass_groups[entry[1]] = entry.group
+	end
+
 	local passes = options.passes
 
 	if not passes then
@@ -644,6 +681,7 @@ local function fill_pipeline_bundle(bundle)
 				local is_enabled = config.is_enabled
 				local is_fallback = config.fallback == true
 				bundle.passes[pass_name] = true
+				config.timing_group = config.timing_group or pass_groups[pass_name]
 				config.is_enabled = function()
 					return (
 							enabled_var:Get() and

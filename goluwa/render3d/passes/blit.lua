@@ -477,6 +477,7 @@ end
 
 glare_pass = {
 	name = "glare",
+	timing_group = "bloom",
 	ComputePass = true,
 	ColorFormat = {{"r16g16b16a16_sfloat", {"glare", "rgba"}}},
 	LocalSize = COMPUTE_LOCAL_SIZE,

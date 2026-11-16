@@ -133,6 +133,7 @@ end
 
 fluid_volume_passes.simulate = {
 	name = "fluid_volumes_simulate",
+	timing_group = "fluid volumes",
 	ComputePass = true,
 	ColorFormat = {{"r8_unorm", {"fluid_dummy", "r"}}},
 	FramebufferSize = {x = 1, y = 1},
@@ -168,6 +169,7 @@ list.insert(
 )
 fluid_volume_passes.view = {
 	name = "fluid_volumes_view",
+	timing_group = "fluid volumes",
 	ComputePass = true,
 	ColorFormat = {{"r8_unorm", {"fluid_view_dummy", "r"}}},
 	FramebufferSize = {x = 1, y = 1},

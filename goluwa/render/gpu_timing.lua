@@ -17,6 +17,7 @@ local slot_by_name = {}
 local slot_order = {}
 local display_order = {}
 local display_labels = {}
+local scope_groups = {}
 local sequence = {}
 local sequence_seen = {}
 local sequence_frame
@@ -138,7 +139,7 @@ function get_total_ms(name)
 	return total
 end
 
-local function get_slot(name)
+local function get_slot(name, group)
 	local slot = slot_by_name[name]
 
 	if slot then return slot end
@@ -153,6 +154,7 @@ local function get_slot(name)
 	slot_order[slot + 1] = name
 	display_labels[name] = name:gsub("^gpu_", ""):gsub("_", " "):upper()
 	display_order[#display_order + 1] = name
+	scope_groups[name] = group
 	return slot
 end
 
@@ -273,14 +275,14 @@ function gpu_timing.BeginFrame(cmd)
 	gpu_timing.BeginScope(cmd, "gpu_frame")
 end
 
-function gpu_timing.BeginScope(cmd, name)
+function gpu_timing.BeginScope(cmd, name, group)
 	if checkpoints.enabled then checkpoints.Set(cmd, "scope " .. name) end
 
 	if cmd.gpu_timing_disabled then return end
 
 	if not render.available or not timestamps_are_supported() then return end
 
-	local slot = get_slot(name)
+	local slot = get_slot(name, group)
 	note_begun(name)
 	local pool = get_pool(cmd)
 
@@ -335,14 +337,8 @@ function gpu_timing.GetScopeNames()
 end
 
 do
-	local groups = {}
 	local grouped
 	local grouped_count = 0
-
-	function gpu_timing.RegisterGroup(id, label, ...)
-		groups[#groups + 1] = {id = id, label = label, patterns = {...}}
-		grouped = nil
-	end
 
 	function gpu_timing.GetGroups()
 		if grouped and grouped_count == #slot_order then return grouped end
@@ -353,24 +349,12 @@ do
 
 		for _, name in ipairs(slot_order) do
 			if name ~= TOTAL_NAME and name ~= "gpu_frame" then
-				local id, label = name, display_labels[name]
-
-				for _, group in ipairs(groups) do
-					for _, pattern in ipairs(group.patterns) do
-						if name:find(pattern) then
-							id, label = group.id, group.label
-
-							goto found
-						end
-					end
-				end
-
-				::found::
-
+				local group = scope_groups[name]
+				local id = group or name
 				local entry = by_id[id]
 
 				if not entry then
-					entry = {id = id, label = label, scopes = {}}
+					entry = {id = id, label = group or display_labels[name], scopes = {}}
 					by_id[id] = entry
 					grouped[#grouped + 1] = entry
 				end

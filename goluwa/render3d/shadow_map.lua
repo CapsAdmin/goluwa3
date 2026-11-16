@@ -1401,7 +1401,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			self.batch_serial = self.batch_serial + 1
 		end
 
-		gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index))
+		gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index), "shadows")
 		record_shadow_draw_cull(self, cascade_index)
 		local color_view = self.point_face_views[cascade_index]
 		render.TransitionResourceTo(
@@ -1469,7 +1469,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		self.batch_serial = self.batch_serial + 1
 	end
 
-	gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index))
+	gpu_timing.BeginScope(self.cmd, self:GetTimingName(cascade_index), "shadows")
 	record_shadow_draw_cull(self, cascade_index)
 	render.TransitionResourceTo(
 		depth_texture,

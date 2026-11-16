@@ -16,28 +16,6 @@ local FEATHER = 1
 local ZOOM_SECONDS = 0.22
 local TEXT = Color(0.84, 0.87, 0.94, 1)
 local TEXT_DIM = Color(0.5, 0.55, 0.65, 1)
-gpu_timing.RegisterGroup("shadows", "shadows", "^shadow_")
-gpu_timing.RegisterGroup("ddgi", "ddgi", "^ddgi_")
-gpu_timing.RegisterGroup("surfel_gi", "surfel gi", "^surfel_")
-gpu_timing.RegisterGroup("ambient_occlusion", "ambient occlusion", "^ambient_occlusion")
-gpu_timing.RegisterGroup("reflections", "reflections", "^reflections")
-gpu_timing.RegisterGroup("volumetrics", "volumetrics", "^volumetric_")
-gpu_timing.RegisterGroup("water", "water", "^ocean_", "^water")
-gpu_timing.RegisterGroup("particles", "particles", "^particles_")
-gpu_timing.RegisterGroup("translucency", "translucency", "^translucent")
-gpu_timing.RegisterGroup("lighting", "lighting", "^lighting$", "^light_grid$", "^light_occlusion$")
-gpu_timing.RegisterGroup("scene", "scene acceleration", "^rt_build$", "^skinning$")
-gpu_timing.RegisterGroup("antialiasing", "anti aliasing", "^taa")
-gpu_timing.RegisterGroup("bloom", "bloom", "^bloom_", "^glare$")
-gpu_timing.RegisterGroup(
-	"post",
-	"post processing",
-	"^dof$",
-	"^motion_blur$",
-	"^exposure_feedback$",
-	"^blit",
-	"^forward_overlay$"
-)
 local smoothed = {}
 local selected
 local switch_time = -math.huge

@@ -180,6 +180,7 @@ local block = {
 local function build_pass(name, scale, shader, sampled_images, write)
 	return {
 		name = name,
+		timing_group = "bloom",
 		ComputePass = true,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"bloom", "rgba"}}},
 		scale = scale,

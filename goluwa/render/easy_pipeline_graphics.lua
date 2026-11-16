@@ -190,7 +190,9 @@ do
 
 		local timing_name = self.name
 
-		if timing_name then gpu_timing.BeginScope(cmd, timing_name) end
+		if timing_name then
+			gpu_timing.BeginScope(cmd, timing_name, self.config.timing_group)
+		end
 
 		render.PushCommandBuffer(cmd)
 
