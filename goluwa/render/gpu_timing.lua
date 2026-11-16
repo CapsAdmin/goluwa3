@@ -367,6 +367,67 @@ do
 	end
 end
 
+do
+	local LANE_NAMES = {"graphics", "compute", "other"}
+	local CONTAINERS = {gpu_frame = "graphics", gpu_compute = "compute"}
+
+	function gpu_timing.GetTimeline()
+		local now = system.GetUnscaledElapsedTime()
+		local frame
+
+		for _, pool in pairs(pools) do
+			local time = pool.gpu_timing_times.gpu_frame
+
+			if time and now - time <= STALE_SECONDS then
+				frame = math.max(frame or 0, pool.gpu_timing_frames.gpu_frame)
+			end
+		end
+
+		if not frame then return nil end
+
+		local lanes = {}
+
+		for i, name in ipairs(LANE_NAMES) do
+			lanes[i] = {name = name, spans = {}}
+		end
+
+		local first, last = math.huge, -math.huge
+
+		for _, pool in pairs(pools) do
+			local lane = 3
+
+			for name, lane_name in pairs(CONTAINERS) do
+				local time = pool.gpu_timing_times[name]
+
+				if time and now - time <= STALE_SECONDS and pool.gpu_timing_frames[name] == frame then
+					lane = lane_name == "graphics" and 1 or 2
+				end
+			end
+
+			for name, begin_ms in pairs(pool.gpu_timing_begin) do
+				if
+					pool.gpu_timing_frames[name] == frame and
+					now - pool.gpu_timing_times[name] <= STALE_SECONDS
+				then
+					local end_ms = pool.gpu_timing_end[name]
+					local spans = lanes[lane].spans
+					spans[#spans + 1] = {
+						name = name,
+						group = scope_groups[name] or name,
+						begin = begin_ms,
+						finish = end_ms,
+						container = CONTAINERS[name] ~= nil,
+					}
+					first = math.min(first, begin_ms)
+					last = math.max(last, end_ms)
+				end
+			end
+		end
+
+		return {frame = frame, begin = first, finish = last, lanes = lanes}
+	end
+end
+
 function gpu_timing.GetLabel(name)
 	return display_labels[name]
 end
