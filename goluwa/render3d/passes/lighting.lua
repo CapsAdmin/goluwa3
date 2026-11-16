@@ -38,6 +38,11 @@ local debug_direct = pvars.Setup2{
 	default = false,
 	help = "show only the direct light",
 }
+local debug_indirect = pvars.Setup2{
+	key = "lighting_debug_indirect",
+	default = false,
+	help = "show only the indirect light as the lighting composes it: the gi times the diffuse response plus the reflection times the specular albedo (with r_aa dlss_rr this is what ray reconstruction denoises, see r_dlss_show_input for the input)",
+}
 local debug_reflections = pvars.Setup2{
 	key = "lighting_debug_reflections",
 	default = false,
@@ -153,6 +158,7 @@ return {
 					render3d.last_frame_block,
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
+					{"indirect_debug", "int"},
 					{"reflection_debug", "int"},
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
@@ -176,6 +182,7 @@ return {
 					render3d.WriteLastFrameBlock(self, block)
 					block.gi_debug = gi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
+					block.indirect_debug = debug_indirect:Get() and 1 or 0
 					block.reflection_debug = debug_reflections:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
 					block.sky_air = (
@@ -214,7 +221,6 @@ return {
 
 					local overlay = gi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
-
 					return block
 				end,
 			},
@@ -555,6 +561,11 @@ return {
 				}
 
 				vec3 indirect = get_indirect_light(surface);
+
+				if (lighting_data.indirect_debug != 0) {
+					set_color(vec4(min(indirect * get_pre_exposure(), vec3(65504.0)), 1.0));
+					return;
+				}
 				vec3 color = direct + indirect + surface.emissive;
 
 				{

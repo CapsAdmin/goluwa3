@@ -18,6 +18,11 @@ dlss.logging = pvars.Setup2{
 	default = false,
 	help = "write NGX's own log to storage/logs/ngx, read at startup",
 }
+dlss.show_input = pvars.Setup2{
+	key = "r_dlss_show_input",
+	default = false,
+	help = "show the scene DLSS is given (internal resolution, before upscaling and denoising) instead of its output; DLSS still runs so toggling keeps its history",
+}
 pvars.EndGroup()
 local NVIDIA_VENDOR_ID = 0x10DE
 local REQUIRED_DEVICE_EXTENSIONS = {"VK_NVX_binary_import", "VK_NVX_image_view_handle", "VK_KHR_push_descriptor"}

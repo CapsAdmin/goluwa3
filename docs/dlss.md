@@ -28,6 +28,7 @@ NVIDIA DLSS super resolution and ray reconstruction through NGX, bound with ffi 
 
 - ReSTIR GI keeps its candidate, temporal and spatial resampling (that is the sampler) and skips the accumulation (`accumulation` 1) and the a-trous filters (`filter_enabled` 0).
 - reflections: with `dlss_rr` the radiance accumulation keeps no history and the filter is off (`accumulation` 1, `filter_enabled` 0), so the specular channel is the single ray per pixel. `lighting_debug_reflections` shows the specular the lighting reads.
+- seeing what the network does: `lighting_debug_indirect` replaces the lit scene by the indirect light alone (gi diffuse and reflection, each times its albedo, so it is still a valid color input for ray reconstruction's demodulation; `radiance_debug` and `lighting_debug_reflections` are not, they show radiance without albedo). `r_dlss_show_input` makes the post chain read the scene DLSS is given instead of its output, so toggling it compares the same frame before and after; DLSS keeps running, so its history stays warm.
 - ray shadows: the `ray_shadow_*` passes are disabled and the lighting traces its own ray per light (`ray_shadow_tex` -1).
 - caustics keep the spatial photon density filter (it is the estimator) and drop the temporal history (`history_tex` -1).
 - DDGI is not bypassed: its probes are already smooth.

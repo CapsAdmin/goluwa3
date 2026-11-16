@@ -4,6 +4,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local path_trace = import("goluwa/render3d/path_trace.lua")
+local dlss = import("goluwa/render3d/dlss.lua")
 local post_source = {}
 
 function post_source.GetOpaqueSceneFramebuffer()
@@ -113,6 +114,8 @@ local function get_anti_aliased_scene_texture(self)
 			render3d.IsAntiAliasingEnabled("dlss") or
 			render3d.IsAntiAliasingEnabled("dlss_rr")
 		)
+		and
+		not dlss.show_input:Get()
 	then
 		return render3d.pipelines.dlss:GetFramebuffer():GetAttachment(1)
 	end
