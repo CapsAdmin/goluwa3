@@ -1,5 +1,6 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
+local cpu_timing = import("goluwa/cpu_timing.lua")
 local timer = {}
 timer.timers = timer.timers or {}
 timer.MaxThinkerIterations = timer.MaxThinkerIterations or 128
@@ -190,7 +191,14 @@ local function run_fps_thinkers(fps_thinkers, count)
 		repeat
 			iterations = iterations + 1
 			local callback_start = get_precise_time_seconds()
+			local timed = cpu_timing.enabled
+
+			if timed then cpu_timing.Begin() end
+
 			local res = data.callback()
+
+			if timed then cpu_timing.End(data) end
+
 			local callback_time = tonumber(get_precise_time_seconds() - callback_start) or 0
 
 			if callback_time > 0 then spent_time = spent_time + callback_time end
@@ -214,6 +222,7 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 	local snapshot = {}
 	local fps_thinkers = {}
 	local fps_count = 0
+	local timed = cpu_timing.enabled
 
 	for i, data in ipairs(timer.timers) do
 		snapshot[i] = data
@@ -238,7 +247,11 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 					local done = false
 
 					for _ = 1, data.iterations + extra_iterations do
+						if timed then cpu_timing.Begin() end
+
 						local res = data.callback()
+
+						if timed then cpu_timing.End(data) end
 
 						if res == true then
 							done = true
@@ -256,17 +269,25 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 			end
 		elseif data.type == "delay" then
 			if data.realtime < cur then
+				if timed then cpu_timing.Begin() end
+
 				if not data.args then
 					data.callback()
 				else
 					data.callback(unpack(data.args))
 				end
 
+				if timed then cpu_timing.End(data) end
+
 				remove_these[data] = true
 			end
 		elseif data.type == "timer" then
 			if not data.paused and data.realtime < cur then
+				if timed then cpu_timing.Begin() end
+
 				local msg = data.callback(data.times_ran - 1, a_, b_, c_, d_, e_)
+
+				if timed then cpu_timing.End(data) end
 
 				if msg == "stop" then remove_these[data] = true end
 

@@ -7,6 +7,7 @@ local crash_trace = import("goluwa/bindings/crash_trace.lua")
 if not rawget(_G, "_WORKER_THREAD") then crash_trace.Install() end
 
 local event = import("goluwa/event.lua")
+local cpu_timing = import("goluwa/cpu_timing.lua")
 
 if false then
 	local profiler = import("goluwa/profiler.lua")
@@ -405,6 +406,7 @@ crash_trace.Run(function()
 		system.SetFrameNumber(i)
 		system.AdvanceElapsedTime()
 		local update_start = startup.Start()
+		cpu_timing.Reset()
 		event.CallUpdate(dt)
 
 		if not startup.ready_time then

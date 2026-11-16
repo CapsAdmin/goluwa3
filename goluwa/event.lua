@@ -1,5 +1,6 @@
 local event = {}
 local protected_call = import("goluwa/protected_call.lua")
+local cpu_timing = import("goluwa/cpu_timing.lua")
 event.active = event.active or {}
 event.destroy_tag = event.destroy_tag or {}
 
@@ -127,6 +128,7 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 
 	local a, b, c, d, e
 	local ok
+	local timed = cpu_timing.enabled
 
 	for index = 1, #event.active[event_type] do
 		local data = event.active[event_type][index]
@@ -138,6 +140,8 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 
 			continue
 		end
+
+		if timed then cpu_timing.Begin() end
 
 		if data.self_arg then
 			if data.self_arg:IsValid() then
@@ -153,6 +157,8 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 		else
 			ok, a, b, c, d, e = protected_call.call(data.callback, a_, b_, c_, d_, e_)
 		end
+
+		if timed then cpu_timing.End(data) end
 
 		if not ok then
 			event.RemoveListener(event_type, data.id)
