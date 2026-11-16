@@ -1426,7 +1426,7 @@ list.insert(
 
 					int shaft_samples = min(len < 2.0 ? 2 : (len < 8.0 ? 4 : 8), water_data.shaft_samples);
 
-					visibility = water_shaft(w, sun_dir, shaft_focus, origin, dir, shadow_len, shaft_samples, jitter, vec3(0.0)).x / shadow_len;
+					visibility = water_shaft(w, sun_dir, shaft_focus, origin, dir, shadow_len, shaft_samples, jitter, vec3(0.0)).x / max(shadow_len, 1e-4);
 				}
 
 				vec3 backscatter = w.molecular * 0.5 + w.particles * water_particle_backscatter(w.g);
