@@ -7,6 +7,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
+local optical_flow = import("goluwa/render3d/optical_flow.lua")
 local frame_generation = {}
 local SLOTS_PER_FRAME = 32
 local MAX_FRAMES = 9
@@ -17,6 +18,7 @@ local state = {
 	inv_projection = Matrix44(),
 }
 local compose_pipelines = {}
+local use_optical_flow
 local compute = {}
 local resources = {}
 -- shared by every frame interpolation pass; "fi" is the per frame uniform block, "compute" the per dispatch push constants
@@ -145,6 +147,46 @@ local GAME_FIELD_GLSL = [[
 		return e;
 	}
 ]]
+local OF_FIELD_GLSL = [[
+	ivec2 of_size() {
+		return ivec2(fi.of_size);
+	}
+
+	Entry sample_of_field(vec2 uv) {
+		ivec2 size = of_size();
+		bilinear(uv, size);
+		Entry e = unpack_entry(uvec2(0u));
+		float weight_sum = 0.0;
+
+		for (int i = 0; i < 4; i++) {
+			ivec2 q = bilinear_base + BILINEAR_OFFSETS[i];
+
+			if (on_screen(q, size)) {
+				float w = bilinear_weights[i];
+				Entry s = unpack_entry(uvec2(imageLoad(of_x, q).r, imageLoad(of_y, q).r));
+				e.mv += s.mv * w;
+				e.high += s.high * w;
+				e.low += s.low * w;
+				weight_sum += w;
+			}
+		}
+
+		if (weight_sum > 0.0) {
+			e.mv /= weight_sum;
+			e.high /= weight_sum;
+			e.low /= weight_sum;
+		}
+
+		e.neg_outside = !uv_inside(uv - e.mv);
+		e.pos_outside = !uv_inside(uv + e.mv);
+		return e;
+	}
+
+	float normalized_dot3(vec3 a, vec3 b) {
+		float m = max(length(a), length(b));
+		return m > 0.0 ? dot(a / m, b / m) : 1.0;
+	}
+]]
 local FI_BLOCK = {
 	{"reproject", "mat4"},
 	{"inv_projection", "mat4"},
@@ -161,11 +203,14 @@ local FI_BLOCK = {
 	{"disocclusion_tex", "int"},
 	{"color_pyramid_tex", "int"},
 	{"color_pyramid_mips", "int"},
-	{"frames_since_reset", "int"},
+	{"of_size", "vec2"},
+	{"of_scale", "vec2"},
 }
 local PUSH_BLOCK = {
 	{"mode", "int"},
 	{"mip", "int"},
+	{"reset", "int"},
+	{"optical_flow", "int"},
 }
 
 local function write_fi(self, block)
@@ -188,13 +233,18 @@ local function write_fi(self, block)
 	block.disocclusion_tex = self:GetTextureIndex(resources.disocclusion)
 	block.color_pyramid_tex = self:GetTextureIndex(resources.color_pyramid)
 	block.color_pyramid_mips = #resources.color_pyramid_views
-	block.frames_since_reset = state.frames_since_reset
+	block.of_size[0] = resources.of_width
+	block.of_size[1] = resources.of_height
+	block.of_scale[0] = 1 / resources.display_width
+	block.of_scale[1] = 1 / resources.display_height
 	return block
 end
 
 local function write_push(self, block)
 	block.mode = state.mode
 	block.mip = state.mip
+	block.reset = state.frames_since_reset == 1 and 1 or 0
+	block.optical_flow = state.optical_flow and 1 or 0
 	return block
 end
 
@@ -476,12 +526,105 @@ local DISOCCLUSION_SHADER = GAME_FIELD_GLSL .. [[
 		imageStore(disocclusion, p, vec4(mask, 0.0, 0.0));
 	}
 ]]
+local SETUP_DECLARATIONS = [[
+	layout(set = 0, binding = 0, r32ui) uniform uimage2D counter;
+	layout(set = 0, binding = 1, r32ui) uniform writeonly uimage2D of_x;
+	layout(set = 0, binding = 2, r32ui) uniform writeonly uimage2D of_y;
+	layout(set = 0, binding = 3, r32ui) uniform readonly uimage2D scd_output;
+]]
+local SETUP_SHADER = [[
+	void main() {
+		ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+
+		if (p == ivec2(0)) {
+			bool scene_changed = compute.optical_flow != 0 && (imageLoad(scd_output, ivec2(1, 0)).r & 0xfu) != 0u;
+			uint frames = compute.reset != 0 ? 1u : imageLoad(counter, ivec2(0)).r + 1u;
+			imageStore(counter, ivec2(0), uvec4(scene_changed ? 0u : frames));
+		}
+
+		if (!on_screen(p, ivec2(fi.of_size))) return;
+
+		imageStore(of_x, p, uvec4(0u));
+		imageStore(of_y, p, uvec4(0u));
+	}
+]]
+local OF_VECTOR_FIELD_DECLARATIONS = [[
+	layout(set = 0, binding = 0, rg32i) uniform readonly iimage2D flow;
+	layout(set = 0, binding = 1, r32ui) uniform uimage2D of_x;
+	layout(set = 0, binding = 2, r32ui) uniform uimage2D of_y;
+]]
+local OF_VECTOR_FIELD_SHADER = [[
+	vec2 load_flow(ivec2 q) {
+		return on_screen(q, imageSize(flow)) ? vec2(imageLoad(flow, q).xy) * fi.of_scale : vec2(0.0);
+	}
+
+	void main() {
+		ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+		ivec2 size = ivec2(fi.of_size);
+
+		if (!on_screen(p, size)) return;
+
+		vec2 average = vec2(0.0);
+		float weight_sum = 0.0;
+
+		for (int y = -1; y <= 1; y++) {
+			for (int x = -1; x <= 1; x++) {
+				vec2 v = load_flow(p + ivec2(x, y));
+				float len = length(v * display_size());
+				float w = max(0.0, 512.0 - len) * float(len > 1.0);
+				average += v * w;
+				weight_sum += w;
+			}
+		}
+
+		average /= max(weight_sum, 1e-30);
+		vec2 vector = vec2(0.0);
+		weight_sum = 0.0;
+
+		for (int y = -1; y <= 1; y++) {
+			for (int x = -1; x <= 1; x++) {
+				vec2 v = load_flow(p + ivec2(x, y));
+				float len = length(v * display_size());
+				float w = pow(max(dot(average, v), 0.0), 1.25) * max(0.0, 512.0 - len) * float(len > 1.0);
+				vector += v * w;
+				weight_sum += w;
+			}
+		}
+
+		if (weight_sum > FI_EPSILON) vector /= weight_sum;
+
+		vec2 uv = (vec2(p) + 0.5) / vec2(size);
+		vec2 mv_half = vector * 0.5;
+		float prev_luma = 0.001 + luminance_of(textureLod(TEXTURE(fi.history_tex), uv + vector, 0.0).rgb);
+		float curr_luma = 0.001 + luminance_of(textureLod(TEXTURE(fi.scene_tex), uv, 0.0).rgb);
+		float velocity = length(vector * display_size());
+		uint high = uint(velocity > 1.0) * uint(clamp(velocity / length(vec2(display_size()) * 0.05), 0.0, 1.0) * float(PRIORITY_HIGH_MAX));
+
+		if (high == 0u) return;
+
+		uint low = uint(round(min_divided_by_max(prev_luma, curr_luma) * float(PRIORITY_LOW_MAX))) * uint(uv_inside(uv + vector));
+		uvec2 packed = pack_entry(true, high, low, mv_half);
+		bilinear(uv + mv_half, size);
+
+		for (int i = 0; i < 4; i++) {
+			ivec2 q = bilinear_base + BILINEAR_OFFSETS[i];
+
+			if (on_screen(q, size)) {
+				imageAtomicMax(of_x, q, packed.x);
+				imageAtomicMax(of_y, q, packed.y);
+			}
+		}
+	}
+]]
 local INTERPOLATION_DECLARATIONS = [[
 	layout(set = 0, binding = 0, r32ui) uniform readonly uimage2D game_x;
 	layout(set = 0, binding = 1, r32ui) uniform readonly uimage2D game_y;
 	layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D interpolated;
+	layout(set = 0, binding = 3, r32ui) uniform readonly uimage2D of_x;
+	layout(set = 0, binding = 4, r32ui) uniform readonly uimage2D of_y;
+	layout(set = 0, binding = 5, r32ui) uniform readonly uimage2D counter;
 ]]
-local INTERPOLATION_SHADER = GAME_FIELD_GLSL .. [[
+local INTERPOLATION_SHADER = GAME_FIELD_GLSL .. OF_FIELD_GLSL .. [[
 	vec4 sample_source(bool current, vec2 uv) {
 		ivec2 size = display_size();
 		bilinear(uv, size);
@@ -507,13 +650,16 @@ local INTERPOLATION_SHADER = GAME_FIELD_GLSL .. [[
 
 		if (!on_screen(p, size)) return;
 
-		if (fi.frames_since_reset == 0) {
+		uint frames_since_reset = imageLoad(counter, ivec2(0)).r;
+
+		if (frames_since_reset == 0u) {
 			imageStore(interpolated, p, vec4(texelFetch(TEXTURE(fi.scene_tex), p, 0).rgb, 0.0));
 			return;
 		}
 
 		vec2 uv = (vec2(p) + 0.5) / vec2(size);
 		Entry game = load_game_mv(uv);
+		Entry of = sample_of_field(uv);
 		vec2 disocclusion = vec2(equal(clamp(textureLod(TEXTURE(fi.disocclusion_tex), uv, 0.0).xy, 0.0, 1.0), vec2(1.0)));
 		vec4 previous = sample_source(false, uv + game.mv);
 		vec4 current = sample_source(true, uv - game.mv);
@@ -531,6 +677,16 @@ local INTERPOLATION_SHADER = GAME_FIELD_GLSL .. [[
 
 		if (previous.w == 0.0 && current.w == 0.0) inpainting = 1.0;
 
+		vec4 previous_of = sample_source(false, uv + of.mv);
+		vec4 current_of = sample_source(true, uv - of.mv);
+		float of_t = previous_of.w > 0.0 && current_of.w > 0.0 ? 0.5 : previous_of.w > 0.0 ? 0.0 : 1.0;
+		vec3 of_color = mix(previous_of.rgb, current_of.rgb, of_t);
+		float disoccluded = clamp(1.0 - min(disocclusion.x, disocclusion.y), 0.0, 1.0);
+		float of_similarity = normalized_dot3(previous_of.rgb, current_of.rgb);
+		float game_similarity = mix(max(FI_EPSILON, normalized_dot3(previous.rgb, current.rgb)), 1.0, disoccluded);
+		float game_bias = clamp(game_similarity / max(FI_EPSILON, of_similarity), 0.0, 1.0);
+		game_bias = mix(game_bias, 1.0, float(frames_since_reset < 10u || compute.optical_flow == 0));
+		color = mix(of_color, color, game_bias);
 		imageStore(interpolated, p, vec4(color, inpainting));
 	}
 ]]
@@ -695,6 +851,11 @@ local function ensure_resources(scene)
 	resources.interpolated = storage_texture("interpolated", dw, dh, "r16g16b16a16_sfloat")
 	resources.color_pyramid, resources.color_pyramid_views = pyramid("color pyramid", dw, dh)
 	resources.history = storage_texture("history", dw, dh, scene:GetFormat())
+	resources.of_width = math.max(1, math.floor(dw / optical_flow.BLOCK_SIZE))
+	resources.of_height = math.max(1, math.floor(dh / optical_flow.BLOCK_SIZE))
+	resources.of_x = storage_texture("optical flow field x", resources.of_width, resources.of_height, "r32_uint")
+	resources.of_y = storage_texture("optical flow field y", resources.of_width, resources.of_height, "r32_uint")
+	resources.counter = storage_texture("frames since reset", 1, 1, "r32_uint")
 	state.history_valid = false
 end
 
@@ -741,7 +902,9 @@ local function interpolate(cmd, scene)
 	get_compute("game_field", 4, GAME_FIELD_DECLARATIONS, GAME_FIELD_SHADER)
 	get_compute("game_pyramid", 4, GAME_PYRAMID_DECLARATIONS, GAME_PYRAMID_SHADER)
 	get_compute("disocclusion", 6, DISOCCLUSION_DECLARATIONS, DISOCCLUSION_SHADER)
-	get_compute("interpolation", 3, INTERPOLATION_DECLARATIONS, INTERPOLATION_SHADER)
+	get_compute("setup", 4, SETUP_DECLARATIONS, SETUP_SHADER)
+	get_compute("of_vector_field", 3, OF_VECTOR_FIELD_DECLARATIONS, OF_VECTOR_FIELD_SHADER)
+	get_compute("interpolation", 6, INTERPOLATION_DECLARATIONS, INTERPOLATION_SHADER)
 	get_compute("color_pyramid", 3, COLOR_PYRAMID_DECLARATIONS, COLOR_PYRAMID_SHADER)
 	get_compute("inpainting", 1, INPAINTING_DECLARATIONS, INPAINTING_SHADER)
 	local r = resources
@@ -761,6 +924,11 @@ local function interpolate(cmd, scene)
 		r.game_pyramid,
 		r.interpolated,
 		r.color_pyramid,
+		r.counter,
+		r.of_x,
+		r.of_y,
+		optical_flow.GetSceneChangeOutput(),
+		optical_flow.GetFlow(),
 	} do
 		render.TransitionResourceToComputeStorage(texture, {cmd = cmd, srcStage = "all_commands", srcAccess = "memory_read"})
 	end
@@ -774,6 +942,11 @@ local function interpolate(cmd, scene)
 	end
 
 	state.mode, state.mip = 0, 0
+	dispatch(cmd, "setup", base, {r.counter, r.of_x, r.of_y, optical_flow.GetSceneChangeOutput()}, r.of_width, r.of_height)
+
+	if state.optical_flow then
+		dispatch(cmd, "of_vector_field", base, {optical_flow.GetFlow(), r.of_x, r.of_y}, r.of_width, r.of_height)
+	end
 	dispatch(
 		cmd,
 		"clear",
@@ -818,7 +991,7 @@ local function interpolate(cmd, scene)
 		rh
 	)
 	render.TransitionResourceToShaderRead(r.disocclusion, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
-	dispatch(cmd, "interpolation", base, {r.game_x, r.game_y, r.interpolated}, dw, dh)
+	dispatch(cmd, "interpolation", base, {r.game_x, r.game_y, r.interpolated, r.of_x, r.of_y, r.counter}, dw, dh)
 	build_pyramid(cmd, "color_pyramid", base + 16, r.color_pyramid_views, {r.interpolated})
 	render.TransitionResourceToShaderRead(r.color_pyramid, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 	dispatch(cmd, "inpainting", base, {r.interpolated}, dw, dh)
@@ -902,11 +1075,19 @@ function frame_generation.Compose(cmd, ui, generated, real)
 		state.frames_since_reset = 0
 	end
 
-	if present_generated then
-		gpu_timing.BeginScope(cmd, "frame_generation")
-		interpolate(cmd, scene)
-		gpu_timing.EndScope(cmd, "frame_generation")
+	gpu_timing.BeginScope(cmd, "frame_generation")
+	render.TransitionResourceToShaderRead(scene, {cmd = cmd, srcStage = "all_commands"})
+	state.optical_flow = use_optical_flow:Get()
+
+	if state.optical_flow then
+		optical_flow.Dispatch(cmd, scene, not present_generated)
+	else
+		optical_flow.EnsureResources(scene)
 	end
+
+	if present_generated then interpolate(cmd, scene) end
+
+	gpu_timing.EndScope(cmd, "frame_generation")
 
 	render.TransitionResourceToShaderRead(scene, {cmd = cmd, srcStage = "all_commands"})
 	render.TransitionResourceToShaderRead(ui, {cmd = cmd, srcStage = "color_attachment_output"})
@@ -975,6 +1156,11 @@ local enabled = pvars.Setup2{
 		state.history_valid = false
 		render.target:SetFrameGeneration(value and frame_generation.Compose or nil)
 	end,
+}
+use_optical_flow = pvars.Setup2{
+	key = "r_frame_generation_optical_flow",
+	default = true,
+	help = "also follow motion the motion vectors miss (moving shadows and lighting, reflections, animated textures, particles) with fsr3's optical flow over the presented images. off saves its block matching and trusts the motion vectors everywhere",
 }
 pvars.EndGroup()
 

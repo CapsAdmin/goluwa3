@@ -1238,7 +1238,7 @@ function CommandBuffer:ClearColorImage(config)
 	vulkan.lib.vkCmdClearColorImage(
 		self.ptr[0],
 		config.image.ptr[0],
-		vulkan.vk.e.VkImageLayout("transfer_dst_optimal"),
+		vulkan.vk.e.VkImageLayout(config.layout or "transfer_dst_optimal"),
 		clear_value,
 		1,
 		subresource_range
