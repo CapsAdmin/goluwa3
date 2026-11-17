@@ -245,6 +245,7 @@ end
 
 -- drivers match cached pipelines without fully hashing descriptor set layouts, so bump this when layout semantics change
 local PIPELINE_CACHE_HEADER = "goluwa pipeline cache 2\n"
+local MAX_PIPELINE_CACHE_BYTES = 768 * 1024 * 1024
 
 local function start_saving_pipeline_cache(path, saved_size)
 	local saved_generation = vulkan_instance:GetPipelineCacheGeneration()
@@ -301,7 +302,19 @@ function render.Initialize(config)
 			config.pipeline_cache_name or
 			"vulkan_pipeline_cache"
 		) .. ".bin"
-	local pipeline_cache_data = fs.read_file(pipeline_cache_path)
+	local pipeline_cache_attributes = fs.get_attributes(pipeline_cache_path)
+	local pipeline_cache_data
+
+	if pipeline_cache_attributes and pipeline_cache_attributes.size > MAX_PIPELINE_CACHE_BYTES then
+		logf(
+			"[vulkan] the pipeline cache %s is %d MB, over the %d MB that can be read into memory, starting with an empty one\n",
+			pipeline_cache_path,
+			pipeline_cache_attributes.size / 1024 / 1024,
+			MAX_PIPELINE_CACHE_BYTES / 1024 / 1024
+		)
+	else
+		pipeline_cache_data = fs.read_file(pipeline_cache_path)
+	end
 
 	if
 		pipeline_cache_data and
