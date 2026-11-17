@@ -3,6 +3,7 @@ local system = import("goluwa/system.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
+local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
 local bridge = {}
@@ -324,6 +325,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			local material = visual:GetResolvedMaterial(entry)
 			local flags, mask = instances.GetMaterialFlags(material)
 			local material_row = materials.GetID(material)
+			local rt_row = opacity_micromaps.GetRow(meshes.GetRecord(mesh_row), material)
 			local matrix = entry.transform:GetWorldMatrix()
 			local matrix_version = entry.transform:GetWorldMatrixVersion()
 			local item = list[count]
@@ -365,6 +367,13 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				item.gi_flags = flags
 				item.gi_always = not is_dynamic or nil
 				item.gi_never = gear or nil
+
+				if item.rt_row ~= rt_row then
+					instances.SetMesh(item.id, rt_row)
+					item.rt_row = rt_row
+					changed = true
+				end
+
 				local material_changed = instances.SetMaterial(item.id, material_row)
 				local mask_changed = instances.SetMask(item.id, item_mask(item, frame), flags)
 				changed = material_changed or mask_changed or changed
@@ -384,8 +393,9 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				item.gi_flags = flags
 				item.gi_always = not is_dynamic or nil
 				item.gi_never = gear or nil
+				item.rt_row = rt_row
 				item.id = instances.Add(
-					mesh_row,
+					rt_row,
 					material_row,
 					matrix,
 					item_mask(item, frame),

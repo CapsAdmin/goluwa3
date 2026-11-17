@@ -6,6 +6,7 @@ local lod = import("goluwa/render3d/lod.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
+local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
 local accel = import("goluwa/render3d/scene/accel.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local instances = {}
@@ -567,6 +568,7 @@ do
 
 		store.FlushStaged(cmd)
 		meshes.Build(cmd, skinning.updated)
+		opacity_micromaps.Build(cmd)
 
 		for _, produce in pairs(producers) do
 			produce(cmd)

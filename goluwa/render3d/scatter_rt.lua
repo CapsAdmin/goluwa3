@@ -6,6 +6,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
+local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local vegetation_bend = import("goluwa/render3d/scene/vegetation_bend.lua")
@@ -338,7 +339,9 @@ local function rebuild(segment_list)
 				local flags, mask = instances.GetMaterialFlags(part.material)
 				local index = parts:Alloc()
 				local entry = parts:Get()[index]
-				entry.mesh_row = row
+				local bends = part.material:HasVertexAnimation() and part.polygon
+				local rt_row = opacity_micromaps.GetRow(meshes.GetRecord(row), part.material)
+				entry.mesh_row = bends and row or rt_row
 				entry.material_row = materials.GetID(part.material)
 				entry.record_flags = instances.GetRecordFlags(flags)
 				entry.mask_flags = mask + flags * 256
@@ -347,7 +350,7 @@ local function rebuild(segment_list)
 				entry.bend_distance = 0
 				count = count + 1
 
-				if part.material:HasVertexAnimation() and part.polygon then
+				if bends then
 					local mesh = meshes.GetRecord(row)
 					local copies = math.max(math.floor(bend_triangles:Get() / mesh.triangle_count), 1)
 					local first_slot = slots:AllocRange(copies)
@@ -365,6 +368,7 @@ local function rebuild(segment_list)
 						part = part,
 						row = row,
 						mesh = mesh,
+						variant = rt_row ~= row and meshes.GetRecord(rt_row) or nil,
 						first = entry.bend_first,
 						copies = copies,
 						records = {},
@@ -503,9 +507,17 @@ local function produce(cmd)
 		entry.used = range > 0 and
 			math.min(entry.copies, wanted > 0 and wanted + 2 + math.floor(wanted / 4) or 1) or
 			0
+		local omm = entry.variant and entry.variant.omm.micromap and entry.variant.omm or nil
+
+		for k = 1, #entry.records do
+			if entry.records[k].blas_record.omm ~= omm then
+				vegetation_bend.ReleaseRecord(entry.records[k])
+				entry.records[k] = vegetation_bend.NewRecord(entry.mesh, omm)
+			end
+		end
 
 		for k = #entry.records + 1, entry.used do
-			entry.records[k] = vegetation_bend.NewRecord(entry.mesh)
+			entry.records[k] = vegetation_bend.NewRecord(entry.mesh, omm)
 		end
 
 		part_rows[entry.index].bend_count = entry.used

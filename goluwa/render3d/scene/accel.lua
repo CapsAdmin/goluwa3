@@ -21,6 +21,7 @@ local VkRangeInfoArray = ffi.typeof("$[?]", vk.VkAccelerationStructureBuildRange
 local VkRangePointerArray = ffi.typeof("const $*[?]", vk.VkAccelerationStructureBuildRangeInfoKHR)
 local VkGeometryArray = ffi.typeof("$[?]", vk.VkAccelerationStructureGeometryKHR)
 local VkBuildInfoArray = ffi.typeof("$[?]", vk.VkAccelerationStructureBuildGeometryInfoKHR)
+local VkOpacityMicromapArray = ffi.typeof("$[?]", vk.VkAccelerationStructureTrianglesOpacityMicromapEXT)
 local VkAccelerationStructureArray = ffi.typeof("$[?]", vk.VkAccelerationStructureKHR)
 local VkCopyInfo = ffi.typeof("$[1]", vk.VkCopyAccelerationStructureInfoKHR)
 local COPY_MODE_COMPACT = 1
@@ -177,12 +178,11 @@ function accel.BuildBLASes(cmd, jobs, count)
 	local device = render.GetDevice()
 	scratch_alignment = scratch_alignment or
 		math.max(
-			tonumber(
-				device.physical_device:GetAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment
-			),
+			tonumber(device.physical_device:GetAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment),
 			1
 		)
 	local geometries = VkGeometryArray(count)
+	local micromap_infos = VkOpacityMicromapArray(count)
 	local infos = VkBuildInfoArray(count)
 	local ranges = VkRangeInfoArray(count)
 	local range_pointers = VkRangePointerArray(count)
@@ -203,6 +203,22 @@ function accel.BuildBLASes(cmd, jobs, count)
 		triangles.vertexData = job.vertex_address + POSITION_FIELD.offset
 		triangles.vertexStride = job.vertex_stride
 		triangles.maxVertex = job.vertex_count - 1
+		triangles.pNext = nil
+
+		if job.omm and job.omm.micromap then
+			local info = micromap_infos[i - 1]
+			info.sType = vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT
+			info.pNext = nil
+			info.indexType = VK_INDEX_TYPE_NONE
+			info.indexStride = 0
+			info.baseTriangle = 0
+			info.usageCountsCount = 1
+			info.pUsageCounts = job.omm.usage
+			info.ppUsageCounts = nil
+			info.micromap = job.omm.micromap.ptr[0]
+			triangles.pNext = info
+			job.omm.attached = true
+		end
 
 		if job.index_address ~= 0 then
 			triangles.indexType = job.index_is_32 and VK_INDEX_TYPE_UINT32 or VK_INDEX_TYPE_UINT16

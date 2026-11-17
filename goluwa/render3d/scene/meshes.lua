@@ -99,6 +99,38 @@ function meshes.Get(mesh, dynamic)
 	return row
 end
 
+function meshes.GetVariant(row)
+	local source = records[row]
+	local rows = meshes.GetTable()
+	local variant = rows:Alloc()
+	local data = rows:Get() + variant
+	ffi.copy(data, rows:Get() + row, ffi.sizeof(MeshRow))
+	data.blas_address = 0
+	mesh_of_row[variant] = mesh_of_row[row]
+	local record = {
+		row = variant,
+		vertex_address = source.vertex_address,
+		vertex_stride = source.vertex_stride,
+		vertex_count = source.vertex_count,
+		index_address = source.index_address,
+		index_is_32 = source.index_is_32,
+		triangle_count = source.triangle_count,
+		allow_update = false,
+		address = 0,
+	}
+	records[variant] = record
+	pending[#pending + 1] = record
+	triangle_total = triangle_total + record.triangle_count
+	return record
+end
+
+function meshes.RebuildBLAS(record)
+	if record.blas then
+		accel.ReleaseBLAS(record)
+		pending[#pending + 1] = record
+	end
+end
+
 function meshes.EnsureRaster(row)
 	local record = records[row]
 
@@ -335,6 +367,9 @@ function meshes.Update()
 
 		if record and not mesh_of_row[row] then
 			accel.ReleaseBLAS(record)
+
+			if record.omm and record.omm.micromap then record.omm.micromap:Remove() end
+
 			local list = dynamic_records[record.vertex_address]
 
 			if list then

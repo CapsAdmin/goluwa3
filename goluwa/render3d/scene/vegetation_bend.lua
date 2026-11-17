@@ -187,8 +187,8 @@ function vegetation_bend.IsEnabled()
 	return enabled:Get()
 end
 
--- a positions only copy of the mesh that the bend writes and an acceleration structure over it with the mesh's indices
-function vegetation_bend.NewRecord(mesh)
+-- a positions only copy of the mesh that the bend writes and an acceleration structure over it with the mesh's indices, carrying the opacity micromap (the state of an opacity_micromaps variant) when there is one, which a refit must repeat
+function vegetation_bend.NewRecord(mesh, omm)
 	local positions = render.CreateBuffer{
 		byte_size = mesh.vertex_count * 12,
 		buffer_usage = {
@@ -212,6 +212,7 @@ function vegetation_bend.NewRecord(mesh)
 			triangle_count = mesh.triangle_count,
 			allow_update = true,
 			address = 0,
+			omm = omm,
 		},
 	}
 end
@@ -318,15 +319,24 @@ local function produce(cmd)
 					math.sqrt(dx * dx + dy * dy + dz * dz) - data.radius <= vegetation_bend.GetRange(item.material, item.entry.polygon3d)
 				then
 					local mesh = meshes.GetRecord(item.mesh_row)
+					local variant = item.rt_row ~= item.mesh_row and meshes.GetRecord(item.rt_row)
+					local omm = variant and variant.omm.micromap and variant.omm or nil
 					local record = bent[id]
 
-					if record and (record.item ~= item or record.mesh ~= mesh) then
+					if
+						record and
+						(
+							record.item ~= item or
+							record.mesh ~= mesh or
+							record.blas_record.omm ~= omm
+						)
+					then
 						vegetation_bend.ReleaseRecord(record)
 						record = nil
 					end
 
 					if not record then
-						record = vegetation_bend.NewRecord(mesh)
+						record = vegetation_bend.NewRecord(mesh, omm)
 						record.item = item
 						bent[id] = record
 					end
@@ -363,14 +373,16 @@ local function produce(cmd)
 end
 
 function vegetation_bend.GetStats()
-	local count, triangles = 0, 0
+	local count, triangles, micromapped = 0, 0, 0
 
 	for _, record in pairs(bent) do
 		count = count + 1
 		triangles = triangles + record.mesh.triangle_count
+
+		if record.blas_record.omm then micromapped = micromapped + 1 end
 	end
 
-	return count, triangles
+	return count, triangles, micromapped
 end
 
 if render.GetDevice().ray_tracing_supported then
