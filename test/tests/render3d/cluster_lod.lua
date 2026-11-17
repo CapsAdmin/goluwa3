@@ -4,6 +4,17 @@ local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local build = import("goluwa/render3d/cluster_lod/build.lua")
 local format = import("goluwa/render3d/cluster_lod/format.lua")
 local Record = ffi.typeof("$ *", format.ClusterRecord)
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Material = import("goluwa/render3d/material.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
+local threads = import("goluwa/bindings/threads.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
+local system = import("goluwa/system.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local PIXELS_PER_RADIAN = 1080 / (2 * math.tan(math.rad(60) / 2))
 
 local function icosphere(subdivisions, bend)
@@ -245,6 +256,67 @@ T.Test("cluster lod cuts stay watertight and shrink with distance", function()
 	local _, near_triangles = open_edges(records, indices, near, vertex_count)
 	T(near_triangles)["=="](triangles)
 	T(ffi.sizeof(blob) > 0)["=="](true)
+end)
+
+T.Test3D("Graphics render3d cluster lod draws a cut of a large model that follows the camera", function(draw)
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(60))
+	camera:SetNearZ(0.1)
+	camera:SetFarZ(1000)
+	camera:SetPosition(Vec3(0, 0, 0))
+	camera:SetRotation(Quat():Identity())
+	local vertices, vertex_count, indices, index_count = icosphere(6)
+	local indices16 = ffi.new("uint16_t[?]", index_count)
+
+	for i = 0, index_count - 1 do
+		indices16[i] = indices[i]
+	end
+
+	local polygon = Polygon3D.New()
+	polygon:UploadVertexArray(vertices, vertex_count, indices16, index_count, true)
+	local entity = Entity.New{Name = "cluster_lod_sphere"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -3))
+	local visual = entity:AddComponent("visual")
+	visual:SetUseOcclusionCulling(false)
+	local primitive = Entity.New{Name = "cluster_lod_sphere_primitive", Parent = entity}
+	primitive:AddComponent("transform")
+	primitive:AddComponent("visual_primitive"):SetPolygon3D(polygon)
+	primitive.visual_primitive:SetMaterial(Material.New())
+	visual:BuildAABB()
+	local started = system.GetTime()
+
+	while not cluster_lod.GetState(polygon) do
+		thread_pool.Update()
+		draw()
+		threads.sleep(5)
+		T(system.GetTime() - started < 25)["=="](true)
+	end
+
+	for _ = 1, 4 do
+		draw()
+	end
+
+	local full = index_count / 3
+	local near = scene_draw.ReadBackCull(0)
+	local stats = scene_draw.GetClusterStats()
+	T(stats.rows)["=="](1)
+	T(stats.pairs)["=="](cluster_lod.GetState(polygon).count)
+	T(near.commands > 1)["=="](true)
+	T(near.triangles <= full)["=="](true)
+	T(near.triangles < full / 2)["=="](true)
+	T(near.triangles > full / 100)["=="](true)
+	entity.transform:SetPosition(Vec3(0, 0, -300))
+
+	for _ = 1, 4 do
+		draw()
+	end
+
+	local far = scene_draw.ReadBackCull(0)
+	T(far.commands >= 1)["=="](true)
+	T(far.triangles < near.triangles / 4)["=="](true)
+	T(far.triangles >= 1)["=="](true)
+	entity:Remove()
 end)
 
 T.Test("cluster lod keeps bending vertices of different stiffness and pivot apart", function()

@@ -103,6 +103,20 @@ function index_pool.GetFirstIndex(index_buffer)
 	return first
 end
 
+function index_pool.AllocateRange(owner, source, count)
+	collect_delayed()
+	local first, node = alloc(math.max(count, MIN_RANGE))
+	ffi.copy(shadow + first, source, count * 4)
+	ffi.copy(pointer + first, source, count * 4)
+	entries[owner] = {
+		first = first,
+		guard = ffi.gc(ffi.new("char[1]"), function()
+			pending_frees[#pending_frees + 1] = {node = node, frame = system.GetFrameNumber()}
+		end),
+	}
+	return first
+end
+
 function index_pool.GetBuffer()
 	if not buffer then grow(0) end
 

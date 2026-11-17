@@ -15,6 +15,8 @@ local instances = import("goluwa/render3d/scene/instances.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
+local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
+local cluster_format = import("goluwa/render3d/cluster_lod/format.lua")
 local render3d
 local surface_conditions
 local draw = {}
@@ -26,7 +28,9 @@ draw.SHAPE_NEARER = 2
 local SHAPES = 3
 local VARIANTS = SHAPES * shader_features.COUNT
 local GROUPS = VARIANTS * 2
-local ARGS_REMAP = 15
+local ARGS_REMAP = 17
+local CLUSTER_COMMANDS = 32768
+local CLUSTER_GROUP = 0xFFFFFFFF
 draw.VARIANTS = VARIANTS
 local DEAD_MESH = {
 	IsValid = function()
@@ -104,13 +108,13 @@ end
 
 local function write_group(group)
 	local record = group_table:Get()[group.id - 1]
-	record.mesh_row = group.mesh_row
+	record.mesh_row = group.cluster and CLUSTER_GROUP or group.mesh_row
 	record.base = group.base
 	record.room = group.room
 	record.set = group.set
 end
 
-local function acquire_group(mesh, material, polygon3d, mesh_row, set)
+local function acquire_group(mesh, material, polygon3d, mesh_row, set, cluster)
 	group_table = group_table or
 		store.CreateTable{name = "draw_groups", ctype = GroupRecord, capacity = 1024}
 	local by_mesh = group_lookup[set]
@@ -134,7 +138,7 @@ local function acquire_group(mesh, material, polygon3d, mesh_row, set)
 		by_material[material] = by_polygon
 	end
 
-	local group = by_polygon[polygon3d]
+	local group = by_polygon[cluster or polygon3d]
 
 	if not group then
 		local id = table.remove(free_group_ids) or #groups + 1
@@ -145,6 +149,7 @@ local function acquire_group(mesh, material, polygon3d, mesh_row, set)
 				material = material,
 				first_polygon3d = polygon3d,
 				mesh_row = mesh_row,
+				cluster = cluster,
 				set = set,
 				rows = 0,
 				room = 0,
@@ -153,20 +158,21 @@ local function acquire_group(mesh, material, polygon3d, mesh_row, set)
 			ROW_META
 		)
 		groups[id] = group
-		by_polygon[polygon3d] = group
+		by_polygon[cluster or polygon3d] = group
 		group_table:Reserve(id)
 		note_group_change(id)
 	end
 
 	group.rows = group.rows + 1
+	local needed = group.rows * (cluster and cluster.leaf_count or 1)
 
-	if group.rows > group.room then
+	if needed > group.room then
 		if group.room > 0 then
 			group_free_rooms[group.room] = group_free_rooms[group.room] or {}
 			table.insert(group_free_rooms[group.room], group.base)
 		end
 
-		group.room = math.max(MIN_GROUP_ROOM, 2 ^ math.ceil(math.log(group.rows, 2)))
+		group.room = math.max(MIN_GROUP_ROOM, 2 ^ math.ceil(math.log(needed, 2)))
 		local free = group_free_rooms[group.room]
 		group.base = free and table.remove(free)
 
@@ -190,13 +196,34 @@ local function release_group(group)
 	table.insert(group_free_rooms[group.room], group.base)
 	group.room = 0
 	write_group(group)
-	group_lookup[group.set][group.mesh][group.material][group.first_polygon3d] = nil
+	group_lookup[group.set][group.mesh][group.material][group.cluster or
+	group.first_polygon3d] = nil
 	groups[group.id] = DEAD_ROW
 	free_group_ids[#free_group_ids + 1] = group.id
 	note_group_change(group.id)
 end
 
-function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row)
+local cluster_rows = {}
+local cluster_serial = 0
+
+local function get_cluster_state(material, polygon3d, drawn, translucent)
+	if
+		not drawn or
+		translucent or
+		not polygon3d or
+		polygon3d.shell_grid or
+		not cluster_lod.IsEnabled()
+		or
+		not cluster_lod.IsMaterialEligible(material)
+	then
+		return nil
+	end
+
+	local state = cluster_lod.Request(polygon3d)
+	return state and state.ready and state or nil
+end
+
+function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row, force)
 	slot_rows = slot_rows or
 		store.CreateTable{name = "draw_slot_rows", ctype = "uint32_t", capacity = 4096}
 	slot_groups = slot_groups or
@@ -221,10 +248,18 @@ function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row
 		translucent_count = translucent_count + (translucent and 1 or -1)
 	end
 
+	local cluster = get_cluster_state(material, polygon3d, drawn, translucent)
+
 	if slot then
 		local row = rows[slot + 1]
 
-		if row.mesh == mesh and row.material == material and row.set == set then
+		if
+			not force and
+			row.mesh == mesh and
+			row.material == material and
+			row.set == set and
+			row.cluster == cluster
+		then
 			if row.drawn ~= drawn or row.translucent ~= translucent then
 				count_row(row, -1)
 				row.drawn = drawn
@@ -238,6 +273,11 @@ function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row
 		count_row(row, -1)
 
 		if row.group then release_group(row.group) end
+
+		if cluster_rows[slot] then
+			cluster_rows[slot] = nil
+			cluster_serial = cluster_serial + 1
+		end
 	else
 		slot = table.remove(free_slots) or #rows
 		slot_of[id] = slot
@@ -246,8 +286,14 @@ function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row
 		slot_rows:Get()[slot] = id
 	end
 
-	local group = acquire_group(mesh, material, polygon3d, mesh_row, set)
+	local group = acquire_group(mesh, material, polygon3d, mesh_row, set, cluster)
 	slot_groups:Get()[slot] = group.id - 1
+
+	if cluster then
+		cluster_rows[slot] = cluster
+		cluster_serial = cluster_serial + 1
+	end
+
 	local row = setmetatable(
 		{
 			mesh = mesh,
@@ -258,6 +304,7 @@ function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row
 			drawn = drawn,
 			translucent = translucent,
 			group = group,
+			cluster = cluster,
 		},
 		ROW_META
 	)
@@ -307,6 +354,11 @@ function draw.ClearRow(id)
 
 	if row.group then release_group(row.group) end
 
+	if cluster_rows[slot] then
+		cluster_rows[slot] = nil
+		cluster_serial = cluster_serial + 1
+	end
+
 	rows[slot + 1] = DEAD_ROW
 	slot_rows:Get()[slot] = 0xFFFFFFFF
 	slot_groups:Get()[slot] = 0xFFFFFFFF
@@ -315,6 +367,25 @@ function draw.ClearRow(id)
 	draw.serial = draw.serial + 1
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
+
+cluster_lod.OnReady(function(polygon3d)
+	for slot = 0, #rows - 1 do
+		local row = rows[slot + 1]
+
+		if row.first_polygon3d == polygon3d and row.group then
+			draw.SetRow(
+				slot_rows:Get()[slot],
+				row.mesh,
+				row.material,
+				polygon3d,
+				row.drawn,
+				row.translucent,
+				row.group.mesh_row,
+				true
+			)
+		end
+	end
+end)
 
 -- Adreno indexes a constant block array with a loop counter wrongly, so planes are read with constant indices
 local OUTSIDE_PLANE_DECLARATIONS = [[
@@ -402,11 +473,63 @@ local DRAW_DECLARATIONS = [[
 				uint64_t group_counts;
 				uint64_t batch_ids;
 				uint64_t seen;
+				uint64_t clusters;
+				uint64_t cluster_pairs;
 				uint remap[]] .. VARIANTS .. [[];
 			};
 
+			]] .. cluster_format.CLUSTER_GLSL .. [[
+
+			layout(buffer_reference, scalar) readonly buffer ClusterArray { cluster_record c[]; };
+			layout(buffer_reference, scalar) readonly buffer PairArray { uvec2 p[]; };
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
 			#define ARGS ArgsRef(compute.args).a
+]]
+local SELECT_LOD_GLSL = [[
+			bool select_lod(uint level, uint last, float near_ratio, float far_ratio, float ratio, out float fade) {
+				fade = 0.0;
+
+				if (compute.lod_forced >= 0) return level == min(uint(compute.lod_forced), last);
+
+				float width = compute.lod_fade_width;
+				bool has_near = level > 0u;
+				bool has_far = level < last;
+				float near_start = near_ratio * (1.0 - width);
+
+				if (has_near && ratio < near_start) return false;
+				if (has_far && ratio >= far_ratio * (1.0 + width)) return false;
+
+				if (width > 0.0) {
+					if (has_near) {
+						float incoming = clamp((ratio - near_start) / (near_ratio * 2.0 * width), 0.0, 1.0);
+
+						if (incoming < 1.0) {
+							fade = incoming - 1.0;
+							return incoming > 0.0;
+						}
+					}
+
+					if (has_far) {
+						float outgoing = clamp((ratio - far_ratio * (1.0 - width)) / (far_ratio * 2.0 * width), 0.0, 1.0);
+						fade = outgoing;
+						return outgoing < 1.0;
+					}
+				}
+
+				return true;
+			}
+
+]]
+local WORLD_FROM_GLSL = [[
+			mat4 world_from(float m[12], float fade, float dynamic, float overlay) {
+				return mat4(
+					vec4(m[0], m[4], m[8], fade),
+					vec4(m[1], m[5], m[9], overlay),
+					vec4(m[2], m[6], m[10], dynamic),
+					vec4(m[3], m[7], m[11], 1.0)
+				);
+			}
+
 ]]
 local cull_pipeline
 local state = {}
@@ -486,38 +609,7 @@ function create_cull_pipeline()
 		]] .. DRAW_DECLARATIONS .. OUTSIDE_PLANE_DECLARATIONS,
 		shader = [[
 
-			bool select_lod(uint level, uint last, float near_ratio, float far_ratio, float ratio, out float fade) {
-				fade = 0.0;
-
-				if (compute.lod_forced >= 0) return level == min(uint(compute.lod_forced), last);
-
-				float width = compute.lod_fade_width;
-				bool has_near = level > 0u;
-				bool has_far = level < last;
-				float near_start = near_ratio * (1.0 - width);
-
-				if (has_near && ratio < near_start) return false;
-				if (has_far && ratio >= far_ratio * (1.0 + width)) return false;
-
-				if (width > 0.0) {
-					if (has_near) {
-						float incoming = clamp((ratio - near_start) / (near_ratio * 2.0 * width), 0.0, 1.0);
-
-						if (incoming < 1.0) {
-							fade = incoming - 1.0;
-							return incoming > 0.0;
-						}
-					}
-
-					if (has_far) {
-						float outgoing = clamp((ratio - far_ratio * (1.0 - width)) / (far_ratio * 2.0 * width), 0.0, 1.0);
-						fade = outgoing;
-						return outgoing < 1.0;
-					}
-				}
-
-				return true;
-			}
+			]] .. SELECT_LOD_GLSL .. [[
 
 			bool is_occluded(raster_data raster) {
 				if (compute.occlusion_max_mip < 0 || (raster.flags & 2u) == 0u) return false;
@@ -558,14 +650,7 @@ function create_cull_pipeline()
 				return nearest_depth < sampled * (1.0 - compute.occlusion_depth_bias);
 			}
 
-			mat4 world_from(float m[12], float fade, float dynamic, float overlay) {
-				return mat4(
-					vec4(m[0], m[4], m[8], fade),
-					vec4(m[1], m[5], m[9], overlay),
-					vec4(m[2], m[6], m[10], dynamic),
-					vec4(m[3], m[7], m[11], 1.0)
-				);
-			}
+			]] .. WORLD_FROM_GLSL .. [[
 
 			void main() {
 				uint slot = gl_GlobalInvocationID.x;
@@ -634,6 +719,9 @@ function create_cull_pipeline()
 				if (group_id == 0xFFFFFFFFu) return;
 
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
+
+				if (group.mesh_row == 0xFFFFFFFFu) return;
+
 				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
 
 				if (place >= group.room) return;
@@ -663,6 +751,221 @@ function create_cull_pipeline()
 	return cull_pipeline
 end
 
+local cluster_pipeline
+local pair_cpu, pair_cpu_capacity = nil, 0
+local pair_built_serial, pair_total = -1, 0
+local pair_ring = {}
+
+local function get_cluster_pairs()
+	if not next(cluster_rows) then return 0, 0 end
+
+	if pair_built_serial ~= cluster_serial then
+		local total = 0
+
+		for _, cluster in pairs(cluster_rows) do
+			total = total + cluster.count
+		end
+
+		if total > pair_cpu_capacity then
+			pair_cpu_capacity = math.ceil(total * 1.5)
+			pair_cpu = ffi.new("uint32_t[?]", pair_cpu_capacity * 2)
+		end
+
+		local at = 0
+
+		for slot, cluster in pairs(cluster_rows) do
+			for k = 0, cluster.count - 1 do
+				pair_cpu[at] = slot
+				pair_cpu[at + 1] = cluster.base + k
+				at = at + 2
+			end
+		end
+
+		pair_built_serial = cluster_serial
+		pair_total = total
+	end
+
+	local ring_slot = render.frame_serial % 4 + 1
+	local entry = pair_ring[ring_slot]
+
+	if not entry or entry.capacity < pair_total then
+		if entry then entry.buffer:Remove() end
+
+		local capacity = math.max(math.ceil(pair_total * 1.5), 1024)
+		local buffer = render.CreateBuffer{
+			byte_size = capacity * 8,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_draw.cluster_pairs",
+		}
+		entry = {
+			buffer = buffer,
+			capacity = capacity,
+			pointer = buffer:Map(),
+			address = tonumber(buffer:GetDeviceAddress()),
+			serial = -1,
+		}
+		pair_ring[ring_slot] = entry
+	end
+
+	if entry.serial ~= pair_built_serial then
+		ffi.copy(entry.pointer, pair_cpu, pair_total * 8)
+		entry.serial = pair_built_serial
+	end
+
+	return pair_total, entry.address
+end
+
+local function get_cluster_pipeline()
+	if cluster_pipeline then return cluster_pipeline end
+
+	cluster_pipeline = EasyPipeline.Compute{
+		name = "scene_cluster_cull",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		block = {
+			{"args", "uint64_t"},
+			{"camera_position", "vec3"},
+			{"count", "int"},
+			{"capacity", "int"},
+			{"cluster_capacity", "int"},
+			{"frustum_planes", "vec4", 6},
+			{"view_w_row", "vec4"},
+			{"view_y_row", "vec4"},
+			{"viewport_height", "float"},
+			{"lod_forced", "int"},
+			{"lod_scale", "float"},
+			{"lod_fade_width", "float"},
+			{"culling_enabled", "int"},
+			{"pixel_error", "float"},
+			{"frame", "int"},
+		},
+		write = function(self, block)
+			block.frame = system.GetFrameNumber()
+			block.args = state.args_address
+			block.camera_position[0] = state.camera.x
+			block.camera_position[1] = state.camera.y
+			block.camera_position[2] = state.camera.z
+			block.count = state.cluster_pairs
+			block.capacity = state.command_capacity
+			block.cluster_capacity = CLUSTER_COMMANDS
+			ffi.copy(block.frustum_planes, state.planes, ffi.sizeof("float") * 24)
+			state.view_projection:CopyToFloatPointer(view_projection_scratch)
+			block.view_w_row[0] = view_projection_scratch[3]
+			block.view_w_row[1] = view_projection_scratch[7]
+			block.view_w_row[2] = view_projection_scratch[11]
+			block.view_w_row[3] = view_projection_scratch[15]
+			block.view_y_row[0] = view_projection_scratch[1]
+			block.view_y_row[1] = view_projection_scratch[5]
+			block.view_y_row[2] = view_projection_scratch[9]
+			block.viewport_height = state.viewport_height
+			block.lod_forced = lod.GetForcedLevel()
+			block.lod_scale = lod.GetScale()
+			block.lod_fade_width = lod.GetFadeWidth()
+			block.culling_enabled = state.culling and 1 or 0
+			block.pixel_error = cluster_lod.GetPixelError()
+			return block
+		end,
+		custom_declarations = DRAW_DECLARATIONS,
+		shader = [[
+
+			]] .. SELECT_LOD_GLSL .. [[
+
+			]] .. WORLD_FROM_GLSL .. [[
+
+			vec3 transform_point(float m[12], vec3 p) {
+				return vec3(
+					m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3],
+					m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7],
+					m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11]
+				);
+			}
+
+			float projected_error(float error, vec3 center, float radius) {
+				float depth = dot(compute.view_w_row, vec4(center, 1.0)) - radius;
+				return error * length(compute.view_y_row.xyz) * compute.viewport_height * 0.5 / max(depth, 0.0001);
+			}
+
+			bool outside_sphere(vec4 plane, vec3 center, float radius) {
+				return dot(plane.xyz, center) + plane.w < -radius;
+			}
+
+			void main() {
+				uint pair = gl_GlobalInvocationID.x;
+
+				if (pair >= uint(compute.count)) return;
+
+				uvec2 p = PairArray(ARGS.cluster_pairs).p[pair];
+				uint slot = p.x;
+				uint id = SlotArray(ARGS.slot_rows).r[slot];
+
+				if (id == 0xFFFFFFFFu) return;
+				if (SeenArray(ARGS.seen).s[id] != uint(compute.frame)) return;
+
+				uint group_id = SlotArray(ARGS.slot_groups).r[slot];
+
+				if (group_id == 0xFFFFFFFFu) return;
+
+				instance_data inst = DataArray(ARGS.data).d[id];
+				cluster_record c = ClusterArray(ARGS.clusters).c[p.y];
+				tlas_instance t = TLASArray(ARGS.tlas).t[id];
+				float scale = max(length(vec3(t.m[0], t.m[4], t.m[8])), max(length(vec3(t.m[1], t.m[5], t.m[9])), length(vec3(t.m[2], t.m[6], t.m[10]))));
+
+				if (compute.culling_enabled != 0) {
+					vec3 bounds_center = transform_point(t.m, c.bounds.xyz);
+					float bounds_radius = c.bounds.w * scale;
+
+					if (
+						outside_sphere(compute.frustum_planes[0], bounds_center, bounds_radius) ||
+						outside_sphere(compute.frustum_planes[1], bounds_center, bounds_radius) ||
+						outside_sphere(compute.frustum_planes[2], bounds_center, bounds_radius) ||
+						outside_sphere(compute.frustum_planes[3], bounds_center, bounds_radius) ||
+						outside_sphere(compute.frustum_planes[4], bounds_center, bounds_radius) ||
+						outside_sphere(compute.frustum_planes[5], bounds_center, bounds_radius)
+					) return;
+				}
+
+				if (projected_error(c.error * scale, transform_point(t.m, c.lod.xyz), c.lod.w * scale) > compute.pixel_error) return;
+
+				if (
+					c.parent_error < 1e29 &&
+					projected_error(c.parent_error * scale, transform_point(t.m, c.parent.xyz), c.parent.w * scale) <= compute.pixel_error
+				) return;
+
+				float fade = 0.0;
+				uint level = (inst.mask_lod >> 8u) & 0xFFu;
+				uint last = (inst.mask_lod >> 16u) & 0xFFu;
+
+				if (last > 0u) {
+					float ratio = distance(compute.camera_position, inst.bounds.xyz) / (max(inst.bounds.w, 0.001) * compute.lod_scale);
+
+					if (!select_lod(level, last, inst.lod.x, inst.lod.y, ratio, fade)) return;
+				}
+
+				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+
+				if (place >= group.room) return;
+
+				uint set = ARGS.remap[group.set >> 1u] * 2u + (group.set & 1u);
+				uint index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
+
+				if (index >= uint(compute.cluster_capacity)) {
+					atomicAdd(CountArray(ARGS.counts).n[set], 0xFFFFFFFFu);
+					return;
+				}
+
+				uint at = group.base + place;
+				BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, slot);
+				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.dynamic, inst.overlay);
+				WorldArray(ARGS.prev_worlds).w[at] = world_from(RasterArray(ARGS.raster).r[id].prev, 0.0, inst.dynamic, inst.overlay);
+				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + index] = draw_command(c.index_count, 1u, c.first_index, 0, at);
+			}
+		]],
+	}
+	return cluster_pipeline
+end
+
 local finalize_pipeline
 
 local function get_finalize_pipeline()
@@ -680,7 +983,7 @@ local function get_finalize_pipeline()
 		write = function(self, block)
 			block.args = state.args_address
 			block.count = state.group_count
-			block.capacity = state.group_capacity
+			block.capacity = state.command_capacity
 			return block
 		end,
 		custom_declarations = DRAW_DECLARATIONS,
@@ -692,6 +995,9 @@ local function get_finalize_pipeline()
 				if (group_id >= uint(compute.count)) return;
 
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
+
+				if (group.mesh_row == 0xFFFFFFFFu) return;
+
 				uint instance_count = min(CountArray(ARGS.group_counts).n[group_id], group.room);
 
 				if (instance_count == 0u) return;
@@ -733,6 +1039,7 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 
 	local capacity = math.ceil(instance_capacity * 1.5)
 	local group_capacity = math.ceil(group_count * 1.5)
+	local command_capacity = group_capacity + (kind == 0 and CLUSTER_COMMANDS or 0)
 	local usage = {
 		"storage_buffer",
 		"shader_device_address",
@@ -744,8 +1051,9 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 	buffers = {
 		capacity = capacity,
 		group_capacity = group_capacity,
+		command_capacity = command_capacity,
 		commands = render.CreateBuffer{
-			byte_size = group_capacity * GROUPS * COMMAND_SIZE,
+			byte_size = command_capacity * GROUPS * COMMAND_SIZE,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
 			label = name .. ".commands",
@@ -923,6 +1231,7 @@ function draw.Cull(
 	end
 
 	local seen_address = instances.GetSeenTable():GetAddress()
+	local pair_total, pair_address = get_cluster_pairs()
 
 	for kind = 0, translucent_count > 0 and 1 or 0 do
 		local buffers = ensure_buffers(kind, group_space, group_count)
@@ -964,6 +1273,8 @@ function draw.Cull(
 		args.pointer[12] = buffers.group_counts_address
 		args.pointer[13] = buffers.batch_ids_address
 		args.pointer[14] = seen_address
+		args.pointer[15] = cluster_lod.GetTable():GetAddress()
+		args.pointer[16] = pair_address
 		resolve_variants(kind, args.remap)
 		state.kind = kind
 		state.args_address = args.address
@@ -972,6 +1283,7 @@ function draw.Cull(
 		state.capacity = buffers.group_capacity
 		state.group_count = group_count
 		state.group_capacity = buffers.group_capacity
+		state.command_capacity = buffers.command_capacity
 		state.planes = frustum_planes
 		state.view_projection = view_projection
 		state.viewport_height = viewport_height
@@ -987,6 +1299,13 @@ function draw.Cull(
 		}
 		pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, descriptor_slot or 1)
 		cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+
+		if kind == 0 and pair_total > 0 then
+			state.cluster_pairs = pair_total
+			get_cluster_pipeline():Dispatch(cmd, math.ceil(pair_total / LOCAL_SIZE), 1, 1, 1)
+			cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+		end
+
 		finalize:Dispatch(cmd, math.ceil(group_count / LOCAL_SIZE), 1, 1, 1)
 		cmd:PipelineBarrier{
 			srcStage = "compute",
@@ -996,6 +1315,16 @@ function draw.Cull(
 		frame_state.counts[kind] = count
 		frame_state.group_counts[kind] = group_count
 	end
+end
+
+function draw.GetClusterStats()
+	local row_count = 0
+
+	for _ in pairs(cluster_rows) do
+		row_count = row_count + 1
+	end
+
+	return {rows = row_count, pairs = pair_total}
 end
 
 function draw.IsEyeNearHeightShell(eye)
@@ -1035,8 +1364,8 @@ end
 local function draw_variants(gbuffer_instancing, kind, name, displaced)
 	local buffers = buffer_sets[kind]
 	local cmd = render.GetCommandBuffer()
-	local group_size = buffers.group_capacity * COMMAND_SIZE
-	local count = frame_state.group_counts[kind]
+	local group_size = buffers.command_capacity * COMMAND_SIZE
+	local count = frame_state.group_counts[kind] + (kind == 0 and CLUSTER_COMMANDS or 0)
 	local drawn = frame_state.drawn[kind]
 
 	for variant = 0, VARIANTS - 1 do
@@ -1420,7 +1749,7 @@ do
 
 		if not buffers or result.slots == 0 then return result end
 
-		local group_capacity = buffers.group_capacity
+		local group_capacity = buffers.command_capacity
 		local commands = ffi.cast("uint32_t *", download(buffers.commands, group_capacity * GROUPS * COMMAND_SIZE))
 		local counts = ffi.cast("uint32_t *", download(buffers.counts, GROUPS * 4))
 		local worlds = ffi.cast("float *", download(buffers.worlds, buffers.capacity * 64))
@@ -1430,6 +1759,8 @@ do
 		for set = 0, GROUPS - 1 do
 			for packed_index = 0, counts[set] - 1 do
 				local command = commands + (set * group_capacity + packed_index) * (COMMAND_SIZE / 4)
+				result.commands = (result.commands or 0) + 1
+				result.triangles = (result.triangles or 0) + command[0] / 3 * command[1]
 
 				for place = 0, command[1] - 1 do
 					local at = command[4] + place
