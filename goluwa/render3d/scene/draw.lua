@@ -237,6 +237,7 @@ function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row
 
 	if overlay_ids[id] then bits = bits + shader_features.OVERLAYS end
 
+	bits = bits + material:GetSurfaceParamBits()
 	local variant = draw.GetVariant(material:MarchesRelief() and draw.SHAPE_RELIEF or draw.SHAPE_PLAIN, bits)
 	local set = (material:GetRasterBothFaces() and 1 or 0) + 2 * variant
 	drawn = drawn or nil

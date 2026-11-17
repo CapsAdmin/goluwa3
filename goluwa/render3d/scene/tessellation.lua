@@ -1109,12 +1109,12 @@ local function upload(cmd, buffer, source, bytes, destination)
 end
 
 local function get_pipeline()
-	local plain = draw.GetVariant(draw.SHAPE_PLAIN, draw.GetGlobalBits(0))
+	local plain = draw.GetVariant(draw.SHAPE_PLAIN, bit.bor(draw.GetGlobalBits(0), shader_features.PARAMS))
 	local pipeline = render3d.GetPipelineVariant(tessellation.name, plain)
 
 	if render3d.IsPipelineReady(pipeline) then return pipeline end
 
-	pipeline = render3d.GetPipelineVariant(tessellation.name, draw.GetVariant(draw.SHAPE_PLAIN, 0))
+	pipeline = render3d.GetPipelineVariant(tessellation.name, draw.GetVariant(draw.SHAPE_PLAIN, shader_features.PARAMS))
 
 	if render3d.IsPipelineReady(pipeline) then return pipeline end
 end
@@ -1185,7 +1185,10 @@ function tessellation.Draw(pipeline, cmd)
 	state.batches_address = batches_address
 	local terrain = render3d.GetPipelineVariant(
 		tessellation.name,
-		draw.GetVariant(draw.SHAPE_PLAIN, bit.bor(draw.GetGlobalBits(0), shader_features.TERRAIN))
+		draw.GetVariant(
+			draw.SHAPE_PLAIN,
+			bit.bor(draw.GetGlobalBits(0), shader_features.TERRAIN, shader_features.PARAMS)
+		)
 	)
 
 	for group, group_pipeline in ipairs({pipeline, terrain}) do

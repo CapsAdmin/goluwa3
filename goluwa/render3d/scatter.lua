@@ -3044,6 +3044,16 @@ function scatter.PreDraw(cmd)
 	barrier(cmd, b.instances, "compute", "vertex", "shader_write", "shader_read")
 end
 
+function scatter.GetSurfaceParamBits()
+	local bits = 0
+
+	for _, batch in ipairs(draw_batches) do
+		bits = bit.bor(bits, batch.material:GetSurfaceParamBits())
+	end
+
+	return bits
+end
+
 function scatter.Draw(pipeline, cmd)
 	if not enabled:Get() or surface_count == 0 or not draw_batches[1] then return end
 

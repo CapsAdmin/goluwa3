@@ -1202,7 +1202,7 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness, bi
 end
 
 do
-	local FEATURES = shader_features.TERRAIN + shader_features.OVERLAYS
+	local FEATURES = shader_features.TERRAIN + shader_features.OVERLAYS + shader_features.PARAMS
 	local sources = {}
 
 	for _, pass in ipairs(passes) do

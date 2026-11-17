@@ -25,11 +25,17 @@ local camera_block = geometry_block.New("gbuffer_data", {
 end)
 
 local function get_extra_pipeline(extra)
-	local pipeline = render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, scene_draw.GetGlobalBits(0)))
+	local param_bits = extra.GetSurfaceParamBits and
+		extra.GetSurfaceParamBits() or
+		shader_features.PARAMS
+	local pipeline = render3d.GetPipelineVariant(
+		extra.name,
+		scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, bit.bor(scene_draw.GetGlobalBits(0), param_bits))
+	)
 
 	if render3d.IsPipelineReady(pipeline) then return pipeline end
 
-	return render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0))
+	return render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, param_bits))
 end
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
@@ -911,6 +917,8 @@ do
 			prewarm = {
 				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0),
 				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, 0),
+				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, shader_features.PARAMS),
+				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, shader_features.PARAMS),
 				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, TERRAIN),
 				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, TERRAIN),
 				scene_draw.GetVariant(scene_draw.SHAPE_NEARER, shader_features.ALL),

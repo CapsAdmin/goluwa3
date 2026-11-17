@@ -63,7 +63,12 @@ local FEATURE_BLOCK_FIELDS = {}
 
 for _, feature in ipairs(surface_features.list) do
 	for _, param in ipairs(feature.params or {}) do
-		local field = {type = param.kind or "float", name = param.name, getter = "Get" .. param.name}
+		local field = {
+			type = param.kind or "float",
+			name = param.name,
+			getter = "Get" .. param.name,
+			param_group = shader_features.GetParamGroup(feature.name),
+		}
 
 		if feature.block == "none" or param.block == false then
 
@@ -500,7 +505,14 @@ do
 		record_blocks = {}
 
 		for _, ubo in ipairs(model_pipeline.GetPBRUniformBuffers()) do
-			record_blocks[#record_blocks + 1] = {name = ubo.name, field = "m_" .. ubo.name, block = ubo.block, write = ubo.write}
+			record_blocks[#record_blocks + 1] = {
+				name = ubo.name,
+				field = "m_" .. ubo.name,
+				block = ubo.block,
+				write = ubo.write,
+				param_group = ubo.param_group,
+				fields = ubo.fields,
+			}
 		end
 
 		record_blocks[#record_blocks + 1] = {
@@ -562,6 +574,79 @@ do
 		return record_type
 	end
 
+	local defaults_glsl
+
+	-- a variant without a param group's bit reads that group's params as a default material's values, so their glsl folds away; draw.SetRow gives a row the bits of the groups its material moves a param of (Material:GetSurfaceParamBits)
+	local function get_defaults_glsl()
+		if defaults_glsl then return defaults_glsl end
+
+		local material = Material.New()
+		local floats = ffi.new("float[4]")
+
+		local function literal(def)
+			local value = material[def.getter](material)
+
+			if def.type == "texture" then
+				assert(value == nil, def.name .. " has a default texture")
+				return "-1"
+			elseif def.type == "int" then
+				return string.format("%d", value)
+			elseif def.type == "float" then
+				return string.format("%.9e", value)
+			end
+
+			value:CopyToFloatPointer(floats)
+			local parts = {}
+
+			for i = 0, tonumber(def.type:sub(4)) - 1 do
+				parts[i + 1] = string.format("%.9e", floats[i])
+			end
+
+			return def.type .. "(" .. table.concat(parts, ", ") .. ")"
+		end
+
+		local lines = {}
+
+		for _, group in ipairs(shader_features.param_groups) do
+			lines[#lines + 1] = shader_features.GetDefaultGLSL(group.name)
+		end
+
+		for _, info in ipairs(get_record_blocks()) do
+			if info.param_group then
+				local values = {}
+
+				for i, def in ipairs(info.fields) do
+					values[i] = literal(def)
+				end
+
+				lines[#lines + 1] = string.format(
+					"#define %s_default PBRBatch_%s(%s)",
+					info.name,
+					info.name,
+					table.concat(values, ", ")
+				)
+			elseif info.name == "factor_model" then
+				lines[#lines + 1] = "PBRBatch_factor_model factor_model_grouped(PBRBatch_factor_model f) {"
+
+				for _, def in ipairs(info.fields) do
+					if def.param_group then
+						lines[#lines + 1] = string.format(
+							"#if %s == 0\n\tf.%s = %s;\n#endif",
+							def.param_group.define,
+							def.name,
+							literal(def)
+						)
+					end
+				end
+
+				lines[#lines + 1] = "\treturn f;\n}"
+			end
+		end
+
+		defaults_glsl = table.concat(lines, "\n") .. "\n"
+		return defaults_glsl
+	end
+
 	function model_pipeline.BuildPBRBatchRecordGlsl(batch_expr)
 		model_pipeline.GetPBRBatchRecordType()
 
@@ -571,11 +656,26 @@ do
 
 		for _, info in ipairs(get_record_blocks()) do
 			if info.name ~= "vertex_animation" then
-				defines[#defines + 1] = "#define " .. info.name .. " (" .. batch_expr .. ")." .. info.field
+				local source = "(" .. batch_expr .. ")." .. info.field
+
+				if info.param_group then
+					defines[#defines + 1] = string.format(
+						"#if %s\n#define %s %s\n#else\n#define %s %s_default\n#endif",
+						info.param_group.define,
+						info.name,
+						source,
+						info.name,
+						info.name
+					)
+				elseif info.name == "factor_model" then
+					defines[#defines + 1] = "#define factor_model factor_model_grouped(" .. source .. ")"
+				else
+					defines[#defines + 1] = "#define " .. info.name .. " " .. source
+				end
 			end
 		end
 
-		return record_glsl .. table.concat(defines, "\n") .. "\n"
+		return record_glsl .. get_defaults_glsl() .. table.concat(defines, "\n") .. "\n"
 	end
 
 	local write_record
@@ -1583,6 +1683,8 @@ for _, feature in ipairs(surface_features.list) do
 			FEATURE_BLOCKS,
 			{
 				name = feature.name .. "_model",
+				param_group = shader_features.GetParamGroup(feature.name),
+				fields = FEATURE_BLOCK_FIELDS[feature],
 				upload_scope = "frame_keyed",
 				memo_key = model_pipeline.GetMaterialMemoKey,
 				upload_key = function()
@@ -1628,6 +1730,7 @@ function model_pipeline.GetPBRUniformBuffers()
 		},
 		{
 			name = "factor_model",
+			fields = PBR_FACTOR_FIELDS,
 			memo_key = model_pipeline.GetMaterialMemoKey,
 			upload_scope = "persistent_keyed",
 			upload_key = model_pipeline.GetPBRFactorUploadKey,

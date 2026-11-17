@@ -4,6 +4,37 @@ shader_features.list = {
 	{name = "overlays", define = "SURFACE_OVERLAYS"},
 	{name = "conditions", define = "SURFACE_CONDITIONS"},
 }
+shader_features.param_groups = {
+	{
+		name = "extra",
+		features = {
+			"detail",
+			"micro_detail",
+			"displacement",
+			"subsurface",
+			"subsurface_color",
+			"clearcoat",
+			"secondary_specular",
+			"sheen",
+			"specular_tint",
+			"medium",
+			"derived_roughness",
+		},
+	},
+}
+shader_features.PARAMS = 0
+local group_of_feature = {}
+
+for _, group in ipairs(shader_features.param_groups) do
+	shader_features.list[#shader_features.list + 1] = {name = group.name, define = "SURFACE_PARAMS_" .. group.name:upper()}
+	group.feature = shader_features.list[#shader_features.list]
+
+	for _, name in ipairs(group.features) do
+		assert(not group_of_feature[name], name .. " is in two param groups")
+		group_of_feature[name] = group
+	end
+end
+
 shader_features.ALL = 0
 
 for i, feature in ipairs(shader_features.list) do
@@ -12,7 +43,17 @@ for i, feature in ipairs(shader_features.list) do
 	shader_features.ALL = shader_features.ALL + feature.bit
 end
 
+for _, group in ipairs(shader_features.param_groups) do
+	group.bit = group.feature.bit
+	group.define = group.feature.define
+	shader_features.PARAMS = shader_features.PARAMS + group.bit
+end
+
 shader_features.COUNT = shader_features.ALL + 1
+
+function shader_features.GetParamGroup(feature_name)
+	return group_of_feature[feature_name]
+end
 
 function shader_features.GetDefines(bits)
 	local lines = {}

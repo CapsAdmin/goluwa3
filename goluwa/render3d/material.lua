@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
+local shader_features = import("goluwa/render3d/shader_features.lua")
 local media = import("goluwa/render3d/media.lua")
 local FlagSet = import("goluwa/render/flag_set.lua")
 local Material = objects.CreateTemplate("render3d_material")
@@ -191,6 +192,56 @@ function Material:Touch()
 	objects.version_counter = version
 	self.property_version = version
 	objects.version_log[version % objects.VERSION_LOG_SIZE] = self
+end
+
+do
+	local default_material
+
+	local function same(a, b)
+		if a == b then return true end
+
+		local kind = type(a)
+
+		if kind ~= type(b) or (kind ~= "table" and kind ~= "cdata") or not a.Unpack then
+			return false
+		end
+
+		local a1, a2, a3, a4 = a:Unpack()
+		local b1, b2, b3, b4 = b:Unpack()
+		return a1 == b1 and a2 == b2 and a3 == b3 and a4 == b4
+	end
+
+	function Material:GetSurfaceParamBits()
+		if self.param_bits_version == self.property_version then
+			return self.param_bits
+		end
+
+		default_material = default_material or Material.New()
+		local bits = 0
+
+		for _, feature in ipairs(surface_features.list) do
+			local group = shader_features.GetParamGroup(feature.name)
+
+			if group and bit.band(bits, group.bit) == 0 then
+				for _, param in ipairs(feature.params) do
+					local getter = "Get" .. param.name
+
+					if
+						param.block ~= false and
+						not same(self[getter](self), default_material[getter](default_material))
+					then
+						bits = bits + group.bit
+
+						break
+					end
+				end
+			end
+		end
+
+		self.param_bits_version = self.property_version
+		self.param_bits = bits
+		return bits
+	end
 end
 
 function Material:GetRasterBothFaces()
