@@ -296,7 +296,7 @@ return {
 					nearest = t;
 					view.inside = rayQueryGetIntersectionFrontFaceEXT(query, false);
 					nearest_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
-					nearest_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
+					nearest_primitive = scene_query_primitive(query, false);
 					nearest_barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, false);
 					body = material;
 				}

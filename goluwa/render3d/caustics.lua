@@ -840,7 +840,7 @@ function caustics.GetGLSL(block_name)
 					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
 					ray_material candidate_material = ray_materials[scene_instance_material(candidate)];
 
-					if (candidate_material.glass != 0 || (candidate_material.transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false)))) rayQueryConfirmIntersectionEXT(query);
+					if (candidate_material.glass != 0 || (candidate_material.transparent == 0 && ray_alpha_passes(candidate, scene_query_primitive(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false)))) rayQueryConfirmIntersectionEXT(query);
 				}
 
 				bool hit = rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
@@ -884,7 +884,7 @@ function caustics.GetGLSL(block_name)
 				if (!hit) return CAUSTIC_LOST;
 
 				uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-				uint primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+				uint primitive = scene_query_primitive(query, true);
 				vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 				scene_triangle tri = scene_hit_tri(instance, primitive);
 				ray_material material = ray_materials[tri.material];

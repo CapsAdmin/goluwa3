@@ -88,7 +88,7 @@ function optical_rays.GetGLSL()
 
 					if (material.double_sided == 0 && front) continue;
 
-					vec3 through = ray_material_has_medium(material) ? get_material_medium_transmittance(material) : optical_glass_through(material, instance, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false));
+					vec3 through = ray_material_has_medium(material) ? get_material_medium_transmittance(material) : optical_glass_through(material, instance, scene_query_primitive(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false));
 
 					transmitted *= clamp(material.glass_refraction * through + (1.0 - material.glass_refraction) * (1.0 - material.glass_covering), vec3(0.0), vec3(1.0));
 				} else if (through_medium && ray_material_has_medium(material)) {
@@ -128,7 +128,7 @@ function optical_rays.GetGLSL()
 				if (exit_distance == 0.0 || t < exit_distance) {
 					exit_distance = t;
 					exit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
-					exit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
+					exit_primitive = scene_query_primitive(query, false);
 					exit_barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, false);
 					rayQueryConfirmIntersectionEXT(query);
 				}

@@ -286,7 +286,7 @@ function scene_hits.GetGLSL(block_name, shared)
 		#define SCENE_HIT_PROCEED(query) \
 			while (rayQueryProceedEXT(query)) { \
 				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)); \
-				if (ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
+				if (ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, scene_query_primitive(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query); \
 			}
 
 		bool scene_hit_visible(vec3 origin, vec3 dir, float dist) {
@@ -319,7 +319,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 			t = rayQueryGetIntersectionTEXT(query, true);
 			instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-			primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+			primitive = scene_query_primitive(query, true);
 			barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 			return true;
 		}

@@ -51,11 +51,26 @@ function hit.GetSceneGLSL(name, tlas_binding)
 	return "#extension GL_EXT_ray_query : require\nlayout(set = 0, binding = " .. tlas_binding .. ") uniform accelerationStructureEXT " .. name .. ";\n"
 end
 
+function hit.GetQueryGLSL()
+	if render.GetDevice().cluster_acceleration_structure_supported then
+		return [[
+		#extension GL_EXT_ray_query : enable
+		#extension GL_NV_cluster_acceleration_structure : require
+		uint scene_cluster_base(int id) {
+			return id == gl_ClusterIDNoneNV ? 0u : uint(id);
+		}
+		#define scene_query_primitive(q, committed) (uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, committed)) + scene_cluster_base(rayQueryGetIntersectionClusterIdNV(q, committed)))
+		]]
+	end
+
+	return "#define scene_query_primitive(q, committed) uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, committed))\n"
+end
+
 function hit.GetCoreGLSL()
 	return [[
 		#extension GL_EXT_buffer_reference : require
 		#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-	]] .. "" .. [[
+	]] .. hit.GetQueryGLSL() .. [[
 
 		struct scene_mesh {
 			uint64_t vertex_address;
@@ -281,7 +296,7 @@ function hit.GetTraceGLSL(tlas_name, skip_mask)
 
 				hit.instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
 				]] .. skip .. [[
-				hit.primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+				hit.primitive = scene_query_primitive(query, true);
 				scene_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
 				hit.distance = rayQueryGetIntersectionTEXT(query, true);
 				hit.position = origin + dir * hit.distance;

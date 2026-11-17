@@ -1144,7 +1144,7 @@ local function pass_scene_debug()
 				[[
 					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
 
-					if (ray_materials[scene_instance_material(candidate)].refractive == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query);
+					if (ray_materials[scene_instance_material(candidate)].refractive == 0 && ray_alpha_passes(candidate, scene_query_primitive(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query);
 		]] or
 				""
 			) .. [[
@@ -1155,7 +1155,7 @@ local function pass_scene_debug()
 				hit.distance = rayQueryGetIntersectionTEXT(query, true);
 				hit.position = O + D * hit.distance;
 				hit.instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-				hit.primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+				hit.primitive = scene_query_primitive(query, true);
 				return true;
 			}
 		]]

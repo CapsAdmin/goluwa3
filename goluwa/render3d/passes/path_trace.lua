@@ -82,7 +82,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				while (rayQueryProceedEXT(query)) { \
 					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)); \
 					ray_material candidate_material = ray_materials[scene_instance_material(candidate)]; \
-					if ((lighting_data.pt_caustics != 0 && candidate_material.caustic != 0) || (candidate_material.transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false)))) rayQueryConfirmIntersectionEXT(query); \
+					if ((lighting_data.pt_caustics != 0 && candidate_material.caustic != 0) || (candidate_material.transparent == 0 && ray_alpha_passes(candidate, scene_query_primitive(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false)))) rayQueryConfirmIntersectionEXT(query); \
 				}
 
 			bool pt_trace(vec3 origin, vec3 dir, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
@@ -95,7 +95,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 				t = rayQueryGetIntersectionTEXT(query, true);
 				instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-				primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+				primitive = scene_query_primitive(query, true);
 				barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 				return true;
 			}

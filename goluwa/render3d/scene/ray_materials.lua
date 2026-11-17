@@ -593,7 +593,7 @@ function ray_materials.GetShadowRayGLSL()
 				while (rayQueryProceedEXT(query)) {
 					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
 
-					if ((scene_instances[candidate].mask_lod & skip_mask) == 0u && ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false)), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query);
+					if ((scene_instances[candidate].mask_lod & skip_mask) == 0u && ray_materials[scene_instance_material(candidate)].transparent == 0 && ray_alpha_passes(candidate, scene_query_primitive(query, false), rayQueryGetIntersectionBarycentricsEXT(query, false))) rayQueryConfirmIntersectionEXT(query);
 				}
 
 				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return true;
