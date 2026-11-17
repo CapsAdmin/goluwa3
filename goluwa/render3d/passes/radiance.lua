@@ -307,14 +307,16 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 		if (span == ivec2(1)) return min(first, gsize - 1);
 
+		ivec2 center = first + max((span - 2) / 2, ivec2(0));
+		ivec2 last = min(first + span, gsize) - 1;
 		float nearest = 0.0;
 
 		for (int k = 0; k < 4; k++) {
-			nearest = max(nearest, gbuffer_depth(min(first + min(offsets[k], span - 1), gsize - 1)));
+			nearest = max(nearest, gbuffer_depth(min(center + offsets[k], last)));
 		}
 
 		for (int k = 0; k < 4; k++) {
-			ivec2 q = min(first + min(offsets[(restir_data.phase + k) & 3], span - 1), gsize - 1);
+			ivec2 q = min(center + offsets[(restir_data.phase + k) & 3], last);
 
 			if (gbuffer_depth(q) >= nearest * 0.98) return q;
 		}
