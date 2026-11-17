@@ -10,6 +10,7 @@ local bridge = {}
 local dynamic = setmetatable({}, {__mode = "k"})
 local cpu_drawn = setmetatable({}, {__mode = "k"})
 local tracked = setmetatable({}, {__mode = "k"})
+local trace_version = 0
 local bounds_min, bounds_max = {[0] = 0, 0, 0}, {[0] = 0, 0, 0}
 local bounds_valid = false
 local bounds_dirty = false
@@ -484,6 +485,23 @@ end
 
 function bridge.RefreshDynamic()
 	local frame = system.GetFrameNumber()
+
+	if trace_version ~= opacity_micromaps.version then
+		trace_version = opacity_micromaps.version
+
+		for visual in pairs(tracked) do
+			for _, item in ipairs(visual.scene_instances) do
+				local rt_row = opacity_micromaps.GetRow(meshes.GetRecord(item.mesh_row), item.material)
+
+				if item.rt_row ~= rt_row then
+					instances.SetMesh(item.id, rt_row)
+					item.rt_row = rt_row
+				end
+			end
+
+			mark_dirty(visual.scene_aabb)
+		end
+	end
 
 	for visual in pairs(dynamic) do
 		local list = visual.scene_instances

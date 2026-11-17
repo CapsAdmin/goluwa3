@@ -58,6 +58,8 @@ local segments_table, parts_table, slots_table
 local counters_buffer, readback_buffer, readback
 local READBACK_RING = 4
 local bending = {}
+local traced = {}
+local trace_version = 0
 local BufferCopy = ffi.typeof("$[1]", vulkan.vk.VkBufferCopy)
 local readback_copy = BufferCopy()
 local pipeline
@@ -322,6 +324,7 @@ local function rebuild(segment_list)
 	end
 
 	bending = {}
+	traced = {}
 
 	if range_base then instances.FreeRange(range_base, range_count, true) end
 
@@ -340,8 +343,8 @@ local function rebuild(segment_list)
 				local index = parts:Alloc()
 				local entry = parts:Get()[index]
 				local bends = part.material:HasVertexAnimation() and part.polygon
-				local rt_row = opacity_micromaps.GetRow(meshes.GetRecord(row), part.material)
-				entry.mesh_row = bends and row or rt_row
+				entry.mesh_row = bends and row or opacity_micromaps.GetRow(meshes.GetRecord(row), part.material)
+				traced[#traced + 1] = {index = index, row = row, material = part.material, bends = bends}
 				entry.material_row = materials.GetID(part.material)
 				entry.record_flags = instances.GetRecordFlags(flags)
 				entry.mask_flags = mask + flags * 256
@@ -368,7 +371,6 @@ local function rebuild(segment_list)
 						part = part,
 						row = row,
 						mesh = mesh,
-						variant = rt_row ~= row and meshes.GetRecord(rt_row) or nil,
 						first = entry.bend_first,
 						copies = copies,
 						records = {},
@@ -496,6 +498,16 @@ local function produce(cmd)
 		ffi.fill(readback, parts.capacity * 4 * READBACK_RING)
 	end
 
+	if trace_version ~= opacity_micromaps.version then
+		trace_version = opacity_micromaps.version
+
+		for _, part in ipairs(traced) do
+			if not part.bends then
+				part_rows[part.index].mesh_row = opacity_micromaps.GetRow(meshes.GetRecord(part.row), part.material)
+			end
+		end
+	end
+
 	-- how many instances asked for a copy a few frames ago (the oldest copy in the ring, which the gpu has finished): only that many and a few more are bent and refit
 	local asked = readback + ((frame + 1) % READBACK_RING) * parts.capacity
 
@@ -507,7 +519,9 @@ local function produce(cmd)
 		entry.used = range > 0 and
 			math.min(entry.copies, wanted > 0 and wanted + 2 + math.floor(wanted / 4) or 1) or
 			0
-		local omm = entry.variant and entry.variant.omm.micromap and entry.variant.omm or nil
+		local rt_row = opacity_micromaps.GetRow(entry.mesh, entry.part.material)
+		local variant = rt_row ~= entry.row and meshes.GetRecord(rt_row)
+		local omm = variant and variant.omm.micromap and variant.omm or nil
 
 		for k = 1, #entry.records do
 			if entry.records[k].blas_record.omm ~= omm then

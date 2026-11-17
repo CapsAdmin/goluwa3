@@ -9,8 +9,11 @@ local opacity_micromaps = {}
 pvars.StartGroup("Rendering", "Ray tracing", {store = false})
 local enabled = pvars.Setup2{
 	key = "r_rt_opacity_micromaps",
-	default = true,
-	help = "alpha tested meshes get an opacity micromap in their bottom level structure, so rays skip transparent parts and accept opaque parts without running the alpha test; read when a mesh first gets an instance",
+	default = false,
+	help = "alpha tested meshes get an opacity micromap in their bottom level structure, so rays skip transparent parts and accept opaque parts without running the alpha test; can be switched at runtime",
+	callback = function()
+		opacity_micromaps.version = opacity_micromaps.version + 1
+	end,
 }
 local max_level = pvars.Setup2{
 	key = "r_rt_opacity_micromap_level",
@@ -44,6 +47,7 @@ local JobEntry = ffi.typeof([[struct {
 }]])
 local JobArray = ffi.typeof("$*", JobEntry)
 opacity_micromaps.built = 0
+opacity_micromaps.version = 0
 local waiting = {}
 local all_variants = setmetatable({}, {__mode = "k"})
 local retiring = {}
