@@ -7,6 +7,7 @@ local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
+local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
 local gbuffer_instancing = {}
 local queued_instances = 0
 local last_stats = {
@@ -80,6 +81,20 @@ do
 		render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 		render3d.SetMaterial(batch.material)
 		model_pipeline.WritePBRBatchRecord(pipeline, record)
+
+		if cluster_lod.GetDebugMode() == 1 then
+			local color = record.m_color_model.ColorMultiplier
+
+			if batch.cluster then
+				color[0], color[1], color[2] = color[0] * 0.2, color[1], color[2] * 0.2
+			else
+				local status = cluster_lod.GetStatus(batch.first_polygon3d)
+
+				if status and not status.ready and not status.failed then
+					color[0], color[1], color[2] = color[0], color[1] * 0.8, color[2] * 0.1
+				end
+			end
+		end
 	end
 
 	local function write_animated(_, pipeline, record, batch)

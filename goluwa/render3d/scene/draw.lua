@@ -368,6 +368,16 @@ function draw.ClearRow(id)
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
 
+cluster_lod.OnDebugChanged(function()
+	for slot = 0, #rows - 1 do
+		local row = rows[slot + 1]
+
+		if row.group and cluster_lod.GetStatus(row.first_polygon3d) then
+			row.material:Touch()
+		end
+	end
+end)
+
 cluster_lod.OnReady(function(polygon3d)
 	for slot = 0, #rows - 1 do
 		local row = rows[slot + 1]
@@ -1315,6 +1325,72 @@ function draw.Cull(
 		frame_state.counts[kind] = count
 		frame_state.group_counts[kind] = group_count
 	end
+end
+
+local function describe_row(row)
+	if row.cluster then return "clustered" end
+
+	local material, polygon3d = row.material, row.first_polygon3d
+
+	if not row.drawn then
+		return "not drawn by the gbuffer (rays only, hidden or hidden from the view)"
+	end
+
+	if row.translucent then return "drawn by the translucent pass" end
+
+	if not polygon3d then return "no polygon" end
+
+	if polygon3d.shell_grid then return "height shell mesh" end
+
+	if not cluster_lod.IsEnabled() then return "r_cluster_lod is off" end
+
+	if material:IsTransparent() then return "transparent material" end
+
+	if material:MarchesRelief() then return "relief or height map material" end
+
+	if material.Decal then return "decal material" end
+
+	return cluster_lod.DescribePolygon(polygon3d)
+end
+
+function draw.GetClusterReport()
+	local report, by_key = {}, {}
+
+	for slot = 0, #rows - 1 do
+		local row = rows[slot + 1]
+		local polygon3d = row.first_polygon3d
+
+		if row.group and polygon3d then
+			local reason = describe_row(row)
+			local key = tostring(polygon3d) .. reason
+			local entry = by_key[key]
+
+			if not entry then
+				local packed = polygon3d.packed
+				local mesh = polygon3d.mesh
+				entry = {
+					name = polygon3d.Name or tostring(polygon3d),
+					reason = reason,
+					rows = 0,
+					triangles = packed and
+						packed.index_count / 3 or
+						(
+							mesh and
+							mesh.index_buffer and
+							mesh.index_buffer:GetIndexCount() / 3
+						)
+						or
+						0,
+				}
+				by_key[key] = entry
+				report[#report + 1] = entry
+			end
+
+			entry.rows = entry.rows + 1
+		end
+	end
+
+	return report
 end
 
 function draw.GetClusterStats()
