@@ -7,6 +7,8 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
+local store = import("goluwa/render3d/scene/store.lua")
+local vk = import("goluwa/bindings/vk.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -102,6 +104,58 @@ T.Test3D("Graphics render3d scene store traces an instance of a mesh through its
 	instances.Remove(first)
 	instances.Remove(second)
 	results:Remove()
+end)
+
+T.Test3D("Graphics render3d scene store keeps rows the gpu wrote when a staged table grows", function()
+	local readback = render.CreateBuffer{
+		byte_size = 16,
+		buffer_usage = {"transfer_dst"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "scene_store_test_grow",
+	}
+	local out = ffi.cast("uint32_t*", readback:Map())
+
+	local function grow_and_read(inside_frame)
+		local rows = store.CreateTable{name = "grow_test", ctype = "uint32_t", capacity = 4, staged = true}
+		rows:Alloc()
+		rows:Alloc()
+		rows:Get()[0] = 11
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		store.FlushStaged(cmd)
+		cmd:FillBuffer(rows:GetBuffer(), 4, 4, 22)
+
+		if inside_frame then
+			render.PushCommandBuffer(cmd)
+			rows:Reserve(64)
+			render.PopCommandBuffer()
+		else
+			cmd:End()
+			render.SubmitAndWait(cmd)
+			rows:Reserve(64)
+			cmd = render.GetCommandPool():AllocateCommandBuffer()
+			cmd:Begin()
+		end
+
+		store.FlushStaged(cmd)
+		cmd:CopyBuffer(
+			rows:GetBuffer(),
+			readback,
+			ffi.new(ffi.typeof("$[1]", vk.VkBufferCopy), {{srcOffset = 0, dstOffset = 0, size = 16}}),
+			1
+		)
+		cmd:PipelineBarrier{srcStage = "transfer", dstStage = "host", memoryBarrier = true}
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		T(out[0])["=="](11)
+		T(out[1])["=="](22)
+		T(out[2])["=="](0)
+		T(out[3])["=="](0)
+	end
+
+	grow_and_read(true)
+	grow_and_read(false)
+	readback:Remove()
 end)
 
 T.Test3D("Graphics render3d scene store keeps the free rows of a producer's range together", function()

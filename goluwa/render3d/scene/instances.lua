@@ -57,6 +57,7 @@ instances.FLAG_RT_LOD = 512
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table, part_table, seen_table
+local traced_tlas_buffer, traced_data_buffer
 local RasterData = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -216,6 +217,13 @@ function instances.SetPrevMatrix(id, m)
 	t[0], t[1], t[2], t[3] = m.m00, m.m10, m.m20, m.m30
 	t[4], t[5], t[6], t[7] = m.m01, m.m11, m.m21, m.m31
 	t[8], t[9], t[10], t[11] = m.m02, m.m12, m.m22, m.m32
+end
+
+-- a table that grows after the tlas build gets a buffer the compute queue, already running, cannot wait for, so traces read the ones the tlas was built from
+function instances.GetTracedBuffers()
+	instances.GetTables()
+	return traced_tlas_buffer or tlas_table:GetBuffer(),
+	traced_data_buffer or data_table:GetBuffer()
 end
 
 function instances.GetDataTable()
@@ -634,6 +642,7 @@ do
 		vegetation_bend = vegetation_bend or import("goluwa/render3d/scene/vegetation_bend.lua")
 		parts = parts or import("goluwa/render3d/scene/parts.lua")
 		store.FlushStaged(cmd)
+		traced_tlas_buffer, traced_data_buffer = tlas_table:GetBuffer(), data_table:GetBuffer()
 		meshes.Build(cmd, skinning.updated)
 		opacity_micromaps.Build(cmd)
 		parts.Update()

@@ -27,8 +27,7 @@ do
 	local bound = setmetatable({}, {__mode = "k"})
 
 	function hit.Bind(pipeline, desc, binding)
-		local tlas_table, data_table = instances.GetTables()
-		local mesh_table = meshes.GetTable()
+		local tlas_buffer, data_buffer = instances.GetTracedBuffers()
 		bound[pipeline] = bound[pipeline] or {}
 		local last = bound[pipeline][desc]
 
@@ -37,7 +36,7 @@ do
 			bound[pipeline][desc] = last
 		end
 
-		local buffers = {mesh_table:GetBuffer(), data_table:GetBuffer(), tlas_table:GetBuffer()}
+		local buffers = {meshes.GetTable():GetBuffer(), data_buffer, tlas_buffer}
 
 		for i = 1, 3 do
 			if last[i] ~= buffers[i] then

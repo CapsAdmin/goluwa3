@@ -22,6 +22,7 @@ function store.CreateTable(config)
 	if self.staged then
 		self.usage = {unpack(self.usage)}
 		self.usage[#self.usage + 1] = "transfer_dst"
+		self.usage[#self.usage + 1] = "transfer_src"
 		self.ptr_ctype = ffi.typeof("$*", self.ctype)
 		staged_tables[self] = true
 	end
@@ -36,6 +37,33 @@ function store.CreateTable(config)
 	tables[self] = true
 	self:Reserve(config.capacity or 1024)
 	return self
+end
+
+local record_grow_copy, copy_grown
+
+do
+	local region = BufferCopy(1)
+
+	function record_grow_copy(cmd, old, new, old_size, new_size)
+		region[0].srcOffset = 0
+		region[0].dstOffset = 0
+		region[0].size = old_size
+		cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "transfer", memoryBarrier = true}
+		cmd:CopyBuffer(old, new, region, 1)
+		cmd:FillBuffer(new, old_size, new_size - old_size, 0)
+		cmd:PipelineBarrier{srcStage = "transfer", dstStage = "all_commands", memoryBarrier = true}
+	end
+
+	-- rows the gpu writes (scatter's) and uploads recorded earlier this frame exist only in the old buffer, so the grown one is copied from it on the gpu
+	function copy_grown(self, old, new, old_size, new_size)
+		local cmd = render.GetCommandBuffer()
+
+		if cmd and not cmd.is_rendering and not self.grown_from then
+			record_grow_copy(cmd, old, new, old_size, new_size)
+		else
+			self.grown_from = self.grown_from or {buffer = old, size = old_size}
+		end
+	end
 end
 
 function Table:Reserve(capacity)
@@ -62,7 +90,32 @@ function Table:Reserve(capacity)
 	if self.buffer then
 		render.GetDevice():WaitIdle()
 		ffi.copy(ptr, self.ptr, self.capacity * self.row_size)
+
+		if self.staged then
+			copy_grown(
+				self,
+				self.buffer,
+				buffer,
+				self.capacity * self.row_size,
+				capacity * self.row_size
+			)
+		end
+
 		retired[#retired + 1] = {buffer = self.buffer, frame = system.GetFrameNumber()}
+	end
+
+	if self.staged then
+		local dirty_flags = ffi.new("uint8_t[?]", capacity)
+
+		if self.buffer then
+			ffi.copy(dirty_flags, self.dirty_flags, self.capacity)
+		else
+			ffi.fill(dirty_flags, capacity, 1)
+			self.dirty_min = 0
+			self.dirty_max = capacity - 1
+		end
+
+		self.dirty_flags = dirty_flags
 	end
 
 	self.buffer = buffer
@@ -70,13 +123,6 @@ function Table:Reserve(capacity)
 	self.ptr = ptr
 	self.capacity = capacity
 	self.generation = self.generation + 1
-
-	if self.staged then
-		self.dirty_flags = ffi.new("uint8_t[?]", capacity)
-		ffi.fill(self.dirty_flags, capacity, 1)
-		self.dirty_min = 0
-		self.dirty_max = capacity - 1
-	end
 
 	if self.on_grow then self.on_grow(self) end
 end
@@ -201,6 +247,11 @@ do
 		local barriered = false
 
 		for rows in pairs(staged_tables) do
+			if rows.grown_from then
+				record_grow_copy(cmd, rows.grown_from.buffer, rows.buffer, rows.grown_from.size, rows:GetSize())
+				rows.grown_from = nil
+			end
+
 			if rows.dirty_max >= rows.dirty_min then
 				local count = collect_runs(rows)
 				local row_size = rows.row_size
