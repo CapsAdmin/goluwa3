@@ -23,7 +23,7 @@ local function load_entries()
 	root = lower_keys(select(2, next(root)))
 	chunks = {}
 
-	for name, models in pairs(root.breakablemodels) do
+	for name, models in pairs(root.breakablemodels or {}) do
 		chunks[name] = {}
 
 		for path in pairs(models) do
