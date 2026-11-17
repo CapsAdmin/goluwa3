@@ -5,7 +5,7 @@ local HeightmapSource = import("goluwa/terrain/heightmap_source.lua")
 local foot_surfaces = import("lua/foot_surfaces.lua")
 local impacts = {}
 
-local function get_surface(hit)
+function impacts.GetSurface(hit)
 	local terrain_data = hit.entity.terrain_data
 
 	if terrain_data then
@@ -24,7 +24,7 @@ local function get_surface(hit)
 end
 
 function impacts.Fire(entity, part, foot, hit, speed, mass, size, other_hit)
-	local surface, material = get_surface(hit)
+	local surface, material = impacts.GetSurface(hit)
 	event.Call(
 		"Impact",
 		{
@@ -32,7 +32,7 @@ function impacts.Fire(entity, part, foot, hit, speed, mass, size, other_hit)
 			Part = part,
 			Foot = foot,
 			Surface = surface,
-			OtherSurface = other_hit and (get_surface(other_hit)),
+			OtherSurface = other_hit and (impacts.GetSurface(other_hit)),
 			Material = material,
 			Other = hit.entity,
 			Position = hit.position,
@@ -59,7 +59,7 @@ function impacts.FireFootstep(character, part, hit, speed)
 				Entity = hit.entity,
 				Other = character,
 				Surface = foot_surface,
-				OtherSurface = get_surface(hit),
+				OtherSurface = impacts.GetSurface(hit),
 				Position = hit.position,
 				Normal = hit.normal,
 				Speed = speed,
@@ -214,8 +214,8 @@ do
 			local normal = contact.normal
 			cached = cached or {}
 			cached.time = now
-			cached.surface_a, cached.material_a = get_surface(contact.hit_a or get_surface_hit(entity_a, contact.position, normal * -1))
-			cached.surface_b, cached.material_b = get_surface(get_surface_hit(entity_b, contact.position, normal))
+			cached.surface_a, cached.material_a = impacts.GetSurface(contact.hit_a or get_surface_hit(entity_a, contact.position, normal * -1))
+			cached.surface_b, cached.material_b = impacts.GetSurface(get_surface_hit(entity_b, contact.position, normal))
 			row[entity_b] = cached
 		end
 

@@ -33,77 +33,36 @@ return {
 		nodes.Marker("muzzle", Vec3(0, 0.07, -0.2)),
 	},
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
-local damage = import("lua/damage.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
-local weapon_effects = import("lua/weapon_effects.lua")
+local bullets = import("lua/bullets.lua")
 local META = objects.CreateTemplate("weapon_pistol")
 META:GetSet("Range", 50)
 META:GetSet("Damage", 20)
 META:GetSet("Impulse", 6)
 META:GetSet("LimpSpread", 0.3)
 
-function META:Aim(cmd)
+function META:Shoot(cmd)
 	local player = self.Owner:GetParent()
-	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
-	local forward = cmd.aim:GetForward()
 	local ragdoll = player.ragdoll
 	local limp = ragdoll and math.max(ragdoll:GetPartLimp("upperarm_r"), ragdoll:GetPartLimp("forearm_r")) or 0
-
-	if limp > 0 then
-		local spread = self.LimpSpread * limp
-		forward = (forward + Vec3(math.randomf(-spread, spread), math.randomf(-spread, spread), math.randomf(-spread, spread))):GetNormalized()
-	end
-
-	return damage.Sweep(origin, forward * self.Range, player), forward
+	bullets.Fire{
+		Weapon = self.Owner,
+		Attacker = player,
+		Origin = bullets.GetEye(player),
+		Direction = cmd.aim:GetForward(),
+		Spread = self.LimpSpread * limp,
+		Range = self.Range,
+		Damage = self.Damage,
+		Impulse = self.Impulse,
+		Muzzle = "pistol",
+	}
 end
 
 function META:OnWeaponPredictPrimary(cmd)
-	local hit, forward = self:Aim(cmd)
-	weapon_effects.MuzzleFlash(self.Owner, forward)
-
-	if hit then
-		weapon_effects.Hit(self.Owner, hit.point, hit.normal, forward * self.Impulse)
-	end
+	self:Shoot(cmd)
 end
 
 function META:OnWeaponPrimary(cmd)
-	local player = self.Owner:GetParent()
-	local hit, forward = self:Aim(cmd)
-
-	weapon_effects.MuzzleFlash(self.Owner, forward)
-
-	if not hit then return end
-
-	weapon_effects.Hit(self.Owner, hit.point, hit.normal, forward * self.Impulse)
-
-	local victim, multiplier
-
-	if hit.entity then victim, multiplier = damage.GetVictim(hit.entity) end
-
-	if victim and victim.health then
-		local scale = self.Owner.weapon:GetDamageScale()
-
-		damage.Deal(
-			victim,
-			{
-				Attacker = player,
-				Inflictor = self.Owner,
-				Damage = self.Damage * multiplier * scale,
-				Type = "generic",
-				Attributes = self.Owner.weapon.Attributes,
-				Position = hit.point,
-				Normal = hit.normal,
-				Force = forward * self.Impulse,
-				Part = hit.entity.ragdoll_part and hit.entity.ragdoll_part.Group,
-			}
-		)
-	end
-
-	local body = hit.rigid_body or (hit.entity and hit.entity.rigid_body)
-
-	if body and body:IsDynamic() then
-		body:ApplyImpulse(forward * self.Impulse, hit.point)
-	end
+	self:Shoot(cmd)
 end
 
 return META:Register()

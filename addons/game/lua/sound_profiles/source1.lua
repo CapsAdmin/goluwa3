@@ -500,6 +500,57 @@ do
 		found.smooth, found.rough, found.roll = loops[1], loops[2], loops[3]
 	end
 
+	local BULLETS = {
+		concrete = range("physics/concrete/concrete_impact_bullet", 1, 4),
+		metal = range("physics/metal/metal_solid_impact_bullet", 1, 4),
+		metal_box = range("physics/metal/metal_box_impact_bullet", 1, 3),
+		computer = range("physics/metal/metal_computer_impact_bullet", 1, 3),
+		metal_sheet = range("physics/metal/metal_sheet_impact_bullet", 1, 2),
+		wood = range("physics/wood/wood_solid_impact_bullet", 1, 5),
+		wood_box = range("physics/wood/wood_box_impact_bullet", 1, 4),
+		dirt = range("physics/surfaces/sand_impact_bullet", 1, 4),
+		tile = range("physics/surfaces/tile_impact_bullet", 1, 4),
+		flesh = range("physics/flesh/flesh_impact_bullet", 1, 5),
+		glass = range("physics/glass/glass_impact_bullet", 1, 4),
+		plastic = range("physics/plastic/plastic_box_impact_bullet", 1, 5),
+		plastic_barrel = range("physics/plastic/plastic_barrel_impact_bullet", 1, 3),
+		cardboard = range("physics/cardboard/cardboard_box_impact_bullet", 1, 5),
+		rubber = range("physics/rubber/rubber_tire_impact_bullet", 1, 3),
+		water = range("physics/surfaces/underwater_impact_bullet", 1, 3),
+	}
+	local BULLET_SETS = {
+		metal_vent = "metal_sheet",
+		metal_barrel = "metal_sheet",
+		canister = "metal_sheet",
+		metal_grate = "metal_sheet",
+		chainlink = "metal_sheet",
+		chain = "metal",
+		grenade = "metal",
+		paintcan = "metal_sheet",
+		popcan = "metal_sheet",
+		weapon = "metal",
+		vehicle = "metal_sheet",
+		wood_solid = "wood",
+		wood_crate = "wood_box",
+		wood_furniture = "wood",
+		wood_panel = "wood_box",
+		wood_plank = "wood",
+		glass_bottle = "glass",
+		paper_cup = "cardboard",
+		drywall = "concrete",
+		ceiling_tile = "cardboard",
+		bloody_flesh = "flesh",
+		squishy = "flesh",
+		porcelain = "tile",
+		pottery = "tile",
+		carpet = "dirt",
+	}
+
+	function profile.GetBulletImpact(surface)
+		local set = assert(SURFACES[surface], "unknown surface type " .. tostring(surface))
+		return BULLETS[BULLET_SETS[set] or set] or BULLETS.concrete
+	end
+
 	local resolved = {}
 
 	function profile.GetImpact(surface)

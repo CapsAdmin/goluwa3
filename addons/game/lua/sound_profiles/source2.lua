@@ -156,6 +156,7 @@ local function to_legacy_path(path)
 		)
 end
 
+profile.GetBulletImpact = source1.GetBulletImpact
 local impacts = {}
 
 function profile.GetImpact(surface)
