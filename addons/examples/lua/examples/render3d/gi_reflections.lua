@@ -974,6 +974,191 @@ do
 end
 
 do
+	local assets = import("goluwa/assets.lua")
+	local cx, cz, w, h, d = -40, -140, 12, 4.5, 10
+	local name = "textured_room"
+	room(name, cx, cz, w, h, d, assets.Load("materials/examples/concrete.lua"))
+	box(
+		name .. "_floor_boards",
+		Vec3(cx, 0.12, cz),
+		Vec3(w - 0.4, 0.04, d - 0.4),
+		assets.Load("materials/examples/wood_oak.lua")
+	)
+	box(
+		name .. "_cabinet",
+		Vec3(cx - 4, 1.2, cz - 3.6),
+		Vec3(2.4, 2.4, 1.6),
+		assets.Load("materials/examples/rusted_iron.lua")
+	)
+	box(
+		name .. "_pillar",
+		Vec3(cx + 1.5, h / 2, cz - 1),
+		Vec3(0.5, h, 0.5),
+		assets.Load("materials/examples/brushed_aluminum.lua")
+	)
+	box(
+		name .. "_mat",
+		Vec3(cx + 3, 0.16, cz + 1.5),
+		Vec3(3, 0.04, 2),
+		assets.Load("materials/examples/black_rubber.lua")
+	)
+	box(
+		name .. "_crate",
+		Vec3(cx - 1.5, 0.6, cz + 1),
+		Vec3(1.2, 1, 1.2),
+		assets.Load("materials/examples/weathered_steel.lua")
+	)
+	sphere(
+		name .. "_chrome",
+		Vec3(cx + 3.5, 0.9, cz - 2.5),
+		0.75,
+		assets.Load("materials/examples/smudged_chrome.lua")
+	)
+	sphere(
+		name .. "_ceramic",
+		Vec3(cx - 3.5, 0.7, cz + 2),
+		0.55,
+		assets.Load("materials/examples/blue_ceramic.lua")
+	)
+	point_light(name .. "_light", Vec3(cx - 2, h - 0.6, cz - 1), warm, 1800, 14)
+end
+
+do
+	local cx, cz, w, h, d, t = 0, -140, 12, 5, 12, 0.4
+	local name = "height_room"
+	local cobbles = shapes.Material{
+		Color = Color(0.55, 0.5, 0.45, 1),
+		Roughness = 0.85,
+		HeightTexture = shapes.Texture([[
+			vec2 cell = uv * 3.0;
+			vec2 c = fract(cell) - 0.5;
+			float stone = 1.0 - smoothstep(0.3, 0.48, max(abs(c.x), abs(c.y)));
+			float bumps = sin(uv.x * 41.0) * sin(uv.y * 37.0);
+			return vec4(stone * (0.8 + 0.2 * bumps));
+		]]),
+		HeightScale = 0.03,
+		HeightTessellate = true,
+	}
+	local ridges = shapes.Material{
+		Color = Color(0.75, 0.72, 0.68, 1),
+		Roughness = 0.6,
+		HeightTexture = shapes.Texture([[
+			float ridge = abs(fract(uv.x * 9.0) - 0.5) * 2.0;
+			return vec4(smoothstep(0.2, 0.8, ridge));
+		]]),
+		HeightScale = 0.05,
+		HeightTessellate = true,
+	}
+
+	local function plane(suffix, position, normal, size_x, size_y, material)
+		shapes.Polygon{
+			Name = name .. "_" .. suffix,
+			Material = material,
+			RigidBody = static_body,
+			Polygon = function(poly)
+				shapes.BuildPlane(poly, position, normal, size_x, size_y, 1, 24, 24)
+			end,
+		}
+	end
+
+	plane("floor", Vec3(cx, 0.11, cz), Vec3(0, 1, 0), w / 2 - t / 2, d / 2 - t / 2, cobbles)
+	plane(
+		"ridged_back",
+		Vec3(cx, h / 2, cz - d / 2 + t / 2 + 0.01),
+		Vec3(0, 0, 1),
+		w / 2 - t / 2,
+		h / 2,
+		ridges
+	)
+	box(name .. "_base", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), grey)
+	box(name .. "_roof", Vec3(cx, h, cz), Vec3(w, t, d), white)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), red)
+	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box(name .. "_front_left", Vec3(cx - w / 4 - 0.75, h / 2, cz + d / 2), Vec3(w / 2 - 1.5, h, t), white)
+	box(name .. "_front_right", Vec3(cx + w / 4 + 0.75, h / 2, cz + d / 2), Vec3(w / 2 - 1.5, h, t), white)
+	box(name .. "_front_top", Vec3(cx, h - 0.75, cz + d / 2), Vec3(3, 1.5, t), white)
+	box(
+		name .. "_lamp",
+		Vec3(cx + w / 2 - t / 2 - 0.1, h - 1, cz),
+		Vec3(0.1, 0.3, d - 3),
+		emissive_mat(Color(0.7, 0.85, 1, 1), 12)
+	)
+	sphere(name .. "_ball", Vec3(cx + 2, 1, cz - 1), 0.8, mat(Color(0.9, 0.9, 0.9, 1), 0.3, 1))
+	box(name .. "_block", Vec3(cx - 2.5, 0.9, cz - 2), Vec3(1.2, 1.6, 1.2), blue)
+end
+
+do
+	local foliage = import("lua/foliage/foliage.lua")
+	local cx, cz, w, h, d, t = 40, -140, 16, 5, 14, 0.4
+	local name = "foliage_court"
+	box(name .. "_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), grey)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), orange)
+	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
+
+	for i = 0, 15 do
+		box(
+			name .. "_slat_" .. i,
+			Vec3(cx - w / 2 + 0.5 + i * (w - 1) / 15, h, cz),
+			Vec3(0.12, 0.25, d),
+			grey
+		)
+	end
+
+	for i, placement in ipairs{
+		{"trees/birch_a", Vec3(cx - 4, 0.1, cz - 3.5)},
+		{"plants/bush_a", Vec3(cx + 4, 0.1, cz - 4)},
+		{"plants/juniper_a", Vec3(cx + 5.5, 0.1, cz + 1)},
+		{"plants/berry_bush_a", Vec3(cx - 5.5, 0.1, cz + 2)},
+		{"plants/reeds_a", Vec3(cx, 0.1, cz - 5)},
+	} do
+		local ent = Entity.New{Name = name .. "_plant_" .. i}
+		ent:AddComponent("transform"):SetPosition(placement[2])
+		ent:AddComponent("visual"):SetModelPath("models/foliage/" .. placement[1] .. ".lua")
+	end
+
+	local grass = foliage.GetModelPaths("grass")
+
+	for i = 0, 47 do
+		local ent = Entity.New{Name = name .. "_grass_" .. i}
+		ent:AddComponent("transform"):SetPosition(Vec3(cx - 6 + (i % 8) * 1.7, 0.1, cz - 1 + math.floor(i / 8) * 1.1))
+		ent:AddComponent("visual"):SetModelPath(grass[i % #grass + 1])
+	end
+
+	sphere(name .. "_ball", Vec3(cx + 1, 0.8, cz), 0.7, white)
+end
+
+do
+	local cx, cz, w, h, d, t = 80, -140, 12, 4, 10, 0.4
+	local name = "bars_room"
+	room(name, cx, cz, w, h, d, white)
+	box(name .. "_backdrop", Vec3(cx, h / 2, cz - d / 2 + t / 2 + 0.02), Vec3(w - 1, h - 0.6, 0.02), yellow)
+
+	for i = 0, 23 do
+		box(
+			name .. "_bar_" .. i,
+			Vec3(cx - 4.6 + i * 0.4, 1.4, cz - 1.5),
+			Vec3(0.04, 2.8, 0.04),
+			mat(Color(0.2, 0.2, 0.2, 1), 0.4, 1)
+		)
+	end
+
+	box(name .. "_rail", Vec3(cx, 2.85, cz - 1.5), Vec3(9.6, 0.08, 0.08), grey)
+
+	for i = 0, 9 do
+		box(
+			name .. "_shelf_" .. i,
+			Vec3(cx + 4.5, 0.3 + i * 0.35, cz + 1),
+			Vec3(1.6, 0.03, 3),
+			i % 2 == 0 and white or cyan
+		)
+	end
+
+	point_light(name .. "_light", Vec3(cx, h - 0.5, cz - 3.5), neutral, 2000, 12)
+end
+
+do
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 5, 30))
 	cam:SetAngles(Deg3(-8, 0, 0))
