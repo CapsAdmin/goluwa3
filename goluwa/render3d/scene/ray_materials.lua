@@ -701,7 +701,7 @@ function ray_materials.GetOpticalVolumes(buffer)
 	ffi.cast(OpticalVolumePointer, base + OPTICAL_HEADER_SIZE)
 end
 
-local material_buffers = setmetatable({}, {__mode = "k"})
+local material_states = {}
 local glass_count = 0
 local medium_count = 0
 
@@ -873,9 +873,7 @@ function ray_materials.WriteMaterialBuffer(self)
 	local frame = render.GetCurrentFrame()
 	local materials = scene_materials.list
 	local count = #materials
-	material_buffers[self] = material_buffers[self] or {}
-	local states = material_buffers[self]
-	local state = states[frame]
+	local state = material_states[frame]
 
 	if
 		not state or
@@ -896,7 +894,7 @@ function ray_materials.WriteMaterialBuffer(self)
 			generation = 0,
 			releases = -1,
 		}
-		states[frame] = state
+		material_states[frame] = state
 	end
 
 	local generation = Material.ray_material_generation
