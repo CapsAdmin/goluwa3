@@ -4,6 +4,7 @@ local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local system = import("goluwa/system.lua")
 local lod = import("goluwa/render3d/lod.lua")
+local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
@@ -54,7 +55,7 @@ instances.FLAG_BILLBOARD = 128
 instances.FLAG_BEFORE_BILLBOARD = 256
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
-local tlas_table, data_table, part_table
+local tlas_table, data_table, part_table, seen_table
 local RasterData = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -102,7 +103,21 @@ local rt_lod_scale = pvars.Setup2{
 	min = 0.01,
 	help = "scales the distances at which rays see the next level of detail, above 1 the levels switch farther away than they do for the camera, below 1 sooner. every level of a model is in the ray traced scene, billboards included",
 }
+local rt_culled_lod_scale = pvars.Setup2{
+	key = "r_rt_culled_lod_scale",
+	default = 1,
+	help = "scales the distances at which rays see the next level of detail for instances the camera did not see last frame (outside the view or occluded), above 1 they are traced coarser and bend sooner. they stay in the ray traced scene, only their detail drops. 1 is off",
+}
 pvars.EndGroup()
+instances.SEEN_UNTESTED = 0x7FFFFFFF
+
+local function mark_untested(self)
+	for i = self.seen_filled or 0, self.capacity - 1 do
+		self.ptr[i] = instances.SEEN_UNTESTED
+	end
+
+	self.seen_filled = self.capacity
+end
 
 function instances.GetTables()
 	if not tlas_table then
@@ -120,10 +135,22 @@ function instances.GetTables()
 		}
 		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 16384, staged = true}
 		part_table = store.CreateTable{name = "instance_part", ctype = "uint32_t", capacity = 16384}
+		seen_table = store.CreateTable{
+			name = "instance_seen",
+			ctype = "uint32_t",
+			capacity = 16384,
+			on_grow = mark_untested,
+		}
 		raster_table = store.CreateTable{name = "instance_raster", ctype = RasterData, capacity = 16384, staged = true}
 	end
 
 	return tlas_table, data_table
+end
+
+function instances.GetSeenTable()
+	instances.GetTables()
+	seen_table:Reserve(tlas_table.capacity)
+	return seen_table
 end
 
 function instances.GetRasterTable()
@@ -194,6 +221,7 @@ end
 function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last, near, far)
 	instances.GetTables()
 	local id = tlas_table:Alloc()
+	instances.GetSeenTable():Get()[id] = instances.SEEN_UNTESTED
 	data_table:Reserve(tlas_table.capacity)
 	data_table.count = tlas_table.count
 	data_table.live = data_table.live + 1
@@ -456,6 +484,7 @@ do
 				{binding_index = 6},
 				{binding_index = 7},
 				{binding_index = 8},
+				{binding_index = 9},
 			},
 			uniform_buffers = {
 				{
@@ -468,6 +497,8 @@ do
 						{"lod_forced", "int"},
 						{"max_distance", "float"},
 						{"frame", "int"},
+						{"culled_scale", "float"},
+						{"seen_valid", "int"},
 					},
 					write = function(self, block)
 						local position = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
@@ -479,6 +510,8 @@ do
 						block.lod_forced = lod.GetForcedLevel()
 						block.max_distance = rt_distance:Get()
 						block.frame = system.GetFrameNumber()
+						block.culled_scale = rt_culled_lod_scale:Get()
+						block.seen_valid = gpu_culling.GetDrawnCullFrame() >= block.frame - 1 and 1 or 0
 						return block
 					end,
 				},
@@ -520,6 +553,7 @@ do
 				layout(scalar, set = 0, binding = 4) readonly buffer PartOfInstance { uint part_of_instance[]; };
 				]] .. parts.GLSL .. [[
 				layout(scalar, set = 0, binding = 8) readonly buffer Parts { scene_part parts[]; };
+				layout(scalar, set = 0, binding = 9) readonly buffer Seen { uint seen[]; };
 				]] .. vegetation_bend.GetAssignGLSL(5, 6, 7) .. [[
 			]],
 			shader = [[
@@ -549,6 +583,9 @@ do
 						} else {
 							float distance_to = distance(update_data.camera.xyz, inst.bounds.xyz);
 							float ratio = distance_to / (max(inst.bounds.w, 0.001) * update_data.lod_scale);
+							uint stamp = seen[id];
+							float unseen = update_data.seen_valid != 0 && stamp != 0x7FFFFFFFu && update_data.frame - int(stamp) > 1 ? update_data.culled_scale : 1.0;
+							ratio *= unseen;
 
 							if (update_data.lod_forced >= 0) {
 								shown = level == min(uint(update_data.lod_forced), last);
@@ -557,7 +594,7 @@ do
 							}
 
 							shown = shown && distance_to - inst.bounds.w <= update_data.max_distance;
-							bend_distance = distance_to - inst.bounds.w;
+							bend_distance = (distance_to - inst.bounds.w) * unseen;
 						}
 
 						if (!shown) blas = 0ul;
@@ -603,11 +640,13 @@ do
 		part_table:Reserve(tlas_table.capacity)
 		local pools_buffer, pools_size, slots_buffer, slots_size, counters_buffer, counters_size = vegetation_bend.GetBindings()
 		local parts_table = parts.GetTable()
-		local tlas_buffer, data_buffer, mesh_buffer, pool_buffer, parts_buffer = tlas_table:GetBuffer(),
+		local seen = instances.GetSeenTable()
+		local tlas_buffer, data_buffer, mesh_buffer, pool_buffer, parts_buffer, seen_buffer = tlas_table:GetBuffer(),
 		data_table:GetBuffer(),
 		meshes.GetTable():GetBuffer(),
 		part_table:GetBuffer(),
-		parts_table:GetBuffer()
+		parts_table:GetBuffer(),
+		seen:GetBuffer()
 
 		if
 			not bound or
@@ -618,7 +657,8 @@ do
 			bound[5] ~= pools_buffer or
 			bound[6] ~= slots_buffer or
 			bound[7] ~= counters_buffer or
-			bound[8] ~= parts_buffer
+			bound[8] ~= parts_buffer or
+			bound[9] ~= seen_buffer
 		then
 			bound_buffers[slot] = {
 				tlas_buffer,
@@ -629,6 +669,7 @@ do
 				slots_buffer,
 				counters_buffer,
 				parts_buffer,
+				seen_buffer,
 			}
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
@@ -638,6 +679,7 @@ do
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 6, 0, slots_buffer, slots_size)
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 7, 0, counters_buffer, counters_size)
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 8, 0, parts_buffer, parts_table:GetSize())
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 9, 0, seen_buffer, seen:GetSize())
 		end
 
 		pipeline:UploadConstants()

@@ -26,7 +26,7 @@ draw.SHAPE_NEARER = 2
 local SHAPES = 3
 local VARIANTS = SHAPES * shader_features.COUNT
 local GROUPS = VARIANTS * 2
-local ARGS_REMAP = 14
+local ARGS_REMAP = 15
 draw.VARIANTS = VARIANTS
 local DEAD_MESH = {
 	IsValid = function()
@@ -384,6 +384,7 @@ local DRAW_DECLARATIONS = [[
 			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
 			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
 			layout(buffer_reference, scalar) writeonly buffer ThicknessArray { float t[]; };
+			layout(buffer_reference, scalar) buffer SeenArray { uint s[]; };
 
 			struct draw_args {
 				uint64_t tlas;
@@ -400,6 +401,7 @@ local DRAW_DECLARATIONS = [[
 				uint64_t group_table;
 				uint64_t group_counts;
 				uint64_t batch_ids;
+				uint64_t seen;
 				uint remap[]] .. VARIANTS .. [[];
 			};
 
@@ -445,13 +447,14 @@ function create_cull_pipeline()
 			{"lod_scale", "float"},
 			{"lod_fade_width", "float"},
 			{"culling_enabled", "int"},
-			{"occlusion_enabled", "int"},
 			{"occlusion_max_mip", "int"},
 			{"occlusion_depth_bias", "float"},
 			{"kind", "int"},
+			{"frame", "int"},
 		},
 		write = function(self, block)
 			block.kind = state.kind
+			block.frame = system.GetFrameNumber()
 			block.args = state.args_address
 			block.camera_position[0] = state.camera.x
 			block.camera_position[1] = state.camera.y
@@ -474,8 +477,7 @@ function create_cull_pipeline()
 			block.lod_scale = lod.GetScale()
 			block.lod_fade_width = state.kind == 0 and lod.GetFadeWidth() or 0
 			block.culling_enabled = state.culling and 1 or 0
-			block.occlusion_enabled = state.occlusion_max_mip and 1 or 0
-			block.occlusion_max_mip = state.occlusion_max_mip or 0
+			block.occlusion_max_mip = state.occlusion_max_mip or -1
 			block.occlusion_depth_bias = 0.0015
 			return block
 		end,
@@ -518,7 +520,7 @@ function create_cull_pipeline()
 			}
 
 			bool is_occluded(raster_data raster) {
-				if (compute.occlusion_enabled == 0 || (raster.flags & 2u) == 0u) return false;
+				if (compute.occlusion_max_mip < 0 || (raster.flags & 2u) == 0u) return false;
 
 				vec2 min_uv = vec2(1.0);
 				vec2 max_uv = vec2(0.0);
@@ -582,6 +584,8 @@ function create_cull_pipeline()
 
 				if ((inst.flags & 16u) != 0u) return;
 
+				if (SeenArray(ARGS.seen).s[id] == 0x7FFFFFFFu) SeenArray(ARGS.seen).s[id] = 0u;
+
 				bool inside = all(greaterThanEqual(compute.camera_position, raster.box_min)) && all(lessThanEqual(compute.camera_position, raster.box_max));
 
 				if (compute.culling_enabled != 0) {
@@ -614,6 +618,7 @@ function create_cull_pipeline()
 					if (!inside && is_occluded(raster)) return;
 				}
 
+				SeenArray(ARGS.seen).s[id] = uint(compute.frame);
 				float fade = 0.0;
 				uint level = (inst.mask_lod >> 8u) & 0xFFu;
 				uint last = (inst.mask_lod >> 16u) & 0xFFu;
@@ -917,6 +922,8 @@ function draw.Cull(
 		)
 	end
 
+	local seen_address = instances.GetSeenTable():GetAddress()
+
 	for kind = 0, translucent_count > 0 and 1 or 0 do
 		local buffers = ensure_buffers(kind, group_space, group_count)
 		local ring_slot = render.frame_serial % 4 + 1
@@ -956,6 +963,7 @@ function draw.Cull(
 		args.pointer[11] = group_table:GetAddress()
 		args.pointer[12] = buffers.group_counts_address
 		args.pointer[13] = buffers.batch_ids_address
+		args.pointer[14] = seen_address
 		resolve_variants(kind, args.remap)
 		state.kind = kind
 		state.args_address = args.address

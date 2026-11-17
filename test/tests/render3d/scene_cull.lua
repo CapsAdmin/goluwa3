@@ -9,6 +9,8 @@ local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
+local system = import("goluwa/system.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -114,10 +116,19 @@ T.Test3D("Graphics render3d the main view cull keeps what the frustum holds and 
 	gpu_culling.ExtractFrustumPlanes(camera:BuildViewMatrix() * camera:BuildProjectionMatrix(), planes, 1)
 	local expected_visible = 0
 	local mismatches = {}
+	local stamps = instances.GetSeenTable():Get()
+	local frame = system.GetFrameNumber()
 
 	for i, entity in ipairs(entities) do
 		local inside = box_inside(planes, entity.visual:GetWorldAABB())
 		local drawn = is_drawn(result, entity)
+		local stamp = stamps[get_ids(entity)[1]]
+
+		if inside then
+			T(frame - stamp <= 1)["=="](true)
+		else
+			T(stamp)["=="](0)
+		end
 
 		if inside then expected_visible = expected_visible + 1 end
 

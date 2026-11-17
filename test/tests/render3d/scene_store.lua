@@ -13,6 +13,7 @@ local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local system = import("goluwa/system.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local RESULT_COUNT = 8
 
 local function trace(tlas, cmd, results, origin)
@@ -276,6 +277,63 @@ T.Test3D("Graphics render3d scene store shows rays the level of detail of the di
 	T(far[1])["=="](1)
 	local far_distance = ffi.cast("float*", ffi.new("uint32_t[1]", far[4]))[0]
 	T(far_distance > 35.5 and far_distance < 36.5)["=="](true)
+	entity:Remove()
+	fine:Remove()
+	coarse:Remove()
+end)
+
+T.Test3D("Graphics render3d scene store shows rays a coarser level for what the camera did not see", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local render3d = import("goluwa/render3d/render3d.lua")
+	local camera = render3d.GetCamera()
+	camera:SetPosition(Vec3(0, 0, 0))
+	camera:SetRotation(QuatDeg3(0, 180, 0))
+	local fine = Polygon3D.New()
+	shapes.BuildCube(fine, 2)
+	fine:BuildBoundingBox()
+	fine:Upload()
+	local coarse = Polygon3D.New()
+	shapes.BuildCube(coarse, 4)
+	coarse:BuildBoundingBox()
+	coarse:Upload()
+	coarse:SetLODLevel(1)
+	coarse:SetLODDistance(2)
+	local entity = Entity.New{Name = "scene_store_unseen"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -5))
+	local visual = entity:AddComponent("visual")
+	local material = Material.New{ColorMultiplier = Color(1, 0, 0, 1)}
+
+	for i, polygon in ipairs{fine, coarse} do
+		local primitive = Entity.New{Name = "scene_store_unseen_primitive" .. i, Parent = entity}
+		primitive:AddComponent("transform")
+		primitive:AddComponent("visual_primitive"):SetPolygon3D(polygon)
+		primitive.visual_primitive:SetMaterial(material)
+	end
+
+	visual:BuildAABB()
+
+	local function hit_distance()
+		draw()
+		draw()
+		draw()
+		return ffi.cast("float*", ffi.new("uint32_t[1]", read_results(draw, rt.GetTLAS)[4]))[0]
+	end
+
+	local seen_distance = hit_distance()
+	pvars.SetSession("r_rt_culled_lod_scale", 1000)
+	local unseen_distance = hit_distance()
+	pvars.SetSession("r_rt_culled_lod_scale", 1)
+	camera:SetRotation(QuatDeg3(0, 0, 0))
+	local facing_distance = hit_distance()
+	pvars.SetSession("r_rt_culled_lod_scale", 1000)
+	local facing_scaled_distance = hit_distance()
+	pvars.SetSession("r_rt_culled_lod_scale", 1)
+	T(seen_distance > 2.5 and seen_distance < 3.5)["=="](true)
+	T(unseen_distance > 0.5 and unseen_distance < 1.5)["=="](true)
+	T(facing_distance > 2.5 and facing_distance < 3.5)["=="](true)
+	T(facing_scaled_distance > 2.5 and facing_scaled_distance < 3.5)["=="](true)
 	entity:Remove()
 	fine:Remove()
 	coarse:Remove()
