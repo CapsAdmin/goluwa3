@@ -11,6 +11,7 @@ local PipelineLayout = import("goluwa/render/vulkan/internal/pipeline_layout.lua
 local RayTracingPipeline = objects.CreateTemplate("vulkan_ray_tracing_pipeline")
 local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
 local VkRayTracingPipelineCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkRayTracingPipelineCreateInfoKHR)
+local VkClusterCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkRayTracingPipelineClusterAccelerationStructureCreateInfoNV)
 local VkRayTracingShaderGroupCreateInfoArray = ffi.typeof("$[?]", vulkan.vk.VkRayTracingShaderGroupCreateInfoKHR)
 local VkPipelineShaderStageCreateInfoArray = ffi.typeof("$[?]", vulkan.vk.VkPipelineShaderStageCreateInfo)
 
@@ -129,9 +130,17 @@ function RayTracingPipeline.New(device, config)
 		pipeline_layout = PipelineLayout.New(device, layouts, push_constants)
 	end
 
+	local cluster_info
+
+	if device.cluster_acceleration_structure_supported then
+		cluster_info = VkClusterCreateInfoBox()
+		cluster_info[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CLUSTER_ACCELERATION_STRUCTURE_CREATE_INFO_NV
+		cluster_info[0].allowClusterAccelerationStructure = 1
+	end
+
 	local create_info = vulkan.vk.s.RayTracingPipelineCreateInfoKHR{
 		sType = "ray_tracing_pipeline_create_info_khr",
-		pNext = nil,
+		pNext = cluster_info,
 		flags = device.opacity_micromap_supported and
 			vulkan.vk.VkPipelineCreateFlagBits.VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT or
 			0,
@@ -157,7 +166,7 @@ function RayTracingPipeline.New(device, config)
 		device = device,
 		ptr = ptr,
 		job = job,
-		keep = {create_info, info_box, stages, groups, stage_modules},
+		keep = {create_info, info_box, stages, groups, stage_modules, cluster_info},
 		group_count = group_count,
 		shader_modules = shader_modules,
 		pipeline_layout = pipeline_layout,
