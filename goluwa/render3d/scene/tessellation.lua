@@ -11,6 +11,8 @@ local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local meshes = import("goluwa/render3d/scene/meshes.lua")
 local tessellation = {}
 tessellation.name = "gbuffer_tessellated"
 tessellation.MAX_LOG = 6
@@ -638,7 +640,7 @@ local tess_block = {
 		return block
 	end,
 }
-local VERTEX_MAIN = [=[
+local TESS_EVAL_GLSL = [=[
 	int tess_fade_texture;
 
 	float tess_sample(int texture_index, vec2 uv, float lod) {
@@ -702,25 +704,19 @@ local VERTEX_MAIN = [=[
 		return (value / step) * step;
 	}
 
-	void main() {
-		uvec4 patch_record = TessPatchData(tess_draw.patches).p[gl_InstanceIndex];
-		TessJob job = TessJobData(tess_draw.jobs).j[patch_record.x];
-		uint tri = patch_record.y;
-		uint rates = patch_record.z;
-		uint batch_index = job.batch;
-		tess_batch = batch_index;
-		out_batch = batch_index;
-		out_instance = job.instance;
-		out_triangle = tri;
-		PBRBatchData batch_data = PBRBatchData(gbuffer_draw.batches);
-		TessVertexData data = TessVertexData(job.vertices);
-		TessVertexData extras = TessVertexData(packUint2x32(batch_data.b[batch_index].extras_address));
-		int height_texture = batch_data.b[batch_index].m_displacement_model.HeightTexture;
-		tess_fade_texture = (job.flags & 1u) != 0u ? batch_data.b[batch_index].m_model.AlbedoTexture : -1;
+	struct TessSample {
+		vec3 local_position;
+		vec3 world_position;
+		vec3 normal;
+		vec4 tangent;
+		vec2 uv;
+		float texture_blend;
+		vec4 vertex_color;
+	};
+
+	TessSample tess_evaluate(TessJob job, uint tri, uint rates, ivec2 q, mat4 world, TessVertexData data, TessVertexData extras, int height_texture, float seam_band) {
 		float height_scale = job.height_scale;
 		vec2 height_size = vec2(textureSize(TEXTURE(height_texture), 0));
-		mat4 world = TessWorldData(tess_draw.worlds).w[patch_record.x * 2u];
-		mat4 prev_world = TessWorldData(tess_draw.worlds).w[patch_record.x * 2u + 1u];
 		TessWords topology = TessWords(job.topology);
 		TessPidData pids = TessPidData(job.pids);
 		uint vi[3];
@@ -740,23 +736,6 @@ local VERTEX_MAIN = [=[
 		int rac = 1 << int((rates >> 4) & 15u);
 		int rbc = 1 << int((rates >> 8) & 15u);
 		int n = 1 << int((rates >> 12) & 15u);
-		int small = gl_VertexIndex / 3;
-		int corner_index = gl_VertexIndex % 3;
-		int r = int(sqrt(float(small)));
-
-		while (r * r > small) r--;
-		while ((r + 1) * (r + 1) <= small) r++;
-
-		int c = small - r * r;
-		int k = c / 2;
-		ivec2 q;
-
-		if ((c & 1) == 0) {
-			q = corner_index == 0 ? ivec2(r, k) : (corner_index == 1 ? ivec2(r + 1, k) : ivec2(r + 1, k + 1));
-		} else {
-			q = corner_index == 0 ? ivec2(r, k) : (corner_index == 1 ? ivec2(r + 1, k + 1) : ivec2(r, k + 1));
-		}
-
 		bool on_ab = q.y == 0;
 		bool on_ac = q.y == q.x;
 		bool on_bc = q.x == n;
@@ -830,19 +809,18 @@ local VERTEX_MAIN = [=[
 			if ((twin[2] != vi[0] || twin[3] != vi[2]) && wb < best) { best = wb; best_edge = 1; best_t = wc / max(wa + wc, 1e-6); }
 			if ((twin[4] != vi[1] || twin[5] != vi[2]) && wa < best) { best = wa; best_edge = 2; best_t = wc / max(wb + wc, 1e-6); }
 
-			if (best_edge >= 0 && best < tess_draw.seam_band) {
+			if (best_edge >= 0 && best < seam_band) {
 				int ia = best_edge == 2 ? 1 : 0;
 				int ib = best_edge == 0 ? 1 : 2;
 				int rate = best_edge == 0 ? rab : (best_edge == 1 ? rac : rbc);
 				TessPoint foot = tess_edge(data, pids, height_texture, height_size, vi[ia], vi[ib], twin[best_edge * 2], twin[best_edge * 2 + 1], pid[ia], pid[ib], rate, best_t);
-				point.height = mix(point.height, foot.height, 1.0 - smoothstep(0.0, tess_draw.seam_band, best));
+				point.height = mix(point.height, foot.height, 1.0 - smoothstep(0.0, seam_band, best));
 			}
 		}
 
 		// shadow maps and rays see the base mesh, so the relief rises out of it instead of sinking below it where the base would cover it
 		vec3 local_position = point.base + point.dir * (point.height * height_scale * point.scale * point.displace);
 		vec4 world_position = world * vec4(local_position, 1.0);
-		vec4 prev_world_position = prev_world * vec4(local_position, 1.0);
 
 		if ((job.flags & 2u) != 0u) {
 			vec2 terrain_uv = (world_position.xz - terrain_model.TerrainBounds.xy) / terrain_model.TerrainBounds.z;
@@ -853,8 +831,67 @@ local VERTEX_MAIN = [=[
 			vec2 gy[3] = vec2[3](vec2(0.0, g), vec2(0.0, g), vec2(0.0, g));
 			vec3 offset = coarse * (terrain_shell_relief(world_position.xyz, weights, gx, gy) * point.displace);
 			world_position.xyz += offset;
-			prev_world_position.xyz += offset;
 		}
+
+		TessSample result;
+		result.local_position = local_position;
+		result.world_position = world_position.xyz;
+
+		if ((job.flags & 2u) != 0u) result.local_position = (inverse(world) * world_position).xyz;
+
+		result.normal = normal;
+		result.tangent = tangent;
+		result.uv = uv;
+		result.texture_blend = texture_blend;
+		result.vertex_color = vertex_color;
+		return result;
+	}
+
+]=]
+local VERTEX_MAIN = [=[
+	void main() {
+		uvec4 patch_record = TessPatchData(tess_draw.patches).p[gl_InstanceIndex];
+		TessJob job = TessJobData(tess_draw.jobs).j[patch_record.x];
+		uint tri = patch_record.y;
+		uint rates = patch_record.z;
+		uint batch_index = job.batch;
+		tess_batch = batch_index;
+		out_batch = batch_index;
+		out_instance = job.instance;
+		out_triangle = tri;
+		PBRBatchData batch_data = PBRBatchData(gbuffer_draw.batches);
+		TessVertexData data = TessVertexData(job.vertices);
+		TessVertexData extras = TessVertexData(packUint2x32(batch_data.b[batch_index].extras_address));
+		int height_texture = batch_data.b[batch_index].m_displacement_model.HeightTexture;
+		tess_fade_texture = (job.flags & 1u) != 0u ? batch_data.b[batch_index].m_model.AlbedoTexture : -1;
+		mat4 world = TessWorldData(tess_draw.worlds).w[patch_record.x * 2u];
+		mat4 prev_world = TessWorldData(tess_draw.worlds).w[patch_record.x * 2u + 1u];
+		int small = gl_VertexIndex / 3;
+		int corner_index = gl_VertexIndex % 3;
+		int r = int(sqrt(float(small)));
+
+		while (r * r > small) r--;
+		while ((r + 1) * (r + 1) <= small) r++;
+
+		int c = small - r * r;
+		int k = c / 2;
+		ivec2 q;
+
+		if ((c & 1) == 0) {
+			q = corner_index == 0 ? ivec2(r, k) : (corner_index == 1 ? ivec2(r + 1, k) : ivec2(r + 1, k + 1));
+		} else {
+			q = corner_index == 0 ? ivec2(r, k) : (corner_index == 1 ? ivec2(r + 1, k + 1) : ivec2(r, k + 1));
+		}
+
+		TessSample sample_point = tess_evaluate(job, tri, rates, q, world, data, extras, height_texture, tess_draw.seam_band);
+		vec3 local_position = sample_point.local_position;
+		vec4 world_position = vec4(sample_point.world_position, 1.0);
+		vec4 prev_world_position = prev_world * vec4(local_position, 1.0);
+		vec3 normal = sample_point.normal;
+		vec4 tangent = sample_point.tangent;
+		vec2 uv = sample_point.uv;
+		float texture_blend = sample_point.texture_blend;
+		vec4 vertex_color = sample_point.vertex_color;
 
 		// decals lie on the surface they are projected on and this variant does not write fragment depth, so they are pulled toward the eye like the parallax path's decal depth bias
 		if ((job.flags & 1u) != 0u) {
@@ -913,7 +950,7 @@ uint tess_batch;
 				batch_location + 1,
 				batch_location + 2
 			),
-		shader = VERTEX_MAIN,
+		shader = TESS_EVAL_GLSL .. VERTEX_MAIN,
 	}
 end
 
@@ -1057,11 +1094,17 @@ local function build_jobs()
 	end
 end
 
-local function upload(cmd, buffer, source, bytes)
+local function upload(cmd, buffer, source, bytes, destination)
 	local data = ffi.cast("uint8_t *", source)
+	destination = destination or 0
 
 	for offset = 0, bytes - 1, UPDATE_BUFFER_LIMIT do
-		cmd:UpdateBuffer(buffer, offset, math.min(UPDATE_BUFFER_LIMIT, bytes - offset), data + offset)
+		cmd:UpdateBuffer(
+			buffer,
+			destination + offset,
+			math.min(UPDATE_BUFFER_LIMIT, bytes - offset),
+			data + offset
+		)
 	end
 end
 
@@ -1139,6 +1182,7 @@ function tessellation.Draw(pipeline, cmd)
 
 	batch_table = batch_table or gbuffer_instancing.NewBatchTable("tessellation_batches")
 	local batches_address = batch_table:Update(pipeline, state.batches, state.batch_serial, system.GetFrameNumber())
+	state.batches_address = batches_address
 	local terrain = render3d.GetPipelineVariant(
 		tessellation.name,
 		draw.GetVariant(draw.SHAPE_PLAIN, bit.bor(draw.GetGlobalBits(0), shader_features.TERRAIN))
@@ -1155,6 +1199,688 @@ function tessellation.Draw(pipeline, cmd)
 			cmd:DrawIndirect(state.state_buffer, (group - 1) * BUCKETS * 16, BUCKETS, 16)
 		end
 	end
+end
+
+local cluster_lod_reference_pixels = string.format("%.6f", 1080 / (2 * math.tan(math.rad(60) / 2)))
+local RT_MAX_LOG = 3
+local RT_PATCHES = 32768
+local RT_PATCH_VERTICES = (2 ^ RT_MAX_LOG + 1) * (2 ^ RT_MAX_LOG + 2) / 2
+local RT_PATCH_TRIANGLES = 4 ^ RT_MAX_LOG
+local RT_VERTICES = RT_PATCHES * RT_PATCH_VERTICES
+local RT_TRIANGLES = RT_PATCHES * RT_PATCH_TRIANGLES
+local RT_NONE = 0xFFFFFFFF
+local RT_ARG_COUNT = 16
+local RT_COUNTER_BYTES = 64
+pvars.StartGroup("Rendering", "Tessellation", {store = false})
+local rt_enabled = pvars.Setup2{
+	key = "r_tessellation_rt",
+	default = true,
+	help = "trace tessellated surfaces near the camera through cluster acceleration structures built every frame, so shadows and reflections see the relief",
+}
+local rt_distance = pvars.Setup2{
+	key = "r_tessellation_rt_distance",
+	default = 40,
+	help = "how far from the camera (in meters, from the edge of a model) tessellated models are traced with their relief, farther ones are traced as their base mesh",
+}
+local rt_pixels = pvars.Setup2{
+	key = "r_tessellation_rt_pixels",
+	default = 8,
+	help = "edge length in pixels (at 1080p and 60 degrees) the traced tessellation aims for, lower is denser",
+}
+pvars.EndGroup()
+local rt = {
+	built = false,
+	job_capacity = 0,
+	ref_capacity = 0,
+	instance_capacity = 0,
+	ready = false,
+}
+local rt_block = {
+	{"camera_position", "vec3"},
+	{"target_pixels", "float"},
+	{"job_count", "int"},
+	{"triangle_count", "int"},
+	{"seam_band", "float"},
+	{"pad", "int"},
+	{"args", "uint64_t"},
+}
+
+local function write_rt_block(self, block)
+	local position = rt.camera_position
+	block.camera_position[0], block.camera_position[1], block.camera_position[2] = position.x, position.y, position.z
+	block.target_pixels = rt_pixels:Get()
+	block.job_count = state.job_count
+	block.triangle_count = state.triangle_count
+	block.seam_band = seam_band:Get()
+	block.args = rt.args_address
+	return block
+end
+
+local RT_GLSL = [[
+	#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+	#define TERRAIN_LAYERS 1
+	const int RT_MAX_LOG = ]] .. RT_MAX_LOG .. [[;
+	const uint RT_PATCHES = ]] .. RT_PATCHES .. [[u;
+	layout(buffer_reference, scalar) readonly buffer RTArgs { uint64_t a[]; };
+	layout(buffer_reference, scalar) buffer RTInfos { uvec4 i[]; };
+	layout(buffer_reference, scalar) buffer RTRefs { uint64_t a[]; };
+	layout(buffer_reference, scalar) buffer RTVertexData { float v[]; };
+	]] .. TESS_GLSL .. vertex_layout.BuildGlslAccessors("rt_vertex", "RTVertexData", true) .. model_pipeline.BuildPBRBatchRecordGlsl() .. [[
+	uint tess_batch;
+	#define model (PBRBatchData(RTArgs(compute.args).a[13]).b[tess_batch].m_model)
+	#define terrain_model (PBRBatchData(RTArgs(compute.args).a[13]).b[tess_batch].m_terrain_model)
+	]] .. model_pipeline.TERRAIN_RELIEF_GLSL .. TESS_EVAL_GLSL
+local rt_pipelines
+
+local function get_rt_pipelines()
+	if rt_pipelines then return rt_pipelines end
+
+	rt_pipelines = {
+		select = EasyPipeline.Compute{
+			name = "tessellation_rt_select",
+			LocalSize = {x = 64, y = 1, z = 1},
+			block = rt_block,
+			write = write_rt_block,
+			shader = RT_GLSL .. [=[
+				void main() {
+					uint g = gl_GlobalInvocationID.x;
+
+					if (g >= uint(compute.triangle_count)) return;
+
+					RTArgs args = RTArgs(compute.args);
+					TessJobData jobs = TessJobData(args.a[0]);
+					uint lo = 0u;
+					uint hi = uint(compute.job_count) - 1u;
+
+					while (lo < hi) {
+						uint mid = (lo + hi + 1u) >> 1;
+
+						if (jobs.j[mid].first_triangle <= g) lo = mid; else hi = mid - 1u;
+					}
+
+					TessJob job = jobs.j[lo];
+					uint tri = g - job.first_triangle;
+
+					if (tri >= job.triangle_count) return;
+
+					uint rt_job = TessWords(args.a[2]).w[lo];
+
+					if (rt_job == 0xFFFFFFFFu) return;
+
+					mat4 world = TessWorldData(args.a[1]).w[lo * 2u];
+					TessVertexData data = TessVertexData(job.vertices);
+					TessWords topology = TessWords(job.topology);
+					vec3 position[3];
+					uint pid[3];
+					int off_grid = 0;
+
+					for (uint k = 0u; k < 3u; k++) {
+						uint vertex = tess_index(job.indices, job.index_is_32, tri * 3u + k);
+						position[k] = (world * vec4(tess_vertex_position(data, vertex), 1.0)).xyz;
+						pid[k] = topology.w[tri * 9u + k];
+						off_grid += abs(tess_vertex_tangent(data, vertex).w) > 1.5 ? 1 : 0;
+					}
+
+					if (off_grid == 3) return;
+
+					uint rate[3];
+
+					for (int e = 0; e < 3; e++) {
+						int ia = e == 2 ? 1 : 0;
+						int ib = e == 0 ? 1 : 2;
+
+						if (pid[ia] > pid[ib]) {
+							int swap = ia;
+							ia = ib;
+							ib = swap;
+						}
+
+						float pixels = distance(position[ia], position[ib]) * ]=] .. cluster_lod_reference_pixels .. [=[ / max(distance(compute.camera_position, 0.5 * (position[ia] + position[ib])), 0.05);
+						rate[e] = uint(clamp(int(ceil(log2(max(pixels / compute.target_pixels, 1.0)) - 1e-6)), 0, RT_MAX_LOG));
+					}
+
+					uint inner = max(max(rate[0], rate[1]), rate[2]);
+					uint n = 1u << inner;
+					TessWords counters = TessWords(args.a[3]);
+					uint patch_index = atomicAdd(counters.w[0], 1u);
+
+					if (patch_index >= RT_PATCHES) return;
+
+					atomicAdd(counters.w[4], 1u);
+					uint vertex_base = atomicAdd(counters.w[1], (n + 1u) * (n + 2u) / 2u);
+					uint triangle_base = atomicAdd(counters.w[2], n * n);
+					uint slot = atomicAdd(RTInfos(args.a[6]).i[rt_job].x, 1u);
+					uint rates = rate[0] | (rate[1] << 4) | (rate[2] << 8) | (inner << 12);
+					TessPatchData patches = TessPatchData(args.a[4]);
+					patches.p[patch_index * 2u] = uvec4(lo, tri, rates, vertex_base);
+					patches.p[patch_index * 2u + 1u] = uvec4(triangle_base, rt_job, slot, n);
+					TessWords cluster = TessWords(args.a[5] + uint64_t(patch_index) * 64ul);
+					uint64_t index_buffer = args.a[7] + uint64_t(TessWords(args.a[7]).w[inner]);
+					uint64_t vertex_buffer = args.a[8] + uint64_t(vertex_base) * ]=] .. vertex_layout.CoreStride .. [=[ul;
+					cluster.w[0] = triangle_base | 0x80000000u;
+					cluster.w[1] = 0u;
+					cluster.w[2] = (n * n) | (((n + 1u) * (n + 2u) / 2u) << 9) | (1u << 24);
+					cluster.w[3] = 0u;
+					cluster.w[4] = 1u | (]=] .. vertex_layout.CoreStride .. [=[u << 16);
+					cluster.w[5] = 0u;
+					cluster.w[6] = uint(index_buffer & 0xFFFFFFFFul);
+					cluster.w[7] = uint(index_buffer >> 32);
+					cluster.w[8] = uint(vertex_buffer & 0xFFFFFFFFul);
+					cluster.w[9] = uint(vertex_buffer >> 32);
+
+					for (uint w = 10u; w < 16u; w++) cluster.w[w] = 0u;
+				}
+			]=],
+		},
+		vertices = EasyPipeline.Compute{
+			name = "tessellation_rt_vertices",
+			LocalSize = {x = 64, y = 1, z = 1},
+			block = rt_block,
+			write = write_rt_block,
+			shader = RT_GLSL .. [=[
+				uint rt_template_index(TessWords templates, uint offset, uint at) {
+					uint byte_at = offset + at;
+					return (templates.w[byte_at >> 2] >> ((byte_at & 3u) * 8u)) & 0xFFu;
+				}
+
+				void main() {
+					uint patch_index = gl_WorkGroupID.x;
+					RTArgs args = RTArgs(compute.args);
+					TessPatchData patches = TessPatchData(args.a[4]);
+					uvec4 a = patches.p[patch_index * 2u];
+					uvec4 b = patches.p[patch_index * 2u + 1u];
+					TessJob job = TessJobData(args.a[0]).j[a.x];
+					tess_batch = job.batch;
+					PBRBatchData batch_data = PBRBatchData(args.a[13]);
+					TessVertexData data = TessVertexData(job.vertices);
+					TessVertexData extras = TessVertexData(packUint2x32(batch_data.b[job.batch].extras_address));
+					int height_texture = batch_data.b[job.batch].m_displacement_model.HeightTexture;
+					tess_fade_texture = (job.flags & 1u) != 0u ? batch_data.b[job.batch].m_model.AlbedoTexture : -1;
+					mat4 world = TessWorldData(args.a[1]).w[a.x * 2u];
+					uint n = b.w;
+					uint vertex_count = (n + 1u) * (n + 2u) / 2u;
+					RTVertexData core = RTVertexData(args.a[8]);
+					RTVertexData out_extras = RTVertexData(args.a[9]);
+
+					for (uint i = gl_LocalInvocationID.x; i < vertex_count; i += 64u) {
+						uint r = uint((sqrt(8.0 * float(i) + 1.0) - 1.0) * 0.5);
+
+						while (r * (r + 1u) / 2u > i) r--;
+						while ((r + 1u) * (r + 2u) / 2u <= i) r++;
+
+						uint c = i - r * (r + 1u) / 2u;
+						TessSample s = tess_evaluate(job, a.y, a.z, ivec2(r, c), world, data, extras, height_texture, compute.seam_band);
+						uint v = a.w + i;
+						rt_vertex_set_position(core, v, s.local_position);
+						rt_vertex_set_normal(core, v, s.normal);
+						rt_vertex_set_uv(core, v, s.uv);
+						rt_vertex_set_tangent(core, v, s.tangent);
+						rt_vertex_set_texture_blend(out_extras, v, s.texture_blend);
+						rt_vertex_set_color(out_extras, v, s.vertex_color);
+						rt_vertex_set_pivot(out_extras, v, vec4(0.0));
+						rt_vertex_set_chain_mid(out_extras, v, vec3(0.0));
+						rt_vertex_set_chain_tip(out_extras, v, vec3(0.0));
+					}
+
+					TessWords templates = TessWords(args.a[7]);
+					uint offset = templates.w[uint(findLSB(n))];
+					TessWords indices = TessWords(args.a[10]);
+
+					for (uint t = gl_LocalInvocationID.x; t < n * n; t += 64u) {
+						for (uint k = 0u; k < 3u; k++) {
+							indices.w[(b.x + t) * 3u + k] = a.w + rt_template_index(templates, offset, t * 3u + k);
+						}
+					}
+				}
+			]=],
+		},
+		refs = EasyPipeline.Compute{
+			name = "tessellation_rt_refs",
+			LocalSize = {x = 64, y = 1, z = 1},
+			block = rt_block,
+			write = write_rt_block,
+			shader = RT_GLSL .. [=[
+				void main() {
+					uint patch_index = gl_GlobalInvocationID.x;
+					RTArgs args = RTArgs(compute.args);
+
+					if (patch_index >= TessWords(args.a[3]).w[4]) return;
+
+					uvec4 b = TessPatchData(args.a[4]).p[patch_index * 2u + 1u];
+					uvec4 info = RTInfos(args.a[6]).i[b.y];
+					RTRefs(packUint2x32(info.zw) + uint64_t(b.z) * 8ul).a[0] = RTRefs(args.a[11]).a[patch_index];
+				}
+			]=],
+		},
+	}
+	return rt_pipelines
+end
+
+local function build_templates()
+	local words = {}
+	local offsets = {}
+	local bytes = {}
+	local header = (RT_MAX_LOG + 1) * 4
+
+	for log = 0, RT_MAX_LOG do
+		offsets[log] = header + #bytes
+		local n = 2 ^ log
+
+		for small = 0, n * n - 1 do
+			local r = math.floor(math.sqrt(small))
+
+			while r * r > small do
+				r = r - 1
+			end
+
+			while (r + 1) * (r + 1) <= small do
+				r = r + 1
+			end
+
+			local c = small - r * r
+			local k = math.floor(c / 2)
+			local corners = c % 2 == 0 and
+				{{r, k}, {r + 1, k}, {r + 1, k + 1}} or
+				{{r, k}, {r + 1, k + 1}, {r, k + 1}}
+
+			for _, q in ipairs(corners) do
+				bytes[#bytes + 1] = q[1] * (q[1] + 1) / 2 + q[2]
+			end
+		end
+	end
+
+	local total = header + #bytes
+	local buffer = render.CreateBuffer{
+		byte_size = math.ceil(total / 4) * 4 + 4,
+		buffer_usage = {
+			"storage_buffer",
+			"shader_device_address",
+			"acceleration_structure_build_input_read_only_khr",
+		},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "tessellation_rt_templates",
+	}
+	local mapped = ffi.cast("uint8_t *", buffer:Map())
+	local header_words = ffi.cast("uint32_t *", mapped)
+
+	for log = 0, RT_MAX_LOG do
+		header_words[log] = offsets[log]
+	end
+
+	for i, value in ipairs(bytes) do
+		mapped[header + i - 1] = value
+	end
+
+	return buffer
+end
+
+local function rt_buffer(byte_size, usage, label)
+	return render.CreateBuffer{
+		byte_size = math.max(byte_size, 16),
+		buffer_usage = usage,
+		memory_property = {"device_local"},
+		label = label,
+	}
+end
+
+local function rt_cluster_build(
+	cmd,
+	op,
+	count_address,
+	info_address,
+	info_stride,
+	info_count,
+	input,
+	storage,
+	addresses,
+	scratch
+)
+	local commands = rt.commands[op]
+
+	if op == 1 then
+		commands[0].input.opInput.pClustersBottomLevel = rt.inputs[op]
+	else
+		commands[0].input.opInput.pTriangleClusters = rt.inputs[op]
+	end
+
+	commands[0].dstImplicitData = storage:GetDeviceAddress()
+	commands[0].scratchData = scratch:GetDeviceAddress()
+	commands[0].dstAddressesArray.deviceAddress = addresses:GetDeviceAddress()
+	commands[0].dstAddressesArray.stride = 8
+	commands[0].dstAddressesArray.size = info_count * 8
+	commands[0].srcInfosArray.deviceAddress = info_address
+	commands[0].srcInfosArray.stride = info_stride
+	commands[0].srcInfosArray.size = info_count * info_stride
+	commands[0].srcInfosCount = count_address
+	render.GetDevice():GetExtension("vkCmdBuildClusterAccelerationStructureIndirectNV")(cmd.ptr[0], commands)
+end
+
+local function ensure_rt_buffers()
+	if rt.built then return end
+
+	local vk = vulkan.vk
+
+	local function sizes(op, count, fill)
+		local commands = ffi.new(ffi.typeof("$[1]", vk.VkClusterAccelerationStructureCommandsInfoNV))
+		commands[0].sType = vk.VkStructureType.VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_COMMANDS_INFO_NV
+		local input = commands[0].input
+		input.sType = vk.VkStructureType.VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_INPUT_INFO_NV
+		input.maxAccelerationStructureCount = count
+		input.flags = 4
+		input.opType = op
+		input.opMode = 0
+		local op_input = fill()
+
+		if op == 1 then
+			commands[0].input.opInput.pClustersBottomLevel = op_input
+		else
+			commands[0].input.opInput.pTriangleClusters = op_input
+		end
+
+		local info = ffi.new(ffi.typeof("$[1]", vk.VkAccelerationStructureBuildSizesInfoKHR))
+		info[0].sType = vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR
+		local device = render.GetDevice()
+		device:GetExtension("vkGetClusterAccelerationStructureBuildSizesNV")(device.ptr[0], commands[0].input, info)
+		return commands,
+		op_input,
+		tonumber(info[0].accelerationStructureSize),
+		tonumber(info[0].buildScratchSize)
+	end
+
+	local triangle_commands, triangle_input, clas_size, clas_scratch = sizes(2, RT_PATCHES, function()
+		local input = ffi.new(ffi.typeof("$[1]", vk.VkClusterAccelerationStructureTriangleClusterInputNV))
+		input[0].sType = vk.VkStructureType.VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_TRIANGLE_CLUSTER_INPUT_NV
+		input[0].vertexFormat = 106
+		input[0].maxGeometryIndexValue = 0
+		input[0].maxClusterUniqueGeometryCount = 1
+		input[0].maxClusterTriangleCount = RT_PATCH_TRIANGLES
+		input[0].maxClusterVertexCount = RT_PATCH_VERTICES
+		input[0].maxTotalTriangleCount = RT_TRIANGLES
+		input[0].maxTotalVertexCount = RT_VERTICES
+		return input
+	end)
+	local bottom_commands, bottom_input, blas_size, blas_scratch = sizes(1, RT_PATCHES, function()
+		local input = ffi.new(ffi.typeof("$[1]", vk.VkClusterAccelerationStructureClustersBottomLevelInputNV))
+		input[0].sType = vk.VkStructureType.VK_STRUCTURE_TYPE_CLUSTER_ACCELERATION_STRUCTURE_CLUSTERS_BOTTOM_LEVEL_INPUT_NV
+		input[0].maxTotalClusterCount = RT_PATCHES
+		input[0].maxClusterCountPerAccelerationStructure = RT_PATCHES
+		return input
+	end)
+	rt.commands = {[2] = triangle_commands, [1] = bottom_commands}
+	rt.inputs = {[2] = triangle_input, [1] = bottom_input}
+	local input_usage = {
+		"storage_buffer",
+		"shader_device_address",
+		"transfer_dst",
+		"acceleration_structure_build_input_read_only_khr",
+	}
+	rt.templates = build_templates()
+	rt.args = rt_buffer(
+		RT_ARG_COUNT * 8,
+		{"storage_buffer", "shader_device_address", "transfer_dst"},
+		"tessellation_rt_args"
+	)
+	rt.counters = rt_buffer(
+		RT_COUNTER_BYTES,
+		{
+			"storage_buffer",
+			"shader_device_address",
+			"transfer_dst",
+			"indirect_buffer",
+			"acceleration_structure_build_input_read_only_khr",
+		},
+		"tessellation_rt_counters"
+	)
+	rt.patches = rt_buffer(
+		RT_PATCHES * 32,
+		{"storage_buffer", "shader_device_address"},
+		"tessellation_rt_patches"
+	)
+	rt.clas_args = rt_buffer(RT_PATCHES * 64, input_usage, "tessellation_rt_clas_args")
+	rt.core = rt_buffer(RT_VERTICES * vertex_layout.CoreStride, input_usage, "tessellation_rt_core")
+	rt.extras = rt_buffer(
+		RT_VERTICES * vertex_layout.ExtrasStride,
+		{"storage_buffer", "shader_device_address"},
+		"tessellation_rt_extras"
+	)
+	rt.indices = rt_buffer(
+		RT_TRIANGLES * 12,
+		{"storage_buffer", "shader_device_address"},
+		"tessellation_rt_indices"
+	)
+	rt.clas = rt_buffer(
+		clas_size,
+		{"acceleration_structure_storage_khr", "shader_device_address"},
+		"tessellation_rt_clas"
+	)
+	rt.clas_addresses = rt_buffer(RT_PATCHES * 8, input_usage, "tessellation_rt_clas_addresses")
+	rt.refs = rt_buffer(RT_PATCHES * 8, input_usage, "tessellation_rt_refs")
+	rt.blas = rt_buffer(
+		blas_size,
+		{"acceleration_structure_storage_khr", "shader_device_address"},
+		"tessellation_rt_blas"
+	)
+	rt.scratch = rt_buffer(
+		math.max(clas_scratch, blas_scratch),
+		{"storage_buffer", "shader_device_address"},
+		"tessellation_rt_scratch"
+	)
+	rt.args_address = rt.args:GetDeviceAddress()
+	rt.args_cpu = ffi.new("uint64_t[?]", RT_ARG_COUNT)
+	rt.dispatch_ones = ffi.new("uint32_t[2]", 1, 1)
+	meshes.SetTessellationRow(
+		rt.core:GetDeviceAddress(),
+		rt.extras:GetDeviceAddress(),
+		rt.indices:GetDeviceAddress()
+	)
+	rt.built = true
+end
+
+local function ensure_rt_jobs(job_count, instance_capacity)
+	if job_count <= rt.job_capacity and instance_capacity <= rt.instance_capacity then
+		return
+	end
+
+	render.GetDevice():WaitIdle()
+
+	for _, key in ipairs{"slot_buffer", "infos_buffer", "blas_addresses", "job_of_buffer"} do
+		if rt[key] then rt[key]:Remove() end
+	end
+
+	rt.job_capacity = math.max(64, 2 ^ math.ceil(math.log(math.max(job_count, 1)) / math.log(2)))
+	rt.instance_capacity = math.max(1024, 2 ^ math.ceil(math.log(math.max(instance_capacity, 1)) / math.log(2)))
+	rt.slot_buffer = rt_buffer(
+		rt.job_capacity * 4,
+		{"storage_buffer", "shader_device_address", "transfer_dst"},
+		"tessellation_rt_slots"
+	)
+	rt.infos_buffer = rt_buffer(
+		rt.job_capacity * 16 + 16,
+		{
+			"storage_buffer",
+			"shader_device_address",
+			"transfer_dst",
+			"acceleration_structure_build_input_read_only_khr",
+		},
+		"tessellation_rt_infos"
+	)
+	rt.blas_addresses = rt_buffer(
+		rt.job_capacity * 8,
+		{"storage_buffer", "shader_device_address"},
+		"tessellation_rt_blas_addresses"
+	)
+	rt.job_of_buffer = rt_buffer(
+		rt.instance_capacity * 4,
+		{"storage_buffer", "shader_device_address", "transfer_dst"},
+		"tessellation_rt_job_of"
+	)
+	rt.slots_cpu = ffi.new("uint32_t[?]", rt.job_capacity)
+	rt.infos_cpu = ffi.new("uint32_t[?]", rt.job_capacity * 4 + 4)
+	rt.job_of_cpu = ffi.new("uint32_t[?]", rt.instance_capacity)
+end
+
+function tessellation.BuildRT(cmd)
+	rt.ready = false
+
+	if
+		not rt_enabled:Get() or
+		not enabled:Get()
+		or
+		not render.GetDevice().cluster_acceleration_structure_supported or
+		next(rows) == nil or
+		not state.batches_address
+	then
+		return
+	end
+
+	build_jobs()
+
+	if state.job_count == 0 then return end
+
+	local tlas_table, data_table = instances.GetTables()
+	ensure_rt_buffers()
+	ensure_rt_jobs(state.job_count, tlas_table.capacity)
+	local camera_object = render3d.GetCamera()
+	local camera = camera_object:GetPosition()
+	rt.camera_position = camera
+	state.view_projection = camera_object:BuildViewMatrix() * camera_object:BuildUnjitteredProjectionMatrix()
+	state.camera_position = camera
+	state.resolution = render3d.GetRenderSize()
+	local data = data_table:Get()
+	local max_distance = rt_distance:Get()
+	ffi.fill(rt.job_of_cpu, rt.instance_capacity * 4, 0xFF)
+	local rt_jobs, ref_base = 0, 0
+
+	for i, job in ipairs(state.job_rows) do
+		local instance = data[job.id]
+		local dx, dy, dz = instance.center_x - camera.x, instance.center_y - camera.y, instance.center_z - camera.z
+
+		if
+			math.sqrt(dx * dx + dy * dy + dz * dz) - instance.radius <= max_distance and
+			ref_base + job.topology.triangle_count <= RT_PATCHES
+		then
+			rt.slots_cpu[i - 1] = rt_jobs
+			rt.infos_cpu[rt_jobs * 4] = 0
+			rt.infos_cpu[rt_jobs * 4 + 1] = 8
+			local address = tonumber(rt.refs:GetDeviceAddress()) + ref_base * 8
+			rt.infos_cpu[rt_jobs * 4 + 2] = address % 4294967296
+			rt.infos_cpu[rt_jobs * 4 + 3] = math.floor(address / 4294967296)
+			rt.job_of_cpu[job.id] = rt_jobs
+			rt_jobs = rt_jobs + 1
+			ref_base = ref_base + job.topology.triangle_count
+		else
+			rt.slots_cpu[i - 1] = RT_NONE
+		end
+	end
+
+	if rt_jobs == 0 then return end
+
+	rt.infos_cpu[rt.job_capacity * 4] = rt_jobs
+	local args = rt.args_cpu
+	args[0] = state.jobs_address
+	args[1] = state.worlds_address
+	args[2] = rt.slot_buffer:GetDeviceAddress()
+	args[3] = rt.counters:GetDeviceAddress()
+	args[4] = rt.patches:GetDeviceAddress()
+	args[5] = rt.clas_args:GetDeviceAddress()
+	args[6] = rt.infos_buffer:GetDeviceAddress()
+	args[7] = rt.templates:GetDeviceAddress()
+	args[8] = rt.core:GetDeviceAddress()
+	args[9] = rt.extras:GetDeviceAddress()
+	args[10] = rt.indices:GetDeviceAddress()
+	args[11] = rt.clas_addresses:GetDeviceAddress()
+	args[12] = rt.refs:GetDeviceAddress()
+	args[13] = state.batches_address
+	local commands = ffi.cast("uint32_t *", state.state_cpu)
+	local state_args = ffi.cast("uint64_t *", state.state_cpu + STATE_ARGS_OFFSET)
+	state_args[0] = state.jobs_address
+	state_args[1] = state.worlds_address
+	state_args[4] = tlas_table:GetAddress()
+	state_args[5] = data_table:GetAddress()
+	state_args[6] = instances.GetRasterTable():GetAddress()
+	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "transfer", memoryBarrier = true}
+	upload(
+		cmd,
+		state.state_buffer,
+		state.state_cpu + STATE_ARGS_OFFSET,
+		STATE_BYTES - STATE_ARGS_OFFSET,
+		STATE_ARGS_OFFSET
+	)
+	upload(cmd, state.jobs_buffer, state.jobs_cpu, state.job_count * JOB_BYTES)
+	upload(cmd, rt.args, args, RT_ARG_COUNT * 8)
+	upload(cmd, rt.slot_buffer, rt.slots_cpu, state.job_count * 4)
+	upload(cmd, rt.infos_buffer, rt.infos_cpu, rt_jobs * 16)
+	upload(cmd, rt.infos_buffer, rt.infos_cpu + rt.job_capacity * 4, 4, rt.job_capacity * 16)
+	upload(cmd, rt.job_of_buffer, rt.job_of_cpu, rt.instance_capacity * 4)
+	cmd:FillBuffer(rt.counters, 0, RT_COUNTER_BYTES, 0)
+	cmd:PipelineBarrier{srcStage = "transfer", dstStage = "transfer", memoryBarrier = true}
+	upload(cmd, rt.counters, rt.dispatch_ones, 8, 20)
+	cmd:PipelineBarrier{srcStage = "transfer", dstStage = "compute", memoryBarrier = true}
+	get_compute_pipelines().worlds:Dispatch(cmd, math.ceil(state.job_count / 64), 1, 1, 1)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	local passes = get_rt_pipelines()
+	passes.select:Dispatch(cmd, math.ceil(state.triangle_count / 64), 1, 1, 1)
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = {"compute", "draw_indirect"},
+		memoryBarrier = true,
+	}
+	passes.vertices:DispatchIndirect(cmd, rt.counters, 16)
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = "acceleration_structure_build_khr",
+		memoryBarrier = true,
+	}
+	rt_cluster_build(
+		cmd,
+		2,
+		rt.counters:GetDeviceAddress() + 16,
+		rt.clas_args:GetDeviceAddress(),
+		64,
+		RT_PATCHES,
+		nil,
+		rt.clas,
+		rt.clas_addresses,
+		rt.scratch
+	)
+	cmd:PipelineBarrier{
+		srcStage = "acceleration_structure_build_khr",
+		dstStage = "compute",
+		memoryBarrier = true,
+	}
+	passes.refs:Dispatch(cmd, RT_PATCHES / 64, 1, 1, 1)
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = "acceleration_structure_build_khr",
+		memoryBarrier = true,
+	}
+	rt_cluster_build(
+		cmd,
+		1,
+		rt.infos_buffer:GetDeviceAddress() + rt.job_capacity * 16,
+		rt.infos_buffer:GetDeviceAddress(),
+		16,
+		rt.job_capacity,
+		nil,
+		rt.blas,
+		rt.blas_addresses,
+		rt.scratch
+	)
+	cmd:PipelineBarrier{
+		srcStage = "acceleration_structure_build_khr",
+		dstStage = {"compute", "acceleration_structure_build_khr"},
+		memoryBarrier = true,
+	}
+	rt.ready = true
+	state.stats.rt_jobs = rt_jobs
+end
+
+function tessellation.GetTLASOverride()
+	if not rt.ready then return 0, 0, 0 end
+
+	return rt.job_of_buffer:GetDeviceAddress(),
+	rt.blas_addresses:GetDeviceAddress(),
+	rt.instance_capacity
 end
 
 function tessellation.IsDrawing()

@@ -103,3 +103,104 @@ T.Test3D("Graphics render3d parallax height maps stay inside the mesh", function
 	T(g)[">"](200)
 	T(r)["<"](10)
 end)
+
+T.Test3DRayTracing("Graphics render3d tessellated height maps are traced with their relief", function(draw)
+	if not render.GetDevice().cluster_acceleration_structure_supported then
+		return
+	end
+
+	local ffi = require("ffi")
+	local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+	local instances = import("goluwa/render3d/scene/instances.lua")
+	local hit = import("goluwa/render3d/scene/hit.lua")
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(60))
+	camera:SetNearZ(0.1)
+	camera:SetFarZ(100)
+	camera:SetPosition(Vec3(0, 0, 0))
+	camera:SetRotation(Quat():Identity())
+	local raised = Material.New{
+		HeightTexture = shapes.Texture("return vec4(1.0);"),
+		HeightScale = 0.5,
+		HeightTessellate = true,
+	}
+	local entity = spawn(create_facing_quad(), raised, -4)
+	local library = Visual.Library
+	local was_noculling = library.noculling
+	library.noculling = false
+	local deadline = system.GetTime() + 90
+
+	repeat
+		draw()	
+	until (tessellation.IsDrawing() and tessellation.GetStats().rt_jobs) or system.GetTime() > deadline
+
+	for _ = 1, 4 do
+		draw()
+	end
+
+	library.noculling = was_noculling
+	local results = render.CreateBuffer{
+		byte_size = 16,
+		buffer_usage = {"storage_buffer"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "tessellation_trace_results",
+	}
+	local descriptor_sets = {
+		{type = "acceleration_structure_khr", binding_index = 1, stageFlags = "compute"},
+	}
+
+	for _, set in ipairs(hit.GetDescriptorSets(2, "compute")) do
+		descriptor_sets[#descriptor_sets + 1] = set
+	end
+
+	local pipeline = EasyPipeline.Compute{
+		name = "tessellation_test_trace",
+		DescriptorSetCount = 1,
+		LocalSize = {x = 1, y = 1, z = 1},
+		storage_buffers = {{binding_index = 0}},
+		descriptor_sets = descriptor_sets,
+		custom_declarations = [[
+			#extension GL_EXT_ray_query : require
+			layout(set = 0, binding = 0) buffer Results { float results[]; };
+			layout(set = 0, binding = 1) uniform accelerationStructureEXT scene;
+		]] .. hit.GetGLSL(2),
+		shader = [[
+			void main() {
+				rayQueryEXT query;
+				vec3 dir = normalize(vec3(0.02, 0.01, -1.0));
+				rayQueryInitializeEXT(query, scene, gl_RayFlagsOpaqueEXT, 0xFF, vec3(0.0), 0.0, dir, 100.0);
+				while (rayQueryProceedEXT(query)) {}
+
+				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+					results[0] = 0.0;
+					return;
+				}
+
+				uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+				scene_triangle tri = scene_hit_tri(instance, scene_query_primitive(query, true));
+				float t = rayQueryGetIntersectionTEXT(query, true);
+				results[0] = 1.0;
+				results[1] = abs(dot(dir * t - tri.v0, tri.normal));
+				results[2] = t * dir.z;
+			}
+		]],
+	}
+	pipeline:UpdateDescriptorSet("storage_buffer", 1, 0, 0, results, results:GetSize())
+	pipeline:UpdateDescriptorSet("acceleration_structure_khr", 1, 1, 0, instances.tlas)
+	hit.Bind(pipeline, 1, 2)
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
+	pipeline.pipeline:Dispatch(cmd, 1, 1, 1, 1)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "host", memoryBarrier = true}
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	local out = ffi.cast("float *", results:Map())
+	local found, plane_distance, depth = out[0], out[1], out[2]
+	results:Remove()
+	pipeline:Remove()
+	entity:Remove()
+	T(found)["=="](1)
+	T(plane_distance < 0.001)["=="](true)
+	T(math.abs(depth + 3.0) < 0.02)["=="](true)
+end)

@@ -9,7 +9,7 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
-local vegetation_bend, parts
+local vegetation_bend, parts, tessellation
 local accel = import("goluwa/render3d/scene/accel.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local cluster_rt = import("goluwa/render3d/scene/cluster_rt.lua")
@@ -541,6 +541,9 @@ do
 						{"cluster_capacity", "int"},
 						{"cluster_job_of", "uint64_t"},
 						{"cluster_blas", "uint64_t"},
+						{"tessellation_capacity", "int"},
+						{"tessellation_job_of", "uint64_t"},
+						{"tessellation_blas", "uint64_t"},
 					},
 					write = function(self, block)
 						local position = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
@@ -555,6 +558,8 @@ do
 						block.culled_scale = rt_culled_lod_scale:Get()
 						block.seen_valid = gpu_culling.GetDrawnCullFrame() >= block.frame - 1 and 1 or 0
 						block.cluster_job_of, block.cluster_blas, block.cluster_capacity = cluster_rt.GetTLASOverride()
+						tessellation = tessellation or import("goluwa/render3d/scene/tessellation.lua")
+						block.tessellation_job_of, block.tessellation_blas, block.tessellation_capacity = tessellation.GetTLASOverride()
 						return block
 					end,
 				},
@@ -614,6 +619,15 @@ do
 								clustered = true;
 							}
 						}
+
+						if (update_data.tessellation_job_of != 0ul && id < uint(update_data.tessellation_capacity)) {
+							uint job = ClusterJobOf(update_data.tessellation_job_of).j[id];
+
+							if (job != 0xFFFFFFFFu) {
+								blas = ClusterBLAS(update_data.tessellation_blas).a[job];
+								clustered = true;
+							}
+						}
 						float bend_distance;
 						bool shown;
 
@@ -662,6 +676,8 @@ do
 		traced_tlas_buffer, traced_data_buffer = tlas_table:GetBuffer(), data_table:GetBuffer()
 		meshes.Build(cmd, skinning.updated)
 		cluster_rt.Build(cmd)
+		tessellation = tessellation or import("goluwa/render3d/scene/tessellation.lua")
+		tessellation.BuildRT(cmd)
 		opacity_micromaps.Build(cmd)
 		parts.Update()
 		vegetation_bend.Prepare(cmd)

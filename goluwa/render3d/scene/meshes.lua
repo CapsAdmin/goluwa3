@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local render = import("goluwa/render/render.lua")
 local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local store = import("goluwa/render3d/scene/store.lua")
@@ -27,11 +28,25 @@ local pending = {}
 local sweep_cursor = 0
 local triangle_total = 0
 local SWEEP_ROWS = 256
+meshes.TESSELLATION_ROW = 0
 
 function meshes.GetTable()
-	table_rows = table_rows or
-		store.CreateTable{name = "meshes", ctype = MeshRow, capacity = 16384}
+	if not table_rows then
+		table_rows = store.CreateTable{name = "meshes", ctype = MeshRow, capacity = 16384}
+		assert(table_rows:Alloc() == meshes.TESSELLATION_ROW)
+	end
+
 	return table_rows
+end
+
+function meshes.SetTessellationRow(vertex_address, extras_address, index_address)
+	local data = meshes.GetTable():Get() + meshes.TESSELLATION_ROW
+	data.vertex_address = vertex_address
+	data.extras_address = extras_address
+	data.index_address = index_address
+	data.blas_address = 0
+	data.vertex_stride = vertex_layout.CoreStride
+	data.flags = meshes.FLAG_HAS_INDICES + meshes.FLAG_INDEX_32
 end
 
 function meshes.Get(mesh, dynamic)

@@ -170,14 +170,24 @@ function hit.GetGLSL(binding)
 			return scene_instances[instance].flags;
 		}
 
+		uint scene_hit_row(uint instance, inout uint primitive) {
+			if ((primitive & 0x80000000u) != 0u) {
+				primitive &= 0x7FFFFFFFu;
+				return ]] .. meshes.TESSELLATION_ROW .. [[u;
+			}
+
+			return scene_instances[instance].mesh_row;
+		}
+
 		scene_triangle scene_hit_tri(uint instance, uint primitive) {
 			scene_instance_data data = scene_instances[instance];
-			scene_mesh mesh = scene_meshes[data.mesh_row];
+			uint triangle = primitive;
+			scene_mesh mesh = scene_meshes[scene_hit_row(instance, triangle)];
 			scene_tlas_instance t = scene_tlas_instances[instance];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			vec3 p0 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u));
-			vec3 p1 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 1u));
-			vec3 p2 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 2u));
+			vec3 p0 = scene_hit_world(t, vertices, scene_mesh_index(mesh, triangle * 3u));
+			vec3 p1 = scene_hit_world(t, vertices, scene_mesh_index(mesh, triangle * 3u + 1u));
+			vec3 p2 = scene_hit_world(t, vertices, scene_mesh_index(mesh, triangle * 3u + 2u));
 			scene_triangle tri;
 			tri.v0 = p0;
 			tri.e1 = p1 - p0;
@@ -201,11 +211,12 @@ function hit.GetGLSL(binding)
 		}
 
 		scene_uv scene_hit_uv(uint instance, uint primitive) {
-			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
+			uint triangle = primitive;
+			scene_mesh mesh = scene_meshes[scene_hit_row(instance, triangle)];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			uint a = scene_mesh_index(mesh, primitive * 3u);
-			uint b = scene_mesh_index(mesh, primitive * 3u + 1u);
-			uint c = scene_mesh_index(mesh, primitive * 3u + 2u);
+			uint a = scene_mesh_index(mesh, triangle * 3u);
+			uint b = scene_mesh_index(mesh, triangle * 3u + 1u);
+			uint c = scene_mesh_index(mesh, triangle * 3u + 2u);
 			scene_uv uv;
 			uv.uv0 = scene_vertex_uv(vertices, a);
 			uv.uv1 = scene_vertex_uv(vertices, b);
@@ -216,11 +227,12 @@ function hit.GetGLSL(binding)
 		}
 
 		vec3 scene_hit_smooth_normal(uint instance, uint primitive, vec2 barycentrics) {
-			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
+			uint triangle = primitive;
+			scene_mesh mesh = scene_meshes[scene_hit_row(instance, triangle)];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			uint a = scene_mesh_index(mesh, primitive * 3u);
-			uint b = scene_mesh_index(mesh, primitive * 3u + 1u);
-			uint c = scene_mesh_index(mesh, primitive * 3u + 2u);
+			uint a = scene_mesh_index(mesh, triangle * 3u);
+			uint b = scene_mesh_index(mesh, triangle * 3u + 1u);
+			uint c = scene_mesh_index(mesh, triangle * 3u + 2u);
 			vec3 n0 = scene_vertex_normal(vertices, a);
 			vec3 n1 = scene_vertex_normal(vertices, b);
 			vec3 n2 = scene_vertex_normal(vertices, c);
@@ -237,11 +249,12 @@ function hit.GetGLSL(binding)
 		}
 
 		vec4 scene_hit_smooth_tangent(uint instance, uint primitive, vec2 barycentrics) {
-			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
+			uint triangle = primitive;
+			scene_mesh mesh = scene_meshes[scene_hit_row(instance, triangle)];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			uint a = scene_mesh_index(mesh, primitive * 3u);
-			uint b = scene_mesh_index(mesh, primitive * 3u + 1u);
-			uint c = scene_mesh_index(mesh, primitive * 3u + 2u);
+			uint a = scene_mesh_index(mesh, triangle * 3u);
+			uint b = scene_mesh_index(mesh, triangle * 3u + 1u);
+			uint c = scene_mesh_index(mesh, triangle * 3u + 2u);
 			vec4 tangent_a = scene_vertex_tangent(vertices, a);
 			vec3 t0 = tangent_a.xyz;
 			vec3 t1 = scene_vertex_tangent(vertices, b).xyz;
