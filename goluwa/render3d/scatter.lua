@@ -1921,7 +1921,7 @@ local bake_epoch = 1
 local free_slots = {}
 local next_slot = 0
 local pool_pending = {}
-local bake_list = {}
+local bake = {top = {}, count = 0, total = 0, new = 0, nearer = 0, farther = 0}
 local unit_readback_frames = {}
 local ZERO_WORD = ffi.new("uint32_t[1]")
 local JOB_RESET = ffi.new("uint32_t[4]", {0, 1, 1, 0})
@@ -2189,6 +2189,45 @@ end
 local visit_cell
 
 do
+	-- only the first BAKE_BUDGET by priority are baked in a frame, so only those are kept and the rest are counted
+	local function offer_bake(unit, surface, band, priority)
+		bake.total = bake.total + 1
+
+		if priority >= 3e6 then
+			bake.farther = bake.farther + 1
+		elseif priority >= 2e6 then
+			bake.nearer = bake.nearer + 1
+		else
+			bake.new = bake.new + 1
+		end
+
+		local top = bake.top
+		local count = bake.count
+
+		if count == scatter.BAKE_BUDGET then
+			if priority >= top[count].priority then return end
+		else
+			count = count + 1
+			bake.count = count
+			top[count] = top[count] or {}
+		end
+
+		local at = count
+
+		while at > 1 and top[at - 1].priority > priority do
+			at = at - 1
+		end
+
+		local entry = top[count]
+
+		for i = count, at + 1, -1 do
+			top[i] = top[i - 1]
+		end
+
+		top[at] = entry
+		entry.unit, entry.surface, entry.band, entry.priority = unit, surface, band, priority
+	end
+
 	local function cell_distance(tier, cx, cz)
 		local size = scatter.BAKE_CELLS[tier]
 		local x0, z0 = cx * size, cz * size
@@ -2285,7 +2324,7 @@ do
 		end
 
 		if priority then
-			bake_list[#bake_list + 1] = {unit = unit, surface = visit_surface, band = band, priority = priority}
+			offer_bake(unit, visit_surface, band, priority)
 		end
 	end
 
@@ -2306,10 +2345,6 @@ do
 
 		visit_leaf(tier, cx, cz, distance)
 	end
-end
-
-local function by_priority(a, b)
-	return a.priority < b.priority
 end
 
 function scatter.GetSurfaceStatus(entry)
@@ -2653,7 +2688,7 @@ local function update_placed(cmd, b, passes, frame, camera)
 end
 
 local function collect_bakes(candidates, camera, reach, frame)
-	list.clear(bake_list)
+	bake.count, bake.total, bake.new, bake.nearer, bake.farther = 0, 0, 0, 0, 0
 
 	for _, surface in ipairs(candidates) do
 		local mesh = surface.entry.polygon3d:GetMesh()
@@ -2869,24 +2904,12 @@ function scatter.PreDraw(cmd)
 	end
 
 	collect_bakes(candidates, camera, reach, frame)
-	table.sort(bake_list, by_priority)
-	scatter.pending_new, scatter.pending_nearer, scatter.pending_farther = 0, 0, 0
-
-	for _, entry in ipairs(bake_list) do
-		if entry.priority >= 3e6 then
-			scatter.pending_farther = scatter.pending_farther + 1
-		elseif entry.priority >= 2e6 then
-			scatter.pending_nearer = scatter.pending_nearer + 1
-		else
-			scatter.pending_new = scatter.pending_new + 1
-		end
-	end
-
-	scatter.pending_bakes = #bake_list
+	scatter.pending_new, scatter.pending_nearer, scatter.pending_farther = bake.new, bake.nearer, bake.farther
+	scatter.pending_bakes = bake.total
 	scatter.unit_count = #units
 	scatter.pool_top = pool.Top
 
-	if bake_list[1] then
+	if bake.count > 0 then
 		if RAY_QUERY then
 			passes.instances:UpdateDescriptorSet(
 				"acceleration_structure_khr",
@@ -2897,8 +2920,8 @@ function scatter.PreDraw(cmd)
 			)
 		end
 
-		for i = 1, math.min(#bake_list, scatter.BAKE_BUDGET) do
-			local entry = bake_list[i]
+		for i = 1, bake.count do
+			local entry = bake.top[i]
 			local surface = entry.surface
 
 			if not surface.index_frame or surface.index_frame ~= frame then

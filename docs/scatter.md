@@ -33,6 +33,10 @@ Prototypes with `placed = true` have no placement rules; they are instances that
 - Baking is cheap; drawing is the cost (triangle volume: a far tree of 10k triangles covers a few pixels, a view over a forest easily submits 10 triangles per pixel), so reduce instances (density/distance per class), use billboards earlier, or give the prototype a `lod`. Count what a view submits by reading `b.commands` back (index count times instance count per draw) before guessing: fragment cost, vertex animation registers and overdraw (an alpha tested depth pre-pass and occlusion culling both measured as no gain) were not the limit.
 - Tests need unique set names and mesh sizes (meshes with identical vertices are shared and may be on their way out).
 
+- Data the gpu passes read that the cpu rewrites each frame (the prototype buffer, the shadow block table) is recorded into the command buffer with `cmd:UpdateBuffer` (`upload`), never written to a host visible buffer: a frame still running reads the next frame's bases and rooms with the previous frame's buffers and indexes past their end.
+- Ray traced rows are written by the cull pass beside the shadow lists and shown for the frame they were written in and the next (`scatter_rt.lua`); a range is replaced by a new one before the old is freed. Never free a range and write rows into it in the same frame, the flush that clears the old rows lands on the new ones.
+- Profile a flight before blaming the gpu: compare `gpu_frame` with the frame time (a CPU profile with `PROF` found the ray material table rewritten per consumer, scatter's unit visit and terrain tile heights). `island.Fly` follows the ground, so its altitude changes bake the atmosphere LUT; hold a constant altitude when measuring scatter.
+
 ## Verifying
 
 `test/tests/render3d/scatter.lua` (red cubes on a plane, slope rules). Examples under `addons/examples/lua/examples/render3d/`: `scatter_showcase.lua`, `island_terrain.lua` (large scale; `island_view N`), `foliage_world.lua`. Wait for `scatter.pending_bakes` to reach 0 before measuring; after a camera jump baking takes seconds. `glw bench scatter_meadow` with `SCATTER_OFF=1` is the baseline.
