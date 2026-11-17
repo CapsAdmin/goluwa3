@@ -708,7 +708,7 @@ function create_cull_pipeline()
 				uint level = (inst.mask_lod >> 8u) & 0xFFu;
 				uint last = (inst.mask_lod >> 16u) & 0xFFu;
 
-				if (last > 0u) {
+				if (last > 0u && (inst.flags & 512u) == 0u) {
 					float ratio = distance(compute.camera_position, inst.bounds.xyz) / (max(inst.bounds.w, 0.001) * compute.lod_scale);
 
 					if (!select_lod(level, last, inst.lod.x, inst.lod.y, ratio, fade)) return;
@@ -936,7 +936,7 @@ local function get_cluster_pipeline()
 				uint level = (inst.mask_lod >> 8u) & 0xFFu;
 				uint last = (inst.mask_lod >> 16u) & 0xFFu;
 
-				if (last > 0u) {
+				if (last > 0u && (inst.flags & 512u) == 0u) {
 					float ratio = distance(compute.camera_position, inst.bounds.xyz) / (max(inst.bounds.w, 0.001) * compute.lod_scale);
 
 					if (!select_lod(level, last, inst.lod.x, inst.lod.y, ratio, fade)) return;
@@ -1605,7 +1605,7 @@ function create_shadow_pipeline()
 					uint last = (inst.mask_lod >> 16u) & 0xFFu;
 					float ratio = distance(compute.camera_position, inst.bounds.xyz) / (max(inst.bounds.w, 0.001) * compute.lod_scale);
 
-					if (last > 0u || (inst.flags & 128u) != 0u) casts = select_shadow_lod(inst.flags, level, last, inst.lod.x, inst.lod.y, ratio);
+					if ((last > 0u && (inst.flags & 512u) == 0u) || (inst.flags & 128u) != 0u) casts = select_shadow_lod(inst.flags, level, last, inst.lod.x, inst.lod.y, ratio);
 				}
 
 				if (!casts) return;

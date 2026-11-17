@@ -13,6 +13,11 @@ local threads = import("goluwa/bindings/threads.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local system = import("goluwa/system.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local render = import("goluwa/render/render.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+local vk = import("goluwa/bindings/vk.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
+local meshes = import("goluwa/render3d/scene/meshes.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local PIXELS_PER_RADIAN = 1080 / (2 * math.tan(math.rad(60) / 2))
@@ -316,6 +321,116 @@ T.Test3D("Graphics render3d cluster lod draws a cut of a large model that follow
 	T(far.commands >= 1)["=="](true)
 	T(far.triangles < near.triangles / 4)["=="](true)
 	T(far.triangles >= 1)["=="](true)
+	entity:Remove()
+end)
+
+local function read_traced_blas(ids)
+	local tlas = instances.GetTables()
+	local bytes = tlas.count * 64
+	local destination = render.CreateBuffer{
+		byte_size = bytes,
+		buffer_usage = {"transfer_dst"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "cluster_lod_readback",
+	}
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	local region = ffi.new(ffi.typeof("$[1]", vk.VkBufferCopy))
+	region[0].size = bytes
+	cmd:CopyBuffer(tlas:GetBuffer(), destination, region, 1)
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	local words = ffi.cast("uint32_t *", destination:Map())
+	local traced = {}
+
+	for _, id in ipairs(ids) do
+		traced[id] = tonumber(words[id * 16 + 14]) + tonumber(words[id * 16 + 15]) * 4294967296
+	end
+
+	destination:Remove()
+	return traced
+end
+
+T.Test3DRayTracing("Graphics render3d cluster lod traces a coarser cut of a large model with distance", function(draw)
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(60))
+	camera:SetNearZ(0.1)
+	camera:SetFarZ(1000)
+	camera:SetPosition(Vec3(0, 0, 0))
+	camera:SetRotation(Quat():Identity())
+	local vertices, vertex_count, indices, index_count = icosphere(6)
+	local indices16 = ffi.new("uint16_t[?]", index_count)
+
+	for i = 0, index_count - 1 do
+		indices16[i] = indices[i]
+	end
+
+	local polygon = Polygon3D.New()
+	polygon:UploadVertexArray(vertices, vertex_count, indices16, index_count, true)
+	local entity = Entity.New{Name = "cluster_lod_rt_sphere"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -3))
+	local visual = entity:AddComponent("visual")
+	visual:SetUseOcclusionCulling(false)
+	local primitive = Entity.New{Name = "cluster_lod_rt_sphere_primitive", Parent = entity}
+	primitive:AddComponent("transform")
+	primitive:AddComponent("visual_primitive"):SetPolygon3D(polygon)
+	primitive.visual_primitive:SetMaterial(Material.New())
+	visual:BuildAABB()
+	local started = system.GetTime()
+
+	while not (cluster_lod.GetState(polygon) and #visual.scene_instances > 1) do
+		thread_pool.Update()
+		draw()
+		threads.sleep(5)
+		T(system.GetTime() - started < 25)["=="](true)
+	end
+
+	local state = cluster_lod.GetState(polygon)
+	local list = visual.scene_instances
+	T(#list)["=="](#state.cuts + 1)
+	local ids = {}
+
+	for i, item in ipairs(list) do
+		ids[i] = item.id
+	end
+
+	local function traced_rows()
+		for _ = 1, 6 do
+			draw()
+		end
+
+		local traced = read_traced_blas(ids)
+		local rows = meshes.GetTable():Get()
+		local live = {}
+
+		for i, item in ipairs(list) do
+			live[i] = traced[item.id] ~= 0 and
+				traced[item.id] == tonumber(rows[item.mesh_row].blas_address)
+		end
+
+		return live
+	end
+
+	pvars.SetSession("r_cluster_lod_rt_error", 0.0001)
+	local near = traced_rows()
+	T(near[1])["=="](true)
+
+	for i = 2, #list do
+		T(near[i])["=="](false)
+	end
+
+	pvars.SetSession("r_cluster_lod_rt_error", 2)
+	entity.transform:SetPosition(Vec3(0, 0, -300))
+	local far = traced_rows()
+	T(far[1])["=="](false)
+	local coarse = 0
+
+	for i = 2, #list do
+		if far[i] then coarse = coarse + 1 end
+	end
+
+	T(coarse)["=="](1)
 	entity:Remove()
 end)
 

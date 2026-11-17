@@ -53,6 +53,7 @@ instances.FLAG_PRODUCED = 32
 instances.FLAG_NO_SHADOW = 64
 instances.FLAG_BILLBOARD = 128
 instances.FLAG_BEFORE_BILLBOARD = 256
+instances.FLAG_RT_LOD = 512
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table, part_table, seen_table
@@ -244,6 +245,15 @@ function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last,
 	write_flags(record, data, mask, flags)
 	instances.version = instances.version + 1
 	return id
+end
+
+function instances.SetLOD(id, level, last, near, far)
+	local data = data_table:Get()[id]
+	data.mask_lod = bit.bor(bit.band(data.mask_lod, 0xFF), bit.lshift(level or 0, 8), bit.lshift(last or 0, 16))
+	data.lod_near = near or 0
+	data.lod_far = far or 0
+	data_table:Touch(id)
+	instances.version = instances.version + 1
 end
 
 function instances.Remove(id)

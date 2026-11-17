@@ -124,6 +124,35 @@ function meshes.GetVariant(row)
 	return record
 end
 
+function meshes.GetCut(row, index_buffer, triangle_count)
+	local source = records[row]
+	local rows = meshes.GetTable()
+	local cut = rows:Alloc()
+	local data = rows:Get() + cut
+	ffi.copy(data, rows:Get() + row, ffi.sizeof(MeshRow))
+	data.blas_address = 0
+	data.triangle_count = triangle_count
+	data.index_address = index_buffer:GetBuffer():GetDeviceAddress()
+	data.flags = meshes.FLAG_HAS_INDICES + meshes.FLAG_INDEX_32
+	mesh_of_row[cut] = mesh_of_row[row]
+	local record = {
+		row = cut,
+		vertex_address = source.vertex_address,
+		vertex_stride = source.vertex_stride,
+		vertex_count = source.vertex_count,
+		index_address = tonumber(data.index_address),
+		index_is_32 = true,
+		triangle_count = triangle_count,
+		allow_update = false,
+		address = 0,
+		index_buffer = index_buffer,
+	}
+	records[cut] = record
+	pending[#pending + 1] = record
+	triangle_total = triangle_total + triangle_count
+	return cut
+end
+
 function meshes.RebuildBLAS(record)
 	if record.blas then
 		accel.ReleaseBLAS(record)
@@ -369,6 +398,8 @@ function meshes.Update()
 			accel.ReleaseBLAS(record)
 
 			if record.omm and record.omm.micromap then record.omm.micromap:Remove() end
+
+			if record.index_buffer then record.index_buffer:Remove() end
 
 			local list = dynamic_records[record.vertex_address]
 
