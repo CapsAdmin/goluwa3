@@ -8,6 +8,7 @@ checkpoints.address_describers = {}
 -- functions returning a short text about engine state to include in the device lost report
 checkpoints.state_reporters = {}
 local report_lines
+
 local function print(...)
 	_G.print(...)
 
@@ -21,6 +22,7 @@ local function print(...)
 		report_lines[#report_lines + 1] = table.concat(parts, "\t")
 	end
 end
+
 checkpoints.enabled = os.getenv("GOLUWA_CHECKPOINTS") ~= nil
 local VkCheckpointDataArray = ffi.typeof("$[?]", vulkan.vk.VkCheckpointDataNV)
 local start_time = system.GetTime()
@@ -132,10 +134,15 @@ local function report_fault_info()
 			)
 		)
 
-		for _, describe in ipairs(checkpoints.address_describers) do
-			local text = describe(address, tonumber(addresses[i].addressPrecision))
+		if
+			addresses[i].addressType == vulkan.vk.VkDeviceFaultAddressTypeEXT.VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT or
+			addresses[i].addressType == vulkan.vk.VkDeviceFaultAddressTypeEXT.VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT
+		then
+			for _, describe in ipairs(checkpoints.address_describers) do
+				local text = describe(address, tonumber(addresses[i].addressPrecision))
 
-			if text then print("    " .. text) end
+				if text then print("    " .. text) end
+			end
 		end
 	end
 

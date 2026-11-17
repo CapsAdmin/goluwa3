@@ -168,6 +168,8 @@ function Buffer:OnRemove()
 		Buffer.mesh_address_release_serial = Buffer.mesh_address_release_serial + 1
 	end
 
+	Buffer.addressed[self] = nil
+
 	if
 		self.mapped_data and
 		not self.pool_allocation and
