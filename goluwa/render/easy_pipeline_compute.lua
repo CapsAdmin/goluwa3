@@ -261,7 +261,8 @@ do
 				} or
 				{"#extension GL_NV_compute_shader_derivatives : require"},
 			bindless_view_capacity,
-			bindless_sampler_capacity
+			bindless_sampler_capacity,
+			render.GetDevice()
 		)
 		local push_constant_glsl = ""
 

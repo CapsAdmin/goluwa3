@@ -625,7 +625,8 @@ local function build_shader_header(
 	bindless_cubemap_capacity,
 	extra_extensions,
 	bindless_view_capacity,
-	bindless_sampler_capacity
+	bindless_sampler_capacity,
+	device
 )
 	local header = [=[#version 460
 #extension GL_EXT_nonuniform_qualifier : require
@@ -647,6 +648,10 @@ local function build_shader_header(
 		bindless_view_capacity or 256,
 		bindless_sampler_capacity or 32
 	)
+
+	if device.cluster_acceleration_structure_supported then
+		header = header .. "\n#define DEVICE_CLUSTER_ACCELERATION_STRUCTURE 1"
+	end
 
 	if extra_extensions then
 		for _, ext in ipairs(extra_extensions) do

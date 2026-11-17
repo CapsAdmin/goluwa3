@@ -840,7 +840,8 @@ do
 			bindless_cubemap_capacity,
 			mesh_ext and {"#extension GL_EXT_mesh_shader : require"} or nil,
 			bindless_view_capacity,
-			bindless_sampler_capacity
+			bindless_sampler_capacity,
+			render.GetDevice()
 		)
 		local vertex_input = ""
 		local vertex_output = ""

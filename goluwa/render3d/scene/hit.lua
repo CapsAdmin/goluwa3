@@ -52,18 +52,18 @@ function hit.GetSceneGLSL(name, tlas_binding)
 end
 
 function hit.GetQueryGLSL()
-	if render.GetDevice().cluster_acceleration_structure_supported then
-		return [[
+	return [[
+		#ifdef DEVICE_CLUSTER_ACCELERATION_STRUCTURE
 		#extension GL_EXT_ray_query : enable
 		#extension GL_NV_cluster_acceleration_structure : require
 		uint scene_cluster_base(int id) {
 			return id == gl_ClusterIDNoneNV ? 0u : uint(id);
 		}
 		#define scene_query_primitive(q, committed) (uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, committed)) + scene_cluster_base(rayQueryGetIntersectionClusterIdNV(q, committed)))
-		]]
-	end
-
-	return "#define scene_query_primitive(q, committed) uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, committed))\n"
+		#else
+		#define scene_query_primitive(q, committed) uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, committed))
+		#endif
+	]]
 end
 
 function hit.GetCoreGLSL()
