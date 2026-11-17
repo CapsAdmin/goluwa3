@@ -239,11 +239,7 @@ local function write_matrix(record, m)
 end
 
 local function write_flags(record, data, mask, flags)
-	record.sbrtAndFlags = accel.INSTANCE_FACING_CULL_DISABLE + (
-			bit.band(flags, instances.FLAG_NO_OPAQUE) ~= 0 and
-			accel.INSTANCE_FORCE_NO_OPAQUE or
-			accel.INSTANCE_FORCE_OPAQUE
-		)
+	record.sbrtAndFlags = instances.GetRecordFlags(flags)
 	data.flags = bit.band(data.flags, instances.FLAG_REMOVED) + flags
 	data.mask_lod = bit.bor(bit.band(data.mask_lod, 0xFFFFFF00), mask)
 end
@@ -450,12 +446,13 @@ function instances.GetMaterialFlags(material)
 	return flags, mask
 end
 
+-- every geometry is built non opaque; forcing that on the instance would also override the opaque state of its opacity micromap
 function instances.GetRecordFlags(flags)
-	return accel.INSTANCE_FACING_CULL_DISABLE + (
-			bit.band(flags, instances.FLAG_NO_OPAQUE) ~= 0 and
-			accel.INSTANCE_FORCE_NO_OPAQUE or
-			accel.INSTANCE_FORCE_OPAQUE
-		)
+	if bit.band(flags, instances.FLAG_NO_OPAQUE) ~= 0 then
+		return accel.INSTANCE_FACING_CULL_DISABLE
+	end
+
+	return accel.INSTANCE_FACING_CULL_DISABLE + accel.INSTANCE_FORCE_OPAQUE
 end
 
 function instances.GetVisualRows()

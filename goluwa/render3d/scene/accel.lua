@@ -42,7 +42,6 @@ local TLAS_SLOT_COUNT = 4
 accel.INSTANCE_BYTE_SIZE = ffi.sizeof(vk.VkAccelerationStructureInstanceKHR)
 accel.INSTANCE_FACING_CULL_DISABLE = 0x01000000
 accel.INSTANCE_FORCE_OPAQUE = 0x04000000
-accel.INSTANCE_FORCE_NO_OPAQUE = 0x08000000
 local pools = {}
 local pending_free = {}
 local compact_batches = {}
