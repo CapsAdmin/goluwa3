@@ -47,6 +47,7 @@ local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulk
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
 local VkPhysicalDeviceRayQueryFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayQueryFeaturesKHR)
 local VkPhysicalDeviceOpacityMicromapFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceOpacityMicromapFeaturesEXT)
+local VkPhysicalDeviceClusterAccelerationStructureFeaturesNVBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceClusterAccelerationStructureFeaturesNV)
 local VkRayTracingInvocationReorderFeaturesBoxes = {
 	ext = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT),
 	nv = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV),
@@ -457,6 +458,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 	local ray_reorder_features
 	local opacity_micromap_supported = false
 	local opacity_micromap_features
+	local cluster_acceleration_structure_supported = false
+	local cluster_acceleration_structure_features
 
 	if has_ray_tracing then
 		local rt_features = physical_device:GetRayTracingPipelineFeatures()
@@ -513,6 +516,21 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 				opacity_micromap_features[0].pNext = pNextChain
 				opacity_micromap_features[0].micromap = 1
 				pNextChain = opacity_micromap_features
+			end
+
+			if
+				ray_query_supported and
+				os.getenv("GOLUWA_NO_CLUSTER_AS") ~= "1" and
+				table.has_value(available_extensions, "VK_NV_cluster_acceleration_structure") and
+				physical_device:GetClusterAccelerationStructureFeatures().clusterAccelerationStructure == 1
+			then
+				cluster_acceleration_structure_supported = true
+				table.insert(finalExtensions, "VK_NV_cluster_acceleration_structure")
+				cluster_acceleration_structure_features = VkPhysicalDeviceClusterAccelerationStructureFeaturesNVBox()
+				cluster_acceleration_structure_features[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_FEATURES_NV
+				cluster_acceleration_structure_features[0].pNext = pNextChain
+				cluster_acceleration_structure_features[0].clusterAccelerationStructure = 1
+				pNextChain = cluster_acceleration_structure_features
 			end
 
 			-- nvidia 615's EXT path hangs the gpu (Xid 109) in radiance_candidates on the same SPIR-V the NV path runs fine
@@ -583,6 +601,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		ray_query_supported = ray_query_supported,
 		ray_reorder = ray_reorder,
 		opacity_micromap_supported = opacity_micromap_supported,
+		cluster_acceleration_structure_supported = cluster_acceleration_structure_supported,
 		capture_pipeline_statistics = capture_pipeline_statistics,
 		pipeline_statistics_gpu = pipeline_statistics_gpu,
 		queue_family_count = #queueFamilies,

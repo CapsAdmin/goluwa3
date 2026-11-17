@@ -18,6 +18,8 @@ local VkPhysicalDeviceDynamicRenderingFeaturesBox = ffi.typeof("$[1]", vulkan.vk
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
 local VkPhysicalDeviceOpacityMicromapFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceOpacityMicromapFeaturesEXT)
+local VkPhysicalDeviceClusterAccelerationStructureFeaturesNVBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceClusterAccelerationStructureFeaturesNV)
+local VkPhysicalDeviceClusterAccelerationStructurePropertiesNVBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceClusterAccelerationStructurePropertiesNV)
 local VkRayTracingInvocationReorderFeaturesBoxes = {
 	ext = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT),
 	nv = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV),
@@ -393,6 +395,29 @@ function PhysicalDevice:GetOpacityMicromapFeatures()
 	}
 	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], query)
 	return features[0]
+end
+
+function PhysicalDevice:GetClusterAccelerationStructureFeatures()
+	local features = VkPhysicalDeviceClusterAccelerationStructureFeaturesNVBox()
+	features[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_FEATURES_NV
+	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
+		sType = "physical_device_features_2",
+		pNext = features,
+		features = vulkan.vk.VkPhysicalDeviceFeatures(),
+	}
+	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], query)
+	return features[0]
+end
+
+function PhysicalDevice:GetClusterAccelerationStructureProperties()
+	local properties = VkPhysicalDeviceClusterAccelerationStructurePropertiesNVBox()
+	properties[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CLUSTER_ACCELERATION_STRUCTURE_PROPERTIES_NV
+	local query = vulkan.vk.s.PhysicalDeviceProperties2{
+		sType = "physical_device_properties_2",
+		pNext = properties,
+	}
+	vulkan.lib.vkGetPhysicalDeviceProperties2(self.ptr[0], query)
+	return properties[0]
 end
 
 function PhysicalDevice:GetAccelerationStructureProperties()
