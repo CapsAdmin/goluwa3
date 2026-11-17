@@ -7,6 +7,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local gbuffer_extras = import("goluwa/render3d/gbuffer_extras.lua")
+local tessellation = import("goluwa/render3d/scene/tessellation.lua")
 local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
@@ -242,7 +243,7 @@ layout(buffer_reference, scalar) readonly buffer PrismInstanceData { mat4 worlds
 	return pass
 end
 
-local function build_ssdm_fragment_shader(write_depth, prism, nearer)
+local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellated)
 	-- shell hits of entry fragments lie behind them, so the rasterized depth is a bound that keeps early depth rejection; hits marched from an eye inside the relief lie in front and only matter when something else sits between them and their exit surface
 	return (
 			write_depth and
@@ -693,12 +694,18 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 
 ]] .. (
 			prism and
+			not tessellated and
 			"\t\t\tif (TERRAIN_LAYERS != 0 && terrain_model.TerrainShell > 0.0) return get_terrain_shell_data(terrain_model.TerrainShell, tbn);\n" or
 			""
 		) .. [[
 			if (!has_heightmap()) {
 				return data;
 			}
+]] .. (
+			tessellated and
+			"\t\t\treturn data;\n" or
+			""
+		) .. [[
 
 ]] .. (
 			prism and
@@ -927,6 +934,25 @@ do
 		}
 	)
 	scene_draw.SetVariantKind(0, {"gbuffer_multi_draw"}, shader_features.ALL, true)
+	render3d.RegisterPipelineVariants(
+		tessellation.name,
+		{
+			prewarm = {},
+			label = function(variant)
+				local features = shader_features.GetName(scene_draw.GetVariantBits(variant))
+				return "tessellated" .. (features ~= "" and "," .. features or "")
+			end,
+			build = function(variant)
+				local pass = build_multi_draw_pass(
+					build_ssdm_fragment_shader(false, true, false, true),
+					scene_draw.GetVariantBits(variant)
+				)
+				pass.name = tessellation.name
+				pass.vertex = tessellation.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
+				return pass
+			end,
+		}
+	)
 end
 
 for _, extra in ipairs(gbuffer_extras) do

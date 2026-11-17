@@ -84,6 +84,12 @@ for _, feature in ipairs(surface_features.list) do
 	end
 end
 
+Material:StartCategory("Height")
+Material:GetSet(
+	"HeightTessellate",
+	false,
+	{callback = "InvalidateSceneKey", requires = {"HeightTexture", "HeightScale"}}
+)
 Material:StartCategory("Medium")
 Material:GetSet("Medium", "", {callback = "InvalidateMediumSlot"})
 Material:GetSet("MediumDensity", 1.0, {callback = "InvalidateMediumSlot", requires = "Medium"})

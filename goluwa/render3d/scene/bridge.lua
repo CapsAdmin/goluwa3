@@ -7,9 +7,16 @@ local materials = import("goluwa/render3d/scene/materials.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
 local scene_parts = import("goluwa/render3d/scene/parts.lua")
 local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
+local tessellation = import("goluwa/render3d/scene/tessellation.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local bridge = {}
+
+local function clear_row(id)
+	draw.ClearRow(id)
+	tessellation.ClearRow(id)
+end
+
 local dynamic = setmetatable({}, {__mode = "k"})
 local cpu_drawn = setmetatable({}, {__mode = "k"})
 local tracked = setmetatable({}, {__mode = "k"})
@@ -180,7 +187,7 @@ local function release(visual)
 	end
 
 	for i = 1, #list do
-		draw.ClearRow(list[i].id)
+		clear_row(list[i].id)
 		unpart(list[i])
 		instances.Remove(list[i].id)
 		list[i] = nil
@@ -256,6 +263,9 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local in_view = shown and not visual.ViewHidden and not entry.primitive.ViewHidden
 	local drawn = in_view and module.MaterialDrawsInGBuffer(material)
 	local translucent = in_view and module.MaterialDrawsTranslucent(material)
+	local tessellated = drawn and tessellation.IsEligible(material, entry)
+
+	if tessellated then drawn = false end
 
 	if shown and visual.CastShadows then flags = instances.RASTER_SHADOW end
 
@@ -304,7 +314,14 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		draw.ClearRow(item.id)
 	end
 
-	item.raster = (drawn or translucent) or nil
+	if tessellated then
+		meshes.EnsureRaster(mesh_row)
+		tessellation.SetRow(item.id, mesh, material, entry.polygon3d)
+	else
+		tessellation.ClearRow(item.id)
+	end
+
+	item.raster = (drawn or translucent or tessellated) or nil
 end
 
 local function item_mask(item, frame)
@@ -419,7 +436,7 @@ local function sync_entry(
 		emitter_changed = true
 
 		if item then
-			draw.ClearRow(item.id)
+			clear_row(item.id)
 			unpart(item)
 			instances.Remove(item.id)
 		end
@@ -595,7 +612,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	cpu_drawn[visual] = has_cpu_entry or nil
 
 	for i = #list, count + 1, -1 do
-		draw.ClearRow(list[i].id)
+		clear_row(list[i].id)
 		unpart(list[i])
 		instances.Remove(list[i].id)
 		list[i] = nil

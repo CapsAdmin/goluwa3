@@ -349,6 +349,8 @@ local function get_vertex_stage_outputs(options)
 	return outputs
 end
 
+model_pipeline.GetVertexStageOutputs = get_vertex_stage_outputs
+
 local function get_vertex_stage_uniform_buffers(options)
 	local uniform_buffers = {}
 
