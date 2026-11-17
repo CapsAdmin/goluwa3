@@ -353,7 +353,13 @@ function accel.BuildBLASes(cmd, jobs, count)
 			query_pool.ptr[0],
 			0
 		)
-		compact_batches[#compact_batches + 1] = {pool = query_pool, jobs = compact_jobs, blases = blases, count = n}
+		compact_batches[#compact_batches + 1] = {
+			pool = query_pool,
+			jobs = compact_jobs,
+			blases = blases,
+			count = n,
+			frame = system.GetFrameNumber(),
+		}
 	end
 end
 
@@ -402,7 +408,9 @@ function accel.CompactBLASes(cmd)
 	local copied = false
 
 	for _, batch in ipairs(compact_batches) do
-		local sizes = batch.pool:GetResults(0, batch.count, 8 * batch.count, QUERY_RESULT_64)
+		-- a recycled pool still reads as available with the previous batch's sizes until the gpu has run this batch's reset
+		local sizes = batch.frame <= frame - delay and
+			batch.pool:GetResults(0, batch.count, 8 * batch.count, QUERY_RESULT_64)
 
 		if sizes then
 			for i = 1, batch.count do
