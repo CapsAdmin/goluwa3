@@ -3,19 +3,17 @@ local system = import("goluwa/system.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
-local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
+local scene_parts = import("goluwa/render3d/scene/parts.lua")
 local bridge = {}
 local dynamic = setmetatable({}, {__mode = "k"})
 local cpu_drawn = setmetatable({}, {__mode = "k"})
 local tracked = setmetatable({}, {__mode = "k"})
-local trace_version = 0
 local bounds_min, bounds_max = {[0] = 0, 0, 0}, {[0] = 0, 0, 0}
 local bounds_valid = false
 local bounds_dirty = false
 local emissive_visuals = setmetatable({}, {__mode = "k"})
-local bending_visuals = setmetatable({}, {__mode = "k"})
 bridge.emitter_version = 0
 local MAX_DIRTY_BOXES = 64
 local GI_SETTLE_FRAMES = 30
@@ -143,6 +141,28 @@ function bridge.ConsumeDirty(queue)
 	return all, boxes
 end
 
+local MAX_BEND_COPIES = 512
+
+local function unpart(item)
+	if item.part then
+		scene_parts.Release(item.part)
+		item.part = nil
+	end
+end
+
+local function set_part(item, mesh_row, material, polygon)
+	local part = scene_parts.Acquire(mesh_row, material, polygon, MAX_BEND_COPIES)
+
+	if item.part == part then
+		scene_parts.Release(part)
+		return
+	end
+
+	unpart(item)
+	item.part = part
+	instances.SetPart(item.id, part.id)
+end
+
 local function release(visual)
 	local list = visual.scene_instances
 
@@ -153,12 +173,12 @@ local function release(visual)
 		dynamic[visual] = nil
 		tracked[visual] = nil
 		emissive_visuals[visual] = nil
-		bending_visuals[visual] = nil
 		return
 	end
 
 	for i = 1, #list do
 		draw.ClearRow(list[i].id)
+		unpart(list[i])
 		instances.Remove(list[i].id)
 		list[i] = nil
 	end
@@ -168,7 +188,6 @@ local function release(visual)
 	visual.scene_aabb = nil
 	dynamic[visual] = nil
 	tracked[visual] = nil
-	bending_visuals[visual] = nil
 	bounds_dirty = true
 
 	if emissive_visuals[visual] then
@@ -179,10 +198,6 @@ end
 
 function bridge.GetEmissiveVisuals()
 	return emissive_visuals
-end
-
-function bridge.GetBendingVisuals()
-	return bending_visuals
 end
 
 do
@@ -312,7 +327,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	local emissive = false
 	local hidden = not visual.Visible
 	local has_cpu_entry = false
-	local bends = false
 	local frame = system.GetFrameNumber()
 
 	for _, entry in ipairs(visual:GetLODRenderEntries()) do
@@ -326,15 +340,12 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			local material = visual:GetResolvedMaterial(entry)
 			local flags, mask = instances.GetMaterialFlags(material)
 			local material_row = materials.GetID(material)
-			local rt_row = opacity_micromaps.GetRow(meshes.GetRecord(mesh_row), material)
 			local matrix = entry.transform:GetWorldMatrix()
 			local matrix_version = entry.transform:GetWorldMatrixVersion()
 			local item = list[count]
 			local r, g, b = materials.GetEmissive(material)
 
 			if r + g + b > 0 and (entry.lod_level or 0) == 0 then emissive = true end
-
-			if material:HasVertexAnimation() then bends = true end
 
 			local gear = false
 
@@ -368,13 +379,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				item.gi_flags = flags
 				item.gi_always = not is_dynamic or nil
 				item.gi_never = gear or nil
-
-				if item.rt_row ~= rt_row then
-					instances.SetMesh(item.id, rt_row)
-					item.rt_row = rt_row
-					changed = true
-				end
-
 				local material_changed = instances.SetMaterial(item.id, material_row)
 				local mask_changed = instances.SetMask(item.id, item_mask(item, frame), flags)
 				changed = material_changed or mask_changed or changed
@@ -385,6 +389,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 				if item then
 					draw.ClearRow(item.id)
+					unpart(item)
 					instances.Remove(item.id)
 				end
 
@@ -394,9 +399,8 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				item.gi_flags = flags
 				item.gi_always = not is_dynamic or nil
 				item.gi_never = gear or nil
-				item.rt_row = rt_row
 				item.id = instances.Add(
-					rt_row,
+					mesh_row,
 					material_row,
 					matrix,
 					item_mask(item, frame),
@@ -419,6 +423,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			item.entry = entry
 			item.material = material
 			item.hidden = hidden
+			set_part(item, mesh_row, material, entry.polygon3d)
 			set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		else
 			has_cpu_entry = true
@@ -429,6 +434,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 	for i = #list, count + 1, -1 do
 		draw.ClearRow(list[i].id)
+		unpart(list[i])
 		instances.Remove(list[i].id)
 		list[i] = nil
 		changed = true
@@ -442,7 +448,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 	visual.scene_instances = list
 	dynamic[visual] = is_dynamic or nil
-	bending_visuals[visual] = bends or nil
 
 	if changed then
 		mark_dirty(visual.scene_aabb)
@@ -485,23 +490,6 @@ end
 
 function bridge.RefreshDynamic()
 	local frame = system.GetFrameNumber()
-
-	if trace_version ~= opacity_micromaps.version then
-		trace_version = opacity_micromaps.version
-
-		for visual in pairs(tracked) do
-			for _, item in ipairs(visual.scene_instances) do
-				local rt_row = opacity_micromaps.GetRow(meshes.GetRecord(item.mesh_row), item.material)
-
-				if item.rt_row ~= rt_row then
-					instances.SetMesh(item.id, rt_row)
-					item.rt_row = rt_row
-				end
-			end
-
-			mark_dirty(visual.scene_aabb)
-		end
-	end
 
 	for visual in pairs(dynamic) do
 		local list = visual.scene_instances

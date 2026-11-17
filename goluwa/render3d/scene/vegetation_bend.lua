@@ -8,8 +8,8 @@ local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local accel = import("goluwa/render3d/scene/accel.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
-local instances = import("goluwa/render3d/scene/instances.lua")
-local bridge = import("goluwa/render3d/scene/bridge.lua")
+local store = import("goluwa/render3d/scene/store.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local vegetation_pushers = import("goluwa/render3d/vegetation_pushers.lua")
 local vegetation_bend = {}
 pvars.StartGroup("Rendering", "Ray traced scene", {store = false})
@@ -22,6 +22,12 @@ local max_distance = pvars.Setup2{
 	key = "r_rt_bend_distance",
 	default = 80,
 	help = "the farthest, in meters, a bending plant is bent in the ray traced scene. nearer it is bent while the wind moves it by at least a pixel (a blade of grass only close by, a tree much farther), beyond that it is traced at rest",
+}
+local bend_triangles = pvars.Setup2{
+	key = "r_rt_bend_triangles",
+	default = 262144,
+	integer = true,
+	help = "triangles of bent copies each bending mesh may have in the ray traced scene (a small mesh gets more copies than a large one), given to its instances within r_rt_bend_distance in no particular order. instances past the copies are traced at rest. copies are made as instances ask for them, and as many as asked are bent and refit every frame",
 }
 pvars.EndGroup()
 local MAX_JOBS = 4096
@@ -275,8 +281,7 @@ function vegetation_bend.Queue(record, source_address, matrix_address, material,
 	return true
 end
 
--- bends everything queued since the last dispatch and builds or refits their acceleration structures
-function vegetation_bend.Dispatch(cmd)
+local function dispatch_queued(cmd)
 	if queued == 0 then return end
 
 	job_base = (system.GetFrameNumber() % RING) * MAX_JOBS + frame_used
@@ -296,97 +301,260 @@ function vegetation_bend.Dispatch(cmd)
 	queued, queued_groups = 0, 0
 end
 
-local seen = {}
+local Pool = ffi.typeof([[struct {
+	uint32_t first_slot;
+	uint32_t used;
+	float range;
+	uint32_t pad;
+}]])
+local BendSlot = ffi.typeof([[struct {
+	float m[12];
+	uint64_t blas;
+}]])
+local BufferCopy = ffi.typeof("$[1]", vulkan.vk.VkBufferCopy)
+local READBACK_RING = 4
+local pools_table, slots_table
+local counters_buffer, readback_buffer, readback
+local readback_copy = BufferCopy()
+local active = {}
+local pool_keys = {}
 
-local function produce(cmd)
-	local camera = model_pipeline.GetVertexAnimationView()
-	table.clear(seen)
+local function get_tables()
+	if not pools_table then
+		pools_table = store.CreateTable{name = "bend_pools", ctype = Pool, capacity = 256}
+		slots_table = store.CreateTable{name = "bend_slots", ctype = BendSlot, capacity = 256}
+		pools_table:Alloc()
+	end
 
-	if enabled:Get() then
-		local data_rows = instances.GetDataTable():Get()
-		local mesh_rows = meshes.GetTable():Get()
+	return pools_table, slots_table
+end
 
-		for visual in pairs(bridge.GetBendingVisuals()) do
-			for _, item in ipairs(visual.scene_instances) do
-				local id = item.id
-				local data = data_rows[id]
-				local dx, dy, dz = camera.x - data.center_x, camera.y - data.center_y, camera.z - data.center_z
+local function ensure_counters()
+	local pools = get_tables()
 
-				if
-					not item.hidden and
-					item.material:HasVertexAnimation() and
-					instances.IsLevelShown(id, camera) and
-					math.sqrt(dx * dx + dy * dy + dz * dz) - data.radius <= vegetation_bend.GetRange(item.material, item.entry.polygon3d)
-				then
-					local mesh = meshes.GetRecord(item.mesh_row)
-					local variant = item.rt_row ~= item.mesh_row and meshes.GetRecord(item.rt_row)
-					local omm = variant and variant.omm.micromap and variant.omm or nil
-					local record = bent[id]
+	if counters_buffer and counters_buffer:GetSize() >= pools.capacity * 4 then
+		return
+	end
 
-					if
-						record and
-						(
-							record.item ~= item or
-							record.mesh ~= mesh or
-							record.blas_record.omm ~= omm
-						)
-					then
-						vegetation_bend.ReleaseRecord(record)
-						record = nil
-					end
+	if counters_buffer then
+		counters_buffer:Remove()
+		readback_buffer:Remove()
+	end
 
-					if not record then
-						record = vegetation_bend.NewRecord(mesh, omm)
-						record.item = item
-						bent[id] = record
-					end
+	counters_buffer = render.CreateBuffer{
+		byte_size = pools.capacity * 4,
+		buffer_usage = {"storage_buffer", "transfer_dst", "transfer_src"},
+		memory_property = {"device_local"},
+		label = "vegetation_bend_counters",
+	}
+	readback_buffer = render.CreateBuffer{
+		byte_size = pools.capacity * 4 * READBACK_RING,
+		buffer_usage = {"transfer_dst"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "vegetation_bend_readback",
+	}
+	readback = ffi.cast("uint32_t *", readback_buffer:Map())
+	ffi.fill(readback, pools.capacity * 4 * READBACK_RING)
+end
 
-					if
-						vegetation_bend.Queue(
-							record,
-							mesh_rows[item.mesh_row].vertex_address,
-							instances.GetTLASRecordAddress(id),
-							item.material,
-							item.entry.polygon3d
-						)
-					then
-						seen[id] = true
-					end
-				end
+function vegetation_bend.GetBindings()
+	local pools, slots = get_tables()
+	ensure_counters()
+	return pools:GetBuffer(),
+	pools:GetSize(),
+	slots:GetBuffer(),
+	slots:GetSize(),
+	counters_buffer,
+	counters_buffer:GetSize()
+end
+
+function vegetation_bend.GetAssignGLSL(pools_binding, slots_binding, counters_binding)
+	return [[
+		struct bend_pool {
+			uint first_slot;
+			uint used;
+			float range;
+			uint pad;
+		};
+
+		struct bend_slot {
+			float m[12];
+			uint64_t blas;
+		};
+
+		layout(scalar, set = 0, binding = ]] .. pools_binding .. [[) readonly buffer BendPools { bend_pool bend_pools[]; };
+		layout(scalar, set = 0, binding = ]] .. slots_binding .. [[) buffer BendSlots { bend_slot bend_slots[]; };
+		layout(std430, set = 0, binding = ]] .. counters_binding .. [[) buffer BendCounters { uint bend_counters[]; };
+
+		uint64_t bend_assign(uint pool, float distance_to_camera, in float m[12]) {
+			if (pool == 0u) return 0ul;
+
+			bend_pool p = bend_pools[pool];
+
+			if (p.range <= 0.0 || distance_to_camera > p.range) return 0ul;
+
+			uint k = atomicAdd(bend_counters[pool], 1u);
+
+			if (k >= p.used) return 0ul;
+
+			uint b = p.first_slot + k;
+
+			for (uint c = 0u; c < 12u; c++) {
+				bend_slots[b].m[c] = m[c];
+			}
+
+			return bend_slots[b].blas;
+		}
+	]]
+end
+
+function vegetation_bend.GetPool(mesh_row, material, polygon, max_copies)
+	local by_material = pool_keys[mesh_row]
+	local by_polygon = by_material and by_material[material]
+	local pool = by_polygon and by_polygon[polygon]
+
+	if pool then return pool end
+
+	local pools, slots = get_tables()
+	local mesh = meshes.GetRecord(mesh_row)
+	local copies = math.min(
+		math.max(math.floor(bend_triangles:Get() / mesh.triangle_count), 1),
+		max_copies or math.huge
+	)
+	pool = {
+		id = pools:Alloc(),
+		row = mesh_row,
+		mesh = mesh,
+		trace_row = mesh_row,
+		material = material,
+		polygon = polygon,
+		copies = copies,
+		first = slots:AllocRange(copies),
+		records = {},
+		used = 0,
+		refs = 0,
+	}
+	pool_keys[mesh_row] = by_material or {}
+	pool_keys[mesh_row][material] = by_polygon or {}
+	pool_keys[mesh_row][material][polygon] = pool
+	active[pool] = true
+	return pool
+end
+
+function vegetation_bend.RefPool(pool)
+	pool.refs = pool.refs + 1
+end
+
+function vegetation_bend.UnrefPool(pool)
+	pool.refs = pool.refs - 1
+
+	if pool.refs > 0 then return end
+
+	for _, record in ipairs(pool.records) do
+		vegetation_bend.ReleaseRecord(record)
+	end
+
+	local pools, slots = get_tables()
+	slots:FreeRange(pool.first, pool.copies)
+	pools:Free(pool.id)
+	pool_keys[pool.row][pool.material][pool.polygon] = nil
+	active[pool] = nil
+end
+
+-- sizes every pool from what the gpu counted a few frames ago, makes or remakes the copies it asks for and clears the counters the next assignment adds to
+function vegetation_bend.Prepare(cmd)
+	if not next(active) then return end
+
+	ensure_counters()
+	local pools, slots = get_tables()
+	local pool_rows, slot_rows = pools:Get(), slots:Get()
+	local frame = system.GetFrameNumber()
+	local asked = readback + ((frame + 1) % READBACK_RING) * pools.capacity
+	local animating = enabled:Get()
+
+	for pool in pairs(active) do
+		local range = animating and vegetation_bend.GetRange(pool.material, pool.polygon) or 0
+		local wanted = asked[pool.id]
+		pool.used = range > 0 and
+			wanted > 0 and
+			math.min(pool.copies, wanted + 2 + math.floor(wanted / 4)) or
+			0
+		local variant = pool.trace_row ~= pool.row and meshes.GetRecord(pool.trace_row)
+		local omm = variant and variant.omm.micromap and variant.omm or nil
+		local records = pool.records
+
+		for k = 1, #records do
+			if records[k].blas_record.omm ~= omm then
+				vegetation_bend.ReleaseRecord(records[k])
+				records[k] = vegetation_bend.NewRecord(pool.mesh, omm)
 			end
 		end
+
+		for k = #records + 1, pool.used do
+			records[k] = vegetation_bend.NewRecord(pool.mesh, omm)
+		end
+
+		for k = 1, #records do
+			slot_rows[pool.first + k - 1].blas = records[k].blas_record.address
+		end
+
+		local row = pool_rows[pool.id]
+		row.first_slot = pool.first
+		row.used = pool.used
+		row.range = range
 	end
 
-	for id, record in pairs(bent) do
-		if not seen[id] then
-			instances.SetBLASOverride(id, 0)
-			vegetation_bend.ReleaseRecord(record)
-			bent[id] = nil
+	cmd:FillBuffer(counters_buffer, 0, counters_buffer:GetSize(), 0)
+	cmd:PipelineBarrier{
+		srcStage = {"host", "transfer", "compute", "acceleration_structure_build_khr"},
+		dstStage = "compute",
+		memoryBarrier = true,
+	}
+end
+
+-- bends the copies the assignment filled and refits them, and reads the counters back for the sizing a few frames on
+function vegetation_bend.Dispatch(cmd)
+	if not next(active) then return end
+
+	local _, slots = get_tables()
+	local mesh_rows = meshes.GetTable():Get()
+	local slots_address = slots:GetAddress()
+
+	for pool in pairs(active) do
+		for k = 1, pool.used do
+			vegetation_bend.Queue(
+				pool.records[k],
+				mesh_rows[pool.row].vertex_address,
+				slots_address + (pool.first + k - 1) * ffi.sizeof(BendSlot),
+				pool.material,
+				pool.polygon
+			)
 		end
 	end
 
-	vegetation_bend.Dispatch(cmd)
-
-	for id, record in pairs(bent) do
-		instances.SetBLASOverride(id, record.blas_record.address)
-	end
+	dispatch_queued(cmd)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "transfer", memoryBarrier = true}
+	local frame = system.GetFrameNumber()
+	local size = get_tables().capacity * 4
+	readback_copy[0].srcOffset = 0
+	readback_copy[0].dstOffset = (frame % READBACK_RING) * size
+	readback_copy[0].size = size
+	cmd:CopyBuffer(counters_buffer, readback_buffer, readback_copy, 1)
 end
 
 function vegetation_bend.GetStats()
 	local count, triangles, micromapped = 0, 0, 0
 
-	for _, record in pairs(bent) do
-		count = count + 1
-		triangles = triangles + record.mesh.triangle_count
+	for pool in pairs(active) do
+		for k = 1, pool.used do
+			count = count + 1
+			triangles = triangles + pool.mesh.triangle_count
 
-		if record.blas_record.omm then micromapped = micromapped + 1 end
+			if pool.records[k].blas_record.omm then micromapped = micromapped + 1 end
+		end
 	end
 
 	return count, triangles, micromapped
-end
-
-if render.GetDevice().ray_tracing_supported then
-	instances.AddProducer("vegetation_bend", produce)
 end
 
 return vegetation_bend

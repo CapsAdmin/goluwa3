@@ -434,8 +434,11 @@ T.Test3D("Graphics render3d scene store bends a plant in the ray traced scene th
 
 	local function distance_at_top(bend)
 		pvars.SetSession("r_rt_bend", bend)
-		draw()
-		draw()
+
+		for _ = 1, 8 do
+			draw()
+		end
+
 		local hit = read_results(draw, rt.GetTLAS, {0, 0.9, 0})
 		T(hit[1])["=="](1)
 		return ffi.cast("float*", ffi.new("uint32_t[1]", hit[4]))[0]

@@ -12,13 +12,14 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local BuddyPool = import("goluwa/render3d/buddy_pool.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-import("goluwa/render3d/scatter_rt.lua")
+local scatter_rt = import("goluwa/render3d/scatter_rt.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local ViewPriority = import("goluwa/render3d/view_priority.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
@@ -121,8 +122,10 @@ local ScatterPrototype = ffi.typeof([[struct {
 	uint32_t info2[4];
 	uint32_t info3[4];
 	uint32_t info4[4];
+	uint32_t info5[4];
 	float limits[4];
 }]])
+local PROTOTYPE_VEC4S = ffi.sizeof(ScatterPrototype) / 16
 local DRAW_COMMAND_SIZE_SHADOW = 16
 local ScatterBatch = ffi.typeof("struct { uint32_t index_count, first_index, prototype, double_sided; }")
 local uint64_ptr = ffi.typeof("uint64_t *")
@@ -315,6 +318,7 @@ local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL()
 		uvec4 info2;
 		uvec4 info3;
 		uvec4 info4;
+		uvec4 info5;
 		vec4 limits;
 	};
 
@@ -544,6 +548,12 @@ local cull_block = {
 	{"block_count", "int"},
 	{"unit_base", "int"},
 	{"block_base", "int"},
+	{"rt_distance", "float"},
+	{"frame", "int"},
+	{"rt_tlas", "uint64_t"},
+	{"rt_data", "uint64_t"},
+	{"rt_part_of", "uint64_t"},
+	{"rt_parts", "uint64_t"},
 }
 local conform_block = {
 	{"unit_offset", "int"},
@@ -582,6 +592,13 @@ local function write_cull_block(self, block)
 	block.block_count = self.block_count or 0
 	block.unit_base = self.unit_base or 0
 	block.block_base = self.block_base or 0
+	block.rt_distance = scatter_rt.GetDistance()
+	block.frame = system.GetFrameNumber()
+	local tlas, data, part_of = instances.GetProducedAddresses()
+	block.rt_tlas = tlas
+	block.rt_data = data
+	block.rt_part_of = part_of
+	block.rt_parts = scatter_rt.GetPartsAddress()
 	return block
 end
 
@@ -1044,6 +1061,67 @@ function create_compute_passes()
 	}
 
 
+				struct ScatterRtTlas {
+					float m[12];
+					uint custom_and_mask;
+					uint flags;
+					uint64_t blas;
+				};
+
+				struct ScatterRtData {
+					uint mesh_row;
+					uint material_row;
+					uint flags;
+					uint mask_lod;
+					vec4 bounds;
+					vec2 lod;
+					float dynamic;
+					float overlay;
+				};
+
+				struct ScatterRtPart {
+					uint mesh_row;
+					uint material_row;
+					uint record_flags;
+					uint mask_flags;
+					uint part;
+				};
+
+				layout(buffer_reference, scalar) buffer ScatterRtTlasRows { ScatterRtTlas t[]; };
+				layout(buffer_reference, scalar) buffer ScatterRtDataRows { ScatterRtData d[]; };
+				layout(buffer_reference, scalar) buffer ScatterRtPartOf { uint p[]; };
+				layout(buffer_reference, scalar) readonly buffer ScatterRtParts { ScatterRtPart p[]; };
+
+				void scatter_rt_emit(uint first_row, uint first_part, uint count, uint slot, mat4 world) {
+					if (count == 0u || distance(world[3].xyz, compute.camera_position) > compute.rt_distance) return;
+
+					ScatterRtTlasRows tlas = ScatterRtTlasRows(compute.rt_tlas);
+					ScatterRtDataRows data = ScatterRtDataRows(compute.rt_data);
+					ScatterRtPartOf part_of = ScatterRtPartOf(compute.rt_part_of);
+					ScatterRtParts parts = ScatterRtParts(compute.rt_parts);
+
+					for (uint j = 0u; j < count; j++) {
+						ScatterRtPart p = parts.p[first_part + j];
+						uint row = first_row + slot * count + j;
+						uint mask = p.mask_flags & 0xFFu;
+
+						for (uint k = 0u; k < 4u; k++) {
+							tlas.t[row].m[k] = world[k][0];
+							tlas.t[row].m[4u + k] = world[k][1];
+							tlas.t[row].m[8u + k] = world[k][2];
+						}
+
+						tlas.t[row].custom_and_mask = row | (mask << 24u);
+						tlas.t[row].flags = p.record_flags;
+						data.d[row].mesh_row = p.mesh_row;
+						data.d[row].material_row = p.material_row;
+						data.d[row].flags = (p.mask_flags >> 8u) | 32u;
+						data.d[row].mask_lod = mask;
+						data.d[row].lod = vec2(uintBitsToFloat(uint(compute.frame)), 0.0);
+						part_of.p[row] = p.part;
+					}
+				}
+
 				void main() {
 					uint block = gl_WorkGroupID.x;
 
@@ -1091,6 +1169,7 @@ function create_compute_passes()
 							if (slot < proto.info4.y) {
 								world[0][3] = 0.0;
 								scatter_output[proto.info4.x + slot] = world;
+								scatter_rt_emit(proto.info5.y, proto.info5.z + proto.info5.w, proto.info5.y != 0xFFFFFFFFu ? 1u : 0u, slot, world);
 							}
 						} else if (mid_distance > 0.0 && d >= mid_distance) {
 							ScatterPrototype mid = scatter_prototypes[mid_index - 1u];
@@ -1099,6 +1178,7 @@ function create_compute_passes()
 							if (slot < mid.info3.y) {
 								world[0][3] = 0.0;
 								scatter_output[mid.info3.x + slot] = world;
+								scatter_rt_emit(mid.info5.x, mid.info5.z, mid.info5.w, slot, world);
 							}
 						} else {
 							uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 2u)], 1u);
@@ -1106,6 +1186,7 @@ function create_compute_passes()
 							if (slot < proto.info3.y) {
 								world[0][3] = 0.0;
 								scatter_output[proto.info3.x + slot] = world;
+								scatter_rt_emit(proto.info5.x, proto.info5.z, proto.info5.w, slot, world);
 							}
 						}
 					}
@@ -1374,7 +1455,8 @@ local function write_prototype(
 	shadow_base,
 	shadow_billboard_base,
 	shadow_out_base,
-	shadow_out_billboard_base
+	shadow_out_billboard_base,
+	rt
 )
 	out.placement[0] = proto.density * proto.density_multiplier
 	out.placement[1] = proto.max_distance * proto.distance_multiplier * proto.reach
@@ -1427,6 +1509,11 @@ local function write_prototype(
 	out.info4[0] = shadow_billboard_base
 	out.info4[1] = proto.shadow_billboard_room
 	out.info4[2] = shadow_out_billboard_base
+
+	for i = 0, 3 do
+		out.info5[i] = rt[i + 1]
+	end
+
 	out.limits[3] = proto.align_steep
 	local mid = proto.mid
 	local has_mid = mid and mid.state == "ready" and proto.sized_mid > 0
@@ -1442,6 +1529,16 @@ local function write_prototype(
 	out.info[3] = proto.shadow and 1 or 0
 end
 
+local rt_rows = setmetatable(
+	{},
+	{
+		__index = function(t, k)
+			local row = {0, 0, 0, 0}
+			t[k] = row
+			return row
+		end,
+	}
+)
 local draw_batches = {}
 local batch_table = nil
 local batch_serial = 0
@@ -2702,6 +2799,8 @@ function scatter.PreDraw(cmd)
 
 	if layout_dirty then assign_bases() end
 
+	scatter_rt.Update(protos, rt_rows)
+
 	for i, proto in ipairs(protos) do
 		write_prototype(
 			b.prototype_data[i - 1],
@@ -2711,7 +2810,8 @@ function scatter.PreDraw(cmd)
 			shadow_bases[i],
 			shadow_billboard_bases[i],
 			shadow_out_bases[i],
-			shadow_out_billboard_bases[i]
+			shadow_out_billboard_bases[i],
+			rt_rows[i]
 		)
 	end
 
@@ -2884,30 +2984,6 @@ function scatter.PreDraw(cmd)
 	barrier(cmd, b.instances, "compute", "vertex", "shader_write", "shader_read")
 end
 
-function scatter.GetRTSources()
-	if not buffers or layout_dirty or draw_version ~= ScatterSet.version then
-		return nil
-	end
-
-	local sources = {}
-
-	for i, proto in ipairs(ScatterSet.GetPrototypes()) do
-		if proto.state == "ready" and proto.shadow and proto.bvh and shadow_bases[i] then
-			sources[#sources + 1] = {
-				counter = proto.index * 4,
-				parts = proto.parts,
-				billboard_part = proto.sized_switch > 0 and proto.billboard_part or nil,
-				model_base = shadow_bases[i],
-				model_room = proto.shadow_room,
-				billboard_base = shadow_billboard_bases[i],
-				billboard_room = proto.shadow_billboard_room,
-			}
-		end
-	end
-
-	return sources, buffers.instances, buffers.args, layout_version
-end
-
 function scatter.Draw(pipeline, cmd)
 	if not enabled:Get() or surface_count == 0 or not draw_batches[1] then return end
 
@@ -3007,7 +3083,7 @@ do
 					if (i >= count) return;
 
 					mat4 world = ShadowWorldsIn(compute.source).w[entry.y + i];
-					vec4 bounds = ShadowPrototypeVec(compute.prototypes).v[proto * 16u + 10u];
+					vec4 bounds = ShadowPrototypeVec(compute.prototypes).v[proto * ]] .. PROTOTYPE_VEC4S .. [[u + 10u];
 					float size_y = length(world[1].xyz);
 					float radius = bounds.x * max(length(world[0].xyz), size_y);
 					vec3 center = world[3].xyz + vec3(0.0, bounds.y * size_y * 0.5, 0.0);
@@ -3071,7 +3147,7 @@ do
 					uint prototype = ShadowBatches(compute.batches).b[id].z;
 					uint proto = prototype >> 1u;
 					uint kind = prototype & 1u;
-					uvec4 info = ShadowPrototypeUint(compute.prototypes).v[proto * 16u + 13u + kind];
+					uvec4 info = ShadowPrototypeUint(compute.prototypes).v[proto * ]] .. PROTOTYPE_VEC4S .. [[u + 13u + kind];
 					ShadowCommandsOut(compute.out_commands).c[id] = uvec4(source.x, min(ShadowCounts(compute.out_counts).n[proto * 2u + kind], info.y), source.z, info.z);
 				}
 			]],

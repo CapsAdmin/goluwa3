@@ -2,11 +2,13 @@ local ffi = require("ffi")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local system = import("goluwa/system.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
+local vegetation_bend, parts
 local accel = import("goluwa/render3d/scene/accel.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local instances = {}
@@ -52,7 +54,7 @@ instances.FLAG_BILLBOARD = 128
 instances.FLAG_BEFORE_BILLBOARD = 256
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
-local tlas_table, data_table, blas_override_table
+local tlas_table, data_table, part_table
 local RasterData = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -117,7 +119,7 @@ function instances.GetTables()
 			staged = true,
 		}
 		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 16384, staged = true}
-		blas_override_table = store.CreateTable{name = "instance_blas_override", ctype = "uint64_t", capacity = 16384}
+		part_table = store.CreateTable{name = "instance_part", ctype = "uint32_t", capacity = 16384}
 		raster_table = store.CreateTable{name = "instance_raster", ctype = RasterData, capacity = 16384, staged = true}
 	end
 
@@ -217,7 +219,7 @@ function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last,
 end
 
 function instances.Remove(id)
-	if id < blas_override_table.capacity then blas_override_table:Get()[id] = 0 end
+	if id < part_table.capacity then part_table:Get()[id] = 0 end
 
 	local record = tlas_table:Get()[id]
 	record.accelerationStructureReference = 0
@@ -235,10 +237,10 @@ function instances.SetMatrix(id, matrix)
 	tlas_table:Touch(id)
 end
 
--- the instance traces against this acceleration structure instead of its mesh's while it is shown (0 is its mesh's): a copy of the mesh deformed the way the raster deforms it
-function instances.SetBLASOverride(id, address)
-	blas_override_table:Reserve(tlas_table.capacity)
-	blas_override_table:Get()[id] = address
+-- the part (parts.Acquire) the instance traces: the mesh row of its bottom level structure and the bend pool whose copy it traces while one is free for it, 0 for neither
+function instances.SetPart(id, part)
+	part_table:Reserve(tlas_table.capacity)
+	part_table:Get()[id] = part
 end
 
 -- the level of detail the update pass shows, by the same test
@@ -259,8 +261,11 @@ function instances.IsLevelShown(id, camera_position)
 	return (level == 0 or ratio >= data.lod_near) and (level == last or ratio < data.lod_far)
 end
 
-function instances.GetTLASRecordAddress(id)
-	return tlas_table:GetAddress() + id * ffi.sizeof(TLASInstance)
+-- device addresses of the rows a gpu pass writes produced instances into (the tlas row, the data row and the part of each instance); a produced instance is shown for the frame it was written in and the next
+function instances.GetProducedAddresses()
+	instances.GetTables()
+	part_table:Reserve(tlas_table.capacity)
+	return tlas_table:GetAddress(), data_table:GetAddress(), part_table:GetAddress()
 end
 
 function instances.SetBounds(id, x, y, z, radius)
@@ -270,12 +275,6 @@ function instances.SetBounds(id, x, y, z, radius)
 	data.center_y = y
 	data.center_z = z
 	data.radius = radius
-end
-
-function instances.SetMesh(id, mesh_row)
-	data_table:Get()[id].mesh_row = mesh_row
-	data_table:Touch(id)
-	instances.version = instances.version + 1
 end
 
 function instances.SetMaterial(id, material_row)
@@ -339,6 +338,8 @@ end
 
 function instances.FreeRange(base, n, immediate)
 	produced_ranges[base] = nil
+	part_table:Reserve(tlas_table.capacity)
+	ffi.fill(part_table:Get() + base, n * 4)
 	tlas_table:FreeRange(base, n, immediate)
 	data_table.live = data_table.live - n
 	instances.GetRasterTable()
@@ -388,14 +389,6 @@ function instances.GetRecordFlags(flags)
 			accel.INSTANCE_FORCE_NO_OPAQUE or
 			accel.INSTANCE_FORCE_OPAQUE
 		)
-end
-
-local producers = {}
-local preparers = {}
-
-function instances.AddProducer(name, produce, prepare)
-	producers[name] = produce
-	preparers[name] = prepare
 end
 
 function instances.GetVisualRows()
@@ -459,6 +452,10 @@ do
 				{binding_index = 1},
 				{binding_index = 2},
 				{binding_index = 4},
+				{binding_index = 5},
+				{binding_index = 6},
+				{binding_index = 7},
+				{binding_index = 8},
 			},
 			uniform_buffers = {
 				{
@@ -470,6 +467,7 @@ do
 						{"lod_scale", "float"},
 						{"lod_forced", "int"},
 						{"max_distance", "float"},
+						{"frame", "int"},
 					},
 					write = function(self, block)
 						local position = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
@@ -480,6 +478,7 @@ do
 						block.lod_scale = lod.GetScale() * rt_lod_scale:Get()
 						block.lod_forced = lod.GetForcedLevel()
 						block.max_distance = rt_distance:Get()
+						block.frame = system.GetFrameNumber()
 						return block
 					end,
 				},
@@ -518,7 +517,10 @@ do
 				layout(scalar, set = 0, binding = 0) buffer TLASInstances { tlas_instance tlas[]; };
 				layout(scalar, set = 0, binding = 1) readonly buffer InstanceData { instance_data data[]; };
 				layout(scalar, set = 0, binding = 2) readonly buffer MeshRows { mesh_row meshes[]; };
-				layout(scalar, set = 0, binding = 4) readonly buffer BLASOverrides { uint64_t blas_overrides[]; };
+				layout(scalar, set = 0, binding = 4) readonly buffer PartOfInstance { uint part_of_instance[]; };
+				]] .. parts.GLSL .. [[
+				layout(scalar, set = 0, binding = 8) readonly buffer Parts { scene_part parts[]; };
+				]] .. vegetation_bend.GetAssignGLSL(5, 6, 7) .. [[
 			]],
 			shader = [[
 				void main() {
@@ -532,23 +534,39 @@ do
 					uint last = (inst.mask_lod >> 16u) & 0xFFu;
 					uint64_t blas = 0ul;
 
-					if ((inst.flags & 32u) != 0u) return;
+					bool produced = (inst.flags & 32u) != 0u;
 
 					if ((inst.flags & 16u) == 0u && mask != 0u) {
-						blas = meshes[inst.mesh_row].blas;
-						float distance_to = distance(update_data.camera.xyz, inst.bounds.xyz);
-						float ratio = distance_to / (max(inst.bounds.w, 0.001) * update_data.lod_scale);
+						uint part_id = part_of_instance[id];
+						scene_part part = parts[part_id];
+						blas = meshes[part_id != 0u ? part.trace_row : inst.mesh_row].blas;
+						float bend_distance;
 						bool shown;
 
-						if (update_data.lod_forced >= 0) {
-							shown = level == min(uint(update_data.lod_forced), last);
+						if (produced) {
+							shown = update_data.frame - int(floatBitsToUint(inst.lod.x)) <= 1;
+							bend_distance = distance(update_data.camera.xyz, vec3(tlas[id].m[3], tlas[id].m[7], tlas[id].m[11]));
 						} else {
-							shown = (level == 0u || ratio >= inst.lod.x) && (level == last || ratio < inst.lod.y);
+							float distance_to = distance(update_data.camera.xyz, inst.bounds.xyz);
+							float ratio = distance_to / (max(inst.bounds.w, 0.001) * update_data.lod_scale);
+
+							if (update_data.lod_forced >= 0) {
+								shown = level == min(uint(update_data.lod_forced), last);
+							} else {
+								shown = (level == 0u || ratio >= inst.lod.x) && (level == last || ratio < inst.lod.y);
+							}
+
+							shown = shown && distance_to - inst.bounds.w <= update_data.max_distance;
+							bend_distance = distance_to - inst.bounds.w;
 						}
 
-						if (!shown || distance_to - inst.bounds.w > update_data.max_distance) blas = 0ul;
+						if (!shown) blas = 0ul;
 
-						if (blas != 0ul && blas_overrides[id] != 0ul) blas = blas_overrides[id];
+						if (blas != 0ul) {
+							uint64_t copy = bend_assign(part.bend_pool, bend_distance, tlas[id].m);
+
+							if (copy != 0ul) blas = copy;
+						}
 					}
 
 					tlas[id].blas = blas;
@@ -561,19 +579,13 @@ do
 
 	function instances.Build(cmd)
 		instances.GetTables()
-
-		for _, prepare in pairs(preparers) do
-			prepare()
-		end
-
+		vegetation_bend = vegetation_bend or import("goluwa/render3d/scene/vegetation_bend.lua")
+		parts = parts or import("goluwa/render3d/scene/parts.lua")
 		store.FlushStaged(cmd)
 		meshes.Build(cmd, skinning.updated)
 		opacity_micromaps.Build(cmd)
-
-		for _, produce in pairs(producers) do
-			produce(cmd)
-		end
-
+		parts.Update()
+		vegetation_bend.Prepare(cmd)
 		row_count = tlas_table.count
 		data_table.count = row_count
 		raster_table.count = row_count
@@ -588,24 +600,44 @@ do
 				) - 1
 			) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		local bound = bound_buffers[slot]
-		blas_override_table:Reserve(tlas_table.capacity)
-		local tlas_buffer, data_buffer, mesh_buffer, override_buffer = tlas_table:GetBuffer(),
+		part_table:Reserve(tlas_table.capacity)
+		local pools_buffer, pools_size, slots_buffer, slots_size, counters_buffer, counters_size = vegetation_bend.GetBindings()
+		local parts_table = parts.GetTable()
+		local tlas_buffer, data_buffer, mesh_buffer, pool_buffer, parts_buffer = tlas_table:GetBuffer(),
 		data_table:GetBuffer(),
 		meshes.GetTable():GetBuffer(),
-		blas_override_table:GetBuffer()
+		part_table:GetBuffer(),
+		parts_table:GetBuffer()
 
 		if
 			not bound or
 			bound[1] ~= tlas_buffer or
 			bound[2] ~= data_buffer or
 			bound[3] ~= mesh_buffer or
-			bound[4] ~= override_buffer
+			bound[4] ~= pool_buffer or
+			bound[5] ~= pools_buffer or
+			bound[6] ~= slots_buffer or
+			bound[7] ~= counters_buffer or
+			bound[8] ~= parts_buffer
 		then
-			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer, override_buffer}
+			bound_buffers[slot] = {
+				tlas_buffer,
+				data_buffer,
+				mesh_buffer,
+				pool_buffer,
+				pools_buffer,
+				slots_buffer,
+				counters_buffer,
+				parts_buffer,
+			}
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 2, 0, mesh_buffer, meshes.GetTable():GetSize())
-			pipeline:UpdateDescriptorSet("storage_buffer", slot, 4, 0, override_buffer, blas_override_table:GetSize())
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 4, 0, pool_buffer, part_table:GetSize())
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 5, 0, pools_buffer, pools_size)
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 6, 0, slots_buffer, slots_size)
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 7, 0, counters_buffer, counters_size)
+			pipeline:UpdateDescriptorSet("storage_buffer", slot, 8, 0, parts_buffer, parts_table:GetSize())
 		end
 
 		pipeline:UploadConstants()
@@ -622,6 +654,7 @@ do
 			slot,
 			pipeline.dynamic_offsets
 		)
+		vegetation_bend.Dispatch(cmd)
 		cmd:PipelineBarrier{
 			srcStage = "compute",
 			dstStage = "acceleration_structure_build_khr",
