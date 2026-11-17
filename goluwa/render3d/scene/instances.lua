@@ -72,6 +72,26 @@ local RasterData = ffi.typeof([[struct {
 	float local_size_z;
 	float thickness;
 }]])
+instances.TLAS_INSTANCE_GLSL = [[
+	struct tlas_instance {
+		float m[12];
+		uint custom_and_mask;
+		uint flags;
+		uint64_t blas;
+	};
+]]
+instances.INSTANCE_DATA_GLSL = [[
+	struct instance_data {
+		uint mesh_row;
+		uint material_row;
+		uint flags;
+		uint mask_lod;
+		vec4 bounds;
+		vec2 lod;
+		float dynamic;
+		float overlay;
+	};
+]]
 instances.RASTER_DATA_GLSL = [[
 	struct raster_data {
 		vec3 box_min;
@@ -529,23 +549,7 @@ do
 			custom_declarations = [[
 				#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-				struct tlas_instance {
-					float m[12];
-					uint custom_and_mask;
-					uint flags;
-					uint64_t blas;
-				};
-
-				struct instance_data {
-					uint mesh_row;
-					uint material_row;
-					uint flags;
-					uint mask_lod;
-					vec4 bounds;
-					vec2 lod;
-					float dynamic;
-					float overlay;
-				};
+				]] .. instances.TLAS_INSTANCE_GLSL .. instances.INSTANCE_DATA_GLSL .. [[
 
 				struct mesh_row {
 					uint64_t vertex_address;

@@ -409,23 +409,7 @@ local DRAW_DECLARATIONS = [[
 			#extension GL_EXT_buffer_reference : require
 			#extension GL_EXT_scalar_block_layout : require
 
-			struct tlas_instance {
-				float m[12];
-				uint custom_and_mask;
-				uint flags;
-				uint64_t blas;
-			};
-
-			struct instance_data {
-				uint mesh_row;
-				uint material_row;
-				uint flags;
-				uint mask_lod;
-				vec4 bounds;
-				vec2 lod;
-				float dynamic;
-				float overlay;
-			};
+			]] .. instances.TLAS_INSTANCE_GLSL .. instances.INSTANCE_DATA_GLSL .. [[
 
 			]] .. instances.RASTER_DATA_GLSL .. [[
 
@@ -531,7 +515,7 @@ local SELECT_LOD_GLSL = [[
 			}
 
 ]]
-local WORLD_FROM_GLSL = [[
+draw.WORLD_FROM_GLSL = [[
 			mat4 world_from(float m[12], float fade, float dynamic, float overlay) {
 				return mat4(
 					vec4(m[0], m[4], m[8], fade),
@@ -661,7 +645,7 @@ function create_cull_pipeline()
 				return nearest_depth < sampled * (1.0 - compute.occlusion_depth_bias);
 			}
 
-			]] .. WORLD_FROM_GLSL .. [[
+			]] .. draw.WORLD_FROM_GLSL .. [[
 
 			void main() {
 				uint slot = gl_GlobalInvocationID.x;
@@ -882,7 +866,7 @@ local function get_cluster_pipeline()
 
 			]] .. SELECT_LOD_GLSL .. [[
 
-			]] .. WORLD_FROM_GLSL .. [[
+			]] .. draw.WORLD_FROM_GLSL .. [[
 
 			vec3 transform_point(float m[12], vec3 p) {
 				return vec3(
@@ -1565,23 +1549,7 @@ function create_shadow_pipeline()
 			#extension GL_EXT_buffer_reference : require
 			#extension GL_EXT_scalar_block_layout : require
 
-			struct tlas_instance {
-				float m[12];
-				uint custom_and_mask;
-				uint flags;
-				uint64_t blas;
-			};
-
-			struct instance_data {
-				uint mesh_row;
-				uint material_row;
-				uint flags;
-				uint mask_lod;
-				vec4 bounds;
-				vec2 lod;
-				float dynamic;
-				float overlay;
-			};
+			]] .. instances.TLAS_INSTANCE_GLSL .. instances.INSTANCE_DATA_GLSL .. [[
 
 			]] .. instances.RASTER_DATA_GLSL .. [[
 
