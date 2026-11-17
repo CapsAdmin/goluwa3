@@ -8,6 +8,7 @@ local draw = import("goluwa/render3d/scene/draw.lua")
 local scene_parts = import("goluwa/render3d/scene/parts.lua")
 local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
 local lod = import("goluwa/render3d/lod.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local bridge = {}
 local dynamic = setmetatable({}, {__mode = "k"})
 local cpu_drawn = setmetatable({}, {__mode = "k"})
@@ -500,6 +501,8 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			if state then
 				track_polygon(polygon3d, visual)
+				local cut_material = visual:GetResolvedMaterial(entry)
+
 				if
 					state.ready and
 					state.cuts[1] and
@@ -508,7 +511,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 						entry.lod_last == 0
 					)
 					and
-					cluster_lod.IsMaterialEligible(visual:GetResolvedMaterial(entry))
+					cluster_lod.IsMaterialEligible(cut_material)
 				then
 					radius = radius or get_visual_radius(visual)
 
@@ -516,6 +519,10 @@ function bridge.UpdateVisual(visual, is_dynamic)
 						cuts, ratios = state.cuts, {}
 						local scale = get_matrix_scale(entry.transform:GetWorldMatrix())
 						local previous = 0
+
+						if cut_material:HasVertexAnimation() then
+							previous = (pvars.Get("r_rt_bend_distance") + radius) / radius
+						end
 
 						for i = 1, #cuts do
 							previous = math.max(previous, cluster_lod.GetCutDistance(cuts[i], scale) / radius)

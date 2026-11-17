@@ -448,3 +448,55 @@ T.Test("cluster lod keeps bending vertices of different stiffness and pivot apar
 	T(bend_triangles < triangles)["=="](true)
 	T(ffi.sizeof(plain_blob) + ffi.sizeof(bend_blob) > 0)["=="](true)
 end)
+
+T.Test3D("Graphics render3d cluster lod takes alpha tested bending plants too", function(draw)
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(60))
+	camera:SetNearZ(0.1)
+	camera:SetFarZ(1000)
+	camera:SetPosition(Vec3(0, 0, 0))
+	camera:SetRotation(Quat():Identity())
+	local vertices, vertex_count, indices, index_count = icosphere(6, true)
+	local indices16 = ffi.new("uint16_t[?]", index_count)
+
+	for i = 0, index_count - 1 do
+		indices16[i] = indices[i]
+	end
+
+	local polygon = Polygon3D.New()
+	polygon:UploadVertexArray(vertices, vertex_count, indices16, index_count, true)
+	polygon:SetBendHeight(2)
+	local material = Material.New()
+	material:SetAlphaTest(true)
+	material:SetBending(1)
+	local entity = Entity.New{Name = "cluster_lod_plant"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -3))
+	local visual = entity:AddComponent("visual")
+	visual:SetUseOcclusionCulling(false)
+	local primitive = Entity.New{Name = "cluster_lod_plant_primitive", Parent = entity}
+	primitive:AddComponent("transform")
+	primitive:AddComponent("visual_primitive"):SetPolygon3D(polygon)
+	primitive.visual_primitive:SetMaterial(material)
+	visual:BuildAABB()
+	local started = system.GetTime()
+
+	while not cluster_lod.GetState(polygon) do
+		thread_pool.Update()
+		draw()
+		threads.sleep(5)
+		T(system.GetTime() - started < 25)["=="](true)
+	end
+
+	for _ = 1, 4 do
+		draw()
+	end
+
+	T(scene_draw.GetClusterStats().rows)["=="](1)
+	local result = scene_draw.ReadBackCull(0)
+	T(result.commands > 1)["=="](true)
+	T(result.triangles < index_count / 3)["=="](true)
+	local record = cluster_lod.GetState(polygon)
+	T(record.count > 0)["=="](true)
+	entity:Remove()
+end)

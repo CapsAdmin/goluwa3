@@ -46,6 +46,7 @@ local states = setmetatable({}, {__mode = "k"})
 cluster_lod.listeners = {}
 cluster_lod.rt_listeners = {}
 local MAX_CUTS = 3
+local BEND_BOUNDS = 0.3
 local CUT_REDUCTION = 2
 local MIN_CUT_TRIANGLES = 128
 local REFERENCE_PIXELS_PER_RADIAN = 1080 / (2 * math.tan(math.rad(60) / 2))
@@ -59,13 +60,7 @@ function cluster_lod.OnRTErrorChanged(listener)
 end
 
 function cluster_lod.IsMaterialEligible(material)
-	return not (
-		material:IsTransparent() or
-		material:MarchesRelief() or
-		material:HasVertexAnimation() or
-		material:GetAlphaTest() or
-		material.Decal
-	)
+	return not (material:IsTransparent() or material:MarchesRelief() or material.Decal)
 end
 
 function cluster_lod.GetCutDistance(cut, world_scale)
@@ -182,6 +177,14 @@ local function finish(polygon3d, state, job)
 
 	for i = 0, count - 1 do
 		destination[i].first_index = destination[i].first_index + first_index
+	end
+
+	local bend_height = polygon3d:GetBendHeight()
+
+	if bend_height > 0 then
+		for i = 0, count - 1 do
+			destination[i].bounds[3] = destination[i].bounds[3] + bend_height * BEND_BOUNDS
+		end
 	end
 
 	rows:TouchRange(base, count)
