@@ -213,6 +213,7 @@ function Beam.New(config)
 
 		polygon:UploadVertexArray(vertices, vertex_count, indices, (self.point_count - 1) * 6, false, "owned")
 		self.vertices = vertices
+		self.vertex_count = vertex_count
 		self.floats = ffi.cast("float *", vertices)
 		self.primitive = visual:CreatePrimitiveEntity(polygon, self.Material, "beam_primitive")
 		return self
@@ -273,7 +274,7 @@ function Beam:ApplyTint()
 	end
 
 	self.tint_dirty = false
-	self.polygon.mesh.vertex_buffer:Upload()
+	self.polygon:UpdateVertexArray(self.vertices, self.vertex_count)
 end
 
 do
@@ -297,7 +298,7 @@ do
 		local aabb = self.polygon.AABB
 		aabb.min_x, aabb.min_y, aabb.min_z = min_x, min_y, min_z
 		aabb.max_x, aabb.max_y, aabb.max_z = max_x, max_y, max_z
-		self.polygon.mesh.vertex_buffer:Upload()
+		self.polygon:UpdateVertexArray(self.vertices, self.vertex_count)
 		self.primitive.visual_primitive:SetLocalAABB(aabb)
 		self.entity.visual:BuildAABB()
 	end

@@ -433,6 +433,7 @@ local DRAW_DECLARATIONS = [[
 				uint64_t vertex_address;
 				uint64_t index_address;
 				uint64_t blas;
+				uint64_t extras_address;
 				uint triangle_count;
 				uint vertex_stride;
 				uint flags;
@@ -1588,6 +1589,7 @@ function create_shadow_pipeline()
 				uint64_t vertex_address;
 				uint64_t index_address;
 				uint64_t blas;
+				uint64_t extras_address;
 				uint triangle_count;
 				uint vertex_stride;
 				uint flags;

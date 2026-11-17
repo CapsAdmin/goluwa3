@@ -166,8 +166,25 @@ local function mesh_content_key(vertex_attributes, vertices, indices, index_type
 	return table.concat(parts, "\1")
 end
 
-function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index_count, name)
+function Mesh:SetExtras(vertex_buffer, binding, owned)
+	self.extras = vertex_buffer
+	self.extras_binding = binding
+	self.extras_owned = owned
+end
+
+function Mesh.NewDeduped(
+	vertex_attributes,
+	vertices,
+	indices,
+	index_type,
+	index_count,
+	name,
+	extras_key,
+	create_extras
+)
 	local key = mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count)
+
+	if key and extras_key then key = key .. "\2" .. extras_key end
 
 	if key then
 		local cached = mesh_content_cache[key]
@@ -180,6 +197,8 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 
 	local self = Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name)
 
+	if create_extras then self:SetExtras(create_extras()) end
+
 	if key then
 		self.content_key = key
 		mesh_content_cache[key] = self
@@ -188,6 +207,12 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 
 		if self.vertex_buffer.buffer then
 			objects.DisableFinalizer(self.vertex_buffer.buffer)
+		end
+
+		if self.extras and self.extras_owned then
+			objects.DisableFinalizer(self.extras)
+
+			if self.extras.buffer then objects.DisableFinalizer(self.extras.buffer) end
 		end
 
 		if self.index_buffer then
@@ -202,7 +227,7 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 	return self
 end
 
-function Mesh:CloneDynamic(vertex_buffer)
+function Mesh:CloneDynamic(vertex_buffer, extras)
 	local clone = Mesh:CreateObject()
 	clone.source = self
 	clone.debug_name = self.debug_name
@@ -214,6 +239,9 @@ function Mesh:CloneDynamic(vertex_buffer)
 			self.vertex_buffer.vertex_attributes,
 			build_mesh_buffer_name(self.debug_name, "dynamic vertices")
 		)
+	clone.extras = extras
+	clone.extras_binding = self.extras_binding
+	clone.extras_owned = extras ~= nil
 	return clone
 end
 
@@ -251,6 +279,12 @@ function Mesh:OnRemove()
 
 		self.vertex_buffer:Remove()
 
+		if self.extras and self.extras_owned then
+			if self.extras.buffer then self.extras.buffer:Remove() end
+
+			self.extras:Remove()
+		end
+
 		if self.index_buffer then
 			if self.index_buffer.buffer then self.index_buffer.buffer:Remove() end
 
@@ -267,6 +301,10 @@ function Mesh:Bind(cmd, binding_position)
 
 	binding_position = binding_position or 0
 	cmd:BindVertexBuffer(self.vertex_buffer:GetBuffer(), binding_position)
+
+	if self.extras then
+		cmd:BindVertexBuffer(self.extras:GetBuffer(), self.extras_binding)
+	end
 
 	if self.index_buffer then
 		cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
@@ -305,6 +343,10 @@ function Mesh:BindInstanced(cmd, extra_vertex_buffers, binding_position)
 	end
 
 	cmd:BindVertexBuffers(binding_position, buffers)
+
+	if self.extras then
+		cmd:BindVertexBuffer(self.extras:GetBuffer(), self.extras_binding)
+	end
 
 	if self.index_buffer then
 		cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
@@ -466,6 +508,12 @@ end
 
 function Mesh:GetVertexBufferAddress()
 	return self.vertex_buffer:GetBuffer():GetDeviceAddress()
+end
+
+function Mesh:GetExtrasBufferAddress()
+	if not self.extras then return 0 end
+
+	return self.extras:GetBuffer():GetDeviceAddress()
 end
 
 function Mesh:GetIndexBufferAddress()

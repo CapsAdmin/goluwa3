@@ -15,6 +15,7 @@ local ROW = 65535
 local Job = ffi.typeof([[struct {
 	uint32_t bind[2];
 	uint32_t destination[2];
+	uint32_t destination_extras[2];
 	uint32_t bones[2];
 	uint32_t matrices[2];
 	uint32_t morph_ranges[2];
@@ -109,6 +110,7 @@ local function get_pipeline()
 			struct SkinJob {
 				uvec2 bind;
 				uvec2 destination;
+				uvec2 destination_extras;
 				uvec2 bones;
 				uvec2 matrices;
 				uvec2 morph_ranges;
@@ -183,7 +185,8 @@ local function get_pipeline()
 				}
 
 				vec3 previous = position;
-				bool had_previous = skin_destination_color(destination, i).w < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
+				SkinDestination extras = SkinDestination(packUint2x32(job.destination_extras));
+				bool had_previous = skin_destination_color(extras, i).w < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
 				position = m * vec4(position, 1.0);
 
 				if (had_previous) {
@@ -198,7 +201,7 @@ local function get_pipeline()
 				skin_destination_set_normal(destination, i, normal);
 				skin_destination_set_tangent(destination, i, vec4(tangent, skin_destination_tangent(destination, i).w));
 				vec3 motion = position - previous;
-				skin_destination_set_color(destination, i, vec4(motion, ]] .. skinning.MOTION_MARK .. [[.0));
+				skin_destination_set_color(extras, i, vec4(motion, ]] .. skinning.MOTION_MARK .. [[.0));
 			}
 		]],
 	}
@@ -425,6 +428,7 @@ function skinning.Dispatch(cmd)
 				local job = b.job_data[job_base + jobs]
 				ffi.cast(uint64_ptr, job.bind)[0] = skinned.bind_address
 				ffi.cast(uint64_ptr, job.destination)[0] = skinned.destination_address
+				ffi.cast(uint64_ptr, job.destination_extras)[0] = skinned.destination_extras_address
 				ffi.cast(uint64_ptr, job.bones)[0] = skinned.bones_address
 				ffi.cast(uint64_ptr, job.matrices)[0] = matrix_address
 

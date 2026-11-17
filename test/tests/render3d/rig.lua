@@ -47,6 +47,7 @@ local function create_part()
 	{
 		bind_vertex_buffer = poly.mesh.vertex_buffer,
 		vertex_buffer = clone.mesh.vertex_buffer,
+		extras = clone.mesh.extras,
 		skin = skin,
 	}
 end

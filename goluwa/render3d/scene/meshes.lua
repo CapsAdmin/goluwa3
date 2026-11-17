@@ -9,6 +9,7 @@ local MeshRow = ffi.typeof([[struct {
 	uint64_t vertex_address;
 	uint64_t index_address;
 	uint64_t blas_address;
+	uint64_t extras_address;
 	uint32_t triangle_count;
 	uint32_t vertex_stride;
 	uint32_t flags;
@@ -56,6 +57,7 @@ function meshes.Get(mesh, dynamic)
 	local data = rows:Get() + row
 	data.vertex_address = vertex_buffer:GetBuffer():GetDeviceAddress()
 	data.vertex_stride = vertex_buffer.stride
+	data.extras_address = mesh:GetExtrasBufferAddress()
 	data.triangle_count = triangle_count
 	data.flags = 0
 

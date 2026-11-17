@@ -200,6 +200,7 @@ local shadow_flag_fields = Material.FlagSet:GetBlockFields("flags")
 local ShadowBatchRecord = ffi.typeof(
 	[[struct {
 		uint32_t addresses[4];
+		uint32_t extras_address[2];
 		uint32_t index_is_32;
 		int32_t albedo_texture_index;
 		]] .. table.concat(
@@ -259,6 +260,7 @@ do
 
 	struct ShadowBatch {
 		uvec4 addresses;
+		uvec2 extras_address;
 		uint index_is_32;
 		int albedo_texture_index;
 ]] .. table.concat(
@@ -376,12 +378,13 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					vertex_animation.PrevTime = pc.prev_time;
 					vertex_animation.DetailTime = pc.detail_time;
 					vertex_animation.PrevDetailTime = pc.detail_time;
+					ShadowVertexData extras = ShadowVertexData(packUint2x32(SHADOW_BATCH[batch_index].extras_address));
 					vec3 local_normal = shadow_vertex_normal(data, index);
-					vec4 vertex_color = shadow_vertex_color(data, index);
+					vec4 vertex_color = shadow_vertex_color(extras, index);
 					VegetationChain vertex_chain = VegetationChain(
-						shadow_vertex_pivot(data, index),
-						shadow_vertex_chain_mid(data, index),
-						shadow_vertex_chain_tip(data, index)
+						shadow_vertex_pivot(extras, index),
+						shadow_vertex_chain_mid(extras, index),
+						shadow_vertex_chain_tip(extras, index)
 					);
 					vec3 world_normal = normalize(transpose(inverse(mat3(shadow_world))) * local_normal);
 					if (vertex_color.a < ]] .. skinning.MOTION_THRESHOLD .. [[.0) {

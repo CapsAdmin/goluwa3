@@ -276,6 +276,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			prism and
 			[=[		struct PrismMesh {
 			PrismVertexData vertices;
+			PrismVertexData extras;
 			PrismIndexData indices;
 			bool indexed;
 			bool index_32;
@@ -364,7 +365,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 				}
 
 				int slot = b.x == lowest ? 0 : (b.y == lowest ? 1 : 2);
-				float next = prism_vertex_pivot(mesh.vertices, i0)[slot];
+				float next = prism_vertex_pivot(mesh.extras, i0)[slot];
 
 				if (next < 0.0) {
 					break;
@@ -706,6 +707,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			s.terrain = false;
 			uvec4 addresses = PBRBatchData(gbuffer_draw.batches).b[in_batch].addresses;
 			s.mesh.vertices = PrismVertexData(packUint2x32(addresses.xy));
+			s.mesh.extras = PrismVertexData(packUint2x32(PBRBatchData(gbuffer_draw.batches).b[in_batch].extras_address));
 			s.mesh.indexed = (addresses.z | addresses.w) != 0u;
 			s.mesh.indices = PrismIndexData(packUint2x32(addresses.zw));
 			s.mesh.index_32 = PBRBatchData(gbuffer_draw.batches).b[in_batch].index_is_32 != 0u;
@@ -729,7 +731,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			vec3 outward = face;
 
 			if (side) {
-				s.tri = uint(prism_vertex_pivot(s.mesh.vertices, prism_index(s.mesh, in_triangle, 0u)).x + 0.5);
+				s.tri = uint(prism_vertex_pivot(s.mesh.extras, prism_index(s.mesh, in_triangle, 0u)).x + 0.5);
 				vec3 middle = (prism_position(s.mesh, prism_index(s.mesh, s.tri, 0u)) + prism_position(s.mesh, prism_index(s.mesh, s.tri, 1u)) + prism_position(s.mesh, prism_index(s.mesh, s.tri, 2u))) / 3.0;
 				outward = face * sign(dot(face, in_position - middle));
 			}

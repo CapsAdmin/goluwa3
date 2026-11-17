@@ -53,6 +53,7 @@ local Animation = ffi.typeof("struct { " .. table.concat(animation_fields, " ") 
 local Job = ffi.typeof(
 	[[struct {
 	uint32_t source[2];
+	uint32_t source_extras[2];
 	uint32_t destination[2];
 	uint32_t instance[2];
 	uint32_t count;
@@ -120,6 +121,7 @@ local function get_pipeline()
 			};
 			struct BendJob {
 				uvec2 source;
+				uvec2 source_extras;
 				uvec2 destination;
 				uvec2 instance;
 				uint count;
@@ -165,13 +167,14 @@ local function get_pipeline()
 					vec4(instance.m[3], instance.m[7], instance.m[11], 1.0)
 				);
 				BendSource source = BendSource(packUint2x32(job.source));
+				BendSource extras = BendSource(packUint2x32(job.source_extras));
 				vec3 position = bend_source_position(source, i);
 				vec3 normal = bend_source_normal(source, i);
-				vec4 color = bend_source_color(source, i);
+				vec4 color = bend_source_color(extras, i);
 				VegetationChain chain = VegetationChain(
-					bend_source_pivot(source, i),
-					bend_source_chain_mid(source, i),
-					bend_source_chain_tip(source, i)
+					bend_source_pivot(extras, i),
+					bend_source_chain_mid(extras, i),
+					bend_source_chain_tip(extras, i)
 				);
 				mat3 world3 = mat3(bend_world);
 				mat3 inverse_world3 = inverse(world3);
@@ -256,7 +259,7 @@ local queued, queued_groups = 0, 0
 local queued_records = {}
 
 -- vertices of the mesh at source are bent by the material's wind for the instance whose row major 3x4 world matrix is at matrix_address, into the record's positions
-function vegetation_bend.Queue(record, source_address, matrix_address, material, polygon)
+function vegetation_bend.Queue(record, source_address, extras_address, matrix_address, material, polygon)
 	local frame = system.GetFrameNumber()
 
 	if frame ~= frame_stamp then
@@ -270,6 +273,7 @@ function vegetation_bend.Queue(record, source_address, matrix_address, material,
 	local job = job_data[(frame % RING) * MAX_JOBS + frame_used + queued]
 	model_pipeline.FillVertexAnimationData(job.animation, material, polygon)
 	ffi.cast(uint64_ptr, job.source)[0] = source_address
+	ffi.cast(uint64_ptr, job.source_extras)[0] = extras_address
 	ffi.cast(uint64_ptr, job.destination)[0] = record.positions_address
 	ffi.cast(uint64_ptr, job.instance)[0] = matrix_address
 	job.count = record.mesh.vertex_count
@@ -524,6 +528,7 @@ function vegetation_bend.Dispatch(cmd)
 			vegetation_bend.Queue(
 				pool.records[k],
 				mesh_rows[pool.row].vertex_address,
+				mesh_rows[pool.row].extras_address,
 				slots_address + (pool.first + k - 1) * ffi.sizeof(BendSlot),
 				pool.material,
 				pool.polygon

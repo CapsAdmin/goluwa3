@@ -62,6 +62,7 @@ function hit.GetCoreGLSL()
 			uint64_t vertex_address;
 			uint64_t index_address;
 			uint64_t blas_address;
+			uint64_t extras_address;
 			uint triangle_count;
 			uint vertex_stride;
 			uint flags;
@@ -195,7 +196,8 @@ function hit.GetGLSL(binding)
 			uv.uv0 = scene_vertex_uv(vertices, a);
 			uv.uv1 = scene_vertex_uv(vertices, b);
 			uv.uv2 = scene_vertex_uv(vertices, c);
-			uv.blend = vec3(scene_vertex_texture_blend(vertices, a), scene_vertex_texture_blend(vertices, b), scene_vertex_texture_blend(vertices, c));
+			SceneVertexData extras = SceneVertexData(mesh.extras_address);
+			uv.blend = vec3(scene_vertex_texture_blend(extras, a), scene_vertex_texture_blend(extras, b), scene_vertex_texture_blend(extras, c));
 			return uv;
 		}
 

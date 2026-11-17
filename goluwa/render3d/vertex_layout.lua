@@ -130,17 +130,42 @@ do
 	local core_words = core_stride / 4
 	local reference = ffi.new("uint32_t[?]", extras_words)
 
-	function vertex_layout.Split(vertices, count)
+	function vertex_layout.SplitInto(vertices, count, core, extras)
 		local bytes = ffi.cast("const uint8_t *", vertices)
-		local core = ffi.new("uint8_t[?]", math.max(count * core_stride, 1))
-		local extras = ffi.new("uint8_t[?]", math.max(count * extras_stride, 1))
 
 		for i = 0, count - 1 do
 			ffi.copy(core + i * core_stride, bytes + i * stride, core_stride)
-			ffi.copy(extras + i * extras_stride, bytes + i * stride + core_stride, extras_stride)
 		end
 
+		if extras then
+			for i = 0, count - 1 do
+				ffi.copy(extras + i * extras_stride, bytes + i * stride + core_stride, extras_stride)
+			end
+		end
+	end
+
+	function vertex_layout.Split(vertices, count, with_extras)
+		local core = ffi.new("uint8_t[?]", math.max(count * core_stride, 1))
+		local extras = with_extras and ffi.new("uint8_t[?]", math.max(count * extras_stride, 1)) or nil
+		vertex_layout.SplitInto(vertices, count, core, extras)
 		return core, extras
+	end
+
+	function vertex_layout.Join(core, extras, count)
+		local vertices = vertex_layout.ArrayType(math.max(count, 1))
+		local bytes = ffi.cast("uint8_t *", vertices)
+		local uniform = type(extras) == "string"
+
+		for i = 0, count - 1 do
+			ffi.copy(bytes + i * stride, core + i * core_stride, core_stride)
+			ffi.copy(
+				bytes + i * stride + core_stride,
+				uniform and extras or extras + i * extras_stride,
+				extras_stride
+			)
+		end
+
+		return vertices
 	end
 
 	function vertex_layout.GetUniformExtras(vertices, count)
@@ -214,7 +239,10 @@ function vertex_layout.BuildGlslAccessors(prefix, type_name, writable)
 		local assignments = {}
 
 		for i = 0, field.count - 1 do
-			local at = ("vertex * %du + %du"):format(vertex_layout.FloatStride, field.float_offset + i)
+			local stride = field.group == "core" and
+				vertex_layout.CoreFloatStride or
+				vertex_layout.ExtrasFloatStride
+			local at = ("vertex * %du + %du"):format(stride, field.group_float_offset + i)
 			components[#components + 1] = ("b.v[%s]"):format(at)
 
 			if field.count == 1 then

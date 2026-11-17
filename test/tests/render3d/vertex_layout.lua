@@ -18,17 +18,19 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 	T(vertex_layout.FloatStride)["=="](floats)
 	T(ffi.sizeof(vertex_layout.Type))["=="](vertex_layout.Stride)
 	T(vertex_layout.Stride)["=="](floats * 4)
-	local binding = model_pipeline.GetVertexBufferBinding(0)
-	T(binding.stride)["=="](vertex_layout.Stride)
-	T(model_pipeline.GetVertexStride())["=="](vertex_layout.Stride)
-	local attributes = model_pipeline.GetVertexAttributeLayout(0)
-	T(#attributes)["=="](#vertex_layout.Fields)
+	local bindings = model_pipeline.GetVertexBindings()
+	T(#bindings)["=="](2)
+	T(bindings[1].binding)["=="](0)
+	T(bindings[2].binding)["=="](vertex_layout.EXTRAS_BINDING)
+	T(#bindings[1].attributes + #bindings[2].attributes)["=="](#vertex_layout.Fields)
+	local at = 0
 
-	for i, field in ipairs(vertex_layout.Fields) do
-		T(attributes[i].offset)["=="](field.offset)
-		T(attributes[i].location)["=="](i - 1)
-		T(attributes[i].format)["=="](field.format)
-		T(model_pipeline.GetVertexAttributes()[i][1])["=="](field.name)
+	for _, binding in ipairs(bindings) do
+		for _, attribute in ipairs(binding.attributes) do
+			at = at + 1
+			T(attribute[1])["=="](vertex_layout.Fields[at].name)
+			T(attribute[3])["=="](vertex_layout.Fields[at].format)
+		end
 	end
 
 	local readable = vertex_layout.BuildGlslAccessors("test_vertex", "TestVertexData")
@@ -51,7 +53,11 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 		for i = 0, field.count - 1 do
 			T(
 				readable:find(
-					"b.v[vertex * " .. vertex_layout.FloatStride .. "u + " .. field.float_offset + i .. "u]",
+					"b.v[vertex * " .. (
+							field.group == "core" and
+							vertex_layout.CoreFloatStride or
+							vertex_layout.ExtrasFloatStride
+						) .. "u + " .. field.group_float_offset + i .. "u]",
 					1,
 					true
 				)
@@ -374,7 +380,8 @@ T.Test("the vertex layout splits into a core and an extras group", function()
 
 	local uniform = vertex_layout.GetUniformExtras(vertices, count)
 	T(#uniform)["=="](vertex_layout.ExtrasStride)
-	local core, extras = vertex_layout.Split(vertices, count)
+	local core, extras = vertex_layout.Split(vertices, count, true)
+	T(select(2, vertex_layout.Split(vertices, count)))["=="](nil)
 	T(ffi.sizeof(core))["=="](count * vertex_layout.CoreStride)
 	T(ffi.sizeof(extras))["=="](count * vertex_layout.ExtrasStride)
 	T(ffi.cast("const float *", core)[3 * vertex_layout.CoreFloatStride])["=="](3)

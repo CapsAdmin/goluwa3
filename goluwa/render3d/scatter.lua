@@ -87,6 +87,7 @@ local LAYER_RULES = {
 local ScatterSurface = ffi.typeof([[struct {
 	float world[16];
 	uint32_t addresses[4];
+	uint32_t extras[4];
 	uint32_t info[4];
 	float color[4];
 	float layers[4];
@@ -283,6 +284,7 @@ local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL()
 	struct ScatterSurface {
 		mat4 world;
 		uvec4 addresses;
+		uvec4 extras;
 		uvec4 info;
 		vec4 color;
 		vec4 layers;
@@ -481,7 +483,8 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		t.uv0 = scatter_vertex_uv(data, a);
 		t.uv1 = scatter_vertex_uv(data, b);
 		t.uv2 = scatter_vertex_uv(data, c);
-		t.blend = vec3(scatter_vertex_texture_blend(data, a), scatter_vertex_texture_blend(data, b), scatter_vertex_texture_blend(data, c));
+		ScatterVertexData extras = ScatterVertexData(packUint2x32(s.extras.xy));
+		t.blend = vec3(scatter_vertex_texture_blend(extras, a), scatter_vertex_texture_blend(extras, b), scatter_vertex_texture_blend(extras, c));
 		return t;
 	}
 
@@ -1391,6 +1394,7 @@ local function write_surface(out, surface, pipeline)
 	local index_buffer = mesh.index_buffer
 	ffi.cast(uint64_ptr, out.addresses)[0] = mesh:GetVertexBufferAddress()
 	ffi.cast(uint64_ptr, out.addresses + 2)[0] = mesh:GetIndexBufferAddress()
+	ffi.cast(uint64_ptr, out.extras)[0] = mesh:GetExtrasBufferAddress()
 
 	if index_buffer then
 		out.info[0] = index_buffer:GetIndexCount() / 3

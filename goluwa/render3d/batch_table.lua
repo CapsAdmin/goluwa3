@@ -89,10 +89,12 @@ local function write_batch_record(self, pipeline, context, index, batch, serial)
 
 		addresses[0] = mesh:GetVertexBufferAddress()
 		addresses[1] = mesh:GetIndexBufferAddress()
+		addresses[2] = mesh:GetExtrasBufferAddress()
 		record.index_is_32 = mesh.index_buffer and mesh.index_buffer:GetIndexType() == "uint32" and 1 or 0
 	else
 		addresses[0] = 0
 		addresses[1] = 0
+		addresses[2] = 0
 	end
 
 	local old_material = self.material_at[index]
@@ -215,16 +217,22 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 
 				if not pair then
 					if mesh:IsValid() then
-						pair = {mesh:GetVertexBufferAddress(), mesh:GetIndexBufferAddress()}
+						pair = {
+							mesh:GetVertexBufferAddress(),
+							mesh:GetIndexBufferAddress(),
+							mesh:GetExtrasBufferAddress(),
+						}
 					else
-						pair = {0, 0}
+						pair = {0, 0, 0}
 					end
 
 					expected[mesh] = pair
 				end
 
 				local base = (i - 1) * stride + offset
-				stale = addresses[base] ~= pair[1] or addresses[base + 1] ~= pair[2]
+				stale = addresses[base] ~= pair[1] or
+					addresses[base + 1] ~= pair[2] or
+					addresses[base + 2] ~= pair[3]
 			end
 
 			if stale then write_batch_record(self, pipeline, context, i, batch, serial) end

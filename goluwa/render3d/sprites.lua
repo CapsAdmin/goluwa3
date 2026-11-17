@@ -85,6 +85,7 @@ local function build(batch, capacity)
 	batch.entity = entity
 	batch.polygon = polygon
 	batch.vertices = vertices
+	batch.vertex_count = vertex_count
 	batch.floats = ffi.cast("float *", vertices)
 	batch.capacity = capacity
 	batch.shown = false
@@ -425,7 +426,7 @@ event.AddListener("LateUpdate", "sprite_batches", function()
 			local aabb = batch.polygon.AABB
 			aabb.min_x, aabb.min_y, aabb.min_z = batch.min_x, batch.min_y, batch.min_z
 			aabb.max_x, aabb.max_y, aabb.max_z = batch.max_x, batch.max_y, batch.max_z
-			batch.polygon.mesh.vertex_buffer:Upload()
+			batch.polygon:UpdateVertexArray(batch.vertices, batch.vertex_count)
 			batch.primitive.visual_primitive:SetLocalAABB(aabb)
 			batch.entity.visual:BuildAABB()
 

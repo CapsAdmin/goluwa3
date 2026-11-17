@@ -204,7 +204,7 @@ function Animator:Bind(skeleton)
 
 		if polygon and polygon.Skin then
 			local shared = by_skin[polygon.Skin]
-			local clone = polygon:CloneDynamic(shared and shared.vertex_buffer)
+			local clone = polygon:CloneDynamic(shared and shared.vertex_buffer, shared and shared.extras)
 			local aabb = polygon.AABB
 			local margin_x = math.max((aabb.max_x - aabb.min_x) * BOUNDS_MARGIN, min_margin)
 			local margin_y = math.max((aabb.max_y - aabb.min_y) * BOUNDS_MARGIN, min_margin)
@@ -224,10 +224,11 @@ function Animator:Bind(skeleton)
 
 			if not shared then
 				local vertex_buffer = clone.mesh.vertex_buffer
-				by_skin[polygon.Skin] = {vertex_buffer = vertex_buffer}
+				by_skin[polygon.Skin] = {vertex_buffer = vertex_buffer, extras = clone.mesh.extras}
 				parts[#parts + 1] = {
 					bind_vertex_buffer = polygon.mesh.vertex_buffer,
 					vertex_buffer = vertex_buffer,
+					extras = clone.mesh.extras,
 					skin = polygon.Skin,
 				}
 			end

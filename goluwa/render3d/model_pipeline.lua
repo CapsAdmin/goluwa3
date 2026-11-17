@@ -178,20 +178,19 @@ function model_pipeline.GetVertexAttributes()
 	return vertex_layout.GetShaderAttributes()
 end
 
-function model_pipeline.GetVertexStride()
-	return vertex_layout.Stride
-end
-
-function model_pipeline.GetVertexBufferBinding(binding_index)
+function model_pipeline.GetVertexBindings()
 	return {
-		binding = binding_index or 0,
-		stride = vertex_layout.Stride,
-		input_rate = "vertex",
+		{
+			binding = 0,
+			input_rate = "vertex",
+			attributes = vertex_layout.GetShaderAttributes(vertex_layout.CORE),
+		},
+		{
+			binding = vertex_layout.EXTRAS_BINDING,
+			input_rate = "vertex",
+			attributes = vertex_layout.GetShaderAttributes(vertex_layout.EXTRAS),
+		},
 	}
-end
-
-function model_pipeline.GetVertexAttributeLayout(binding_index)
-	return vertex_layout.GetAttributes(binding_index)
 end
 
 local INSTANCE_WORLD_EXPR = "mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
@@ -385,8 +384,8 @@ function model_pipeline.CreateVertexStage(options)
 	if options.velocity then block[#block + 1] = {"prev_world", "mat4"} end
 
 	local stage = {
-		binding_index = 0,
-		attributes = model_pipeline.GetVertexAttributes(),
+		bindings = model_pipeline.GetVertexBindings(),
+		outputs = model_pipeline.GetVertexAttributes(),
 		push_constants = {
 			{
 				name = "vertex",
@@ -446,11 +445,7 @@ end
 
 function model_pipeline.CreateInstancedVertexStage(options)
 	local bindings = {
-		{
-			binding = 0,
-			input_rate = "vertex",
-			attributes = model_pipeline.GetVertexAttributes(),
-		},
+		model_pipeline.GetVertexBindings()[1],
 		{
 			binding = 1,
 			input_rate = "instance",
@@ -466,6 +461,7 @@ function model_pipeline.CreateInstancedVertexStage(options)
 		}
 	end
 
+	bindings[#bindings + 1] = model_pipeline.GetVertexBindings()[2]
 	return {
 		bindings = bindings,
 		outputs = get_vertex_stage_outputs(options),
@@ -522,9 +518,13 @@ do
 	function model_pipeline.GetPBRBatchRecordType()
 		if record_type then return record_type end
 
-		local ffi_fields = {"uint32_t addresses[4];", "uint32_t index_is_32;"}
+		local ffi_fields = {
+			"uint32_t addresses[4];",
+			"uint32_t extras_address[2];",
+			"uint32_t index_is_32;",
+		}
 		local glsl = {}
-		local glsl_fields = {"\tuvec4 addresses;", "\tuint index_is_32;"}
+		local glsl_fields = {"\tuvec4 addresses;", "\tuvec2 extras_address;", "\tuint index_is_32;"}
 
 		for _, info in ipairs(get_record_blocks()) do
 			local c_fields = {}
@@ -600,10 +600,11 @@ do
 
 		for _, field in ipairs(vertex_layout.Fields) do
 			fetch[#fetch + 1] = string.format(
-				"\t%s in_%s = pbr_vertex_%s(data, vertex_index);",
+				"\t%s in_%s = pbr_vertex_%s(%s, vertex_index);",
 				field.glsl,
 				field.name,
-				field.alias:lower()
+				field.alias:lower(),
+				field.group == "core" and "data" or "extras"
 			)
 		end
 
@@ -625,6 +626,7 @@ do
 
 	uint vertex_index = uint(gl_VertexIndex);
 	PBRBatchVertexData data = PBRBatchVertexData(packUint2x32(addresses.xy));
+	PBRBatchVertexData extras = PBRBatchVertexData(packUint2x32(batch_data.b[batch_index].extras_address));
 ]] .. table.concat(fetch, "\n") .. [[
 
 	multi_draw_instance_world = PBRBatchInstanceData(]] .. options.instances_expr .. [[).worlds[gl_InstanceIndex];

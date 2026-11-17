@@ -7,6 +7,7 @@ local IndexBuffer = RENDER_2D and import("goluwa/render/index_buffer.lua")
 local ffi = require("ffi")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local vertex_extras = import("goluwa/render3d/vertex_extras.lua")
 local tasks = import("goluwa/tasks.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local Polygon3D = objects.CreateTemplate("render3d_polygon_3d")
@@ -256,7 +257,40 @@ end
 
 local VertexType = vertex_math.VertexType
 Polygon3D.VertexType = VertexType
-local VERTEX_ATTRIBUTES = vertex_layout.GetAttributes(0)
+local VERTEX_ATTRIBUTES = vertex_layout.GetAttributes(0, "core")
+
+local function build_mesh(self, vertices, vertex_count, indices, index_type, index_count, mode, dedupe)
+	local uniform = not (
+			self.Dynamic or
+			mode
+		) and
+		vertex_layout.GetUniformExtras(vertices, vertex_count) or
+		nil
+	local shared = uniform and vertex_extras.GetShared(uniform, vertex_count) or nil
+	local core, extras = vertex_layout.Split(vertices, vertex_count, not shared)
+
+	local function create_extras()
+		if shared then return shared, vertex_layout.EXTRAS_BINDING, false end
+
+		return vertex_extras.New(extras, nil, mode), vertex_layout.EXTRAS_BINDING, true
+	end
+
+	if dedupe then
+		self.mesh = Mesh.NewDeduped(
+			VERTEX_ATTRIBUTES,
+			core,
+			indices,
+			index_type,
+			index_count,
+			nil,
+			shared and uniform or ffi.string(extras, ffi.sizeof(extras)),
+			create_extras
+		)
+	else
+		self.mesh = Mesh.New(VERTEX_ATTRIBUTES, core, indices, index_type, index_count, nil, mode)
+		self.mesh:SetExtras(create_extras())
+	end
+end
 
 function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode, aabb)
 	if not aabb then
@@ -294,13 +328,15 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 
 	if Mesh then
 		local index_type = vertex_count > 65535 and "uint32_t" or "uint16_t"
-
-		if mode then
-			self.mesh = Mesh.New(VERTEX_ATTRIBUTES, vertices, indices, index_type, index_count, nil, mode)
-		else
-			self.mesh = Mesh.NewDeduped(VERTEX_ATTRIBUTES, vertices, indices, index_type, index_count)
-		end
+		build_mesh(self, vertices, vertex_count, indices, index_type, index_count, mode, not mode)
 	end
+end
+
+function Polygon3D:UpdateVertexArray(vertices, vertex_count)
+	local mesh = self.mesh
+	vertex_layout.SplitInto(vertices, vertex_count, mesh.vertex_buffer.data, mesh.extras.data)
+	mesh.vertex_buffer:Upload()
+	mesh.extras:Upload()
 end
 
 function Polygon3D:GetVertices()
@@ -541,7 +577,6 @@ function Polygon3D:Upload(indices)
 
 	if not vertices then return end
 
-	local vertex_attributes = VERTEX_ATTRIBUTES
 	local index_type = "uint16_t"
 
 	if vertex_count > 65535 then index_type = "uint32_t" end
@@ -554,11 +589,16 @@ function Polygon3D:Upload(indices)
 	end
 
 	if Mesh then
-		self.mesh = (
-			self.Dynamic and
-			Mesh.New or
-			Mesh.NewDeduped
-		)(vertex_attributes, vertices, indices, index_type, index_count)
+		build_mesh(
+			self,
+			vertices,
+			vertex_count,
+			indices,
+			index_type,
+			index_count,
+			nil,
+			not self.Dynamic
+		)
 	end
 end
 
@@ -571,15 +611,17 @@ function Polygon3D:UpdateVertices()
 	end
 
 	self:BuildBoundingBox()
-	local vertices = pack_vertices(self, vertex_count)
+	local core, extras = vertex_layout.Split(pack_vertices(self, vertex_count), vertex_count, true)
 	local vertex_buffer = mesh.vertex_buffer
-	ffi.copy(vertex_buffer.data, vertices, vertex_buffer.byte_size)
+	ffi.copy(vertex_buffer.data, core, vertex_buffer.byte_size)
 	vertex_buffer:Upload()
+	ffi.copy(mesh.extras.data, extras, mesh.extras.byte_size)
+	mesh.extras:Upload()
 	mesh:ForgetContent()
 	return true
 end
 
-function Polygon3D:CloneDynamic(vertex_buffer)
+function Polygon3D:CloneDynamic(vertex_buffer, extras)
 	local clone = Polygon3D.New()
 	clone:SetAABB(self.AABB)
 	clone:SetBendHeight(self.BendHeight)
@@ -592,7 +634,23 @@ function Polygon3D:CloneDynamic(vertex_buffer)
 	clone.Skin = self.Skin
 	clone.SkinSource = self
 	clone.Dynamic = true
-	clone.mesh = self.mesh:CloneDynamic(vertex_buffer)
+
+	if not extras then
+		local source = self.mesh.extras
+		local data = ffi.new("uint8_t[?]", source.vertex_count * vertex_layout.ExtrasStride)
+
+		if source.data then
+			ffi.copy(data, source.data, source.byte_size)
+		else
+			for i = 0, source.vertex_count - 1 do
+				ffi.copy(data + i * vertex_layout.ExtrasStride, source.value, vertex_layout.ExtrasStride)
+			end
+		end
+
+		extras = vertex_extras.New(data)
+	end
+
+	clone.mesh = self.mesh:CloneDynamic(vertex_buffer, extras)
 	return clone
 end
 

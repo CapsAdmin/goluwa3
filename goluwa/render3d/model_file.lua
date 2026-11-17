@@ -35,8 +35,9 @@ function model_file.GetGeometry(polygon)
 	end
 
 	local count = vertex_buffer:GetVertexCount()
+	local extras = mesh.extras
 
-	if vertex_buffer.byte_size ~= count * vertex_layout.Stride then
+	if not extras or vertex_buffer.byte_size ~= count * vertex_layout.CoreStride then
 		return nil, "unexpected vertex layout"
 	end
 
@@ -50,7 +51,7 @@ function model_file.GetGeometry(polygon)
 	end
 
 	return {
-		vertices = vertex_buffer.data,
+		vertices = vertex_layout.Join(vertex_buffer.data, extras.data or extras.value, count),
 		vertex_count = count,
 		indices = indices,
 		index_count = index_count,
