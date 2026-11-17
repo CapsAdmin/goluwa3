@@ -1639,6 +1639,163 @@ function model_pipeline.GetPBRUniformBuffers()
 	return buffers
 end
 
+model_pipeline.TERRAIN_RELIEF_GLSL = [=[
+			bool has_terrain_layers() {
+				return TERRAIN_LAYERS != 0 && terrain_model.TerrainMaterialTexture != -1;
+			}
+
+			vec3 get_terrain_world_normal(vec2 uv) {
+				if (model.NormalTexture == -1) {
+					return vec3(0.0, 1.0, 0.0);
+				}
+
+				vec2 n = texture(TEXTURE(model.NormalTexture), uv).xy * 2.0 - 1.0;
+				return normalize(vec3(n.x, sqrt(max(1.0 - dot(n, n), 0.0)), n.y));
+			}
+
+			vec3 get_terrain_triplanar_weights(vec3 normal) {
+				vec3 w = abs(normal);
+				w = pow(w / max(max(w.x, w.y), max(w.z, 0.0001)), vec3(max(terrain_model.TerrainTriplanarSharpness, 1.0)));
+				return w / max(w.x + w.y + w.z, 0.0001);
+			}
+
+			float sample_terrain_layer_height(int height_tex, vec3 p, float safe_scale, vec3 blend, vec2 gx[3], vec2 gy[3]) {
+				vec2 uv[3] = vec2[3](p.zy / safe_scale, p.xz / safe_scale, p.xy / safe_scale);
+				float h = 0.0;
+
+				for (int i = 0; i < 3; i++) {
+					if (blend[i] > 0.001) {
+						h += textureGrad(TEXTURE(height_tex), uv[i], gx[i], gy[i]).r * blend[i];
+					}
+				}
+
+				return h / max(blend.x + blend.y + blend.z, 0.001);
+			}
+
+]=] .. terrain_layer_rules .. [=[
+
+
+			void get_terrain_material_weights_both_uv(vec2 uv, vec3 N, float world_y, out vec4 weights, out vec4 weights2) {
+				weights = vec4(0.0);
+				weights2 = vec4(0.0);
+
+				if (!has_terrain_layers()) {
+					return;
+				}
+
+				weights = max(texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv), vec4(0.0));
+
+				if (terrain_model.TerrainMaterial2Texture != -1) {
+					weights2 = max(texture(TEXTURE(terrain_model.TerrainMaterial2Texture), uv), vec4(0.0));
+				}
+
+				float steepness = 1.0 - (N.y * 0.5 + 0.5);
+				bool has_second_set = terrain_model.TerrainMaterial2Texture != -1;
+
+				if (any(greaterThan(terrain_model.TerrainLayerSlopeMin, vec4(-1.0))) || any(lessThan(terrain_model.TerrainLayerSlopeMax, vec4(2.0)))) {
+					weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
+				}
+
+				if (has_second_set && (any(greaterThan(terrain_model.TerrainLayerSlopeMin2, vec4(-1.0))) || any(lessThan(terrain_model.TerrainLayerSlopeMax2, vec4(2.0))))) {
+					weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
+				}
+
+				bool has_cover = any(greaterThan(terrain_model.TerrainLayerCoverSlope, vec4(0.0))) || (has_second_set && any(greaterThan(terrain_model.TerrainLayerCoverSlope2, vec4(0.0))));
+				vec4 cover = vec4(0.0);
+				vec4 cover2 = vec4(0.0);
+
+				if (has_cover) {
+					cover = get_terrain_cover(steepness, world_y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
+					cover2 = get_terrain_cover(steepness, world_y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
+				}
+
+
+				weights *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope, vec4(0.0)));
+				weights2 *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope2, vec4(0.0)));
+				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
+
+				if (weight_sum > 0.0001) {
+					weights /= weight_sum;
+					weights2 /= weight_sum;
+				} else {
+					weights = vec4(0.0);
+					weights2 = vec4(0.0);
+				}
+
+				float cover_sum = dot(cover, vec4(1.0)) + dot(cover2, vec4(1.0));
+
+				if (has_cover && cover_sum > 0.0001) {
+					float covered = max(max(max(cover.x, cover.y), max(cover.z, cover.w)), max(max(cover2.x, cover2.y), max(cover2.z, cover2.w)));
+					weights = weights * (1.0 - covered) + cover * (covered / cover_sum);
+					weights2 = weights2 * (1.0 - covered) + cover2 * (covered / cover_sum);
+				}
+			}
+
+		struct TerrainShellWeights {
+			vec4 weights;
+			vec4 weights2;
+			vec3 blend;
+			vec2 uv;
+		};
+
+		TerrainShellWeights terrain_shell_weights(vec2 uv, vec3 normal, float world_y) {
+			TerrainShellWeights w;
+			w.uv = clamp(uv, 0.0, 1.0);
+			get_terrain_material_weights_both_uv(w.uv, normal, world_y, w.weights, w.weights2);
+			vec3 blend = get_terrain_triplanar_weights(normal);
+			blend = max(blend - 0.2, vec3(0.0));
+			w.blend = blend / max(blend.x + blend.y + blend.z, 0.0001);
+			return w;
+		}
+
+		float terrain_shell_relief_set(vec4 weights, ivec4 height_textures, vec4 height_scales, vec4 scales, vec4 height_blend, vec4 cover_slope, vec4 cover_depth, vec3 q, vec3 blend, vec2 gx[3], vec2 gy[3], inout float weight_sum, inout float cover_amount, inout float cover_level) {
+			float relief = 0.0;
+
+			for (int i = 0; i < 4; i++) {
+				if (weights[i] <= 0.001) {
+					continue;
+				}
+
+				float h = height_textures[i] != -1 ? sample_terrain_layer_height(height_textures[i], q, max(scales[i], 0.0001), blend, gx, gy) : 0.5;
+
+				if (cover_slope[i] > 0.0) {
+					cover_amount += weights[i];
+					cover_level += weights[i] * (cover_depth[i] + (height_textures[i] != -1 ? h * height_scales[i] * scales[i] : 0.0));
+					continue;
+				}
+
+				float w = weights[i] * mix(1.0, h * 2.0, height_blend[i]);
+				weight_sum += w;
+
+				if (height_textures[i] != -1) {
+					relief += w * h * height_scales[i] * scales[i];
+				}
+			}
+
+			return relief;
+		}
+
+		float terrain_shell_relief(vec3 q, TerrainShellWeights w, vec2 gx[3], vec2 gy[3]) {
+			float weight_sum = 0.0;
+			float cover_amount = 0.0;
+			float cover_level = 0.0;
+			float relief = terrain_shell_relief_set(w.weights, ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture), terrain_model.TerrainLayerHeightScales, terrain_model.TerrainLayerScales, terrain_model.TerrainLayerHeightBlend, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverDepth, q, w.blend, gx, gy, weight_sum, cover_amount, cover_level);
+
+			if (terrain_model.TerrainMaterial2Texture != -1) {
+				relief += terrain_shell_relief_set(w.weights2, ivec4(terrain_model.TerrainLayer5HeightTexture, terrain_model.TerrainLayer6HeightTexture, terrain_model.TerrainLayer7HeightTexture, terrain_model.TerrainLayer8HeightTexture), terrain_model.TerrainLayerHeightScales2, terrain_model.TerrainLayerScales2, terrain_model.TerrainLayerHeightBlend2, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverDepth2, q, w.blend, gx, gy, weight_sum, cover_amount, cover_level);
+			}
+
+			float base = weight_sum > 0.0001 ? relief / weight_sum : 0.0;
+
+			if (cover_amount <= 0.0) {
+				return base;
+			}
+
+			return mix(base, max(base, cover_level / cover_amount), min(cover_amount, 1.0));
+		}
+
+]=]
+
 function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 	local glsl = glsl_common.GetLuminanceGLSL() .. Material.FlagSet:BuildGlsl("model.Flags") .. [=[
 			vec3 get_surface_camera_position() {
@@ -1650,10 +1807,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 			}
 
 			]=] .. shader_features.GetDefaultGLSL("terrain") .. [=[
-
-			bool has_terrain_layers() {
-				return TERRAIN_LAYERS != 0 && terrain_model.TerrainMaterialTexture != -1;
-			}
 
 			bool has_heightmap() {
 				return displacement_model.HeightTexture != -1 && displacement_model.HeightScale > 0.0;
@@ -1697,20 +1850,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				return get_texture_blend_uv(in_uv);
 			}
 
-			vec3 get_terrain_world_normal(vec2 uv) {
-				if (model.NormalTexture == -1) {
-					return vec3(0.0, 1.0, 0.0);
-				}
-
-				vec2 n = texture(TEXTURE(model.NormalTexture), uv).xy * 2.0 - 1.0;
-				return normalize(vec3(n.x, sqrt(max(1.0 - dot(n, n), 0.0)), n.y));
-			}
-
-			vec3 get_terrain_triplanar_weights(vec3 normal) {
-				vec3 w = abs(normal);
-				w = pow(w / max(max(w.x, w.y), max(w.z, 0.0001)), vec3(max(terrain_model.TerrainTriplanarSharpness, 1.0)));
-				return w / max(w.x + w.y + w.z, 0.0001);
-			}
+]=] .. model_pipeline.TERRAIN_RELIEF_GLSL .. [=[
 
 			struct TerrainLayerUV {
 				vec2 x;
@@ -1792,19 +1932,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				return n;
 			}
 
-			float sample_terrain_layer_height(int height_tex, vec3 p, float safe_scale, vec3 blend, vec2 gx[3], vec2 gy[3]) {
-				vec2 uv[3] = vec2[3](p.zy / safe_scale, p.xz / safe_scale, p.xy / safe_scale);
-				float h = 0.0;
-
-				for (int i = 0; i < 3; i++) {
-					if (blend[i] > 0.001) {
-						h += textureGrad(TEXTURE(height_tex), uv[i], gx[i], gy[i]).r * blend[i];
-					}
-				}
-
-				return h / max(blend.x + blend.y + blend.z, 0.001);
-			}
-
 			TerrainLayerUV get_terrain_layer_uv(int height_tex, vec3 world_pos, float scale, vec3 blend, vec3 N, vec3 V, float displacement) {
 				float safe_scale = max(scale, 0.0001);
 				vec3 p = world_pos;
@@ -1847,64 +1974,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				}
 
 				return TerrainLayerUV(p.zy / safe_scale, p.xz / safe_scale, p.xy / safe_scale);
-			}
-
-			]=] .. terrain_layer_rules .. [=[
-
-			void get_terrain_material_weights_both_uv(vec2 uv, vec3 N, out vec4 weights, out vec4 weights2) {
-				weights = vec4(0.0);
-				weights2 = vec4(0.0);
-
-				if (!has_terrain_layers()) {
-					return;
-				}
-
-				weights = max(texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv), vec4(0.0));
-
-				if (terrain_model.TerrainMaterial2Texture != -1) {
-					weights2 = max(texture(TEXTURE(terrain_model.TerrainMaterial2Texture), uv), vec4(0.0));
-				}
-
-				float steepness = 1.0 - (N.y * 0.5 + 0.5);
-				bool has_second_set = terrain_model.TerrainMaterial2Texture != -1;
-
-				if (any(greaterThan(terrain_model.TerrainLayerSlopeMin, vec4(-1.0))) || any(lessThan(terrain_model.TerrainLayerSlopeMax, vec4(2.0)))) {
-					weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
-				}
-
-				if (has_second_set && (any(greaterThan(terrain_model.TerrainLayerSlopeMin2, vec4(-1.0))) || any(lessThan(terrain_model.TerrainLayerSlopeMax2, vec4(2.0))))) {
-					weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
-				}
-
-				bool has_cover = any(greaterThan(terrain_model.TerrainLayerCoverSlope, vec4(0.0))) || (has_second_set && any(greaterThan(terrain_model.TerrainLayerCoverSlope2, vec4(0.0))));
-				vec4 cover = vec4(0.0);
-				vec4 cover2 = vec4(0.0);
-
-				if (has_cover) {
-					cover = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
-					cover2 = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
-				}
-
-
-				weights *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope, vec4(0.0)));
-				weights2 *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope2, vec4(0.0)));
-				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
-
-				if (weight_sum > 0.0001) {
-					weights /= weight_sum;
-					weights2 /= weight_sum;
-				} else {
-					weights = vec4(0.0);
-					weights2 = vec4(0.0);
-				}
-
-				float cover_sum = dot(cover, vec4(1.0)) + dot(cover2, vec4(1.0));
-
-				if (has_cover && cover_sum > 0.0001) {
-					float covered = max(max(max(cover.x, cover.y), max(cover.z, cover.w)), max(max(cover2.x, cover2.y), max(cover2.z, cover2.w)));
-					weights = weights * (1.0 - covered) + cover * (covered / cover_sum);
-					weights2 = weights2 * (1.0 - covered) + cover2 * (covered / cover_sum);
-				}
 			}
 
 			struct TerrainLayerSample {
@@ -2048,7 +2117,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				s.normal_weight = 0.0;
 				vec3 N = get_terrain_world_normal(uv);
 				vec4 weights, weights2;
-				get_terrain_material_weights_both_uv(uv, N, weights, weights2);
+				get_terrain_material_weights_both_uv(uv, N, in_position.y, weights, weights2);
 				s.weights = weights;
 				s.weights2 = weights2;
 				vec3 blend = max(get_terrain_triplanar_weights(N) - 0.05, vec3(0.0));
