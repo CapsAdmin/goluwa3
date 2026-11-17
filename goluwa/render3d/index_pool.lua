@@ -2,43 +2,27 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local memory = import("goluwa/bindings/memory.lua")
+local OffsetAllocator = import("goluwa/render3d/offset_allocator.lua")
 local index_pool = {}
 local UInt32 = ffi.typeof("uint32_t")
 local UInt32Array = ffi.typeof("uint32_t *")
 local MIN_CAPACITY = 2 ^ 20
-local MIN_RANGE = 64
+local MIN_RANGE = 3
 local REUSE_DELAY = 16
 local buffer
 local pointer
 local shadow
 local capacity = 0
-local top = 0
+local pool
 local entries = setmetatable({}, {__mode = "k"})
-local free_ranges = {}
 local pending_frees = {}
 local retired = {}
-
-local function get_range_size(count)
-	if count <= MIN_RANGE then return MIN_RANGE end
-
-	local power = 2 ^ math.floor(math.log(count, 2))
-	local step = power / 8
-	return math.ceil(count / step) * step
-end
 
 local function collect_delayed()
 	local frame = system.GetFrameNumber()
 
 	while pending_frees[1] and frame - pending_frees[1].frame >= REUSE_DELAY do
-		local range = table.remove(pending_frees, 1)
-		local list = free_ranges[range.size]
-
-		if not list then
-			list = {}
-			free_ranges[range.size] = list
-		end
-
-		list[#list + 1] = range.first
+		pool:Free(table.remove(pending_frees, 1).node)
 	end
 
 	while retired[1] and frame - retired[1].frame >= REUSE_DELAY do
@@ -46,8 +30,8 @@ local function collect_delayed()
 	end
 end
 
-local function grow(needed)
-	local new_capacity = math.max(needed, math.ceil(capacity * 1.5), MIN_CAPACITY)
+local function grow(extra)
+	local new_capacity = math.max(capacity + extra, MIN_CAPACITY)
 	local new_buffer = render.CreateBuffer{
 		byte_size = new_capacity * 4,
 		buffer_usage = {"index_buffer"},
@@ -58,9 +42,12 @@ local function grow(needed)
 	local new_shadow = memory.NewArray(UInt32, new_capacity)
 
 	if buffer then
-		ffi.copy(new_shadow, shadow, top * 4)
-		ffi.copy(new_pointer, new_shadow, top * 4)
+		ffi.copy(new_shadow, shadow, capacity * 4)
+		ffi.copy(new_pointer, new_shadow, capacity * 4)
 		retired[#retired + 1] = {buffer = buffer, frame = system.GetFrameNumber()}
+		pool:Grow(new_capacity - capacity)
+	else
+		pool = OffsetAllocator.New(new_capacity)
 	end
 
 	buffer = new_buffer
@@ -70,15 +57,16 @@ local function grow(needed)
 end
 
 local function alloc(size)
-	local list = free_ranges[size]
+	if not pool then grow(0) end
 
-	if list and #list > 0 then return table.remove(list) end
+	local offset, node = pool:Alloc(size)
 
-	if top + size > capacity then grow(top + size) end
+	while not offset do
+		grow(math.max(math.ceil(size * 1.25), math.ceil(capacity * 0.5)))
+		offset, node = pool:Alloc(size)
+	end
 
-	local first = top
-	top = top + size
-	return first
+	return offset, node
 end
 
 function index_pool.GetFirstIndex(index_buffer)
@@ -88,8 +76,7 @@ function index_pool.GetFirstIndex(index_buffer)
 
 	collect_delayed()
 	local count = index_buffer:GetIndexCount()
-	local size = get_range_size(count)
-	local first = alloc(size)
+	local first, node = alloc(math.max(count, MIN_RANGE))
 	local data = index_buffer:GetData()
 	local destination = shadow + first
 
@@ -109,7 +96,7 @@ function index_pool.GetFirstIndex(index_buffer)
 	entry = {
 		first = first,
 		guard = ffi.gc(ffi.new("char[1]"), function()
-			pending_frees[#pending_frees + 1] = {first = first, size = size, frame = system.GetFrameNumber()}
+			pending_frees[#pending_frees + 1] = {node = node, frame = system.GetFrameNumber()}
 		end),
 	}
 	entries[index_buffer] = entry
@@ -117,7 +104,7 @@ function index_pool.GetFirstIndex(index_buffer)
 end
 
 function index_pool.GetBuffer()
-	if not buffer then grow(MIN_CAPACITY) end
+	if not buffer then grow(0) end
 
 	return buffer
 end
