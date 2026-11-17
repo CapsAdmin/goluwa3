@@ -53,6 +53,10 @@ function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path, filter)
 	end
 end
 
+function CONTEXT:CanContain(root, segment)
+	return fs.get_type(root .. segment) == "directory"
+end
+
 function CONTEXT:IsFile(path_info)
 	return fs.get_type(path_info.full_path) == "file"
 end

@@ -15,6 +15,7 @@ do
 
 	function vfs.ClearCallCache()
 		table.clear(cache)
+		vfs.ClearTranslateCache()
 	end
 
 	function CONTEXT:CacheCall(func_name, path_info)
@@ -45,6 +46,10 @@ do
 	end
 
 	vfs.call_cache = cache
+end
+
+function CONTEXT:CanContain(root, segment)
+	return true
 end
 
 function CONTEXT:Prefetch(path_info, callback)

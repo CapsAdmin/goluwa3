@@ -1,5 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local file_path = import("goluwa/filesystem/path.lua")
+local fs = import("goluwa/filesystem/fs.lua")
+local system = import("goluwa/system.lua")
 local vfs = {}
 vfs.use_appdata = false
 vfs.mounted_paths = vfs.mounted_paths or {}
@@ -76,20 +78,73 @@ do
 	end
 
 	local translate_cache = {[true] = {}, [false] = {}}
+	local translate_cache_old = {[true] = {}, [false] = {}}
 	local translate_cache_count = 0
 	local translate_cache_limit = 2000
+	local folder_cache = {}
+	local frame_number = -1
+	local directory_generation = -1
 
 	function vfs.ClearTranslateCache()
 		table.clear(translate_cache[true])
 		table.clear(translate_cache[false])
+		table.clear(translate_cache_old[true])
+		table.clear(translate_cache_old[false])
+		table.clear(folder_cache)
 		translate_cache_count = 0
 	end
 
+	-- translations skip mounts that lack the path's first folder, so they only hold while no folder appears
+	local function can_contain(context, root, segment)
+		local segments = folder_cache[root]
+
+		if not segments then
+			segments = {}
+			folder_cache[root] = segments
+		end
+
+		local exists = segments[segment]
+
+		if exists == nil then
+			exists = context:CanContain(root, segment)
+			segments[segment] = exists
+		end
+
+		return exists
+	end
+
+	local function store_translation(is_folder, path, out)
+		if translate_cache_count >= translate_cache_limit then
+			translate_cache_old = translate_cache
+			translate_cache = {[true] = {}, [false] = {}}
+			translate_cache_count = 0
+		end
+
+		translate_cache[is_folder][path] = out
+		translate_cache_count = translate_cache_count + 1
+	end
+
 	function vfs.TranslatePath(path, is_folder)
+		if
+			system.GetFrameNumber() ~= frame_number or
+			fs.directory_generation ~= directory_generation
+		then
+			frame_number = system.GetFrameNumber()
+			directory_generation = fs.directory_generation
+			vfs.ClearTranslateCache()
+		end
+
 		is_folder = is_folder or false
 		local cached = translate_cache[is_folder][path]
 
 		if cached then return cached end
+
+		cached = translate_cache_old[is_folder][path]
+
+		if cached then
+			store_translation(is_folder, path, cached)
+			return cached
+		end
 
 		local path_info = vfs.GetPathInfo(path, is_folder)
 		local out = {}
@@ -98,6 +153,7 @@ do
 		if path_info.relative then
 			local full_path = path_info.full_path
 			local filesystems2 = vfs.filesystems2
+			local segment = full_path:match("^[^/]+/")
 
 			for _, mount_info in ipairs(vfs.mounted_paths) do
 				local mount_where = mount_info.where
@@ -125,31 +181,35 @@ do
 					end
 
 					if tail then
-						where = {
-							filesystem = filesystem,
-							full_path = mount_where.full_path .. tail,
-							relative = false,
-							GetFolders = path_info.GetFolders,
-						}
+						local tail_segment = tail == full_path and segment or tail:match("^[^/]+/")
+
+						if
+							not tail_segment or
+							can_contain(filesystems2[filesystem], mount_where.full_path, tail_segment)
+						then
+							where = {
+								filesystem = filesystem,
+								full_path = mount_where.full_path .. tail,
+								relative = false,
+								GetFolders = path_info.GetFolders,
+							}
+						end
 					else
 						where = vfs.GetPathInfo(filesystem .. ":" .. mount_info.to.full_path, is_folder)
 					end
 				end
 
-				out[out_i] = {
-					path_info = where,
-					context = filesystems2[filesystem],
-					userdata = mount_info.userdata,
-				}
-				out_i = out_i + 1
+				if where then
+					out[out_i] = {
+						path_info = where,
+						context = filesystems2[filesystem],
+						userdata = mount_info.userdata,
+					}
+					out_i = out_i + 1
+				end
 			end
 
-			if translate_cache_count >= translate_cache_limit then
-				vfs.ClearTranslateCache()
-			end
-
-			translate_cache[is_folder][path] = out
-			translate_cache_count = translate_cache_count + 1
+			store_translation(is_folder, path, out)
 		else
 			local filesystems = vfs.GetFileSystems()
 

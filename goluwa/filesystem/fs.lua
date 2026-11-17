@@ -64,6 +64,19 @@ function fs.get_parent_directory(path)
 	return file_path.GetParentDirectoryFromPath(path)
 end
 
+do
+	local create_directory = fs.create_directory
+	fs.directory_generation = 0
+
+	function fs.create_directory(path)
+		local ok, err = create_directory(path)
+
+		if ok then fs.directory_generation = fs.directory_generation + 1 end
+
+		return ok, err
+	end
+end
+
 function fs.create_directory_recursive(path)
 	if path == "" or path == "/" then return true end
 
