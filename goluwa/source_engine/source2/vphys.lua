@@ -5,6 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local surface_properties = import("goluwa/source_engine/source2/surface_properties.lua")
 local units = import("goluwa/source_engine/units.lua")
@@ -114,17 +115,68 @@ local function add_mesh(children, mesh, pose)
 end
 
 local capsule_hulls = {}
+local HULL_JOB = [=[
+	local convex_hull = import("goluwa/physics/convex_hull.lua")
+	local out = {}
 
-local function add_hull_points(children, points)
-	local polygon = {Vertices = {}}
+	for i, flat in ipairs(...) do
+		local vertices = {}
 
-	for i, point in ipairs(points) do
-		polygon.Vertices[i] = {pos = point}
+		for j = 1, #flat, 3 do
+			vertices[#vertices + 1] = {pos = {x = flat[j], y = flat[j + 1], z = flat[j + 2]}}
+		end
+
+		local child = convex_hull.FromPolygon3D({Vertices = vertices})
+		out[i] = child and
+			{
+				hull = convex_hull.ToPlain(child.ConvexHull),
+				position = {child.Position.x, child.Position.y, child.Position.z},
+			} or
+			false
 	end
 
-	local child = convex_hull.FromPolygon3D(polygon)
+	return out
+]=]
 
-	if child then children[#children + 1] = child end
+local function build_hulls(children, hulls, slots)
+	local batch_count = math.min(#hulls, math.max(1, thread_pool.GetMaxThreads()) * 2)
+	local batch_size = math.ceil(#hulls / batch_count)
+	local jobs = {}
+
+	for first = 1, #hulls, batch_size do
+		local batch, bytes = {}, 0
+
+		for i = first, math.min(first + batch_size - 1, #hulls) do
+			batch[#batch + 1] = hulls[i]
+			bytes = bytes + #hulls[i] * 8
+		end
+
+		jobs[#jobs + 1] = {first = first, job = thread_pool.Run(HULL_JOB, batch, bytes)}
+	end
+
+	for _, entry in ipairs(jobs) do
+		for i, built in ipairs((entry.job:Await())) do
+			children[slots[entry.first + i - 1]] = built and
+				{
+					ConvexHull = convex_hull.FromPlain(built.hull),
+					Position = Vec3(built.position[1], built.position[2], built.position[3]),
+				} or
+				false
+		end
+	end
+
+	local count = 0
+
+	for i = 1, #children do
+		if children[i] then
+			count = count + 1
+			children[count] = children[i]
+		end
+	end
+
+	for i = #children, count + 1, -1 do
+		children[i] = nil
+	end
 end
 
 function vphys.NewBody()
@@ -172,6 +224,7 @@ end
 
 function vphys.Append(children, data, body)
 	local hashes = data.m_surfacePropertyHashes
+	local hulls, slots = {}, {}
 
 	for part_index, part in ipairs(data.m_parts) do
 		local shape = part.m_rnShape
@@ -201,13 +254,18 @@ function vphys.Append(children, data, body)
 
 		for _, hull in ipairs(shape.m_hulls) do
 			add_surface(body, hashes, hull.m_nSurfacePropertyIndex, 1)
-			local points = {}
+			local flat = {}
 
-			for i, v in ipairs(hull.m_Hull.m_Vertices) do
-				points[i] = to_engine(v[1], v[2], v[3], pose)
+			for _, v in ipairs(hull.m_Hull.m_Vertices) do
+				local point = to_engine(v[1], v[2], v[3], pose)
+				flat[#flat + 1] = point.x
+				flat[#flat + 1] = point.y
+				flat[#flat + 1] = point.z
 			end
 
-			add_hull_points(children, points)
+			hulls[#hulls + 1] = flat
+			children[#children + 1] = false
+			slots[#hulls] = #children
 		end
 
 		for _, sphere in ipairs(shape.m_spheres) do
@@ -246,6 +304,8 @@ function vphys.Append(children, data, body)
 			end
 		end
 	end
+
+	if hulls[1] then build_hulls(children, hulls, slots) end
 end
 
 function vphys.FromData(data)

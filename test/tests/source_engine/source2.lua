@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
 local steam = import("goluwa/steam/steam.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local vfs = import("goluwa/vfs.lua")
 local codec = import("goluwa/codec.lua")
 local kv3 = import("goluwa/source_engine/source2/kv3.lua")
@@ -108,15 +109,21 @@ T.Test("source 2 world physics", function()
 	T(#children > 1000)["=="](true)
 	T(body.Friction > 0.5 and body.Friction <= 1)["=="](true)
 	T(body.FrictionCombineMode)["=="]("multiply")
-	local meshes = 0
+	local meshes, hulls = 0, 0
 
 	for _, child in ipairs(children) do
 		if child.Shape and child.Shape:GetTypeName() == "mesh" then
 			meshes = meshes + 1
+		elseif child.ConvexHull then
+			hulls = hulls + 1
+			T(getmetatable(child.ConvexHull.vertices[1]))["=="](getmetatable(Vec3()))
+			T(getmetatable(child.ConvexHull.faces[1].normal))["=="](getmetatable(Vec3()))
+			T(getmetatable(child.Position))["=="](getmetatable(Vec3()))
 		end
 	end
 
 	T(meshes > 0)["=="](true)
+	T(hulls > 0)["=="](true)
 end)
 
 T.Test("source 2 maps name their skybox in a skybox_reference entity", function()
