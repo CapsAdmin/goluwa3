@@ -60,8 +60,12 @@ function hit.GetQueryGLSL()
 			return id == gl_ClusterIDNoneNV ? 0u : uint(id);
 		}
 		#define scene_query_primitive(q, committed) (uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, committed)) + scene_cluster_base(rayQueryGetIntersectionClusterIdNV(q, committed)))
+		#define scene_shader_primitive() (uint(gl_PrimitiveID) + scene_cluster_base(gl_ClusterIDNV))
+		#define scene_hit_object_primitive(h) (uint(SER_hitObjectGetPrimitiveIndex(h)) + scene_cluster_base(SER_hitObjectGetClusterId(h)))
 		#else
 		#define scene_query_primitive(q, committed) uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, committed))
+		#define scene_shader_primitive() uint(gl_PrimitiveID)
+		#define scene_hit_object_primitive(h) uint(SER_hitObjectGetPrimitiveIndex(h))
 		#endif
 	]]
 end

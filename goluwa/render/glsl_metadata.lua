@@ -620,6 +620,14 @@ local function sanitize_color_blend_attachments(attachments)
 	return result
 end
 
+local function build_device_defines(device)
+	if device.cluster_acceleration_structure_supported then
+		return "#define DEVICE_CLUSTER_ACCELERATION_STRUCTURE 1\n"
+	end
+
+	return ""
+end
+
 local function build_shader_header(
 	bindless_texture_capacity,
 	bindless_cubemap_capacity,
@@ -648,10 +656,7 @@ local function build_shader_header(
 		bindless_view_capacity or 256,
 		bindless_sampler_capacity or 32
 	)
-
-	if device.cluster_acceleration_structure_supported then
-		header = header .. "\n#define DEVICE_CLUSTER_ACCELERATION_STRUCTURE 1"
-	end
+	header = header .. "\n" .. build_device_defines(device)
 
 	if extra_extensions then
 		for _, ext in ipairs(extra_extensions) do
@@ -975,6 +980,7 @@ return {
 	normalize_fragment_adapter = normalize_fragment_adapter,
 	get_color_formats = get_color_formats,
 	build_shader_header = build_shader_header,
+	build_device_defines = build_device_defines,
 	build_base_descriptor_sets = build_base_descriptor_sets,
 	escape_lua_pattern = escape_lua_pattern,
 	build_passthrough_vertex_shader = build_passthrough_vertex_shader,

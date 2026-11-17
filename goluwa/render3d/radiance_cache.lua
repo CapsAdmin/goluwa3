@@ -12,6 +12,7 @@ local scene_bridge = import("goluwa/render3d/scene/bridge.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local scene_hit = import("goluwa/render3d/scene/hit.lua")
+local glsl_metadata = import("goluwa/render/glsl_metadata.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
@@ -1586,7 +1587,6 @@ radiance_cache.SCENE_FLAGS_GLSL = radiance_cache.ALPHA_TEST and
 	"#define RADIANCE_CACHE_SCENE_FLAGS 0u\n" or
 	"#define RADIANCE_CACHE_SCENE_FLAGS gl_RayFlagsOpaqueEXT\n"
 local raygen_glsl = [[
-#version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
@@ -1697,23 +1697,20 @@ void main()
 }
 ]]
 local closesthit_glsl = [[
-#version 460
 #extension GL_EXT_ray_tracing : require
-]] .. payload_glsl .. [[
+]] .. payload_glsl .. scene_hit.GetQueryGLSL() .. [[
 layout(location = 0) rayPayloadInEXT Payload payload;
 
 void main()
 {
     payload.hit_t = gl_HitTEXT;
     payload.instance = uint(gl_InstanceCustomIndexEXT);
-    payload.primitive = uint(gl_PrimitiveID);
+    payload.primitive = scene_shader_primitive();
 }
 ]]
 
 local function build_anyhit_glsl()
 	return [[
-
-#version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
@@ -1740,13 +1737,12 @@ void main()
         if (float(payload.seed >> 8u) * (1.0 / 16777216.0) >= scatter) ignoreIntersectionEXT;
     }
 
-    if (!ray_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;
+    if (!ray_alpha_passes(instance, scene_shader_primitive(), barycentrics)) ignoreIntersectionEXT;
 }
 ]]
 end
 
 local miss_glsl = [[
-#version 460
 #extension GL_EXT_ray_tracing : require
 ]] .. payload_glsl .. [[
 layout(location = 0) rayPayloadInEXT Payload payload;
@@ -1763,10 +1759,11 @@ local rt_pipeline = nil
 function radiance_cache.GetRTPipeline()
 	if not rt_pipeline then
 		local RayTracingPipeline = import("goluwa/render/vulkan/ray_tracing_pipeline.lua")
+		local header = "#version 460\n" .. glsl_metadata.build_device_defines(render.GetDevice())
 		local stages = {
-			{name = "raygeneration", code = raygen_glsl},
-			{name = "closesthit", code = closesthit_glsl},
-			{name = "miss", code = miss_glsl},
+			{name = "raygeneration", code = header .. raygen_glsl},
+			{name = "closesthit", code = header .. closesthit_glsl},
+			{name = "miss", code = header .. miss_glsl},
 		}
 		local bindings = {
 			{binding_index = 0, type = "uniform_buffer", stageFlags = "all"},
@@ -1781,7 +1778,7 @@ function radiance_cache.GetRTPipeline()
 		}
 
 		if radiance_cache.ALPHA_TEST then
-			stages[#stages + 1] = {name = "anyhit", code = build_anyhit_glsl()}
+			stages[#stages + 1] = {name = "anyhit", code = header .. build_anyhit_glsl()}
 			bindings[#bindings + 1] = {binding_index = 9, type = "storage_buffer", stageFlags = "all"}
 		end
 

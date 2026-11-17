@@ -149,7 +149,7 @@ function scene_hits.GetRayGeneration(reordered)
 			void main() {
 				uint instance = uint(gl_InstanceCustomIndexEXT);
 
-				if (ray_materials[scene_instance_material(instance)].transparent != 0 || !ray_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;
+				if (ray_materials[scene_instance_material(instance)].transparent != 0 || !ray_alpha_passes(instance, scene_shader_primitive(), barycentrics)) ignoreIntersectionEXT;
 			}
 		]],
 	}
@@ -335,7 +335,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 			t = SER_hitObjectGetRayTMax(hit_object);
 			instance = uint(SER_hitObjectGetInstanceCustomIndex(hit_object));
-			primitive = uint(SER_hitObjectGetPrimitiveIndex(hit_object));
+			primitive = scene_hit_object_primitive(hit_object);
 			SER_hitObjectGetAttributes(hit_object, 1);
 			barycentrics = scene_hit_attributes;
 			return true;

@@ -17,6 +17,7 @@ function ray_reorder.GetRayGeneration(config)
 		"hitObjectGetRayTMax",
 		"hitObjectGetInstanceCustomIndex",
 		"hitObjectGetPrimitiveIndex",
+		"hitObjectGetClusterId",
 		"hitObjectGetAttributes",
 		"hitObjectAttribute",
 	} do
