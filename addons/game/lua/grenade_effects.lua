@@ -732,6 +732,119 @@ local function explosion_clip(spawn_fire)
 	}
 end
 
+local function small_explosion_clip()
+	return {
+		Duration = 1.2,
+		Tracks = {
+			flash = {{0, 1, "outQuart"}, {0.12, 0}},
+			shock = {{0, 0.1, "outQuart"}, {0.35, 0.85}},
+			shock_fade = {{0, 1, "outQuad"}, {0.35, 0}},
+		},
+		Bursts = {
+			small_explosion_sparks = burst{
+				Spread = 150,
+				Speed = {4, 14},
+				Lifetime = {0.25, 0.7},
+				Size = {Keys = {{0, 0.018}, {1, 0}}},
+				Drag = 0.4,
+				GravityScale = 1,
+				Sparkle = 1,
+				Emissive = 5e5,
+				Color = {Keys = {{0, Color(1, 0.9, 0.55, 1)}, {1, Color(1, 0.3, 0.05, 0)}}},
+			},
+		},
+		Debris = {
+			small_explosion_chunks = {
+				Material = {Color = Color(0.2, 0.17, 0.14, 1), Roughness = 0.9, Metallic = 0},
+				Emitter = {
+					Mesh = "cube",
+					MaxParticles = 64,
+					Spread = 70,
+					Speed = {2, 6},
+					Lifetime = {1, 1.8},
+					Size = {Keys = {{0, 0.05}, {1, 0.04}}},
+					GravityScale = 1,
+					Drag = 0.3,
+					Spin = 300,
+					Collision = "rays",
+					OnHit = "bounce",
+					Restitution = 0.3,
+					Friction = 0.7,
+				},
+			},
+		},
+		Events = {
+			{0, Burst = "small_explosion_sparks", Count = 50, Direction = "normal"},
+			{0, Debris = "small_explosion_chunks", Count = 8, Direction = "normal"},
+			{
+				0,
+				function(p)
+					spawn_fireball(p.position, p.normal, p.size)
+					screen_fields.Add{
+						Position = p.position + p.normal * 0.3,
+						Duration = 0.6,
+						Radius = p.size * 1.4,
+						Thickness = 0.3,
+						Blur = 25,
+						Ring = 0.025,
+						Aberration = 4,
+					}
+					vfx.Flash(
+						p.position + p.normal * 0.4,
+						FLASH_HOT,
+						40000 * p.size * p.size,
+						0.35,
+						{
+							Range = p.size * 5,
+							SourceRadius = p.size * 0.05,
+							ColorEnd = FLASH_COOL,
+							Attack = 0.03,
+							Falloff = 4,
+							Flicker = 0.15,
+						}
+					)
+					sounds.PlayRandom(
+						SOUNDS,
+						p.position,
+						sounds.SPLToVolume(EXPLOSION_SPL - 4),
+						math.randomf(1, 1.15),
+						EXPLOSION_KEEP
+					)
+					local distance = (render3d.GetCamera():GetPosition() - p.position):GetLength()
+					local closeness = math.clamp(1 - distance / (p.size * 4), 0, 1)
+
+					if closeness > 0 then
+						screen_shake.Add(0.2 * closeness * closeness, 0.8, 0.6)
+					end
+				end,
+			},
+		},
+		Layers = {
+			{
+				Type = "sprite",
+				Texture = "flare",
+				Lift = 0.3,
+				Tint = 0.8,
+				Radius = 0.5,
+				ScaleBy = "size",
+				Brightness = 10,
+				Alpha = "flash",
+			},
+			{
+				Type = "sprite",
+				Texture = "ring",
+				Flat = true,
+				Lift = 0.05,
+				Tint = 0.5,
+				Radius = "shock",
+				ScaleBy = "size",
+				Brightness = 2,
+				Alpha = "shock_fade",
+			},
+		},
+	}
+end
+
 local function init()
 	if clips then return end
 
@@ -764,6 +877,7 @@ local function init()
 	)
 	clips.Define("grenade_explosion", explosion_clip(spawn_sprite_fire))
 	clips.Define("grenade_explosion_fluid", explosion_clip(spawn_fluid_fire))
+	clips.Define("small_explosion", small_explosion_clip())
 end
 
 grenade_effects.Explode = new_event(
@@ -784,6 +898,17 @@ grenade_effects.ExplodeFluid = new_event(
 		clips.Play(
 			"grenade_explosion_fluid",
 			{position = position:Copy(), normal = normal, color = FIRE, size = radius}
+		)
+	end,
+	enabled
+)
+grenade_effects.ExplodeSmall = new_event(
+	"small_explosion",
+	function(position, normal, size)
+		init()
+		clips.Play(
+			"small_explosion",
+			{position = position:Copy(), normal = normal, color = FIRE, size = size}
 		)
 	end,
 	enabled

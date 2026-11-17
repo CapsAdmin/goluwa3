@@ -8,6 +8,8 @@ META:GetSet("Damage", 140)
 META:GetSet("Radius", 6)
 META:GetSet("Fuse", 2.4)
 META:GetSet("Impulse", 9)
+META:GetSet("EffectSize", 6)
+META:IsSet("SmallEffect", false)
 local BLINK_ON = 1
 local BLINK_OFF = 0.15
 
@@ -33,7 +35,13 @@ function META:Explode()
 		Radius = self.Radius,
 		Impulse = self.Impulse,
 	}
-	grenade_effects.Explode(position, normal, self.Radius)
+
+	if self.SmallEffect then
+		grenade_effects.ExplodeSmall(position, normal, self.EffectSize)
+	else
+		grenade_effects.Explode(position, normal, self.EffectSize)
+	end
+
 	self.Owner:Remove()
 end
 
