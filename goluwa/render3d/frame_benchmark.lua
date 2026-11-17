@@ -309,8 +309,9 @@ function frame_benchmark.Run(config)
 				view = View.New{
 					Priority = 100,
 					Position = start_position,
-					Rotation = QuatDeg3(start_pitch, start_yaw, 0),
+					Rotation = config.rotation or QuatDeg3(start_pitch, start_yaw, 0),
 					FOV = config.fov and math.rad(config.fov) or nil,
+					ExposureLock = config.ev,
 				}:Activate()
 				results.load_seconds = now - start
 				results.blocks = instances.GetCount()
