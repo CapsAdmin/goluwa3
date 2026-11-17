@@ -3,6 +3,7 @@ local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local IndexBuffer = import("goluwa/render/index_buffer.lua")
 local render = import("goluwa/render/render.lua")
 local objects = import("goluwa/objects/objects.lua")
+local memcmp = import("goluwa/bindings/memory.lua").memcmp
 local Mesh = objects.CreateTemplate("render_mesh")
 
 local function get_attribute_component_count(attribute)
@@ -147,23 +148,61 @@ end
 
 local mesh_content_cache = table.weak("v")
 
-local function mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count)
+local function sample_bytes(ptr, size)
+	local words = ffi.cast("const uint32_t *", ptr)
+	local count = math.floor(size / 4)
+	local hash = size
+
+	for i = 0, count - 1, math.max(1, math.floor(count / 256)) do
+		hash = bit.bxor(bit.rol(hash, 7), words[i])
+	end
+
+	return hash
+end
+
+local function index_byte_size(index_type, index_count)
+	return ffi.sizeof(index_type == "uint32_t" and "uint32_t" or "uint16_t") * index_count
+end
+
+-- the key only samples the content, a cached mesh is reused when its bytes compare equal
+local function mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count, extras)
 	if type(vertices) ~= "cdata" then return nil end
 
-	local parts = {
-		tostring(vertex_attributes),
-		tostring(index_type),
-		ffi.string(vertices, ffi.sizeof(vertices)),
-	}
+	local index_part = ""
 
 	if indices ~= nil then
 		if type(indices) ~= "cdata" or not index_count then return nil end
 
-		local index_byte_size = ffi.sizeof(index_type == "uint32_t" and "uint32_t" or "uint16_t") * index_count
-		parts[#parts + 1] = ffi.string(indices, index_byte_size)
+		local size = index_byte_size(index_type, index_count)
+		index_part = size .. ":" .. sample_bytes(indices, size)
 	end
 
-	return table.concat(parts, "\1")
+	return tostring(vertex_attributes) .. "\1" .. tostring(index_type) .. "\1" .. sample_bytes(vertices, ffi.sizeof(vertices)) .. "\1" .. index_part .. "\1" .. (
+			type(extras) == "string" and
+			extras or
+			sample_bytes(extras, ffi.sizeof(extras))
+		)
+end
+
+local function has_content(mesh, vertices, indices, index_type, index_count, extras)
+	local vertex_buffer = mesh.vertex_buffer
+
+	if
+		vertex_buffer.byte_size ~= ffi.sizeof(vertices) or
+		memcmp(vertex_buffer.data, vertices, vertex_buffer.byte_size) ~= 0
+	then
+		return false
+	end
+
+	if
+		indices ~= nil and
+		memcmp(mesh.index_buffer.indices, indices, index_byte_size(index_type, index_count)) ~= 0
+	then
+		return false
+	end
+
+	return type(extras) == "string" or
+		memcmp(mesh.extras.data, extras, ffi.sizeof(extras)) == 0
 end
 
 function Mesh:SetExtras(vertex_buffer, binding, owned)
@@ -179,17 +218,19 @@ function Mesh.NewDeduped(
 	index_type,
 	index_count,
 	name,
-	extras_key,
+	extras,
 	create_extras
 )
-	local key = mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count)
-
-	if key and extras_key then key = key .. "\2" .. extras_key end
+	local key = mesh_content_key(vertex_attributes, vertices, indices, index_type, index_count, extras)
 
 	if key then
 		local cached = mesh_content_cache[key]
 
-		if cached and not cached.IsNull then
+		if
+			cached and
+			not cached.IsNull and
+			has_content(cached, vertices, indices, index_type, index_count, extras)
+		then
 			cached.reclaimed = true
 			return cached
 		end
@@ -247,7 +288,10 @@ end
 
 function Mesh:ForgetContent()
 	if self.content_key then
-		mesh_content_cache[self.content_key] = nil
+		if mesh_content_cache[self.content_key] == self then
+			mesh_content_cache[self.content_key] = nil
+		end
+
 		self.content_key = nil
 	end
 end
@@ -270,7 +314,10 @@ function Mesh:OnRemove()
 	local content_key = self.content_key
 
 	if content_key then
-		mesh_content_cache[content_key] = nil
+		if mesh_content_cache[content_key] == self then
+			mesh_content_cache[content_key] = nil
+		end
+
 		self.content_key = nil
 	end
 

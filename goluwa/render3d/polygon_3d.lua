@@ -283,7 +283,7 @@ local function build_mesh(self, vertices, vertex_count, indices, index_type, ind
 			index_type,
 			index_count,
 			nil,
-			shared and uniform or ffi.string(extras, ffi.sizeof(extras)),
+			shared and uniform or extras,
 			create_extras
 		)
 	else
