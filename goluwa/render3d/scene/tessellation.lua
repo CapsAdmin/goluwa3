@@ -154,18 +154,14 @@ do
 
 		if not vertices[1] then
 			local mesh = polygon3d.mesh
-			local data = ffi.cast("const float *", mesh.vertex_buffer.data)
-			local stride = vertex_layout.CoreFloatStride
-			local position = vertex_layout.GetFloatOffset("position")
-			local normal = vertex_layout.GetFloatOffset("normal")
-			local uv = vertex_layout.GetFloatOffset("uv")
 			vertex_count = mesh.vertex_buffer:GetVertexCount()
+			local joined = vertex_layout.Join(mesh.vertex_buffer.data, mesh.extras.data or mesh.extras.value, vertex_count)
 
 			for i = 0, vertex_count - 1 do
-				local o = i * stride
-				px[i], py[i], pz[i] = data[o + position], data[o + position + 1], data[o + position + 2]
-				nx[i], ny[i], nz[i] = data[o + normal], data[o + normal + 1], data[o + normal + 2]
-				u[i], v[i] = data[o + uv], data[o + uv + 1]
+				local vertex = joined[i]
+				px[i], py[i], pz[i] = vertex.position[0], vertex.position[1], vertex.position[2]
+				nx[i], ny[i], nz[i] = vertex.normal[0], vertex.normal[1], vertex.normal[2]
+				u[i], v[i] = vertex.uv[0], vertex.uv[1]
 			end
 
 			local index_buffer = mesh.index_buffer

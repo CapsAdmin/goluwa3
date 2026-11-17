@@ -28,8 +28,9 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 	for _, binding in ipairs(bindings) do
 		for _, attribute in ipairs(binding.attributes) do
 			at = at + 1
-			T(attribute[1])["=="](vertex_layout.Fields[at].name)
-			T(attribute[3])["=="](vertex_layout.Fields[at].format)
+			local field = vertex_layout.Fields[at]
+			T(attribute[1])["=="]((field.packing and "packed_" or "") .. field.name)
+			T(attribute[3])["=="](field.gpu_format)
 		end
 	end
 
@@ -50,18 +51,28 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 			)
 		)["~="](nil)
 
-		for i = 0, field.count - 1 do
+		if field.packing then
 			T(
 				readable:find(
-					"b.v[vertex * " .. (
-							field.group == "core" and
-							vertex_layout.CoreFloatStride or
-							vertex_layout.ExtrasFloatStride
-						) .. "u + " .. field.group_float_offset + i .. "u]",
+					"floatBitsToUint(b.v[vertex * " .. vertex_layout.CoreFloatStride .. "u + " .. field.group_float_offset .. "u])",
 					1,
 					true
 				)
 			)["~="](nil)
+		else
+			for i = 0, field.count - 1 do
+				T(
+					readable:find(
+						"b.v[vertex * " .. (
+								field.group == "core" and
+								vertex_layout.CoreFloatStride or
+								vertex_layout.ExtrasFloatStride
+							) .. "u + " .. field.group_float_offset + i .. "u]",
+						1,
+						true
+					)
+				)["~="](nil)
+			end
 		end
 	end
 
@@ -345,16 +356,15 @@ end)
 
 T.Test("the vertex layout splits into a core and an extras group", function()
 	local ffi = require("ffi")
-	T(vertex_layout.CoreStride)["=="](48)
-	T(vertex_layout.CoreStride + vertex_layout.ExtrasStride)["=="](vertex_layout.Stride)
+	T(vertex_layout.CoreStride)["=="](28)
+	T(vertex_layout.CPUCoreStride + vertex_layout.ExtrasStride)["=="](vertex_layout.Stride)
 	local core_names = {}
 
 	for _, field in ipairs(vertex_layout.Fields) do
 		if field.group == "core" then
-			T(field.group_offset)["=="](field.offset)
 			core_names[#core_names + 1] = field.name
 		else
-			T(field.group_offset)["=="](field.offset - vertex_layout.CoreStride)
+			T(field.group_offset)["=="](field.offset - vertex_layout.CPUCoreStride)
 		end
 	end
 
@@ -389,4 +399,52 @@ T.Test("the vertex layout splits into a core and an extras group", function()
 	vertices[3].pivot[2] = 4
 	T(vertex_layout.GetUniformExtras(vertices, count))["=="](nil)
 	T(vertex_layout.GetUniformExtras(vertices, 0))["=="](nil)
+end)
+
+T.Test("packed normals and tangents survive a split and a join", function()
+	local count = 6
+	local vertices = vertex_layout.ArrayType(count)
+	local normals = {
+		{0, 1, 0},
+		{0, 0, -1},
+		{0.6, -0.8, 0},
+		{-0.267, 0.534, -0.802},
+		{1, 0, 0},
+		{0.577, 0.577, 0.577},
+	}
+	local signs = {1, -1, 2, -2, 3, -4}
+
+	for i = 0, count - 1 do
+		local n = normals[i + 1]
+		vertices[i].position[0], vertices[i].position[1], vertices[i].position[2] = i + 0.125, -i, 1e6 + i
+		vertices[i].normal[0], vertices[i].normal[1], vertices[i].normal[2] = n[1], n[2], n[3]
+		vertices[i].tangent[0], vertices[i].tangent[1], vertices[i].tangent[2], vertices[i].tangent[3] = n[2], n[3], n[1], signs[i + 1]
+		vertices[i].uv[0], vertices[i].uv[1] = i * 3.5, -i
+	end
+
+	local core = vertex_layout.Split(vertices, count)
+	local joined = vertex_layout.Join(
+		core,
+		vertex_layout.GetUniformExtras(vertices, count) or
+			string.rep("\0", vertex_layout.ExtrasStride),
+		count
+	)
+
+	for i = 0, count - 1 do
+		local n = normals[i + 1]
+
+		for k = 0, 2 do
+			T(joined[i].position[k])["=="](vertices[i].position[k])
+			T(math.abs(joined[i].normal[k] - n[k + 1]))["<"](0.001)
+			T(math.abs(joined[i].tangent[k] - vertices[i].tangent[k]))["<"](0.002)
+		end
+
+		T(joined[i].tangent[3])["=="](signs[i + 1])
+		T(joined[i].uv[0])["=="](vertices[i].uv[0])
+		T(joined[i].uv[1])["=="](vertices[i].uv[1])
+	end
+
+	local inputs = vertex_layout.GetInputAttributes(vertex_layout.CORE)
+	T(inputs[2][1])["=="]("packed_normal")
+	T(inputs[2][2])["=="]("uint")
 end)

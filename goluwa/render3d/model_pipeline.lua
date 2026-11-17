@@ -183,12 +183,12 @@ function model_pipeline.GetVertexBindings()
 		{
 			binding = 0,
 			input_rate = "vertex",
-			attributes = vertex_layout.GetShaderAttributes(vertex_layout.CORE),
+			attributes = vertex_layout.GetInputAttributes(vertex_layout.CORE),
 		},
 		{
 			binding = vertex_layout.EXTRAS_BINDING,
 			input_rate = "vertex",
-			attributes = vertex_layout.GetShaderAttributes(vertex_layout.EXTRAS),
+			attributes = vertex_layout.GetInputAttributes(vertex_layout.EXTRAS),
 		},
 	}
 end
@@ -408,7 +408,12 @@ function model_pipeline.CreateVertexStage(options)
 			},
 		},
 		uniform_buffers = get_vertex_stage_uniform_buffers(options),
-		shader = build_vertex_shader(options, "vertex.world", "vertex.prev_world"),
+		shader = vertex_layout.PACKING_GLSL .. build_vertex_shader(
+				options,
+				"vertex.world",
+				"vertex.prev_world",
+				vertex_layout.BuildInputDecodeGlsl()
+			),
 	}
 
 	if
@@ -468,7 +473,12 @@ function model_pipeline.CreateInstancedVertexStage(options)
 		bindings = bindings,
 		outputs = get_vertex_stage_outputs(options),
 		uniform_buffers = get_vertex_stage_uniform_buffers(options),
-		shader = build_vertex_shader(options, INSTANCE_WORLD_EXPR, INSTANCE_PREV_WORLD_EXPR),
+		shader = vertex_layout.PACKING_GLSL .. build_vertex_shader(
+				options,
+				INSTANCE_WORLD_EXPR,
+				INSTANCE_PREV_WORLD_EXPR,
+				vertex_layout.BuildInputDecodeGlsl()
+			),
 	}
 end
 
