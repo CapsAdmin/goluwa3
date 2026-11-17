@@ -155,69 +155,83 @@ local function bake(polygon3d, state, records, indices, pool_first)
 	local props = get_properties()
 	local max_vertices = math.min(props.maxVerticesPerCluster, 256)
 	local max_triangles = math.min(props.maxTrianglesPerCluster, 511)
-	local subs = {}
 	local sub_ranges = ffi.new("uint32_t[?]", state.count * 2)
-	local position_total, index_total = 0, 0
+	local reference_capacity = 0
+
+	for c = 0, state.count - 1 do
+		reference_capacity = reference_capacity + records[c].index_count
+	end
+
+	local sub_vertices = ffi.new("uint32_t[?]", reference_capacity)
+	local local_indices = ffi.new("uint8_t[?]", reference_capacity)
+	local slot_stamps = ffi.new("int32_t[?]", packed.vertex_count)
+	local slot_indices = ffi.new("uint8_t[?]", packed.vertex_count)
+	local sub_cluster_ids, sub_triangle_counts, sub_vertex_counts = {}, {}, {}
+	local sub_count, position_total, index_total = 0, 0, 0
 	local max_cluster_vertices, max_cluster_triangles = 0, 0
+	local stamp = 0
 
 	for c = 0, state.count - 1 do
 		local record = records[c]
+		local first_index = record.first_index
 		local triangles = record.index_count / 3
-		sub_ranges[c * 2] = #subs
-		local local_of, order = {}, {}
-		local first_triangle = 0
-		local local_indices = {}
+		sub_ranges[c * 2] = sub_count
+		local first_triangle, vertex_count = 0, 0
+		stamp = stamp + 1
 
-		local function close(last_triangle)
-			local count = last_triangle - first_triangle
-
-			if count == 0 then return end
-
-			subs[#subs + 1] = {
-				cluster_id = (pool_first + record.first_index) / 3 + first_triangle,
-				triangles = count,
-				vertices = order,
-				indices = local_indices,
-			}
-			position_total = position_total + #order
-			index_total = index_total + count * 3
-			max_cluster_vertices = math.max(max_cluster_vertices, #order)
-			max_cluster_triangles = math.max(max_cluster_triangles, count)
-			local_of, order, local_indices = {}, {}, {}
-			first_triangle = last_triangle
-		end
-
-		for t = 0, triangles - 1 do
+		for t = 0, triangles do
+			local at = first_index + t * 3
 			local new = 0
 
-			for k = 0, 2 do
-				if not local_of[indices[record.first_index + t * 3 + k]] then new = new + 1 end
-			end
-
-			if #order + new > max_vertices or t - first_triangle >= max_triangles then
-				close(t)
-			end
-
-			for k = 0, 2 do
-				local index = indices[record.first_index + t * 3 + k]
-				local local_index = local_of[index]
-
-				if not local_index then
-					local_index = #order
-					order[#order + 1] = index
-					local_of[index] = local_index
+			if t < triangles then
+				for k = 0, 2 do
+					if slot_stamps[indices[at + k]] ~= stamp then new = new + 1 end
 				end
+			end
 
-				local_indices[#local_indices + 1] = local_index
+			local count = t - first_triangle
+
+			if
+				count > 0 and
+				(
+					t == triangles or
+					vertex_count + new > max_vertices or
+					count >= max_triangles
+				)
+			then
+				sub_count = sub_count + 1
+				sub_cluster_ids[sub_count] = (pool_first + first_index) / 3 + first_triangle
+				sub_triangle_counts[sub_count] = count
+				sub_vertex_counts[sub_count] = vertex_count
+				position_total = position_total + vertex_count
+				index_total = index_total + count * 3
+				max_cluster_vertices = math.max(max_cluster_vertices, vertex_count)
+				max_cluster_triangles = math.max(max_cluster_triangles, count)
+				first_triangle, vertex_count = t, 0
+				stamp = stamp + 1
+			end
+
+			if t < triangles then
+				local index_at = index_total + (t - first_triangle) * 3
+
+				for k = 0, 2 do
+					local index = indices[at + k]
+
+					if slot_stamps[index] ~= stamp then
+						slot_stamps[index] = stamp
+						slot_indices[index] = vertex_count
+						sub_vertices[position_total + vertex_count] = index
+						vertex_count = vertex_count + 1
+					end
+
+					local_indices[index_at + k] = slot_indices[index]
+				end
 			end
 		end
 
-		close(triangles)
-		sub_ranges[c * 2 + 1] = #subs - sub_ranges[c * 2]
+		sub_ranges[c * 2 + 1] = sub_count - sub_ranges[c * 2]
 	end
 
-	local sub_count = #subs
-	local input_bytes = position_total * 12 + index_total + sub_count * 64 + 16 + state.count * 8
 	local positions_offset = 0
 	local indices_offset = math.ceil(position_total * 12 / 16) * 16
 	local args_offset = math.ceil((indices_offset + index_total) / 64) * 64
@@ -235,16 +249,15 @@ local function bake(polygon3d, state, records, indices, pool_first)
 	)
 	local mapped = ffi.cast("uint8_t *", input:Map())
 	local positions = ffi.cast("float *", mapped + positions_offset)
-	local index_bytes = mapped + indices_offset
 	local args = ffi.cast(TriangleClusterArgsPointer, mapped + args_offset)
 	local base = input:GetDeviceAddress()
 	local position_at, index_at = 0, 0
 
-	for i, sub in ipairs(subs) do
+	for i = 1, sub_count do
 		local arg = args[i - 1]
-		arg.cluster_id = sub.cluster_id
+		arg.cluster_id = sub_cluster_ids[i]
 		arg.cluster_flags = 0
-		arg.counts = sub.triangles + #sub.vertices * 512 + INDEX_FORMAT_8BIT * 16777216
+		arg.counts = sub_triangle_counts[i] + sub_vertex_counts[i] * 512 + INDEX_FORMAT_8BIT * 16777216
 		arg.geometry = 0
 		arg.index_stride = 1
 		arg.vertex_stride = 12
@@ -255,21 +268,18 @@ local function bake(polygon3d, state, records, indices, pool_first)
 		arg.geometry_buffer = 0
 		arg.micromap_array = 0
 		arg.micromap_index_buffer = 0
-
-		for _, index in ipairs(sub.vertices) do
-			local position = vertices[index].position
-			positions[position_at * 3] = position[0]
-			positions[position_at * 3 + 1] = position[1]
-			positions[position_at * 3 + 2] = position[2]
-			position_at = position_at + 1
-		end
-
-		for _, index in ipairs(sub.indices) do
-			index_bytes[index_at] = index
-			index_at = index_at + 1
-		end
+		position_at = position_at + sub_vertex_counts[i]
+		index_at = index_at + sub_triangle_counts[i] * 3
 	end
 
+	for i = 0, position_total - 1 do
+		local position = vertices[sub_vertices[i]].position
+		positions[i * 3] = position[0]
+		positions[i * 3 + 1] = position[1]
+		positions[i * 3 + 2] = position[2]
+	end
+
+	ffi.copy(mapped + indices_offset, local_indices, index_total)
 	ffi.cast("uint32_t *", mapped + count_offset)[0] = sub_count
 	ffi.copy(mapped + ranges_offset, sub_ranges, state.count * 8)
 	local commands = new_input(OP_BUILD_TRIANGLE_CLUSTER, sub_count)
