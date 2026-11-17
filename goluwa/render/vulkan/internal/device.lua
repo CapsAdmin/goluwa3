@@ -46,6 +46,7 @@ local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.V
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
 local VkPhysicalDeviceRayQueryFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayQueryFeaturesKHR)
+local VkPhysicalDeviceOpacityMicromapFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceOpacityMicromapFeaturesEXT)
 local VkRayTracingInvocationReorderFeaturesBoxes = {
 	ext = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT),
 	nv = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV),
@@ -454,6 +455,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 	local ray_query_supported = false
 	local ray_reorder
 	local ray_reorder_features
+	local opacity_micromap_supported = false
+	local opacity_micromap_features
 
 	if has_ray_tracing then
 		local rt_features = physical_device:GetRayTracingPipelineFeatures()
@@ -497,6 +500,19 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 					}
 				)
 				pNextChain = ray_query_features
+			end
+
+			if
+				table.has_value(available_extensions, "VK_EXT_opacity_micromap") and
+				physical_device:GetOpacityMicromapFeatures().micromap == 1
+			then
+				opacity_micromap_supported = true
+				table.insert(finalExtensions, "VK_EXT_opacity_micromap")
+				opacity_micromap_features = VkPhysicalDeviceOpacityMicromapFeaturesEXTBox()
+				opacity_micromap_features[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT
+				opacity_micromap_features[0].pNext = pNextChain
+				opacity_micromap_features[0].micromap = 1
+				pNextChain = opacity_micromap_features
 			end
 
 			-- nvidia 615's EXT path hangs the gpu (Xid 109) in radiance_candidates on the same SPIR-V the NV path runs fine
@@ -566,6 +582,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		ray_tracing_supported = ray_tracing_supported,
 		ray_query_supported = ray_query_supported,
 		ray_reorder = ray_reorder,
+		opacity_micromap_supported = opacity_micromap_supported,
 		capture_pipeline_statistics = capture_pipeline_statistics,
 		pipeline_statistics_gpu = pipeline_statistics_gpu,
 		queue_family_count = #queueFamilies,

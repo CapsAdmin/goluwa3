@@ -17,6 +17,7 @@ local VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox = ffi.typeof("$[1]", vu
 local VkPhysicalDeviceDynamicRenderingFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
+local VkPhysicalDeviceOpacityMicromapFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceOpacityMicromapFeaturesEXT)
 local VkRayTracingInvocationReorderFeaturesBoxes = {
 	ext = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT),
 	nv = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV),
@@ -371,6 +372,19 @@ end
 function PhysicalDevice:GetRayTracingInvocationReorderFeatures(vendor)
 	local features = VkRayTracingInvocationReorderFeaturesBoxes[vendor]()
 	features[0].sType = vulkan.vk.VkStructureType["VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_" .. vendor:upper()]
+	features[0].pNext = nil
+	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
+		sType = "physical_device_features_2",
+		pNext = features,
+		features = vulkan.vk.VkPhysicalDeviceFeatures(),
+	}
+	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], query)
+	return features[0]
+end
+
+function PhysicalDevice:GetOpacityMicromapFeatures()
+	local features = VkPhysicalDeviceOpacityMicromapFeaturesEXTBox()
+	features[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT
 	features[0].pNext = nil
 	local query = vulkan.vk.s.PhysicalDeviceFeatures2{
 		sType = "physical_device_features_2",

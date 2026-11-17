@@ -132,7 +132,9 @@ function RayTracingPipeline.New(device, config)
 	local create_info = vulkan.vk.s.RayTracingPipelineCreateInfoKHR{
 		sType = "ray_tracing_pipeline_create_info_khr",
 		pNext = nil,
-		flags = 0,
+		flags = device.opacity_micromap_supported and
+			vulkan.vk.VkPipelineCreateFlagBits.VK_PIPELINE_CREATE_RAY_TRACING_OPACITY_MICROMAP_BIT_EXT or
+			0,
 		stageCount = stage_count,
 		pStages = stages,
 		groupCount = group_count,
