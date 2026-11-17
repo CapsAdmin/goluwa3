@@ -29,7 +29,6 @@ local max_distance = pvars.Setup2{
 pvars.EndGroup()
 scatter_rt.NONE = 0xFFFFFFFF
 local MIN_ROWS = 256
-local RESERVE_MARGIN = 1.5
 local parts_table
 local entries = {}
 
@@ -162,12 +161,8 @@ function scatter_rt.Update(protos, out)
 				needs_rows(entry.billboard_rows, billboard_rows)
 			then
 				release_rows(entry)
-				entry.model_rows = model_rows > 0 and
-					math.max(math.ceil(model_rows * RESERVE_MARGIN), MIN_ROWS) or
-					0
-				entry.billboard_rows = billboard_rows > 0 and
-					math.max(math.ceil(billboard_rows * RESERVE_MARGIN), MIN_ROWS) or
-					0
+				entry.model_rows = model_rows > 0 and math.max(model_rows, MIN_ROWS) or 0
+				entry.billboard_rows = billboard_rows > 0 and math.max(billboard_rows, MIN_ROWS) or 0
 				entry.model_base = entry.model_rows > 0 and instances.AllocRange(entry.model_rows) or nil
 				entry.billboard_base = entry.billboard_rows > 0 and instances.AllocRange(entry.billboard_rows) or nil
 			end

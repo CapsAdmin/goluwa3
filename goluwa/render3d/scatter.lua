@@ -149,8 +149,8 @@ local function get_buffers()
 		},
 		prototypes = render.CreateBuffer{
 			byte_size = ffi.sizeof(ScatterPrototype) * MAX_PROTOTYPES,
-			buffer_usage = {"storage_buffer", "shader_device_address"},
-			memory_property = {"host_visible", "host_coherent"},
+			buffer_usage = {"storage_buffer", "shader_device_address", "transfer_dst"},
+			memory_property = {"device_local"},
 			label = "scatter prototypes",
 		},
 		jobs = render.CreateBuffer{
@@ -227,19 +227,20 @@ local function get_buffers()
 		},
 		shadow_blocks = render.CreateBuffer{
 			byte_size = 4 * scatter.SHADOW_BLOCK_WORDS * scatter.MAX_SHADOW_BLOCKS,
-			buffer_usage = {"storage_buffer", "shader_device_address"},
-			memory_property = {"host_visible", "host_coherent"},
+			buffer_usage = {"storage_buffer", "shader_device_address", "transfer_dst"},
+			memory_property = {"device_local"},
 			label = "scatter shadow blocks",
 		},
 	}
 	buffers.surface_data = ffi.cast(ffi.typeof("$ *", ScatterSurface), buffers.surfaces:Map())
-	buffers.prototype_data = ffi.cast(ffi.typeof("$ *", ScatterPrototype), buffers.prototypes:Map())
+	buffers.prototype_memory = ffi.new("uint8_t[?]", buffers.prototypes.size)
+	buffers.prototype_data = ffi.cast(ffi.typeof("$ *", ScatterPrototype), buffers.prototype_memory)
 	buffers.batch_data = ffi.cast(ffi.typeof("$ *", ScatterBatch), buffers.batches:Map())
 	buffers.demand_data = ffi.cast("uint32_t *", buffers.demand:Map())
 	buffers.unit_counts_data = ffi.cast("uint32_t *", buffers.unit_counts_readback:Map())
 	buffers.units_data = ffi.cast("uint32_t *", buffers.units:Map())
 	buffers.blocks_data = ffi.cast("uint32_t *", buffers.blocks:Map())
-	buffers.shadow_blocks_data = ffi.cast("uint32_t *", buffers.shadow_blocks:Map())
+	buffers.shadow_blocks_data = ffi.new("uint32_t[?]", buffers.shadow_blocks.size / 4)
 	return buffers
 end
 
@@ -1902,6 +1903,18 @@ local function barrier(cmd, buffer, src_stage, dst_stage, src_access, dst_access
 	}
 end
 
+-- vkCmdUpdateBuffer takes the data when the command is recorded, so a frame still running reads what it was recorded with where a host write would reach it
+local UPDATE_BUFFER_LIMIT = 65536
+
+local function upload(cmd, buffer, source, bytes)
+	local data = ffi.cast("uint8_t *", source)
+
+	for offset = 0, bytes - 1, UPDATE_BUFFER_LIMIT do
+		local size = math.min(UPDATE_BUFFER_LIMIT, bytes - offset)
+		cmd:UpdateBuffer(buffer, offset, size, data + offset)
+	end
+end
+
 local units = {}
 local surface_states = setmetatable({}, {__mode = "k"})
 local bake_epoch = 1
@@ -2797,6 +2810,8 @@ function scatter.PreDraw(cmd)
 		end
 	end
 
+	local blocks_changed = layout_dirty
+
 	if layout_dirty then assign_bases() end
 
 	scatter_rt.Update(protos, rt_rows)
@@ -2813,6 +2828,26 @@ function scatter.PreDraw(cmd)
 			shadow_out_billboard_bases[i],
 			rt_rows[i]
 		)
+	end
+
+	upload(cmd, b.prototypes, b.prototype_memory, ffi.sizeof(ScatterPrototype) * #protos)
+	barrier(
+		cmd,
+		b.prototypes,
+		"transfer",
+		{"compute", "vertex_shader"},
+		"transfer_write",
+		"shader_read"
+	)
+
+	if blocks_changed and shadow_block_count > 0 then
+		upload(
+			cmd,
+			b.shadow_blocks,
+			b.shadow_blocks_data,
+			4 * scatter.SHADOW_BLOCK_WORDS * shadow_block_count
+		)
+		barrier(cmd, b.shadow_blocks, "transfer", "compute", "transfer_write", "shader_read")
 	end
 
 	pool_collect()
