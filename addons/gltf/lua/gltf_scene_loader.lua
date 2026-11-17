@@ -305,8 +305,7 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 		end
 
 		local poly = Polygon3D.New()
-		poly:SetAABB(aabb)
-		poly.mesh = render3d.CreateMesh(vertices, index_data, index_type, index_count, true)
+		poly:UploadVertexArray(vertices, vertex_count, index_data, index_count, false, nil, aabb, index_type)
 		local material
 
 		if primitive.material then

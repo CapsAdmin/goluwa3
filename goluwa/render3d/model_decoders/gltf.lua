@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local render3d = import("goluwa/render3d/render3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Color = import("goluwa/structs/color.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -259,9 +258,17 @@ local function decode_static(path, data, mesh_callback)
 		end
 
 		local poly = Polygon3D.New()
-		poly:SetAABB(AABB(min_x, min_y, min_z, max_x, max_y, max_z))
 		poly:SetName(path)
-		poly.mesh = render3d.CreateMesh(vertices, indices, "uint32_t", index_count, true)
+		poly:UploadVertexArray(
+			vertices,
+			vertex_count,
+			indices,
+			index_count,
+			false,
+			nil,
+			AABB(min_x, min_y, min_z, max_x, max_y, max_z),
+			"uint32_t"
+		)
 
 		if not materials[primitive.material] then
 			materials[primitive.material] = build_material(primitive)
@@ -335,14 +342,16 @@ local function decode(path, full_path, mesh_callback, physics_callback, skeleton
 				end
 
 				local poly = Polygon3D.New()
-				poly:SetAABB(aabb)
 				poly:SetName(path)
-				poly.mesh = render3d.CreateMesh(
+				poly:UploadVertexArray(
 					vertices,
+					vertex_count,
 					primitive.indices.data,
-					primitive.indices.component_type == "uint32_t" and "uint32_t" or "uint16_t",
 					primitive.indices.count,
-					true
+					false,
+					nil,
+					aabb,
+					primitive.indices.component_type == "uint32_t" and "uint32_t" or "uint16_t"
 				)
 				poly.Skin = {BoneIndices = bone_indices, BoneWeights = bone_weights, Flexes = {}}
 				local material = materials[primitive.material]

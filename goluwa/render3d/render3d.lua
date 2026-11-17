@@ -1577,20 +1577,4 @@ function render3d.GetOceanLevel()
 	return atmosphere.GetOceanLevel()
 end
 
-do
-	local Mesh = import("goluwa/render/mesh.lua")
-
-	function render3d.CreateMesh(vertices, indices, index_type, index_count, deduped, name)
-		local ctor = deduped and Mesh.NewDeduped or Mesh.New
-		return ctor(
-			render3d.pipelines.gbuffer:GetVertexAttributes(),
-			vertices,
-			indices,
-			index_type,
-			index_count,
-			name
-		)
-	end
-end
-
 return render3d

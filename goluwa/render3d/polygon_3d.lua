@@ -292,7 +292,7 @@ local function build_mesh(self, vertices, vertex_count, indices, index_type, ind
 	end
 end
 
-function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode, aabb)
+function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode, aabb, index_type)
 	if not aabb then
 		aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
@@ -327,8 +327,16 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 	end
 
 	if Mesh then
-		local index_type = vertex_count > 65535 and "uint32_t" or "uint16_t"
-		build_mesh(self, vertices, vertex_count, indices, index_type, index_count, mode, not mode)
+		build_mesh(
+			self,
+			vertices,
+			vertex_count,
+			indices,
+			index_type or (vertex_count > 65535 and "uint32_t" or "uint16_t"),
+			index_count,
+			mode,
+			not mode
+		)
 	end
 end
 
