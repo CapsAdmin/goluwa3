@@ -133,11 +133,45 @@ function vertex_layout.GetShaderAttributes()
 	return attributes
 end
 
-function vertex_layout.BuildGlslDefines(prefix)
-	local lines = {("#define %s_STRIDE %du"):format(prefix, vertex_layout.FloatStride)}
+function vertex_layout.BuildGlslAccessors(prefix, type_name, writable)
+	local lines = {}
 
 	for _, field in ipairs(FIELDS) do
-		lines[#lines + 1] = ("#define %s_%s %du"):format(prefix, field.alias, field.float_offset)
+		local name = field.alias:lower()
+		local components = {}
+		local assignments = {}
+
+		for i = 0, field.count - 1 do
+			local at = ("vertex * %du + %du"):format(vertex_layout.FloatStride, field.float_offset + i)
+			components[#components + 1] = ("b.v[%s]"):format(at)
+
+			if field.count == 1 then
+				assignments[#assignments + 1] = ("\tb.v[%s] = value;"):format(at)
+			else
+				assignments[#assignments + 1] = ("\tb.v[%s] = value[%d];"):format(at, i)
+			end
+		end
+
+		local value = field.count == 1 and
+			components[1] or
+			(
+				"%s(%s)"
+			):format(field.glsl, table.concat(components, ", "))
+		lines[#lines + 1] = (
+			"%s %s_%s(%s b, uint vertex) {\n\treturn %s;\n}\n"
+		):format(field.glsl, prefix, name, type_name, value)
+
+		if writable then
+			lines[#lines + 1] = (
+				"void %s_set_%s(%s b, uint vertex, %s value) {\n%s\n}\n"
+			):format(
+				prefix,
+				name,
+				type_name,
+				field.glsl,
+				table.concat(assignments, "\n")
+			)
+		end
 	end
 
 	return table.concat(lines, "\n")

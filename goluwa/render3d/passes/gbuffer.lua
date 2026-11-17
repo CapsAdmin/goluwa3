@@ -238,15 +238,7 @@ local function build_multi_draw_pass(fragment_shader, bits)
 layout(buffer_reference, scalar) readonly buffer PrismVertexData { float v[]; };
 layout(buffer_reference, scalar) readonly buffer PrismIndexData { uint i[]; };
 layout(buffer_reference, scalar) readonly buffer PrismInstanceData { mat4 worlds[]; };
-]] .. string.format(
-			"const uint PRISM_VERTEX_STRIDE = %du;\nconst uint PRISM_VERTEX_POSITION = %du;\nconst uint PRISM_VERTEX_NORMAL = %du;\nconst uint PRISM_VERTEX_UV = %du;\nconst uint PRISM_VERTEX_PIVOT = %du;\nconst uint PRISM_VERTEX_TANGENT = %du;\n",
-			vertex_layout.FloatStride,
-			vertex_layout.GetFloatOffset("position"),
-			vertex_layout.GetFloatOffset("normal"),
-			vertex_layout.GetFloatOffset("uv"),
-			vertex_layout.GetFloatOffset("pivot"),
-			vertex_layout.GetFloatOffset("tangent")
-		)
+]] .. vertex_layout.BuildGlslAccessors("prism_vertex", "PrismVertexData")
 	return pass
 end
 
@@ -309,18 +301,15 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 		}
 
 		vec3 prism_position(PrismMesh mesh, uint index) {
-			uint at = index * PRISM_VERTEX_STRIDE + PRISM_VERTEX_POSITION;
-			return (mesh.world * vec4(mesh.vertices.v[at], mesh.vertices.v[at + 1u], mesh.vertices.v[at + 2u], 1.0)).xyz;
+			return (mesh.world * vec4(prism_vertex_position(mesh.vertices, index), 1.0)).xyz;
 		}
 
 		vec3 prism_normal(PrismMesh mesh, uint index) {
-			uint at = index * PRISM_VERTEX_STRIDE + PRISM_VERTEX_NORMAL;
-			return normalize(mesh.normal_matrix * vec3(mesh.vertices.v[at], mesh.vertices.v[at + 1u], mesh.vertices.v[at + 2u]));
+			return normalize(mesh.normal_matrix * prism_vertex_normal(mesh.vertices, index));
 		}
 
 		vec2 prism_uv(PrismMesh mesh, uint index) {
-			uint at = index * PRISM_VERTEX_STRIDE + PRISM_VERTEX_UV;
-			return vec2(mesh.vertices.v[at], mesh.vertices.v[at + 1u]);
+			return prism_vertex_uv(mesh.vertices, index);
 		}
 
 		bool prism_locate(PrismMesh mesh, inout uint tri, vec3 p, int max_hops, out float lambda, out vec2 uv, out uvec3 corners, out vec3 weights) {
@@ -374,9 +363,8 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 					break;
 				}
 
-				uint pivot_at = i0 * PRISM_VERTEX_STRIDE + PRISM_VERTEX_PIVOT;
 				int slot = b.x == lowest ? 0 : (b.y == lowest ? 1 : 2);
-				float next = mesh.vertices.v[pivot_at + uint(slot)];
+				float next = prism_vertex_pivot(mesh.vertices, i0)[slot];
 
 				if (next < 0.0) {
 					break;
@@ -520,9 +508,8 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			vec4 t = vec4(0.0);
 
 			for (int k = 0; k < 3; k++) {
-				uint at = corners[k] * PRISM_VERTEX_STRIDE;
-				n += vec3(mesh.vertices.v[at + PRISM_VERTEX_NORMAL], mesh.vertices.v[at + PRISM_VERTEX_NORMAL + 1u], mesh.vertices.v[at + PRISM_VERTEX_NORMAL + 2u]) * weights[k];
-				t += vec4(mesh.vertices.v[at + PRISM_VERTEX_TANGENT], mesh.vertices.v[at + PRISM_VERTEX_TANGENT + 1u], mesh.vertices.v[at + PRISM_VERTEX_TANGENT + 2u], mesh.vertices.v[at + PRISM_VERTEX_TANGENT + 3u]) * weights[k];
+				n += prism_vertex_normal(mesh.vertices, corners[k]) * weights[k];
+				t += prism_vertex_tangent(mesh.vertices, corners[k]) * weights[k];
 			}
 
 			vec3 normal = normalize(mesh.normal_matrix * n);
@@ -742,7 +729,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			vec3 outward = face;
 
 			if (side) {
-				s.tri = uint(s.mesh.vertices.v[prism_index(s.mesh, in_triangle, 0u) * PRISM_VERTEX_STRIDE + PRISM_VERTEX_PIVOT] + 0.5);
+				s.tri = uint(prism_vertex_pivot(s.mesh.vertices, prism_index(s.mesh, in_triangle, 0u)).x + 0.5);
 				vec3 middle = (prism_position(s.mesh, prism_index(s.mesh, s.tri, 0u)) + prism_position(s.mesh, prism_index(s.mesh, s.tri, 1u)) + prism_position(s.mesh, prism_index(s.mesh, s.tri, 2u))) / 3.0;
 				outward = face * sign(dot(face, in_position - middle));
 			}

@@ -56,7 +56,7 @@ function hit.GetCoreGLSL()
 	return [[
 		#extension GL_EXT_buffer_reference : require
 		#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-	]] .. vertex_layout.BuildGlslDefines("SCENE_VERTEX") .. [[
+	]] .. "" .. [[
 
 		struct scene_mesh {
 			uint64_t vertex_address;
@@ -87,6 +87,7 @@ function hit.GetCoreGLSL()
 		};
 
 		layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer SceneVertexData { float v[]; };
+		]] .. vertex_layout.BuildGlslAccessors("scene_vertex", "SceneVertexData") .. [[
 		layout(buffer_reference, scalar, buffer_reference_align = 4) readonly buffer SceneIndexData { uint i[]; };
 
 		#define SCENE_INSTANCE_DOUBLE_SIDED 1u
@@ -119,8 +120,8 @@ function hit.GetCoreGLSL()
 			return (k & 1u) != 0u ? word >> 16u : word & 0xFFFFu;
 		}
 
-		vec3 scene_hit_world(scene_tlas_instance t, SceneVertexData vertices, uint base) {
-			vec3 p = vec3(vertices.v[base + SCENE_VERTEX_POSITION], vertices.v[base + SCENE_VERTEX_POSITION + 1u], vertices.v[base + SCENE_VERTEX_POSITION + 2u]);
+		vec3 scene_hit_world(scene_tlas_instance t, SceneVertexData vertices, uint vertex) {
+			vec3 p = scene_vertex_position(vertices, vertex);
 			return vec3(
 				dot(vec3(t.m[0], t.m[1], t.m[2]), p) + t.m[3],
 				dot(vec3(t.m[4], t.m[5], t.m[6]), p) + t.m[7],
@@ -159,10 +160,9 @@ function hit.GetGLSL(binding)
 			scene_mesh mesh = scene_meshes[data.mesh_row];
 			scene_tlas_instance t = scene_tlas_instances[instance];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			uint stride = mesh.vertex_stride / 4u;
-			vec3 p0 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u) * stride);
-			vec3 p1 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 1u) * stride);
-			vec3 p2 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 2u) * stride);
+			vec3 p0 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u));
+			vec3 p1 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 1u));
+			vec3 p2 = scene_hit_world(t, vertices, scene_mesh_index(mesh, primitive * 3u + 2u));
 			scene_triangle tri;
 			tri.v0 = p0;
 			tri.e1 = p1 - p0;
@@ -188,28 +188,26 @@ function hit.GetGLSL(binding)
 		scene_uv scene_hit_uv(uint instance, uint primitive) {
 			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			uint stride = mesh.vertex_stride / 4u;
-			uint a = scene_mesh_index(mesh, primitive * 3u) * stride;
-			uint b = scene_mesh_index(mesh, primitive * 3u + 1u) * stride;
-			uint c = scene_mesh_index(mesh, primitive * 3u + 2u) * stride;
+			uint a = scene_mesh_index(mesh, primitive * 3u);
+			uint b = scene_mesh_index(mesh, primitive * 3u + 1u);
+			uint c = scene_mesh_index(mesh, primitive * 3u + 2u);
 			scene_uv uv;
-			uv.uv0 = vec2(vertices.v[a + SCENE_VERTEX_UV], vertices.v[a + SCENE_VERTEX_UV + 1u]);
-			uv.uv1 = vec2(vertices.v[b + SCENE_VERTEX_UV], vertices.v[b + SCENE_VERTEX_UV + 1u]);
-			uv.uv2 = vec2(vertices.v[c + SCENE_VERTEX_UV], vertices.v[c + SCENE_VERTEX_UV + 1u]);
-			uv.blend = vec3(vertices.v[a + SCENE_VERTEX_TEXTURE_BLEND], vertices.v[b + SCENE_VERTEX_TEXTURE_BLEND], vertices.v[c + SCENE_VERTEX_TEXTURE_BLEND]);
+			uv.uv0 = scene_vertex_uv(vertices, a);
+			uv.uv1 = scene_vertex_uv(vertices, b);
+			uv.uv2 = scene_vertex_uv(vertices, c);
+			uv.blend = vec3(scene_vertex_texture_blend(vertices, a), scene_vertex_texture_blend(vertices, b), scene_vertex_texture_blend(vertices, c));
 			return uv;
 		}
 
 		vec3 scene_hit_smooth_normal(uint instance, uint primitive, vec2 barycentrics) {
 			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			uint stride = mesh.vertex_stride / 4u;
-			uint a = scene_mesh_index(mesh, primitive * 3u) * stride;
-			uint b = scene_mesh_index(mesh, primitive * 3u + 1u) * stride;
-			uint c = scene_mesh_index(mesh, primitive * 3u + 2u) * stride;
-			vec3 n0 = vec3(vertices.v[a + SCENE_VERTEX_NORMAL], vertices.v[a + SCENE_VERTEX_NORMAL + 1u], vertices.v[a + SCENE_VERTEX_NORMAL + 2u]);
-			vec3 n1 = vec3(vertices.v[b + SCENE_VERTEX_NORMAL], vertices.v[b + SCENE_VERTEX_NORMAL + 1u], vertices.v[b + SCENE_VERTEX_NORMAL + 2u]);
-			vec3 n2 = vec3(vertices.v[c + SCENE_VERTEX_NORMAL], vertices.v[c + SCENE_VERTEX_NORMAL + 1u], vertices.v[c + SCENE_VERTEX_NORMAL + 2u]);
+			uint a = scene_mesh_index(mesh, primitive * 3u);
+			uint b = scene_mesh_index(mesh, primitive * 3u + 1u);
+			uint c = scene_mesh_index(mesh, primitive * 3u + 2u);
+			vec3 n0 = scene_vertex_normal(vertices, a);
+			vec3 n1 = scene_vertex_normal(vertices, b);
+			vec3 n2 = scene_vertex_normal(vertices, c);
 			vec3 local_normal = n0 * (1.0 - barycentrics.x - barycentrics.y) + n1 * barycentrics.x + n2 * barycentrics.y;
 
 			if (dot(local_normal, local_normal) < 1e-8) return -scene_hit_tri(instance, primitive).normal;
@@ -225,20 +223,20 @@ function hit.GetGLSL(binding)
 		vec4 scene_hit_smooth_tangent(uint instance, uint primitive, vec2 barycentrics) {
 			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
 			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-			uint stride = mesh.vertex_stride / 4u;
-			uint a = scene_mesh_index(mesh, primitive * 3u) * stride;
-			uint b = scene_mesh_index(mesh, primitive * 3u + 1u) * stride;
-			uint c = scene_mesh_index(mesh, primitive * 3u + 2u) * stride;
-			vec3 t0 = vec3(vertices.v[a + SCENE_VERTEX_TANGENT], vertices.v[a + SCENE_VERTEX_TANGENT + 1u], vertices.v[a + SCENE_VERTEX_TANGENT + 2u]);
-			vec3 t1 = vec3(vertices.v[b + SCENE_VERTEX_TANGENT], vertices.v[b + SCENE_VERTEX_TANGENT + 1u], vertices.v[b + SCENE_VERTEX_TANGENT + 2u]);
-			vec3 t2 = vec3(vertices.v[c + SCENE_VERTEX_TANGENT], vertices.v[c + SCENE_VERTEX_TANGENT + 1u], vertices.v[c + SCENE_VERTEX_TANGENT + 2u]);
+			uint a = scene_mesh_index(mesh, primitive * 3u);
+			uint b = scene_mesh_index(mesh, primitive * 3u + 1u);
+			uint c = scene_mesh_index(mesh, primitive * 3u + 2u);
+			vec4 tangent_a = scene_vertex_tangent(vertices, a);
+			vec3 t0 = tangent_a.xyz;
+			vec3 t1 = scene_vertex_tangent(vertices, b).xyz;
+			vec3 t2 = scene_vertex_tangent(vertices, c).xyz;
 			vec3 local_tangent = t0 * (1.0 - barycentrics.x - barycentrics.y) + t1 * barycentrics.x + t2 * barycentrics.y;
 			scene_tlas_instance t = scene_tlas_instances[instance];
 			return vec4(
 				dot(vec3(t.m[0], t.m[1], t.m[2]), local_tangent),
 				dot(vec3(t.m[4], t.m[5], t.m[6]), local_tangent),
 				dot(vec3(t.m[8], t.m[9], t.m[10]), local_tangent),
-				vertices.v[a + SCENE_VERTEX_TANGENT + 3u] < 0.0 ? -1.0 : 1.0
+				tangent_a.w < 0.0 ? -1.0 : 1.0
 			);
 		}
 	]]

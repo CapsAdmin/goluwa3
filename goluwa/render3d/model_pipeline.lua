@@ -599,18 +599,11 @@ do
 		local fetch = {}
 
 		for _, field in ipairs(vertex_layout.Fields) do
-			local components = {}
-
-			for i = 0, field.count - 1 do
-				components[#components + 1] = "data.v[base + " .. (field.float_offset + i) .. "u]"
-			end
-
 			fetch[#fetch + 1] = string.format(
-				"\t%s in_%s = %s(%s);",
+				"\t%s in_%s = pbr_vertex_%s(data, vertex_index);",
 				field.glsl,
 				field.name,
-				field.glsl,
-				table.concat(components, ", ")
+				field.alias:lower()
 			)
 		end
 
@@ -632,7 +625,6 @@ do
 
 	uint vertex_index = uint(gl_VertexIndex);
 	PBRBatchVertexData data = PBRBatchVertexData(packUint2x32(addresses.xy));
-	uint base = vertex_index * ]] .. vertex_layout.FloatStride .. [[u;
 ]] .. table.concat(fetch, "\n") .. [[
 
 	multi_draw_instance_world = PBRBatchInstanceData(]] .. options.instances_expr .. [[).worlds[gl_InstanceIndex];
@@ -651,6 +643,7 @@ do
 			uniform_buffers = options.uniform_buffers,
 			custom_declarations = model_pipeline.BuildPBRBatchRecordGlsl() .. [[
 layout(buffer_reference, scalar) readonly buffer PBRBatchVertexData { float v[]; };
+]] .. vertex_layout.BuildGlslAccessors("pbr_vertex", "PBRBatchVertexData") .. [[
 layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 worlds[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchIdData { uvec2 ids[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchThicknessData { float t[]; };

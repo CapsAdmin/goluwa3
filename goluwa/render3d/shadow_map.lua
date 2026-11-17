@@ -330,7 +330,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 
 			]] .. model_pipeline.BuildVertexAnimationGlsl("shadow_world", "pc.wind_camera", "pc.wind_pixel_scale") .. [[
 
-			]] .. vertex_layout.BuildGlslDefines("SHADOW_VERTEX") .. [[
+			]] .. vertex_layout.BuildGlslAccessors("shadow_vertex", "ShadowVertexData") .. [[
 
 			void main() {
 				uint batch_index = pc.indexed != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID);
@@ -356,17 +356,13 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				}
 
 				ShadowVertexData data = ShadowVertexData(packUint2x32(addresses.xy));
-				uint base = index * SHADOW_VERTEX_STRIDE;
-				uint position_at = base + SHADOW_VERTEX_POSITION;
-				uint uv_at = base + SHADOW_VERTEX_UV;
-				vec3 local_pos = vec3(data.v[position_at], data.v[position_at + 1u], data.v[position_at + 2u]);
-				vec2 uv = vec2(data.v[uv_at], data.v[uv_at + 1u]);
+				vec3 local_pos = shadow_vertex_position(data, index);
+				vec2 uv = shadow_vertex_uv(data, index);
 				shadow_world = ShadowInstanceData(pc.instances).worlds[gl_InstanceIndex];
 				vec3 world_pos = (shadow_world * vec4(local_pos, 1.0)).xyz;
 
 				if (SHADOW_BATCH[batch_index].shell_sink > 0.0) {
-					uint normal_at = base + SHADOW_VERTEX_NORMAL;
-					world_pos -= normalize(transpose(inverse(mat3(shadow_world))) * vec3(data.v[normal_at], data.v[normal_at + 1u], data.v[normal_at + 2u])) * SHADOW_BATCH[batch_index].shell_sink;
+					world_pos -= normalize(transpose(inverse(mat3(shadow_world))) * shadow_vertex_normal(data, index)) * SHADOW_BATCH[batch_index].shell_sink;
 				}
 
 				if (
@@ -380,17 +376,12 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					vertex_animation.PrevTime = pc.prev_time;
 					vertex_animation.DetailTime = pc.detail_time;
 					vertex_animation.PrevDetailTime = pc.detail_time;
-					uint normal_at = base + SHADOW_VERTEX_NORMAL;
-					uint color_at = base + SHADOW_VERTEX_COLOR;
-					uint pivot_at = base + SHADOW_VERTEX_PIVOT;
-					uint mid_at = base + SHADOW_VERTEX_CHAIN_MID;
-					uint tip_at = base + SHADOW_VERTEX_CHAIN_TIP;
-					vec3 local_normal = vec3(data.v[normal_at], data.v[normal_at + 1u], data.v[normal_at + 2u]);
-					vec4 vertex_color = vec4(data.v[color_at], data.v[color_at + 1u], data.v[color_at + 2u], data.v[color_at + 3u]);
+					vec3 local_normal = shadow_vertex_normal(data, index);
+					vec4 vertex_color = shadow_vertex_color(data, index);
 					VegetationChain vertex_chain = VegetationChain(
-						vec4(data.v[pivot_at], data.v[pivot_at + 1u], data.v[pivot_at + 2u], data.v[pivot_at + 3u]),
-						vec3(data.v[mid_at], data.v[mid_at + 1u], data.v[mid_at + 2u]),
-						vec3(data.v[tip_at], data.v[tip_at + 1u], data.v[tip_at + 2u])
+						shadow_vertex_pivot(data, index),
+						shadow_vertex_chain_mid(data, index),
+						shadow_vertex_chain_tip(data, index)
 					);
 					vec3 world_normal = normalize(transpose(inverse(mat3(shadow_world))) * local_normal);
 					if (vertex_color.a < ]] .. skinning.MOTION_THRESHOLD .. [[.0) {

@@ -464,24 +464,24 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		vec3 blend;
 	};
 
-	]] .. vertex_layout.BuildGlslDefines("SCATTER_VERTEX") .. [[
+	]] .. vertex_layout.BuildGlslAccessors("scatter_vertex", "ScatterVertexData") .. [[
 
 	ScatterTriangle scatter_load_triangle(ScatterSurface s, uint tri) {
 		ScatterVertexData data = ScatterVertexData(packUint2x32(s.addresses.xy));
-		uint a = scatter_index(s, tri * 3u) * SCATTER_VERTEX_STRIDE;
-		uint b = scatter_index(s, tri * 3u + 1u) * SCATTER_VERTEX_STRIDE;
-		uint c = scatter_index(s, tri * 3u + 2u) * SCATTER_VERTEX_STRIDE;
+		uint a = scatter_index(s, tri * 3u);
+		uint b = scatter_index(s, tri * 3u + 1u);
+		uint c = scatter_index(s, tri * 3u + 2u);
 		ScatterTriangle t;
-		t.p0 = (s.world * vec4(data.v[a + SCATTER_VERTEX_POSITION], data.v[a + SCATTER_VERTEX_POSITION + 1u], data.v[a + SCATTER_VERTEX_POSITION + 2u], 1.0)).xyz;
-		t.p1 = (s.world * vec4(data.v[b + SCATTER_VERTEX_POSITION], data.v[b + SCATTER_VERTEX_POSITION + 1u], data.v[b + SCATTER_VERTEX_POSITION + 2u], 1.0)).xyz;
-		t.p2 = (s.world * vec4(data.v[c + SCATTER_VERTEX_POSITION], data.v[c + SCATTER_VERTEX_POSITION + 1u], data.v[c + SCATTER_VERTEX_POSITION + 2u], 1.0)).xyz;
-		t.n0 = normalize(mat3(s.world) * vec3(data.v[a + SCATTER_VERTEX_NORMAL], data.v[a + SCATTER_VERTEX_NORMAL + 1u], data.v[a + SCATTER_VERTEX_NORMAL + 2u]));
-		t.n1 = normalize(mat3(s.world) * vec3(data.v[b + SCATTER_VERTEX_NORMAL], data.v[b + SCATTER_VERTEX_NORMAL + 1u], data.v[b + SCATTER_VERTEX_NORMAL + 2u]));
-		t.n2 = normalize(mat3(s.world) * vec3(data.v[c + SCATTER_VERTEX_NORMAL], data.v[c + SCATTER_VERTEX_NORMAL + 1u], data.v[c + SCATTER_VERTEX_NORMAL + 2u]));
-		t.uv0 = vec2(data.v[a + SCATTER_VERTEX_UV], data.v[a + SCATTER_VERTEX_UV + 1u]);
-		t.uv1 = vec2(data.v[b + SCATTER_VERTEX_UV], data.v[b + SCATTER_VERTEX_UV + 1u]);
-		t.uv2 = vec2(data.v[c + SCATTER_VERTEX_UV], data.v[c + SCATTER_VERTEX_UV + 1u]);
-		t.blend = vec3(data.v[a + SCATTER_VERTEX_TEXTURE_BLEND], data.v[b + SCATTER_VERTEX_TEXTURE_BLEND], data.v[c + SCATTER_VERTEX_TEXTURE_BLEND]);
+		t.p0 = (s.world * vec4(scatter_vertex_position(data, a), 1.0)).xyz;
+		t.p1 = (s.world * vec4(scatter_vertex_position(data, b), 1.0)).xyz;
+		t.p2 = (s.world * vec4(scatter_vertex_position(data, c), 1.0)).xyz;
+		t.n0 = normalize(mat3(s.world) * scatter_vertex_normal(data, a));
+		t.n1 = normalize(mat3(s.world) * scatter_vertex_normal(data, b));
+		t.n2 = normalize(mat3(s.world) * scatter_vertex_normal(data, c));
+		t.uv0 = scatter_vertex_uv(data, a);
+		t.uv1 = scatter_vertex_uv(data, b);
+		t.uv2 = scatter_vertex_uv(data, c);
+		t.blend = vec3(scatter_vertex_texture_blend(data, a), scatter_vertex_texture_blend(data, b), scatter_vertex_texture_blend(data, c));
 		return t;
 	}
 
@@ -2323,9 +2323,7 @@ do
 			priority = 3e6 + rank
 		end
 
-		if priority then
-			offer_bake(unit, visit_surface, band, priority)
-		end
+		if priority then offer_bake(unit, visit_surface, band, priority) end
 	end
 
 	function visit_cell(tier, cx, cz)

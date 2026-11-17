@@ -130,7 +130,7 @@ local function get_pipeline()
 				BendJob jobs[];
 			};
 
-			]] .. vertex_layout.BuildGlslDefines("BEND_VERTEX") .. [[
+			]] .. vertex_layout.BuildGlslAccessors("bend_source", "BendSource") .. [[
 
 			BendAnimation vertex_animation;
 			mat4 bend_world;
@@ -165,14 +165,13 @@ local function get_pipeline()
 					vec4(instance.m[3], instance.m[7], instance.m[11], 1.0)
 				);
 				BendSource source = BendSource(packUint2x32(job.source));
-				uint o = i * BEND_VERTEX_STRIDE;
-				vec3 position = vec3(source.v[o + BEND_VERTEX_POSITION], source.v[o + BEND_VERTEX_POSITION + 1u], source.v[o + BEND_VERTEX_POSITION + 2u]);
-				vec3 normal = vec3(source.v[o + BEND_VERTEX_NORMAL], source.v[o + BEND_VERTEX_NORMAL + 1u], source.v[o + BEND_VERTEX_NORMAL + 2u]);
-				vec4 color = vec4(source.v[o + BEND_VERTEX_COLOR], source.v[o + BEND_VERTEX_COLOR + 1u], source.v[o + BEND_VERTEX_COLOR + 2u], source.v[o + BEND_VERTEX_COLOR + 3u]);
+				vec3 position = bend_source_position(source, i);
+				vec3 normal = bend_source_normal(source, i);
+				vec4 color = bend_source_color(source, i);
 				VegetationChain chain = VegetationChain(
-					vec4(source.v[o + BEND_VERTEX_PIVOT], source.v[o + BEND_VERTEX_PIVOT + 1u], source.v[o + BEND_VERTEX_PIVOT + 2u], source.v[o + BEND_VERTEX_PIVOT + 3u]),
-					vec3(source.v[o + BEND_VERTEX_CHAIN_MID], source.v[o + BEND_VERTEX_CHAIN_MID + 1u], source.v[o + BEND_VERTEX_CHAIN_MID + 2u]),
-					vec3(source.v[o + BEND_VERTEX_CHAIN_TIP], source.v[o + BEND_VERTEX_CHAIN_TIP + 1u], source.v[o + BEND_VERTEX_CHAIN_TIP + 2u])
+					bend_source_pivot(source, i),
+					bend_source_chain_mid(source, i),
+					bend_source_chain_tip(source, i)
 				);
 				mat3 world3 = mat3(bend_world);
 				mat3 inverse_world3 = inverse(world3);

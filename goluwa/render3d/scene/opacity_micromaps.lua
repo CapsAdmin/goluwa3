@@ -205,13 +205,12 @@ local function get_pipeline()
 
 				scene_mesh mesh = scene_meshes[job.mesh_row];
 				SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
-				uint stride = mesh.vertex_stride / 4u;
-				uint a = scene_mesh_index(mesh, triangle * 3u) * stride;
-				uint b = scene_mesh_index(mesh, triangle * 3u + 1u) * stride;
-				uint c = scene_mesh_index(mesh, triangle * 3u + 2u) * stride;
-				vec2 uv0 = vec2(vertices.v[a + SCENE_VERTEX_UV], vertices.v[a + SCENE_VERTEX_UV + 1u]);
-				vec2 uv1 = vec2(vertices.v[b + SCENE_VERTEX_UV], vertices.v[b + SCENE_VERTEX_UV + 1u]);
-				vec2 uv2 = vec2(vertices.v[c + SCENE_VERTEX_UV], vertices.v[c + SCENE_VERTEX_UV + 1u]);
+				uint a = scene_mesh_index(mesh, triangle * 3u);
+				uint b = scene_mesh_index(mesh, triangle * 3u + 1u);
+				uint c = scene_mesh_index(mesh, triangle * 3u + 2u);
+				vec2 uv0 = scene_vertex_uv(vertices, a);
+				vec2 uv1 = scene_vertex_uv(vertices, b);
+				vec2 uv2 = scene_vertex_uv(vertices, c);
 				vec2 size = vec2(textureSize(TEXTURE(job.texture), 0));
 				float n = float(1u << job.level);
 				uint bits = 0u;

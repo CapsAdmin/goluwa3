@@ -121,7 +121,7 @@ local function get_pipeline()
 				SkinJob jobs[];
 			};
 
-			]] .. vertex_layout.BuildGlslDefines("SKIN_VERTEX") .. [[
+			]] .. vertex_layout.BuildGlslAccessors("skin_bind", "SkinBind") .. vertex_layout.BuildGlslAccessors("skin_destination", "SkinDestination", true) .. [[
 
 			mat4x3 skin_matrix(SkinMatrices matrices, uint bone) {
 				uint o = bone * 12u;
@@ -162,14 +162,9 @@ local function get_pipeline()
 					if (bone.w2 > 0.0) m += skin_matrix(matrices, (bone.indices >> 20u) & 0x3FFu) * bone.w2;
 				}
 
-				uint o = i * SKIN_VERTEX_STRIDE;
-				uint position_at = o + SKIN_VERTEX_POSITION;
-				uint normal_at = o + SKIN_VERTEX_NORMAL;
-				uint tangent_at = o + SKIN_VERTEX_TANGENT;
-				uint color_at = o + SKIN_VERTEX_COLOR;
-				vec3 position = vec3(bind.v[position_at], bind.v[position_at + 1u], bind.v[position_at + 2u]);
-				vec3 normal = vec3(bind.v[normal_at], bind.v[normal_at + 1u], bind.v[normal_at + 2u]);
-				vec3 tangent = vec3(bind.v[tangent_at], bind.v[tangent_at + 1u], bind.v[tangent_at + 2u]);
+				vec3 position = skin_bind_position(bind, i);
+				vec3 normal = skin_bind_normal(bind, i);
+				vec3 tangent = skin_bind_tangent(bind, i).xyz;
 
 				if (job.morph_ranges.x != 0u || job.morph_ranges.y != 0u) {
 					uvec2 range = MorphRanges(packUint2x32(job.morph_ranges)).r[i];
@@ -188,31 +183,22 @@ local function get_pipeline()
 				}
 
 				vec3 previous = position;
-				bool had_previous = destination.v[color_at + 3u] < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
+				bool had_previous = skin_destination_color(destination, i).w < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
 				position = m * vec4(position, 1.0);
 
 				if (had_previous) {
-					previous = vec3(destination.v[position_at], destination.v[position_at + 1u], destination.v[position_at + 2u]);
+					previous = skin_destination_position(destination, i);
 				} else {
 					previous = position;
 				}
 
 				normal = normalize(mat3(m) * normal + 1e-20);
 				tangent = normalize(mat3(m) * tangent + 1e-20);
-				destination.v[position_at] = position.x;
-				destination.v[position_at + 1u] = position.y;
-				destination.v[position_at + 2u] = position.z;
-				destination.v[normal_at] = normal.x;
-				destination.v[normal_at + 1u] = normal.y;
-				destination.v[normal_at + 2u] = normal.z;
-				destination.v[tangent_at] = tangent.x;
-				destination.v[tangent_at + 1u] = tangent.y;
-				destination.v[tangent_at + 2u] = tangent.z;
+				skin_destination_set_position(destination, i, position);
+				skin_destination_set_normal(destination, i, normal);
+				skin_destination_set_tangent(destination, i, vec4(tangent, skin_destination_tangent(destination, i).w));
 				vec3 motion = position - previous;
-				destination.v[color_at] = motion.x;
-				destination.v[color_at + 1u] = motion.y;
-				destination.v[color_at + 2u] = motion.z;
-				destination.v[color_at + 3u] = ]] .. skinning.MOTION_MARK .. [[.0;
+				skin_destination_set_color(destination, i, vec4(motion, ]] .. skinning.MOTION_MARK .. [[.0));
 			}
 		]],
 	}

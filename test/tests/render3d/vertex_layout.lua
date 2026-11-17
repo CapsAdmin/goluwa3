@@ -31,19 +31,32 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 		T(model_pipeline.GetVertexAttributes()[i][1])["=="](field.name)
 	end
 
-	local defines = vertex_layout.BuildGlslDefines("TEST_VERTEX")
-	T(
-		defines:find("#define TEST_VERTEX_STRIDE " .. vertex_layout.FloatStride .. "u", 1, true)
-	)["~="](nil)
+	local readable = vertex_layout.BuildGlslAccessors("test_vertex", "TestVertexData")
+	local writable = vertex_layout.BuildGlslAccessors("test_vertex", "TestVertexData", true)
 
 	for _, field in ipairs(vertex_layout.Fields) do
+		local name = field.alias:lower()
 		T(
-			defines:find(
-				"#define TEST_VERTEX_" .. field.alias .. " " .. field.float_offset .. "u",
+			readable:find(field.glsl .. " test_vertex_" .. name .. "(TestVertexData b, uint vertex)", 1, true)
+		)["~="](nil)
+		T(readable:find("test_vertex_set_" .. name .. "(", 1, true))["=="](nil)
+		T(
+			writable:find(
+				"void test_vertex_set_" .. name .. "(TestVertexData b, uint vertex, " .. field.glsl .. " value)",
 				1,
 				true
 			)
 		)["~="](nil)
+
+		for i = 0, field.count - 1 do
+			T(
+				readable:find(
+					"b.v[vertex * " .. vertex_layout.FloatStride .. "u + " .. field.float_offset + i .. "u]",
+					1,
+					true
+				)
+			)["~="](nil)
+		end
 	end
 
 	local ok, err = pcall(vertex_layout.Get, "nope")
