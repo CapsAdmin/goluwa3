@@ -170,8 +170,9 @@ function meshes.GetCut(row, index_buffer, triangle_count)
 	return cut
 end
 
+local cluster_rows = {}
+
 do
-	local cluster_rows = {}
 	local cluster_index_address = 0
 
 	function meshes.GetClusterRow(row, index_address)
@@ -238,7 +239,14 @@ function meshes.EnsureRaster(row)
 		record.index_is_32 = mesh.index_buffer:GetIndexType() == "uint32"
 	end
 
-	meshes.GetTable():Get()[row].pool_first_index = index_pool.GetFirstIndex(mesh.index_buffer)
+	local first_index = index_pool.GetFirstIndex(mesh.index_buffer)
+	local data = meshes.GetTable():Get()
+	data[row].pool_first_index = first_index
+
+	if cluster_rows[row] then
+		data[cluster_rows[row]].pool_first_index = first_index
+	end
+
 	record.raster_ready = true
 end
 
