@@ -524,7 +524,9 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			if state then
 				track_polygon(polygon3d, visual)
 				local cut_material = visual:GetResolvedMaterial(entry)
+				local emissive_r, emissive_g, emissive_b = materials.GetEmissive(cut_material)
 
+				-- emitters sample the triangles of the mesh row an instance traces, which a cluster row does not number like the mesh
 				if
 					state.ready and
 					cluster_rt.IsReady(polygon3d) and
@@ -535,6 +537,8 @@ function bridge.UpdateVisual(visual, is_dynamic)
 					and
 					cluster_lod.IsMaterialEligible(cut_material) and
 					not cut_material:HasVertexAnimation()
+					and
+					emissive_r + emissive_g + emissive_b == 0
 				then
 					clustered = true
 					rt_row = meshes.GetClusterRow(mesh_row, index_pool.GetBuffer():GetDeviceAddress())

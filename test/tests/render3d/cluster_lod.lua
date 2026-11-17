@@ -537,6 +537,62 @@ T.Test3DRayTracing("Graphics render3d cluster lod traces a coarser cut of a larg
 	entity:Remove()
 end)
 
+T.Test3DRayTracing("Graphics render3d cluster lod keeps an emissive model on its own mesh row for the emitters", function(draw)
+	if not cluster_rt.IsEnabled() then return end
+
+	local emitters = import("goluwa/render3d/scene/emitters.lua")
+	local Texture = import("goluwa/render/texture.lua")
+	local Color = import("goluwa/structs/color.lua")
+	local vertices, vertex_count, indices, index_count = icosphere(6)
+	local indices16 = ffi.new("uint16_t[?]", index_count)
+
+	for i = 0, index_count - 1 do
+		indices16[i] = indices[i]
+	end
+
+	local polygon = Polygon3D.New()
+	polygon:UploadVertexArray(vertices, vertex_count, indices16, index_count, true)
+	local material = Material.New()
+	material:SetEmissiveTexture(Texture.GetFallback())
+	material:SetEmissiveMultiplier(Color(1, 1, 1, 1))
+	local entity = Entity.New{Name = "cluster_lod_emissive_sphere"}
+	entity:AddComponent("transform")
+	entity.transform:SetPosition(Vec3(0, 0, -3))
+	local visual = entity:AddComponent("visual")
+	visual:SetUseOcclusionCulling(false)
+	local primitive = Entity.New{Name = "cluster_lod_emissive_sphere_primitive", Parent = entity}
+	primitive:AddComponent("transform")
+	primitive:AddComponent("visual_primitive"):SetPolygon3D(polygon)
+	primitive.visual_primitive:SetMaterial(material)
+	visual:BuildAABB()
+	local started = system.GetTime()
+
+	while not (cluster_lod.GetState(polygon) and cluster_rt.IsReady(polygon)) do
+		thread_pool.Update()
+		draw()
+		threads.sleep(5)
+		T(system.GetTime() - started < 25)["=="](true)
+	end
+
+	for _ = 1, 4 do
+		draw()
+	end
+
+	local row = meshes.Get(polygon.mesh)
+	T(visual.scene_instances[1].mesh_row)["=="](row)
+	local list = emitters.Get(true)
+	local found = false
+
+	for _, source in ipairs(list.sources) do
+		if source.instance == visual.scene_instances[1].id then
+			found = source.triangle_count == meshes.GetRecord(row).triangle_count
+		end
+	end
+
+	T(found)["=="](true)
+	entity:Remove()
+end)
+
 T.Test("cluster lod keeps bending vertices of different stiffness and pivot apart", function()
 	local plain_meta, plain_records, plain_indices, vertex_count, triangles, plain_blob = run_build(5, false)
 	local bend_meta, bend_records, bend_indices, _, _, bend_blob = run_build(5, true)
