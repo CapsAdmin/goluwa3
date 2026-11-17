@@ -7,12 +7,48 @@ local animations = import("lua/animations.lua")
 local weapons = import("lua/weapons.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local META = objects.CreateTemplate("weapon_holder")
 local BUTTON = usercmd.BUTTON
+local infinite_ammo = pvars.Setup2{
+	key = "sv_infinite_ammo",
+	category = "Game",
+	group = "Server",
+	prefix = "sv_",
+	default = true,
+	help = "weapons never run out of reserve ammo (clips still empty and reload)",
+}
+META.Network = {
+	Ammo = {"table", 0.25, "reliable"},
+}
+META:GetSet("Ammo", {})
 
 function META:Initialize()
 	self:AddGlobalEvent("PhysicsUpdate")
 	self:AddGlobalEvent("Update")
+	self.Ammo = {}
+end
+
+function META:IsAmmoInfinite()
+	return infinite_ammo:Get()
+end
+
+function META:GetAmmo(kind)
+	if self:IsAmmoInfinite() then return math.huge end
+
+	return self.Ammo[kind] or 0
+end
+
+function META:GiveAmmo(kind, count)
+	self.Ammo[kind] = (self.Ammo[kind] or 0) + count
+end
+
+function META:TakeAmmo(kind, count)
+	if self:IsAmmoInfinite() then return count end
+
+	local taken = math.min(self.Ammo[kind] or 0, count)
+	self.Ammo[kind] = (self.Ammo[kind] or 0) - taken
+	return taken
 end
 
 function META:OnUpdate()
@@ -200,6 +236,7 @@ function META:Give(weapon_name, roll)
 			nil,
 	}
 	weapons.PendingRoll = nil
+	weapon.weapon:GiveDefaultAmmo(self)
 	self:EquipDefault(weapon)
 	return weapon
 end
@@ -207,8 +244,15 @@ end
 function META:Pickup(weapon)
 	local owner = self.Owner
 
-	if self:FindWeapon(weapon:GetName()) then return false end
+	if self:FindWeapon(weapon:GetName()) then
+		if not weapon.weapon:UsesAmmo() then return false end
 
+		weapon.weapon:GiveDefaultAmmo(self)
+		weapon:Remove()
+		return true
+	end
+
+	weapon.weapon:GiveDefaultAmmo(self)
 	weapon.transform:SetPosition(Vec3())
 	weapon.transform:SetRotation(Quat():Identity())
 

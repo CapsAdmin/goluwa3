@@ -25,6 +25,8 @@ META.Network = {
 	DamageMultiplier = {"number", 0.5, "reliable"},
 	Rarity = {"string", 0.5, "reliable"},
 	Title = {"string", 0.5, "reliable"},
+	Clip = {"number", 0.05, "reliable"},
+	Reloading = {"boolean", 0.05, "reliable"},
 }
 META:StartStorable()
 META:GetSet("Slot", 1)
@@ -63,7 +65,17 @@ META:GetSet("Sheath", "")
 META:GetSet("SheathOffset", Vec3())
 META:GetSet("SheathRotation", Quat(0, 0, 0, 1))
 META:GetSet("SheathDelay", 5)
+META:GetSet("AmmoType", "")
+META:GetSet("SecondaryAmmoType", "")
+META:GetSet("ClipSize", -1)
+META:GetSet("DefaultAmmo", 0)
+META:GetSet("DefaultSecondaryAmmo", 0)
+META:GetSet("ReloadTime", 1.5)
+META:GetSet("ReloadIncrement", 0)
+META:GetSet("DryFireDelay", 0.3)
 META:EndStorable()
+META:GetSet("Clip", -1)
+META:IsSet("Reloading", false)
 META:GetSet("Equipped", "")
 META:IsSet("Drawn", false)
 META:GetSet("PrimaryButton", BUTTON.ATTACK1)
@@ -75,6 +87,7 @@ function META:Initialize()
 	self.next_primary = 0
 	self.next_secondary = 0
 	self.sheath_time = 0
+	self.reload_time = 0
 end
 
 function META:ApplyReplacement()
@@ -97,6 +110,8 @@ end
 
 function META:OnEntityConstructed()
 	self:ApplyReplacement()
+
+	if self.Clip < 0 then self.Clip = self.ClipSize end
 
 	if self.Rollable and self.Rarity == "" and network.HasAuthority() then
 		event.Call("RollWeapon", self)
@@ -243,6 +258,104 @@ function META:UpdateModel(visible)
 	self:GetModel().visibility:SetVisible(visible)
 end
 
+function META:UsesAmmo()
+	return self.AmmoType ~= "" or self.SecondaryAmmoType ~= ""
+end
+
+function META:GiveDefaultAmmo(holder)
+	if self.AmmoType ~= "" then holder:GiveAmmo(self.AmmoType, self.DefaultAmmo) end
+
+	if self.SecondaryAmmoType ~= "" then
+		holder:GiveAmmo(self.SecondaryAmmoType, self.DefaultSecondaryAmmo)
+	end
+end
+
+function META:GetReserve(kind)
+	return self:GetHolder():GetAmmo(kind)
+end
+
+function META:HasPrimaryAmmo(count)
+	count = count or 1
+
+	if self.ClipSize > 0 then return self.Clip >= count end
+
+	return self.AmmoType == "" or self:GetReserve(self.AmmoType) >= count
+end
+
+function META:HasSecondaryAmmo(count)
+	return self.SecondaryAmmoType == "" or
+		self:GetReserve(self.SecondaryAmmoType) >= (
+			count or
+			1
+		)
+end
+
+function META:TakePrimaryAmmo(count)
+	if not network.HasAuthority() then return end
+
+	if self.ClipSize > 0 then
+		self.Clip = self.Clip - count
+	elseif self.AmmoType ~= "" then
+		self:GetHolder():TakeAmmo(self.AmmoType, count)
+	end
+end
+
+function META:TakeSecondaryAmmo(count)
+	if not network.HasAuthority() or self.SecondaryAmmoType == "" then return end
+
+	self:GetHolder():TakeAmmo(self.SecondaryAmmoType, count)
+end
+
+function META:CanReload()
+	return self.ClipSize > 0 and
+		not self.Reloading and
+		self.Clip < self.ClipSize and
+		self:GetReserve(self.AmmoType) > 0
+end
+
+function META:StartReload()
+	if not network.HasAuthority() or not self:CanReload() then return false end
+
+	self.Reloading = true
+	self.reload_time = self.time + self.ReloadTime
+	self.Owner:CallLocalEvent("OnWeaponReload")
+	return true
+end
+
+function META:StopReload()
+	self.Reloading = false
+end
+
+function META:UpdateReload()
+	if self.time < self.reload_time then return end
+
+	local holder = self:GetHolder()
+	local wanted = self.ClipSize - self.Clip
+
+	if self.ReloadIncrement > 0 then
+		wanted = math.min(wanted, self.ReloadIncrement)
+	end
+
+	self.Clip = self.Clip + holder:TakeAmmo(self.AmmoType, wanted)
+
+	if
+		self.ReloadIncrement > 0 and
+		self:GetReserve(self.AmmoType) > 0 and
+		self.Clip < self.ClipSize
+	then
+		self.reload_time = self.time + self.ReloadTime
+		self.Owner:CallLocalEvent("OnWeaponReloadStep")
+		return
+	end
+
+	self.Reloading = false
+	self.Owner:CallLocalEvent("OnWeaponReloaded")
+end
+
+function META:OnWeaponHolster()
+	self.Reloading = false
+end
+
 function META:IsPrimaryDown(cmd)
 	return usercmd.HasButton(cmd, BUTTON.ACTIVE) and
 		usercmd.HasButton(cmd, self.PrimaryButton)
@@ -263,6 +376,23 @@ function META:WasSecondaryPressed(cmd)
 		usercmd.WasPressed(cmd, self.SecondaryButton)
 end
 
+local function fire(self, cmd, press, has_ammo, reload)
+	if has_ammo then
+		local delay = self.Owner:CallLocalEvent(press, cmd)
+
+		if delay == false then return end
+
+		return type(delay) == "number" and delay or self.FireRate / self.RateMultiplier,
+		true
+	end
+
+	if network.HasAuthority() and not (reload and self:StartReload()) then
+		self.Owner:CallLocalEvent("OnWeaponDryFire")
+	end
+
+	return self.DryFireDelay, false
+end
+
 local function run(self, dt, cmd, primary, secondary, think, press_primary, press_secondary)
 	local owner = self.Owner
 	self.time = self.time + dt
@@ -278,21 +408,31 @@ local function run(self, dt, cmd, primary, secondary, think, press_primary, pres
 	if not usercmd.HasButton(cmd, BUTTON.ACTIVE) then return end
 
 	local automatic = self.Automatic
+	local primary_wanted = usercmd.WasPressed(cmd, primary) or automatic and usercmd.HasButton(cmd, primary)
 
-	if
-		self.time >= self.next_primary and
-		(
-			usercmd.WasPressed(cmd, primary) or
-			automatic and
-			usercmd.HasButton(cmd, primary)
-		)
-		and
-		owner:CallLocalEvent(press_primary, cmd) ~= false
-	then
-		self.next_primary = self.time + self.FireRate / self.RateMultiplier
-		local pose = self:GetHolder().Owner.character_pose
+	if self.Reloading then
+		if self.ReloadIncrement > 0 and primary_wanted and self.Clip > 0 then
+			self:StopReload()
+		elseif network.HasAuthority() then
+			self:UpdateReload()
+			return
+		else
+			return
+		end
+	elseif usercmd.WasPressed(cmd, BUTTON.RELOAD) and self:StartReload() then
+		return
+	end
 
-		if pose then pose:RegisterShot() end
+	if self.time >= self.next_primary and primary_wanted then
+		local delay, fired = fire(self, cmd, press_primary, self:HasPrimaryAmmo(), true)
+
+		if delay then self.next_primary = self.time + delay end
+
+		if fired then
+			local pose = self:GetHolder().Owner.character_pose
+
+			if pose then pose:RegisterShot() end
+		end
 	end
 
 	if
@@ -302,10 +442,10 @@ local function run(self, dt, cmd, primary, secondary, think, press_primary, pres
 			automatic and
 			usercmd.HasButton(cmd, secondary)
 		)
-		and
-		owner:CallLocalEvent(press_secondary, cmd) ~= false
 	then
-		self.next_secondary = self.time + self.FireRate / self.RateMultiplier
+		local delay = fire(self, cmd, press_secondary, self:HasSecondaryAmmo(), false)
+
+		if delay then self.next_secondary = self.time + delay end
 	end
 end
 

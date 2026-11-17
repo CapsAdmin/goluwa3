@@ -153,3 +153,83 @@ T.Test("a held weapon cannot be used, a weapon lying in the world can", function
 	user:Remove()
 	done()
 end)
+
+T.Test("a clip empties, reloads from the reserve over the reload time and dry fires when both are empty", function()
+	local pvars = import("goluwa/cli/pvars.lua")
+	local infinite = pvars.Get("sv_infinite_ammo")
+	pvars.SetSession("sv_infinite_ammo", false)
+	weapons.Register(
+		"probe_gun",
+		{
+			Slot = 1,
+			AmmoType = "probe",
+			ClipSize = 2,
+			DefaultAmmo = 3,
+			ReloadTime = 0.5,
+			FireRate = 0.1,
+		},
+		{},
+		PROBE:gsub("return false", "return nil")
+	)
+	local cmd = usercmd.New()
+	local owner = Entity.New{transform = {}, weapon_holder = {}}
+	owner.character_movement = {
+		Scale = 1,
+		GetCommand = function()
+			return cmd
+		end,
+	}
+	local holder = owner.weapon_holder
+	local gun = holder:Give("probe_gun").weapon
+	local dry = 0
+	gun.Owner.OnWeaponDryFire = function()
+		dry = dry + 1
+	end
+
+	local function fire()
+		cmd.buttons, cmd.pressed = bit.bor(BUTTON.ACTIVE, BUTTON.ATTACK1), BUTTON.ATTACK1
+		_G.WEAPON_PROBE = {}
+		holder:OnPhysicsUpdate(0.2)
+		local fired = #_G.WEAPON_PROBE
+
+		if fired > 0 then gun:TakePrimaryAmmo(1) end
+
+		cmd.buttons, cmd.pressed = 0, 0
+		return fired
+	end
+
+	local function wait(seconds)
+		cmd.buttons, cmd.pressed = BUTTON.ACTIVE, 0
+		holder:OnPhysicsUpdate(seconds)
+	end
+
+	T(gun.Clip)["=="](2)
+	T(holder:GetAmmo("probe"))["=="](3)
+	T(fire())["=="](1)
+	T(fire())["=="](1)
+	T(gun.Clip)["=="](0)
+	T(fire())["=="](0)
+	T(gun:IsReloading())["=="](true)
+	wait(0.6)
+	wait(0)
+	T(gun:IsReloading())["=="](false)
+	T(gun.Clip)["=="](2)
+	T(holder:GetAmmo("probe"))["=="](1)
+	fire()
+	fire()
+	fire()
+	wait(0.6)
+	wait(0)
+	T(gun.Clip)["=="](1)
+	T(holder:GetAmmo("probe"))["=="](0)
+	fire()
+	T(fire())["=="](0)
+	T(dry)["=="](1)
+	pvars.SetSession("sv_infinite_ammo", true)
+	T(gun:StartReload())["=="](true)
+	pvars.SetSession("sv_infinite_ammo", infinite)
+	owner:Remove()
+	_G.WEAPON_PROBE = nil
+	weapons.Definitions.probe_gun = nil
+	prefab.definitions.probe_gun = nil
+end)
