@@ -1,17 +1,13 @@
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local RigidBody = import("goluwa/physics/rigid_body.lua")
-local damage = import("lua/damage.lua")
-local actors = import("lua/actors.lua")
+local explosions = import("lua/explosions.lua")
 local grenade_effects = import("lua/grenade_effects.lua")
 local META = objects.CreateTemplate("grenade")
 META:GetSet("Damage", 140)
 META:GetSet("Radius", 6)
 META:GetSet("Fuse", 2.4)
 META:GetSet("Impulse", 9)
-local UP = Vec3(0, 1, 0)
-local COVER_SCALE = 0.3
 local BLINK_ON = 1
 local BLINK_OFF = 0.15
 
@@ -27,64 +23,16 @@ function META:Launch(caster, velocity)
 	body:SetAngularVelocity(Vec3(math.randomf(-8, 8), math.randomf(-8, 8), math.randomf(-8, 8)))
 end
 
-function META:GetFalloff(distance)
-	return math.clamp(1 - distance / self.Radius, 0, 1) ^ 1.5
-end
-
 function META:Explode()
-	local body = self.Owner.rigid_body
-	local position = body:GetPosition():Copy()
-	local normal = UP
-	local ground = damage.Sweep(position + Vec3(0, 0.3, 0), Vec3(0, -1.5, 0), self.Owner)
-
-	if ground then
-		normal = ground.normal
-		position = ground.point + normal * 0.05
-	end
-
-	local origin = position + Vec3(0, 0.1, 0)
-
-	for _, entity in ipairs(actors.Find(position, self.Radius)) do
-		local center = actors.GetCenter(entity)
-		local offset = center - origin
-		local distance = offset:GetLength()
-		local falloff = self:GetFalloff(distance)
-		local direction = distance > 1e-3 and offset / distance or UP
-		local cover = distance > 1e-3 and damage.Sweep(origin, offset, self.Owner)
-
-		if cover and cover.entity and damage.GetVictim(cover.entity) ~= entity then
-			falloff = falloff * COVER_SCALE
-		end
-
-		if falloff > 0 then
-			damage.Deal(
-				entity,
-				{
-					Attacker = self.caster,
-					Inflictor = self.Owner,
-					Damage = self.Damage * falloff,
-					Type = "magic",
-					Attributes = {"fire"},
-					Position = position,
-					Normal = -direction,
-					Force = direction * self.Impulse * falloff,
-				}
-			)
-		end
-	end
-
-	for _, other in ipairs(RigidBody.Instances) do
-		if other ~= body and other:IsDynamic() and not other.Owner.health then
-			local offset = other:GetPosition() - origin
-			local distance = offset:GetLength()
-			local falloff = self:GetFalloff(distance)
-
-			if falloff > 0 and distance > 1e-3 then
-				other:ApplyImpulse(offset / distance * self.Impulse * falloff * other:GetMass(), other:GetPosition())
-			end
-		end
-	end
-
+	local position, normal = explosions.FindGround(self.Owner.rigid_body:GetPosition():Copy(), self.Owner)
+	explosions.Blast{
+		Position = position,
+		Attacker = self.caster,
+		Inflictor = self.Owner,
+		Damage = self.Damage,
+		Radius = self.Radius,
+		Impulse = self.Impulse,
+	}
 	grenade_effects.Explode(position, normal, self.Radius)
 	self.Owner:Remove()
 end
