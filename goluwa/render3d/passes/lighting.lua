@@ -448,7 +448,7 @@ return {
 				vec3 irradiance = get_gi_irradiance(s.N, sky_visibility);
 				vec3 reflection_gi = irradiance;
 
-				if (lighting_data.gi_screen_specular_tex >= 0) reflection_gi = radiance_cache_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
+				if (lighting_data.gi_screen_specular_tex >= 0) reflection_gi = radiance_cache_screen_specular_sample(in_uv, s.N, in_view_depth, s.perceptual_roughness).rgb;
 				
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
 				float ambient_occlusion = screen_gi.a;
@@ -586,7 +586,7 @@ return {
 				}
 
 				if (lighting_data.reflection_debug != 0) {
-					color = radiance_cache_screen_specular_sample(in_uv, N, in_view_depth).rgb;
+					color = radiance_cache_screen_specular_sample(in_uv, N, in_view_depth, surface.perceptual_roughness).rgb;
 				}
 
 				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));

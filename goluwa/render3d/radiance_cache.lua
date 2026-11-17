@@ -275,41 +275,83 @@ end
 function radiance_cache.GetScreenSampleGLSL(block_name)
 	return [[
 
-		vec4 radiance_cache_screen_sample_texture(int screen_tex, vec2 uv, vec3 N, float view_depth) {
+		vec3 radiance_cache_screen_ray(vec2 uv) {
+			vec4 p = ]] .. block_name .. [[.inv_projection * vec4(uv * 2.0 - 1.0, 0.5, 1.0);
+			return vec3(p.xy / -p.z, -1.0);
+		}
+
+		// lobe 0 is the diffuse estimate, above it the specular one is also stopped by how far apart the reflection directions are
+		vec4 radiance_cache_screen_sample_texture(int screen_tex, vec2 uv, vec3 N, float view_depth, float lobe) {
 			ivec2 size = textureSize(TEXTURE(screen_tex), 0);
+
+			if (size == ivec2(]] .. block_name .. [[.render_size)) return texelFetch(TEXTURE(screen_tex), ivec2(uv * vec2(size)), 0);
+
 			vec2 position = uv * vec2(size) - 0.5;
 			ivec2 base = ivec2(floor(position));
-			vec2 fraction = position - vec2(base);
+			vec3 ray = radiance_cache_screen_ray(uv);
+			vec3 ray_x = radiance_cache_screen_ray(uv + vec2(1.0 / float(size.x), 0.0)) - ray;
+			vec3 ray_y = radiance_cache_screen_ray(uv + vec2(0.0, 1.0 / float(size.y))) - ray;
+			vec3 P = ray * view_depth;
+			vec3 n = mat3(]] .. block_name .. [[.view) * N;
+			vec3 R = reflect(normalize(P), n);
+			// a gi texel stands for one of the screen pixels under it, its position is only known to about a texel
+			float plane_tolerance = view_depth * (0.01 + 2.0 * max(length(ray_x), length(ray_y)));
 			vec4 sum = vec4(0.0);
 			float total = 0.0;
-			float far = smoothstep(20.0, 200.0, view_depth);
+			vec4 best = vec4(0.0);
+			float best_weight = -1.0;
 
-			for (int i = 0; i < 4; i++) {
-				ivec2 corner = ivec2(i & 1, i >> 1);
-				float w = (corner.x == 1 ? fraction.x : 1.0 - fraction.x) * (corner.y == 1 ? fraction.y : 1.0 - fraction.y);
+			// the outer ring is only read where no texel of the bilinear quad lies on this surface
+			for (int ring = 0; ring < 2; ring++) {
+				if (ring == 1 && total > 0.2) break;
 
-				if (w <= 0.0) continue;
+				for (int y = -1; y <= 2; y++) {
+					for (int x = -1; x <= 2; x++) {
+						if ((x >= 0 && x <= 1 && y >= 0 && y <= 1) != (ring == 0)) continue;
 
-				ivec2 texel = clamp(base + corner, ivec2(0), size - 1);
-				vec4 geometry = texelFetch(TEXTURE(]] .. block_name .. [[.gi_screen_geometry_tex), texel, 0);
-				float depth_weight = exp(-abs(view_depth - geometry.w) / max(view_depth * mix(0.02, 0.1, far), 0.02));
-				float normal_weight = pow(max(dot(N, geometry.xyz), 0.0), mix(16.0, 4.0, far));
-				w *= depth_weight * normal_weight + 1e-4;
-				sum += texelFetch(TEXTURE(screen_tex), texel, 0) * w;
-				total += w;
+						ivec2 texel = base + ivec2(x, y);
+
+						if (any(lessThan(texel, ivec2(0))) || any(greaterThanEqual(texel, size))) continue;
+
+						vec2 offset = vec2(texel) - position;
+						float spatial = ring == 0 ? (1.0 - abs(offset.x)) * (1.0 - abs(offset.y)) : 0.01;
+
+						if (spatial <= 0.0) continue;
+
+						vec4 geometry = texelFetch(TEXTURE(]] .. block_name .. [[.gi_screen_geometry_tex), texel, 0);
+						vec3 q_n = mat3(]] .. block_name .. [[.view) * geometry.xyz;
+						vec3 Q = (ray + ray_x * offset.x + ray_y * offset.y) * geometry.w;
+						float plane = max(abs(dot(n, Q - P)), abs(dot(q_n, P - Q)));
+						float w = exp(-plane / plane_tolerance) * pow(max(dot(n, q_n), 0.0), 16.0);
+
+						if (lobe > 0.0) w *= pow(max(dot(R, reflect(normalize(Q), q_n)), 0.0), lobe);
+
+						vec4 value = texelFetch(TEXTURE(screen_tex), texel, 0);
+
+						if (w > best_weight) {
+							best_weight = w;
+							best = value;
+						}
+
+						sum += value * w * spatial;
+						total += w * spatial;
+					}
 				}
-				
-				return sum / total;
-				}
-				
-				vec4 radiance_cache_screen_sample(vec2 uv, vec3 N, float view_depth) {
-				return radiance_cache_screen_sample_texture(]] .. block_name .. [[.gi_screen_tex, uv, N, view_depth);
-				}
-				
-				vec4 radiance_cache_screen_specular_sample(vec2 uv, vec3 N, float view_depth) {
-				vec4 weighted = radiance_cache_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, uv, N, view_depth);
-				return vec4(weighted.rgb / max(weighted.a, 1e-4), 1.0);
-				}
+			}
+
+			// no texel lies on this surface (an edge thinner than a gi texel): the closest match beats a blend across the edge
+			return (sum + best * 1e-3) / (total + 1e-3);
+		}
+
+		vec4 radiance_cache_screen_sample(vec2 uv, vec3 N, float view_depth) {
+			return radiance_cache_screen_sample_texture(]] .. block_name .. [[.gi_screen_tex, uv, N, view_depth, 0.0);
+		}
+
+		vec4 radiance_cache_screen_specular_sample(vec2 uv, vec3 N, float view_depth, float perceptual_roughness) {
+			float a = max(perceptual_roughness * perceptual_roughness, 0.02);
+			vec4 weighted = radiance_cache_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, uv, N, view_depth, 2.0 / (a * a));
+			return vec4(weighted.rgb / max(weighted.a, 1e-4), 1.0);
+		}
 	]]
 end
 
