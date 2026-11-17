@@ -95,6 +95,74 @@ for i, field in ipairs(FIELDS) do
 end
 
 assert(expected_floats == vertex_layout.FloatStride, "vertex struct has padding")
+local CORE_FIELDS = {position = true, normal = true, uv = true, tangent = true}
+local group_bytes = {core = 0, extras = 0}
+local seen_extras = false
+vertex_layout.CORE = "core"
+vertex_layout.EXTRAS = "extras"
+vertex_layout.EXTRAS_BINDING = 3
+
+for _, field in ipairs(FIELDS) do
+	field.group = CORE_FIELDS[field.name] and "core" or "extras"
+	field.group_offset = group_bytes[field.group]
+	field.group_float_offset = field.group_offset / FLOAT_SIZE
+	group_bytes[field.group] = group_bytes[field.group] + field.count * FLOAT_SIZE
+	assert(
+		field.group == "extras" or not seen_extras,
+		"core vertex fields must come before the extras"
+	)
+	seen_extras = seen_extras or field.group == "extras"
+end
+
+vertex_layout.CoreStride = group_bytes.core
+vertex_layout.ExtrasStride = group_bytes.extras
+vertex_layout.CoreFloatStride = group_bytes.core / FLOAT_SIZE
+vertex_layout.ExtrasFloatStride = group_bytes.extras / FLOAT_SIZE
+assert(
+	vertex_layout.CoreStride + vertex_layout.ExtrasStride == vertex_layout.Stride,
+	"the vertex groups do not add up to the vertex"
+)
+
+do
+	local core_stride, extras_stride, stride = vertex_layout.CoreStride, vertex_layout.ExtrasStride, vertex_layout.Stride
+	local extras_words = extras_stride / 4
+	local word_stride = stride / 4
+	local core_words = core_stride / 4
+	local reference = ffi.new("uint32_t[?]", extras_words)
+
+	function vertex_layout.Split(vertices, count)
+		local bytes = ffi.cast("const uint8_t *", vertices)
+		local core = ffi.new("uint8_t[?]", math.max(count * core_stride, 1))
+		local extras = ffi.new("uint8_t[?]", math.max(count * extras_stride, 1))
+
+		for i = 0, count - 1 do
+			ffi.copy(core + i * core_stride, bytes + i * stride, core_stride)
+			ffi.copy(extras + i * extras_stride, bytes + i * stride + core_stride, extras_stride)
+		end
+
+		return core, extras
+	end
+
+	function vertex_layout.GetUniformExtras(vertices, count)
+		if count == 0 then return nil end
+
+		local words = ffi.cast("const uint32_t *", vertices)
+
+		for w = 0, extras_words - 1 do
+			reference[w] = words[core_words + w]
+		end
+
+		for i = 1, count - 1 do
+			local at = words + i * word_stride + core_words
+
+			for w = 0, extras_words - 1 do
+				if at[w] ~= reference[w] then return nil end
+			end
+		end
+
+		return ffi.string(reference, extras_stride)
+	end
+end
 
 function vertex_layout.Get(name)
 	return by_name[name] or error("unknown vertex field " .. tostring(name), 2)
@@ -108,26 +176,30 @@ function vertex_layout.GetFloatOffset(name)
 	return vertex_layout.Get(name).float_offset
 end
 
-function vertex_layout.GetAttributes(binding)
+function vertex_layout.GetAttributes(binding, group)
 	local attributes = {}
 
 	for i, field in ipairs(FIELDS) do
-		attributes[i] = {
-			binding = binding or 0,
-			location = i - 1,
-			format = field.format,
-			offset = field.offset,
-		}
+		if not group or field.group == group then
+			attributes[#attributes + 1] = {
+				binding = binding or 0,
+				location = i - 1,
+				format = field.format,
+				offset = group and field.group_offset or field.offset,
+			}
+		end
 	end
 
 	return attributes
 end
 
-function vertex_layout.GetShaderAttributes()
+function vertex_layout.GetShaderAttributes(group)
 	local attributes = {}
 
-	for i, field in ipairs(FIELDS) do
-		attributes[i] = {field.name, field.glsl, field.format}
+	for _, field in ipairs(FIELDS) do
+		if not group or field.group == group then
+			attributes[#attributes + 1] = {field.name, field.glsl, field.format}
+		end
 	end
 
 	return attributes

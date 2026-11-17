@@ -336,3 +336,50 @@ T.Test3D("grass blades and crossed cards state their own skeleton unless the cal
 		T(owned_vertices[i].chain_tip[0])["=="](7)
 	end
 end)
+
+T.Test("the vertex layout splits into a core and an extras group", function()
+	local ffi = require("ffi")
+	T(vertex_layout.CoreStride)["=="](48)
+	T(vertex_layout.CoreStride + vertex_layout.ExtrasStride)["=="](vertex_layout.Stride)
+	local core_names = {}
+
+	for _, field in ipairs(vertex_layout.Fields) do
+		if field.group == "core" then
+			T(field.group_offset)["=="](field.offset)
+			core_names[#core_names + 1] = field.name
+		else
+			T(field.group_offset)["=="](field.offset - vertex_layout.CoreStride)
+		end
+	end
+
+	T(table.concat(core_names, ","))["=="]("position,normal,uv,tangent")
+
+	for _, group in ipairs{"core", "extras"} do
+		local attributes = vertex_layout.GetAttributes(5, group)
+		local shader = vertex_layout.GetShaderAttributes(group)
+		T(#attributes)["=="](#shader)
+		T(attributes[1].binding)["=="](5)
+		T(attributes[1].offset)["=="](0)
+	end
+
+	local count = 5
+	local vertices = vertex_layout.ArrayType(count)
+
+	for i = 0, count - 1 do
+		vertices[i].position[0] = i
+		vertices[i].tangent[3] = 1
+		vertices[i].vertex_color[0], vertices[i].vertex_color[1], vertices[i].vertex_color[2], vertices[i].vertex_color[3] = 1, 1, 1, 1
+		vertices[i].pivot[3] = 0
+	end
+
+	local uniform = vertex_layout.GetUniformExtras(vertices, count)
+	T(#uniform)["=="](vertex_layout.ExtrasStride)
+	local core, extras = vertex_layout.Split(vertices, count)
+	T(ffi.sizeof(core))["=="](count * vertex_layout.CoreStride)
+	T(ffi.sizeof(extras))["=="](count * vertex_layout.ExtrasStride)
+	T(ffi.cast("const float *", core)[3 * vertex_layout.CoreFloatStride])["=="](3)
+	T(ffi.string(extras + 2 * vertex_layout.ExtrasStride, vertex_layout.ExtrasStride))["=="](uniform)
+	vertices[3].pivot[2] = 4
+	T(vertex_layout.GetUniformExtras(vertices, count))["=="](nil)
+	T(vertex_layout.GetUniformExtras(vertices, 0))["=="](nil)
+end)
