@@ -63,6 +63,7 @@ local BEND_BOUNDS = 0.3
 local CUT_REDUCTION = 2
 local MIN_CUT_TRIANGLES = 128
 local REFERENCE_PIXELS_PER_RADIAN = 1080 / (2 * math.tan(math.rad(60) / 2))
+cluster_lod.REFERENCE_PIXELS_PER_RADIAN = REFERENCE_PIXELS_PER_RADIAN
 
 function cluster_lod.OnReady(listener)
 	cluster_lod.listeners[#cluster_lod.listeners + 1] = listener
@@ -82,6 +83,10 @@ end
 
 function cluster_lod.IsMaterialEligible(material)
 	return not (material:IsTransparent() or material:MarchesRelief() or material.Decal)
+end
+
+function cluster_lod.GetRTPixelError()
+	return rt_pixel_error:Get()
 end
 
 function cluster_lod.GetCutDistance(cut, world_scale)
@@ -221,7 +226,8 @@ local function finish(polygon3d, state, job)
 	local first_index = index_pool.AllocateRange(
 		polygon3d,
 		ffi.cast("const uint32_t *", blob.ptr + count * format.RECORD_SIZE),
-		index_count
+		index_count,
+		3
 	)
 	local rows = cluster_lod.GetTable()
 	local base = rows:AllocRange(count)
@@ -257,7 +263,13 @@ local function finish(polygon3d, state, job)
 	)
 
 	for _, listener in ipairs(cluster_lod.listeners) do
-		listener(polygon3d, state)
+		listener(
+			polygon3d,
+			state,
+			records,
+			ffi.cast("const uint32_t *", blob.ptr + count * format.RECORD_SIZE),
+			first_index
+		)
 	end
 end
 

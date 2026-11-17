@@ -17,6 +17,10 @@ Large static models are drawn as a per frame cut through a hierarchy of triangle
 
 ## Ray tracing
 
+- With `VK_NV_cluster_acceleration_structure` (`r_rt_clusters`, `scene/cluster_rt.lua`) every cluster of a hierarchy is built once as a cluster acceleration structure from cluster local positions and 8 bit indices (clusters over 256 vertices are split, triangle order kept). Each frame `cluster_rt_select` picks a cut per instance by the projected error at the ray tracing budget (`r_cluster_lod_rt_error`, distance based, no frustum: rays come from everywhere) and one BLAS per instance is built from those clusters; the TLAS update reads it through an instance to job table instead of the mesh row's BLAS.
+- The cluster id is the cluster's first triangle in the index pool (hierarchies are allocated 3 aligned), so `scene_query_primitive` (hit.lua) turns a hit into a pool triangle and the instance's mesh row (`meshes.GetClusterRow`: the mesh's vertices, the pool's indices) shades it like any mesh. Every place that reads a hit's primitive must use `scene_query_primitive`.
+- Bending materials keep the cuts below (their BLAS copies are bent per frame).
+- Without the extension:
 - `cluster_lod.BuildCuts` picks up to three cuts of one error value each (a uniform error is always a consistent cut), each at most half the triangles of the previous one, as index buffers over the same vertex buffer. Models that cannot reduce by half get none.
 - `bridge.UpdateVisual` adds an ray only row per cut next to the full detail row (`meshes.GetCut`, its own BLAS) and gives the full row `FLAG_RT_LOD`, which makes every raster pass ignore the level fields that only the update pass should use. The ranges are the cut's error projected to `r_cluster_lod_rt_error` pixels at 1080p and 60 degrees, as a ratio of the visual radius like discrete LODs.
 

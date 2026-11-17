@@ -8,6 +8,8 @@ local draw = import("goluwa/render3d/scene/draw.lua")
 local scene_parts = import("goluwa/render3d/scene/parts.lua")
 local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
 local tessellation = import("goluwa/render3d/scene/tessellation.lua")
+local cluster_rt = import("goluwa/render3d/scene/cluster_rt.lua")
+local index_pool = import("goluwa/render3d/index_pool.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local bridge = {}
@@ -15,6 +17,7 @@ local bridge = {}
 local function clear_row(id)
 	draw.ClearRow(id)
 	tessellation.ClearRow(id)
+	cluster_rt.ClearInstance(id)
 end
 
 local dynamic = setmetatable({}, {__mode = "k"})
@@ -515,12 +518,27 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			local level, last, near, far = entry.lod_level, entry.lod_last, entry.lod_near, entry.lod_far
 			local extra_flags = 0
 			local state = cluster_lod.GetStatus(polygon3d)
+			local rt_row = mesh_row
+			local clustered = false
 
 			if state then
 				track_polygon(polygon3d, visual)
 				local cut_material = visual:GetResolvedMaterial(entry)
 
 				if
+					state.ready and
+					cluster_rt.IsReady(polygon3d) and
+					(
+						not entry.lod_last or
+						entry.lod_last == 0
+					)
+					and
+					cluster_lod.IsMaterialEligible(cut_material) and
+					not cut_material:HasVertexAnimation()
+				then
+					clustered = true
+					rt_row = meshes.GetClusterRow(mesh_row, index_pool.GetBuffer():GetDeviceAddress())
+				elseif
 					state.ready and
 					state.cuts[1] and
 					(
@@ -558,7 +576,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				list,
 				count,
 				entry,
-				mesh_row,
+				rt_row,
 				hidden,
 				is_dynamic,
 				frame,
@@ -574,6 +592,12 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			emissive = item_emissive or emissive
 			set_part(item, mesh_row, material, polygon3d)
 			set_raster(visual, item, entry, material, mesh, mesh_row, entry.transform:GetWorldMatrix())
+
+			if clustered then
+				cluster_rt.SetInstance(item.id, polygon3d)
+			else
+				cluster_rt.ClearInstance(item.id)
+			end
 
 			if not state and cluster_lod.GetStatus(polygon3d) then
 				track_polygon(polygon3d, visual)

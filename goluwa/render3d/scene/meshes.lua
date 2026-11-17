@@ -155,6 +155,40 @@ function meshes.GetCut(row, index_buffer, triangle_count)
 	return cut
 end
 
+do
+	local cluster_rows = {}
+	local cluster_index_address = 0
+
+	function meshes.GetClusterRow(row, index_address)
+		local cluster_row = cluster_rows[row]
+
+		if cluster_row then return cluster_row end
+
+		local rows = meshes.GetTable()
+		cluster_row = rows:Alloc()
+		local data = rows:Get() + cluster_row
+		ffi.copy(data, rows:Get() + row, ffi.sizeof(MeshRow))
+		data.blas_address = 0
+		data.index_address = index_address
+		data.flags = meshes.FLAG_HAS_INDICES + meshes.FLAG_INDEX_32
+		mesh_of_row[cluster_row] = mesh_of_row[row]
+		cluster_rows[row] = cluster_row
+		cluster_index_address = index_address
+		return cluster_row
+	end
+
+	function meshes.SetClusterIndexAddress(index_address)
+		if index_address == cluster_index_address then return end
+
+		cluster_index_address = index_address
+		local rows = meshes.GetTable()
+
+		for _, cluster_row in pairs(cluster_rows) do
+			rows:Get()[cluster_row].index_address = index_address
+		end
+	end
+end
+
 function meshes.RebuildBLAS(record)
 	if record.blas then
 		accel.ReleaseBLAS(record)

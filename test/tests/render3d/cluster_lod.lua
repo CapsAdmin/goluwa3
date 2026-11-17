@@ -1,4 +1,6 @@
 local T = import("test/environment.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local cluster_rt = import("goluwa/render3d/scene/cluster_rt.lua")
 local ffi = require("ffi")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local build = import("goluwa/render3d/cluster_lod/build.lua")
@@ -351,6 +353,71 @@ local function read_traced_blas(ids)
 	return traced
 end
 
+local function trace_hit_plane_distance()
+	local hit = import("goluwa/render3d/scene/hit.lua")
+	local results = render.CreateBuffer{
+		byte_size = 16,
+		buffer_usage = {"storage_buffer"},
+		memory_property = {"host_visible", "host_coherent"},
+		label = "cluster_lod_trace_results",
+	}
+	local descriptor_sets = {
+		{type = "acceleration_structure_khr", binding_index = 1, stageFlags = "compute"},
+	}
+
+	for _, set in ipairs(hit.GetDescriptorSets(2, "compute")) do
+		descriptor_sets[#descriptor_sets + 1] = set
+	end
+
+	local pipeline = EasyPipeline.Compute{
+		name = "cluster_lod_test_trace",
+		DescriptorSetCount = 1,
+		LocalSize = {x = 1, y = 1, z = 1},
+		storage_buffers = {{binding_index = 0}},
+		descriptor_sets = descriptor_sets,
+		custom_declarations = [[
+			#extension GL_EXT_ray_query : require
+			layout(set = 0, binding = 0) buffer Results { float results[]; };
+			layout(set = 0, binding = 1) uniform accelerationStructureEXT scene;
+		]] .. hit.GetGLSL(2),
+		shader = [[
+			void main() {
+				rayQueryEXT query;
+				vec3 dir = normalize(vec3(0.1, 0.05, -1.0));
+				rayQueryInitializeEXT(query, scene, gl_RayFlagsOpaqueEXT, 0xFF, vec3(0.0), 0.0, dir, 100.0);
+				while (rayQueryProceedEXT(query)) {}
+
+				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+					results[0] = 0.0;
+					return;
+				}
+
+				uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+				scene_triangle tri = scene_hit_tri(instance, scene_query_primitive(query, true));
+				float t = rayQueryGetIntersectionTEXT(query, true);
+				results[0] = 1.0;
+				results[1] = abs(dot(dir * t - tri.v0, tri.normal));
+				results[2] = t;
+			}
+		]],
+	}
+	pipeline:UpdateDescriptorSet("storage_buffer", 1, 0, 0, results, results:GetSize())
+	pipeline:UpdateDescriptorSet("acceleration_structure_khr", 1, 1, 0, instances.tlas)
+	hit.Bind(pipeline, 1, 2)
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
+	pipeline.pipeline:Dispatch(cmd, 1, 1, 1, 1)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "host", memoryBarrier = true}
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	local out = ffi.cast("float *", results:Map())
+	local hit_found, plane_distance, distance = out[0], out[1], out[2]
+	results:Remove()
+	pipeline:Remove()
+	return hit_found == 1, plane_distance, distance
+end
+
 T.Test3DRayTracing("Graphics render3d cluster lod traces a coarser cut of a large model with distance", function(draw)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(60))
@@ -378,6 +445,42 @@ T.Test3DRayTracing("Graphics render3d cluster lod traces a coarser cut of a larg
 	primitive.visual_primitive:SetMaterial(Material.New())
 	visual:BuildAABB()
 	local started = system.GetTime()
+
+	if cluster_rt.IsEnabled() then
+		while not (cluster_lod.GetState(polygon) and cluster_rt.GetStats().instances > 0) do
+			thread_pool.Update()
+			draw()
+			threads.sleep(5)
+			T(system.GetTime() - started < 25)["=="](true)
+		end
+
+		local id = visual.scene_instances[1].id
+		T(#visual.scene_instances)["=="](1)
+
+		local function selected()
+			for _ = 1, 6 do
+				draw()
+			end
+
+			return cluster_rt.ReadSelectedCounts()[id]
+		end
+
+		pvars.SetSession("r_cluster_lod_rt_error", 0.0001)
+		local near = selected()
+		T(read_traced_blas({id})[id] ~= 0)["=="](true)
+		local hit_found, plane_distance, distance = trace_hit_plane_distance()
+		T(hit_found)["=="](true)
+		T(plane_distance < 0.001)["=="](true)
+		T(distance > 1 and distance < 3.1)["=="](true)
+		pvars.SetSession("r_cluster_lod_rt_error", 2)
+		entity.transform:SetPosition(Vec3(0, 0, -300))
+		local far = selected()
+		T(far > 0)["=="](true)
+		T(far < near)["=="](true)
+		T(read_traced_blas({id})[id] ~= 0)["=="](true)
+		entity:Remove()
+		return
+	end
 
 	while not (cluster_lod.GetState(polygon) and #visual.scene_instances > 1) do
 		thread_pool.Update()

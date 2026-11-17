@@ -12,6 +12,7 @@ local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
 local vegetation_bend, parts
 local accel = import("goluwa/render3d/scene/accel.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
+local cluster_rt = import("goluwa/render3d/scene/cluster_rt.lua")
 local instances = {}
 local TLASInstance = vulkan.vk.VkAccelerationStructureInstanceKHR
 local InstanceData = ffi.typeof([[struct {
@@ -537,6 +538,9 @@ do
 						{"frame", "int"},
 						{"culled_scale", "float"},
 						{"seen_valid", "int"},
+						{"cluster_capacity", "int"},
+						{"cluster_job_of", "uint64_t"},
+						{"cluster_blas", "uint64_t"},
 					},
 					write = function(self, block)
 						local position = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
@@ -550,6 +554,7 @@ do
 						block.frame = system.GetFrameNumber()
 						block.culled_scale = rt_culled_lod_scale:Get()
 						block.seen_valid = gpu_culling.GetDrawnCullFrame() >= block.frame - 1 and 1 or 0
+						block.cluster_job_of, block.cluster_blas, block.cluster_capacity = cluster_rt.GetTLASOverride()
 						return block
 					end,
 				},
@@ -577,6 +582,8 @@ do
 				]] .. parts.GLSL .. [[
 				layout(scalar, set = 0, binding = 8) readonly buffer Parts { scene_part parts[]; };
 				layout(scalar, set = 0, binding = 9) readonly buffer Seen { uint seen[]; };
+				layout(buffer_reference, scalar) readonly buffer ClusterJobOf { uint j[]; };
+				layout(buffer_reference, scalar) readonly buffer ClusterBLAS { uint64_t a[]; };
 				]] .. vegetation_bend.GetAssignGLSL(5, 6, 7) .. [[
 			]],
 			shader = [[
@@ -597,6 +604,16 @@ do
 						uint part_id = part_of_instance[id];
 						scene_part part = parts[part_id];
 						blas = meshes[part_id != 0u ? part.trace_row : inst.mesh_row].blas;
+						bool clustered = false;
+
+						if (update_data.cluster_job_of != 0ul && id < uint(update_data.cluster_capacity)) {
+							uint job = ClusterJobOf(update_data.cluster_job_of).j[id];
+
+							if (job != 0xFFFFFFFFu) {
+								blas = ClusterBLAS(update_data.cluster_blas).a[job];
+								clustered = true;
+							}
+						}
 						float bend_distance;
 						bool shown;
 
@@ -622,7 +639,7 @@ do
 
 						if (!shown) blas = 0ul;
 
-						if (blas != 0ul) {
+						if (blas != 0ul && !clustered) {
 							uint64_t copy = bend_assign(part.bend_pool, bend_distance, tlas[id].m);
 
 							if (copy != 0ul) blas = copy;
@@ -644,6 +661,7 @@ do
 		store.FlushStaged(cmd)
 		traced_tlas_buffer, traced_data_buffer = tlas_table:GetBuffer(), data_table:GetBuffer()
 		meshes.Build(cmd, skinning.updated)
+		cluster_rt.Build(cmd)
 		opacity_micromaps.Build(cmd)
 		parts.Update()
 		vegetation_bend.Prepare(cmd)

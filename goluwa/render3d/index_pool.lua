@@ -34,7 +34,7 @@ local function grow(extra)
 	local new_capacity = math.max(capacity + extra, MIN_CAPACITY)
 	local new_buffer = render.CreateBuffer{
 		byte_size = new_capacity * 4,
-		buffer_usage = {"index_buffer"},
+		buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
 		memory_property = {"host_visible", "host_coherent"},
 		label = "index_pool",
 	}
@@ -103,9 +103,11 @@ function index_pool.GetFirstIndex(index_buffer)
 	return first
 end
 
-function index_pool.AllocateRange(owner, source, count)
+function index_pool.AllocateRange(owner, source, count, align)
 	collect_delayed()
-	local first, node = alloc(math.max(count, MIN_RANGE))
+	align = align or 1
+	local first, node = alloc(math.max(count + align - 1, MIN_RANGE))
+	first = math.ceil(first / align) * align
 	ffi.copy(shadow + first, source, count * 4)
 	ffi.copy(pointer + first, source, count * 4)
 	entries[owner] = {
