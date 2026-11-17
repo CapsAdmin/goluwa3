@@ -189,7 +189,6 @@ do
 		data.flags = meshes.FLAG_HAS_INDICES + meshes.FLAG_INDEX_32
 		mesh_of_row[cluster_row] = mesh_of_row[row]
 		cluster_rows[row] = cluster_row
-		cluster_index_address = index_address
 		return cluster_row
 	end
 
