@@ -200,8 +200,10 @@ local function finish(
 
 	for _, entry in ipairs(meta.entries) do
 		local vertices, indices = packed_mesh.Unpack(entry, blob_table)
+		local edited = false
 
 		if entry.blend_offset and s2_material.GetInfo(entry.material).blend then
+			edited = true
 			local blend = ffi.cast(f32_ptr_t, blob_table.ptr + entry.blend_offset)
 
 			for i = 0, entry.vertex_count - 1 do
@@ -212,6 +214,8 @@ local function finish(
 		local bounds = entry.bounds
 
 		if s2_material.GetInfo(entry.material).decal then
+			edited = true
+
 			for i = 0, entry.vertex_count - 1 do
 				local v = vertices[i]
 				v.position[0] = v.position[0] + v.normal[0] * DECAL_LIFT
@@ -237,7 +241,9 @@ local function finish(
 			entry.index_count,
 			true,
 			nil,
-			AABB(unpack(bounds))
+			AABB(unpack(bounds)),
+			nil,
+			not edited and packed_mesh.UnpackSplit(entry, blob_table) or nil
 		)
 		polygon:SetName(path)
 

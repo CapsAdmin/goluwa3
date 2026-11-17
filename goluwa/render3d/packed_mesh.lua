@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local VertexType = vertex_math.VertexType
 local packed_mesh = {}
 local index_types = {
@@ -46,6 +47,31 @@ function packed_mesh.Unpack(info, blob_table)
 	end
 
 	return vertices, indices
+end
+
+function packed_mesh.PackSplit(builder, info, vertices)
+	local uniform = vertex_layout.GetUniformExtras(vertices, info.vertex_count)
+	local core, extras = vertex_layout.Split(vertices, info.vertex_count, not uniform)
+	info.core_offset = builder:Add(core, info.vertex_count * vertex_layout.CoreStride)
+	info.extras_offset = extras and
+		builder:Add(extras, info.vertex_count * vertex_layout.ExtrasStride) or
+		nil
+	info.uniform_extras = uniform
+end
+
+function packed_mesh.UnpackSplit(info, blob_table)
+	local core_size = info.vertex_count * vertex_layout.CoreStride
+	local core = ffi.new("uint8_t[?]", math.max(core_size, 1))
+	ffi.copy(core, blob_table.ptr + info.core_offset, core_size)
+	local extras
+
+	if info.extras_offset then
+		local extras_size = info.vertex_count * vertex_layout.ExtrasStride
+		extras = ffi.new("uint8_t[?]", math.max(extras_size, 1))
+		ffi.copy(extras, blob_table.ptr + info.extras_offset, extras_size)
+	end
+
+	return {core = core, extras = extras, uniform = info.uniform_extras}
 end
 
 function packed_mesh.ToPolygon(info, blob_table)

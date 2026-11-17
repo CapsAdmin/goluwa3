@@ -148,6 +148,7 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, bone_map)
 
 	assert(min_x == min_x and max_x - min_x < 1e6, name .. ": invalid positions")
 	local entry = packed_mesh.PackArrays(builder, vertices, vertex_count, indices, index_count, index_size)
+	packed_mesh.PackSplit(builder, entry, vertices)
 	entry.material = draw_call.m_material
 	entry.foliage = foliage or nil
 	local tint = draw_call.m_vTintColor

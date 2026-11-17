@@ -448,3 +448,34 @@ T.Test("packed normals and tangents survive a split and a join", function()
 	T(inputs[2][1])["=="]("packed_normal")
 	T(inputs[2][2])["=="]("uint")
 end)
+
+T.Test("a split packed on a worker unpacks to the split of the same vertices", function()
+	local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
+	local blob = import("goluwa/codecs/internal/blob.lua")
+	local count = 5
+
+	for _, varied in ipairs{false, true} do
+		local vertices = vertex_layout.ArrayType(count)
+
+		for i = 0, count - 1 do
+			vertices[i].position[0], vertices[i].position[1], vertices[i].position[2] = i, i * 2, -i
+			vertices[i].normal[1] = 1
+			vertices[i].tangent[0], vertices[i].tangent[3] = 1, 1
+			vertices[i].uv[0] = i * 0.5
+			vertices[i].texture_blend = varied and i * 0.25 or 0.5
+		end
+
+		local indices = ffi.new("uint16_t[3]", 0, 1, 2)
+		local builder = blob.New()
+		local info = packed_mesh.PackArrays(builder, vertices, count, indices, 3, 2)
+		packed_mesh.PackSplit(builder, info, vertices)
+		local data = builder:Finish()
+		local split = packed_mesh.UnpackSplit(info, {ptr = data})
+		local uniform = vertex_layout.GetUniformExtras(vertices, count)
+		local core, extras = vertex_layout.Split(vertices, count, not uniform)
+		T(split.uniform)["=="](uniform)
+		T(ffi.string(split.core, ffi.sizeof(split.core)))["=="](ffi.string(core, ffi.sizeof(core)))
+		T(split.extras and ffi.string(split.extras, ffi.sizeof(split.extras)))["=="](extras and ffi.string(extras, ffi.sizeof(extras)))
+		T(uniform == nil)["=="](varied)
+	end
+end)

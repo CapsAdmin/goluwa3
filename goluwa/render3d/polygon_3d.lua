@@ -259,15 +259,37 @@ local VertexType = vertex_math.VertexType
 Polygon3D.VertexType = VertexType
 local VERTEX_ATTRIBUTES = vertex_layout.GetAttributes(0, "core")
 
-local function build_mesh(self, vertices, vertex_count, indices, index_type, index_count, mode, dedupe)
-	local uniform = not (
-			self.Dynamic or
-			mode
-		) and
-		vertex_layout.GetUniformExtras(vertices, vertex_count) or
+local function build_mesh(
+	self,
+	vertices,
+	vertex_count,
+	indices,
+	index_type,
+	index_count,
+	mode,
+	dedupe,
+	split
+)
+	local allow_shared = not (self.Dynamic or mode)
+	local uniform
+
+	if split then
+		uniform = split.uniform
+	elseif allow_shared then
+		uniform = vertex_layout.GetUniformExtras(vertices, vertex_count)
+	end
+
+	local shared = allow_shared and
+		uniform and
+		vertex_extras.GetShared(uniform, vertex_count) or
 		nil
-	local shared = uniform and vertex_extras.GetShared(uniform, vertex_count) or nil
-	local core, extras = vertex_layout.Split(vertices, vertex_count, not shared)
+	local core, extras
+
+	if split and (shared or split.extras) then
+		core, extras = split.core, split.extras
+	else
+		core, extras = vertex_layout.Split(vertices, vertex_count, not shared)
+	end
 
 	local function create_extras()
 		if shared then return shared, vertex_layout.EXTRAS_BINDING, false end
@@ -292,7 +314,17 @@ local function build_mesh(self, vertices, vertex_count, indices, index_type, ind
 	end
 end
 
-function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode, aabb, index_type)
+function Polygon3D:UploadVertexArray(
+	vertices,
+	vertex_count,
+	indices,
+	index_count,
+	keep_packed,
+	mode,
+	aabb,
+	index_type,
+	split
+)
 	if not aabb then
 		aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
@@ -335,7 +367,8 @@ function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_coun
 			index_type or (vertex_count > 65535 and "uint32_t" or "uint16_t"),
 			index_count,
 			mode,
-			not mode
+			not mode,
+			split
 		)
 	end
 end
