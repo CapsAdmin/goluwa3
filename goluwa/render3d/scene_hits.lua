@@ -546,7 +546,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			#endif
 
 			float weight;
-			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight);
+			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, scene_instance_alpha_tested(hit_instance) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight);
 
 			if (!gi_covers(P, weight)) {
 				vec3 tangent = normalize(cross(hit_N, abs(hit_N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));

@@ -435,7 +435,7 @@ local function pass_shade()
 				float weight;
 				#if RT_HIT_PROBES
 				radiance_cache_contrast_reference = luminance(textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, N, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0).rgb);
-				radiance += EON_directional_albedo(albedo, roughness, max(dot(N, -dir), 1e-4)) * radiance_cache_sample_irradiance(P, N, N, -dir, false, RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight).rgb;
+				radiance += EON_directional_albedo(albedo, roughness, max(dot(N, -dir), 1e-4)) * radiance_cache_sample_irradiance(P, N, N, -dir, false, scene_instance_alpha_tested(hit.y) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight).rgb;
 				#endif
 
 				store_ray(pos, vec4(radiance * glass + optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true), t));

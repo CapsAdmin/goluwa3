@@ -170,6 +170,10 @@ function hit.GetGLSL(binding)
 			return scene_instances[instance].flags;
 		}
 
+		bool scene_instance_alpha_tested(uint instance) {
+			return (scene_instances[instance].flags & ]] .. instances.FLAG_ALPHA_TEST .. [[u) != 0u;
+		}
+
 		uint scene_hit_row(uint instance, inout uint primitive) {
 			if ((primitive & 0x80000000u) != 0u) {
 				primitive &= 0x7FFFFFFFu;
