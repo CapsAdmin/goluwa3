@@ -542,6 +542,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				then
 					clustered = true
 					rt_row = meshes.GetClusterRow(mesh_row, index_pool.GetBuffer():GetDeviceAddress())
+					extra_flags = instances.FLAG_CLUSTERED
 				elseif
 					state.ready and
 					state.cuts[1] and

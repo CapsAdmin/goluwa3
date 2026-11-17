@@ -55,6 +55,7 @@ instances.FLAG_NO_SHADOW = 64
 instances.FLAG_BILLBOARD = 128
 instances.FLAG_BEFORE_BILLBOARD = 256
 instances.FLAG_RT_LOD = 512
+instances.FLAG_CLUSTERED = 1024
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table, part_table, seen_table
@@ -607,6 +608,9 @@ do
 						scene_part part = parts[part_id];
 						blas = meshes[part_id != 0u ? part.trace_row : inst.mesh_row].blas;
 						bool clustered = false;
+
+						// a cluster row numbers its triangles by cluster, only its cluster blas may be traced with it
+						if ((inst.flags & ]] .. instances.FLAG_CLUSTERED .. [[u) != 0u) blas = 0ul;
 
 						if (update_data.cluster_job_of != 0ul && id < uint(update_data.cluster_capacity)) {
 							uint job = ClusterJobOf(update_data.cluster_job_of).j[id];
