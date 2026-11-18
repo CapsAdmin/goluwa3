@@ -234,6 +234,7 @@ function gltf.Load(path)
 		KHR_materials_ior = true,
 		KHR_materials_dispersion = true,
 		KHR_materials_volume = true,
+		KHR_lights_punctual = true,
 		EXT_mesh_gpu_instancing = true,
 	}
 
@@ -280,6 +281,10 @@ function gltf.Load(path)
 		scenes = {},
 		skins = {},
 		animations = {},
+		lights = gltf_data.extensions and
+			gltf_data.extensions.KHR_lights_punctual and
+			gltf_data.extensions.KHR_lights_punctual.lights or
+			{},
 	}
 
 	if gltf_data.images then
@@ -367,6 +372,9 @@ function gltf.Load(path)
 				mesh = node_info.mesh,
 				skin = node_info.skin,
 				camera = node_info.camera,
+				light = node_info.extensions and
+					node_info.extensions.KHR_lights_punctual and
+					node_info.extensions.KHR_lights_punctual.light,
 				children = node_info.children,
 				translation = node_info.translation or {0, 0, 0},
 				rotation = node_info.rotation or {0, 0, 0, 1},

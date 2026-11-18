@@ -11,6 +11,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local weather = import("goluwa/render3d/weather.lua")
 local gltf_scene_loader = {}
 
 local function decompose_node_matrix(m)
@@ -387,6 +388,31 @@ local function spawn_gpu_instanced_primitives(node_entity, node, primitives, mes
 	end
 end
 
+local function add_light_component(entity, info)
+	local color = info.color or {1, 1, 1}
+	local config = {
+		Color = Color(color[1], color[2], color[3], 1),
+		Range = info.range or 0,
+	}
+	local intensity = info.intensity or 1
+
+	if info.type == "directional" then
+		weather.SetSunRotation(entity.transform:GetWorldMatrix():GetRotation())
+		return
+	end
+
+	config.Lumen = 4 * math.pi * intensity
+
+	if info.type == "spot" then
+		local spot = info.spot or {}
+		config.OuterCone = math.deg(spot.outerConeAngle or math.pi / 4)
+		config.InnerCone = math.deg(spot.innerConeAngle or 0)
+		entity:AddComponent("light_spot", config)
+	else
+		entity:AddComponent("light_point", config)
+	end
+end
+
 local function create_node_entities(gltf_data)
 	local node_to_entity = {}
 
@@ -514,6 +540,18 @@ function gltf_scene_loader.Load(path, options)
 
 	for _, root_node_index in ipairs(root_node_indices) do
 		node_to_entity[root_node_index + 1]:SetParent(root_entity)
+	end
+
+	for node_index, node in ipairs(gltf_data.nodes) do
+		if node.light ~= nil and reachable[node_index - 1] then
+			add_light_component(node_to_entity[node_index], gltf_data.lights[node.light + 1])
+		end
+	end
+
+	for node_index, node in ipairs(gltf_data.nodes) do
+		if node.camera ~= nil and reachable[node_index - 1] then
+			node_to_entity[node_index]:AddComponent("spawn_point", {Group = "start"})
+		end
 	end
 
 	return root_entity, gltf_data
