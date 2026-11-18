@@ -2112,14 +2112,20 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 
 			TerrainLayerSample terrain_layer_cache;
 
-			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float distance_to_camera, float weight, float scale, float detail_strength, float additive_detail, float displacement, vec4 far, float fade_distance, float anti_tiling) {
+			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float distance_to_camera, float weight, float scale, float detail_strength, float additive_detail, float displacement, vec4 far, float fade_distance, float fade_distance_xy, float anti_tiling) {
 				if (weight <= 0.001) {
 					return;
 				}
 
 				float far_a = far.x > 0.0 ? smoothstep(far.y * 0.5, far.y, distance_to_camera) : 0.0;
 				float far_b = far.z > 0.0 ? smoothstep(far.w * 0.5, far.w, distance_to_camera) : 0.0;
-				float fade = fade_distance > 0.0 ? 1.0 - sqrt(max(1.0 - pow(min(distance_to_camera / fade_distance, 1.0), 4.0), 0.0)) : 0.0;
+				float fade = 0.0;
+
+				if (fade_distance > 0.0) {
+					float fade_up = 1.0 - sqrt(max(1.0 - pow(min(distance_to_camera / fade_distance, 1.0), 4.0), 0.0));
+					float fade_side = fade_distance_xy > 0.0 ? 1.0 - sqrt(max(1.0 - pow(min(distance_to_camera / fade_distance_xy, 1.0), 4.0), 0.0)) : fade_up;
+					fade = mix(fade_side, fade_up, blend.y);
+				}
 				vec4 albedo = vec4(0.0);
 				vec3 n = vec3(0.0);
 				anti_tiling *= 1.0 - smoothstep(100.0, 200.0, distance_to_camera);
@@ -2293,7 +2299,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				for (int k = 0; k < (has_second_set ? 8 : 4); k++) {
 					int i = k & 3;
 					bool second = k >= 4;
-					accumulate_terrain_layer(s, base, terrain_layer_albedo_texture(k), terrain_layer_normal_texture(k), terrain_layer_height_texture(k), world_pos, blend, N, V, distance_to_camera, second ? weights2[i] : weights[i], second ? terrain_model.TerrainLayerScales2[i] : terrain_model.TerrainLayerScales[i], second ? terrain_model.TerrainLayerDetailStrength2[i] : terrain_model.TerrainLayerDetailStrength[i], second ? terrain_model.TerrainLayerAdditiveDetail2[i] : terrain_model.TerrainLayerAdditiveDetail[i], (second ? terrain_model.TerrainLayerHeightScales2[i] : terrain_model.TerrainLayerHeightScales[i]) * fade, second ? vec4(terrain_model.TerrainLayerFarScales2[i], terrain_model.TerrainLayerFarDistances2[i], terrain_model.TerrainLayerFarScaleB2[i], terrain_model.TerrainLayerFarDistanceB2[i]) : vec4(terrain_model.TerrainLayerFarScales[i], terrain_model.TerrainLayerFarDistances[i], terrain_model.TerrainLayerFarScaleB[i], terrain_model.TerrainLayerFarDistanceB[i]), second ? terrain_model.TerrainLayerFadeDistance2[i] : terrain_model.TerrainLayerFadeDistance[i], second ? terrain_model.TerrainLayerAntiTiling2[i] : terrain_model.TerrainLayerAntiTiling[i]);
+					accumulate_terrain_layer(s, base, terrain_layer_albedo_texture(k), terrain_layer_normal_texture(k), terrain_layer_height_texture(k), world_pos, blend, N, V, distance_to_camera, second ? weights2[i] : weights[i], second ? terrain_model.TerrainLayerScales2[i] : terrain_model.TerrainLayerScales[i], second ? terrain_model.TerrainLayerDetailStrength2[i] : terrain_model.TerrainLayerDetailStrength[i], second ? terrain_model.TerrainLayerAdditiveDetail2[i] : terrain_model.TerrainLayerAdditiveDetail[i], (second ? terrain_model.TerrainLayerHeightScales2[i] : terrain_model.TerrainLayerHeightScales[i]) * fade, second ? vec4(terrain_model.TerrainLayerFarScales2[i], terrain_model.TerrainLayerFarDistances2[i], terrain_model.TerrainLayerFarScaleB2[i], terrain_model.TerrainLayerFarDistanceB2[i]) : vec4(terrain_model.TerrainLayerFarScales[i], terrain_model.TerrainLayerFarDistances[i], terrain_model.TerrainLayerFarScaleB[i], terrain_model.TerrainLayerFarDistanceB[i]), second ? terrain_model.TerrainLayerFadeDistance2[i] : terrain_model.TerrainLayerFadeDistance[i], second ? terrain_model.TerrainLayerFadeDistanceXY2[i] : terrain_model.TerrainLayerFadeDistanceXY[i], second ? terrain_model.TerrainLayerAntiTiling2[i] : terrain_model.TerrainLayerAntiTiling[i]);
 				}
 
 				if (s.normal_weight > 0.001) {

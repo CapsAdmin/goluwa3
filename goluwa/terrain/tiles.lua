@@ -318,6 +318,7 @@ local LAYER_VALUES = {
 	{"FarScaleB", "far_scale_b", 0},
 	{"FarDistanceB", "far_distance_b", 0},
 	{"FadeDistance", "fade_distance", 0},
+	{"FadeDistanceXY", "fade_distance_xy", 0},
 	{"AntiTiling", "anti_tiling", 0},
 	{"CoverSlope", "cover_slope", 0},
 	{"CoverStart", "cover_start", 0},

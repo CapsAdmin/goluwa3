@@ -122,6 +122,8 @@ local function get_or_create_cry_terrain_layers(terrain)
 			end
 
 			local diffuse = material.cry_texture_maps and material.cry_texture_maps.Diffuse
+			local slots = mtl_material.FromCryMTLSlots(surface_type.detail_material_path)
+			local side = slots and slots.x
 
 			if diffuse then
 				layers[i] = {
@@ -135,6 +137,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					fade_distance = surface_type.project_axis == 2 and 128 or 2048,
+					fade_distance_xy = side and side.cry_texture_maps and side.cry_texture_maps.Diffuse and 2048 or nil,
 					specular = 0,
 					scatter = 0,
 					roughness = 1,
