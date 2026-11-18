@@ -619,7 +619,7 @@ T.Test("CryMTL loader maps shininess and specular color to roughness and metalli
 	T(math.abs(steel:GetRoughnessMultiplier() - lobe))["<"](0.0001)
 	T(steel:GetSpecularMultiplier())["=="](1)
 	T(paint:GetMetallicMultiplier())["=="](0)
-	T(matte:GetSpecularMultiplier())["=="](0)
+	T(matte:GetSpecularMultiplier())["=="](1)
 	T(plastic:GetMetallicMultiplier())["=="](0)
 	T(math.abs(plastic:GetRoughnessMultiplier() - lobe))["<"](0.0001)
 	T(dull:GetRoughnessMultiplier())[">"](lobe + 0.1)

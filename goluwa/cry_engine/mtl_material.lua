@@ -500,7 +500,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 			math.max(0.12, (2 / ((tonumber(attrs.Shininess) or 0) + 2)) ^ 0.25)
 		)
 		self:SetMetallicMultiplier(metallic)
-		self:SetSpecularMultiplier(intensity > 0 and 1 or 0)
 
 		if has_gen("GLOSS_DIFFUSEALPHA") and alpha_test == 0 and self.AlbedoTexture then
 			self:SetAlbedoTextureAlphaIsRoughness(true)
