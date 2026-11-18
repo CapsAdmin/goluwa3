@@ -72,6 +72,18 @@ local function split_glb(data)
 	return json_data, bin_data
 end
 
+local LFS_POINTER = "version https://git-lfs"
+
+local function read_file_checked(path)
+	local data, err = fs.read_file(path)
+
+	if data and data:sub(1, #LFS_POINTER) == LFS_POINTER then
+		return nil, path .. " is a git lfs pointer, run git lfs pull"
+	end
+
+	return data, err
+end
+
 local function load_buffer(base_dir, buffer_info, embedded)
 	if not buffer_info.uri then
 		return embedded
@@ -82,8 +94,7 @@ local function load_buffer(base_dir, buffer_info, embedded)
 			if base64_data then return base64.Decode(base64_data) end
 		else
 			local path = base_dir .. buffer_info.uri
-			local data = fs.read_file(path)
-			return data
+			return assert(read_file_checked(path))
 		end
 	end
 
@@ -198,9 +209,9 @@ end
 
 function gltf.Load(path)
 	local base_dir = get_directory(path)
-	local json_data = fs.read_file(path)
+	local json_data, read_err = read_file_checked(path)
 
-	if not json_data then return nil, "Failed to read file: " .. path end
+	if not json_data then return nil, read_err end
 
 	local embedded_bin
 
