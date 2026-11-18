@@ -561,7 +561,11 @@ return {
 				return clamp(uv, vec2(0.5) / size, vec2(1.0) - vec2(0.5) / size);
 			}
 
-			vec3 sample_history(vec2 uv, vec2 size) {
+			vec3 fetch_history(vec2 uv, float history_scale) {
+				return compress(textureLod(TEXTURE(taa_data.history_tex), uv, 0.0).rgb * history_scale, exposure);
+			}
+
+			vec3 sample_history(vec2 uv, vec2 size, float history_scale) {
 				vec2 position = uv * size;
 				vec2 center = floor(position - 0.5) + 0.5;
 				vec2 f = position - center;
@@ -573,13 +577,19 @@ return {
 				vec2 tc0 = clamp_uv((center - 1.0) / size, size);
 				vec2 tc3 = clamp_uv((center + 2.0) / size, size);
 				vec2 tc12 = clamp_uv((center + w2 / w12) / size, size);
+				vec3 tap_top = fetch_history(vec2(tc12.x, tc0.y), history_scale);
+				vec3 tap_left = fetch_history(vec2(tc0.x, tc12.y), history_scale);
+				vec3 tap_middle = fetch_history(vec2(tc12.x, tc12.y), history_scale);
+				vec3 tap_right = fetch_history(vec2(tc3.x, tc12.y), history_scale);
+				vec3 tap_bottom = fetch_history(vec2(tc12.x, tc3.y), history_scale);
 				vec4 result =
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc12.x, tc0.y), 0.0).rgb, 1.0) * (w12.x * w0.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc0.x, tc12.y), 0.0).rgb, 1.0) * (w0.x * w12.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc12.x, tc12.y), 0.0).rgb, 1.0) * (w12.x * w12.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc3.x, tc12.y), 0.0).rgb, 1.0) * (w3.x * w12.y) +
-					vec4(textureLod(TEXTURE(taa_data.history_tex), vec2(tc12.x, tc3.y), 0.0).rgb, 1.0) * (w12.x * w3.y);
-				return max(result.rgb / result.a, vec3(0.0));
+					vec4(tap_top, 1.0) * (w12.x * w0.y) +
+					vec4(tap_left, 1.0) * (w0.x * w12.y) +
+					vec4(tap_middle, 1.0) * (w12.x * w12.y) +
+					vec4(tap_right, 1.0) * (w3.x * w12.y) +
+					vec4(tap_bottom, 1.0) * (w12.x * w3.y);
+				vec3 history = result.rgb / result.a;
+				return clamp(history, min(min(min(tap_top, tap_left), min(tap_middle, tap_right)), tap_bottom), max(max(max(tap_top, tap_left), max(tap_middle, tap_right)), tap_bottom));
 			}
 
 			void main() {
@@ -631,7 +641,7 @@ return {
 
 				if (existing_sample && !initial_sample) {
 					float history_scale = get_pre_exposure() / get_previous_pre_exposure();
-					history = compress(sample_history(reprojected_uv, output_size) * history_scale, exposure);
+					history = sample_history(reprojected_uv, output_size, history_scale);
 				}
 
 				float history_weight = min(accumulation, mix(accumulation, 0.15, clamp(velocity_4k / 0.5, 0.0, 1.0)));
@@ -718,6 +728,7 @@ return {
 				history_weight *= float(history_weight > FP16_MIN);
 				history_weight = max(FP16_MIN, history_weight + upsampled_weight);
 				vec3 result = mix(history, upsampled, clamp(upsampled_weight / history_weight, 0.0, 1.0));
+				result.x = min(result.x, FP16_MAX * exposure / (1.0 + FP16_MAX * exposure));
 				set_color(vec4(decompress(result, exposure), view_depth));
 				set_history_state(vec2(stored_accumulation, lock));
 			}
