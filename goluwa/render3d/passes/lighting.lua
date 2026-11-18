@@ -367,11 +367,16 @@ return {
 				return texture(TEXTURE(lighting_data.ambient_occlusion_tex), uv);
 			}
 
+			vec3 get_sky_dir(vec2 uv) {
+				vec4 view_pos = lighting_data.inv_projection * vec4(uv * 2.0 - 1.0, 1.0, 1.0);
+				return normalize(mat3(lighting_data.inv_view) * (view_pos.xyz / view_pos.w));
+			}
+
 			vec3 get_sky() {
-				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
-				vec4 view_pos = lighting_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 sky_dir = normalize(mat3(lighting_data.inv_view) * view_pos.xyz);
+				vec3 sky_dir = get_sky_dir(in_uv);
+				vec2 sky_texel = 1.0 / vec2(imageSize(out_color));
+				vec3 sky_dir_dx = get_sky_dir(in_uv + vec2(sky_texel.x, 0.0)) - sky_dir;
+				vec3 sky_dir_dy = get_sky_dir(in_uv + vec2(0.0, sky_texel.y)) - sky_dir;
 				vec3 sun_dir = get_primary_sun_direction();
 				vec3 sky_color_output = vec3(0.0);
 
@@ -383,7 +388,12 @@ return {
 				"sky_dir",
 				"sun_dir",
 				"lighting_data.camera_position.xyz",
-				{clouds = "lighting_data.sky_clouds != 0", air = "lighting_data.sky_air != 0"}
+				{
+					clouds = "lighting_data.sky_clouds != 0",
+					air = "lighting_data.sky_air != 0",
+					dir_dx = "sky_dir_dx",
+					dir_dy = "sky_dir_dy",
+				}
 			) .. [[
 
 				return max(sky_color_output, vec3(0.0));

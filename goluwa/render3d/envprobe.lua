@@ -1030,20 +1030,8 @@ function envprobe.CreatePipelines()
 						prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
 
 						if (fragment.add_sun_disc != 0) {
-							vec2 du = dFdx(in_uv);
-							vec2 dv = dFdy(in_uv);
-							vec3 sun_disc = vec3(0.0);
-							vec3 moon_disc = vec3(0.0);
-
-							for (int y = 0; y < 4; y++) {
-								for (int x = 0; x < 4; x++) {
-									vec3 disc_dir = equirect_uv_to_dir(in_uv + du * ((float(x) + 0.5) / 4.0 - 0.5) + dv * ((float(y) + 0.5) / 4.0 - 0.5));
-									sun_disc += get_sun_disc(disc_dir, fragment.camera_position.xyz);
-									moon_disc += get_moon_disc(disc_dir, fragment.camera_position.xyz);
-								}
-							}
-
-							prefilteredColor += (sun_disc + moon_disc) / 16.0;
+							vec3 texel_dir = equirect_uv_to_dir(in_uv);
+							prefilteredColor += get_celestial_discs(texel_dir, equirect_uv_to_dir(in_uv + dFdx(in_uv)) - texel_dir, equirect_uv_to_dir(in_uv + dFdy(in_uv)) - texel_dir, fragment.camera_position.xyz);
 						}
 
 						set_color(vec4(min(prefilteredColor / fragment.probe_scale, vec3(65504.0)), fragment.probe_scale));

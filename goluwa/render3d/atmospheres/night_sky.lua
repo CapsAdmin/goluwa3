@@ -131,14 +131,14 @@ return glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 		return mix(1.15, 0.6, seas) * mix(0.9, 1.1, night_fbm(vec3(p * 9.0, 1.7)));
 	}
 
-	vec3 get_moon_disc(vec3 dir, vec3 cam_pos) {
+	vec3 get_moon_disc(vec3 dir, vec3 cam_pos, float pixel_angle) {
 		float radius = ATMOSPHERE_MOON_ANGULAR_RADIUS;
 
 		if (radius <= 0.0) return vec3(0.0);
 
 		vec3 moon = ATMOSPHERE_MOON_DIRECTION;
 
-		if (length(dir - moon) > radius * 1.03) return vec3(0.0);
+		if (length(dir - moon) > radius + 0.5 * pixel_angle) return vec3(0.0);
 
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 
@@ -148,8 +148,10 @@ return glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 		vec3 right = cross(moon, up);
 		vec2 p = vec2(dot(dir, right), dot(dir, up)) / sin(radius);
 		float r = length(p);
-		float edge = clamp((1.0 - r) / 0.03 + 0.5, 0.0, 1.0);
-		vec3 normal = p.x * right + p.y * up - sqrt(max(1.0 - r * r, 0.0)) * moon;
+		float edge = clamp((1.0 - r) * radius / pixel_angle + 0.5, 0.0, 1.0);
+		p /= max(r, 1.0);
+		r = min(r, 1.0);
+		vec3 normal = p.x * right + p.y * up - sqrt(1.0 - r * r) * moon;
 		vec3 sun = ATMOSPHERE_SKY_SUN_DIRECTION;
 		float mu0 = dot(normal, sun);
 		float mu = max(dot(normal, -moon), 1e-4);

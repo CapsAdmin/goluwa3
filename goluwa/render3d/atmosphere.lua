@@ -1094,21 +1094,22 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return apply_ground_fog_segment(scene_color, ray_origin, normalize(ray_dir), fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
 	}
 
-	vec3 get_sun_disc(vec3 dir, vec3 cam_pos) {
+	vec3 get_sun_disc(vec3 dir, vec3 cam_pos, float pixel_angle) {
 		vec3 sun_dir = ATMOSPHERE_SKY_SUN_DIRECTION;
+		float d = length(normalize(dir) - sun_dir);
+
+		if (d > SUN_ANGULAR_RADIUS + 0.5 * pixel_angle) return vec3(0.0);
+
 		vec3 ray_origin = get_atmosphere_camera_origin(cam_pos);
 
 		if (ray_sphere_intersect(ray_origin, dir, PLANET_RADIUS).x > 0.0) return vec3(0.0);
 
-		float r = length(normalize(dir) - sun_dir) / SUN_ANGULAR_RADIUS;
-
-		if (r > 1.02) return vec3(0.0);
-
-		float edge = clamp((1.0 - r) / 0.04 + 0.5, 0.0, 1.0);
-		float mu = sqrt(max(1.0 - r * r, 0.0));
+		float edge = clamp((SUN_ANGULAR_RADIUS - d) / pixel_angle + 0.5, 0.0, 1.0);
+		float r = min(d / SUN_ANGULAR_RADIUS, 1.0);
+		float mu = sqrt(1.0 - r * r);
 		const vec3 LIMB_DARKENING = vec3(0.50, 0.62, 0.72);
 		vec3 limb = (1.0 - LIMB_DARKENING * (1.0 - mu)) / (1.0 - LIMB_DARKENING / 3.0);
-		float solid_angle = PI * SUN_ANGULAR_RADIUS * SUN_ANGULAR_RADIUS;
+		float solid_angle = PI * (SUN_ANGULAR_RADIUS * SUN_ANGULAR_RADIUS + pixel_angle * pixel_angle / 12.0);
 		return ATMOSPHERE_SUN_DISC_ILLUMINANCE / solid_angle * SUN_COLOR * limb * edge * sample_transmittance_lut(ray_origin, sun_dir);
 	}
 ]]
@@ -1787,8 +1788,30 @@ function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
 	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define GROUND_FOG_SCALE_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_scale_height\n" .. "#define GROUND_FOG_START_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_start_height\n" .. "#define GROUND_FOG_TOP_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_top_height\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE vec4(" .. uniform_name .. ".atmosphere_aerosol_angstrom, " .. uniform_name .. ".atmosphere_aerosol_albedo, " .. uniform_name .. ".atmosphere_aerosol_g, " .. uniform_name .. ".atmosphere_aerosol_scale_height)\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
+local celestial_discs_glsl = [[
+	vec3 get_celestial_discs(vec3 dir, vec3 dir_dx, vec3 dir_dy, vec3 cam_pos) {
+		float pixel_angle = max(length(dir_dx), length(dir_dy));
+
+		if (
+			length(dir - ATMOSPHERE_SKY_SUN_DIRECTION) > SUN_ANGULAR_RADIUS + pixel_angle &&
+			length(dir - ATMOSPHERE_MOON_DIRECTION) > ATMOSPHERE_MOON_ANGULAR_RADIUS + pixel_angle
+		) return vec3(0.0);
+
+		vec3 sum = vec3(0.0);
+
+		for (int y = 0; y < 4; y++) {
+			for (int x = 0; x < 4; x++) {
+				vec3 sample_dir = normalize(dir + dir_dx * ((float(x) + 0.5) / 4.0 - 0.5) + dir_dy * ((float(y) + 0.5) / 4.0 - 0.5));
+				sum += get_sun_disc(sample_dir, cam_pos, pixel_angle / 4.0) + get_moon_disc(sample_dir, cam_pos, pixel_angle / 4.0);
+			}
+		}
+
+		return sum / 16.0;
+	}
+]]
+
 function atmosphere.GetGLSLCode()
-	return atmosphere_glsl .. import("goluwa/render3d/atmospheres/night_sky.lua")
+	return atmosphere_glsl .. import("goluwa/render3d/atmospheres/night_sky.lua") .. celestial_discs_glsl
 end
 
 function atmosphere.GetAerialPerspectiveGLSLCode()
@@ -1800,7 +1823,7 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 	local disc_code = ""
 
 	if options.include_sun_disc ~= false then
-		disc_code = "atmosphere_color += get_sun_disc(atmos_dir, atmos_cam_pos) + get_moon_disc(atmos_dir, atmos_cam_pos);"
+		disc_code = "atmosphere_color += get_celestial_discs(atmos_dir, " .. options.dir_dx .. ", " .. options.dir_dy .. ", atmos_cam_pos);"
 	end
 
 	return [[
