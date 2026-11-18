@@ -9,6 +9,8 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local texture_compress = import("goluwa/render/texture_compress.lua")
+local cutout_texture = import("goluwa/render/cutout_texture.lua")
+local vfs = import("goluwa/vfs.lua")
 local codec = import("goluwa/codec.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -403,17 +405,34 @@ function material_bake.WantsNormalEstimate(material)
 		material:GetAlbedoTexture() ~= nil
 end
 
+-- an alpha tested albedo keeps the alpha of the original texture's own mips: crysis foliage mips gain
+-- coverage towards the small ones, and filtering them again thins distant leaves
+local function get_alpha_levels(material)
+	local path = material:GetAlbedoTexture().config.path
+
+	if not path or not path:lower():ends_with(".dds") then return nil end
+
+	return cutout_texture.DDSAlphaLevels(assert(vfs.Read(path)))
+end
+
 function material_bake.Bake(material, width, height)
 	local estimate_normal = material_bake.WantsNormalEstimate(material)
 	local framebuffer = material_bake.Render(material, width, height, estimate_normal)
 	local result = {
-		Albedo = texture_compress.Recompress{
-			sources = {{texture = framebuffer:GetAttachment(1)}},
-			edit = "vec4 edit(ivec2 position, ivec2 size, vec4 texel) { return vec4(from_linear(texel.rgb), texel.a); }",
-			format = "bc7",
-			kind = "srgb",
-			wrap = true,
-		},
+		Albedo = material:GetAlphaTest() and
+			cutout_texture.Compress(
+				framebuffer:GetAttachment(1):Download().pixels,
+				width,
+				height,
+				{cutoff = material:GetAlphaCutoff(), alpha_levels = get_alpha_levels(material)}
+			) or
+			texture_compress.Recompress{
+				sources = {{texture = framebuffer:GetAttachment(1)}},
+				edit = "vec4 edit(ivec2 position, ivec2 size, vec4 texel) { return vec4(from_linear(texel.rgb), texel.a); }",
+				format = "bc7",
+				kind = "srgb",
+				wrap = true,
+			},
 		Normal = texture_compress.Recompress{
 			sources = {{texture = framebuffer:GetAttachment(2)}},
 			format = "bc5",

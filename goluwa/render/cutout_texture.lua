@@ -1,6 +1,9 @@
 local ffi = require("ffi")
+local bit = require("bit")
 local Texture = import("goluwa/render/texture.lua")
 local texture_compress = import("goluwa/render/texture_compress.lua")
+local dds = import("goluwa/codecs/dds.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
 local cutout_texture = {}
 cutout_texture.DILATE_PASSES = 8
 
@@ -150,6 +153,88 @@ function cutout_texture.BuildMipChain(pixels, width, height, cutoff)
 	return data, levels, total
 end
 
+-- the alpha of every mip of a dds file (largest first) as {width, height, alpha = uint8 array}, nil for
+-- a format whose alpha is not decoded here (bc3 and bc1 are)
+do
+	local alphas = ffi.new("uint8_t[8]")
+
+	local function block_alpha_bc3(block, i)
+		local a0, a1 = block[0], block[1]
+		alphas[0], alphas[1] = a0, a1
+
+		if a0 > a1 then
+			for k = 1, 6 do
+				alphas[k + 1] = math.floor(((7 - k) * a0 + k * a1) / 7 + 0.5)
+			end
+		else
+			for k = 1, 4 do
+				alphas[k + 1] = math.floor(((5 - k) * a0 + k * a1) / 5 + 0.5)
+			end
+
+			alphas[6], alphas[7] = 0, 255
+		end
+
+		local bit_offset = i * 3
+		local byte = 2 + math.floor(bit_offset / 8)
+		local bits = block[byte] + block[byte + 1] * 256
+		return alphas[bit.band(bit.rshift(bits, bit_offset % 8), 7)]
+	end
+
+	local function block_alpha_bc1(block, i)
+		local c0, c1 = block[0] + block[1] * 256, block[2] + block[3] * 256
+
+		if c0 > c1 then return 255 end
+
+		local index = bit.band(bit.rshift(block[4 + math.floor(i / 4)], (i % 4) * 2), 3)
+		return index == 3 and 0 or 255
+	end
+
+	function cutout_texture.DDSAlphaLevels(dds_string)
+		local meta, data = dds.DecodeBuffer(Buffer.New(dds_string, #dds_string))
+		local block_alpha = (
+				meta.format == "BC3" or
+				meta.format == "BC3_SRGB"
+			)
+			and
+			block_alpha_bc3 or
+			(
+				meta.format == "BC1" or
+				meta.format == "BC1_SRGB"
+			)
+			and
+			block_alpha_bc1 or
+			nil
+
+		if not block_alpha then return nil end
+
+		local block_bytes = block_alpha == block_alpha_bc3 and 16 or 8
+		local levels = {}
+
+		for mip, info in ipairs(meta.mip_info) do
+			local blocks_x = math.max(math.ceil(info.width / 4), 1)
+			local alpha = ffi.new("uint8_t[?]", info.width * info.height)
+
+			for by = 0, math.max(math.ceil(info.height / 4), 1) - 1 do
+				for bx = 0, blocks_x - 1 do
+					local block = data + info.offset + (by * blocks_x + bx) * block_bytes
+
+					for i = 0, 15 do
+						local x, y = bx * 4 + i % 4, by * 4 + math.floor(i / 4)
+
+						if x < info.width and y < info.height then
+							alpha[y * info.width + x] = block_alpha(block, i)
+						end
+					end
+				end
+			end
+
+			levels[mip] = {width = info.width, height = info.height, alpha = alpha}
+		end
+
+		return levels
+	end
+end
+
 function cutout_texture.Compress(pixels, width, height, config)
 	cutout_texture.Dilate(
 		pixels,
@@ -162,6 +247,14 @@ function cutout_texture.Compress(pixels, width, height, config)
 
 	for _, level in ipairs(levels) do
 		level.pixels = data + level.offset
+
+		for _, alpha in ipairs(config.alpha_levels or {}) do
+			if alpha.width == level.width and alpha.height == level.height then
+				for j = 0, level.width * level.height - 1 do
+					level.pixels[j * 4 + 3] = alpha.alpha[j]
+				end
+			end
+		end
 	end
 
 	return texture_compress.CompressLevels{levels = levels, format = "bc7", kind = "srgb"}
