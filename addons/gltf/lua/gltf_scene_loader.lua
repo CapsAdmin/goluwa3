@@ -308,7 +308,7 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 			goto continue
 		end
 
-		local vertices, vertex_count, aabb = build_vertex_data(primitive)
+		local vertices, vertex_count, aabb = build_vertex_data(primitive, primitive.material ~= nil and gltf.MaterialNeedsVFlip(gltf_data, primitive.material))
 
 		if not vertices then
 			print(

@@ -11,7 +11,7 @@ local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local gltf_decoder = {}
 local CLIP_FPS = 30
 
-function gltf_decoder.BuildVertices(primitive)
+function gltf_decoder.BuildVertices(primitive, flip_v)
 	local position = primitive.attributes.POSITION
 	local normal = primitive.attributes.NORMAL
 	local texcoord = primitive.attributes.TEXCOORD_0
@@ -109,7 +109,7 @@ function gltf_decoder.BuildVertices(primitive)
 		end
 	end
 
-	if texcoord then
+	if texcoord and flip_v then
 		for i = 0, vertex_count - 1 do
 			vertices[i].uv[1] = 1 - vertices[i].uv[1]
 		end
@@ -219,7 +219,12 @@ local function decode_static(path, data, mesh_callback)
 	end
 
 	local function emit_primitive(primitive, m)
-		local vertices, vertex_count = assert(gltf_decoder.BuildVertices(primitive))
+		local vertices, vertex_count = assert(
+			gltf_decoder.BuildVertices(
+				primitive,
+				primitive.material ~= nil and gltf.MaterialNeedsVFlip(data, primitive.material)
+			)
+		)
 		local index_count = primitive.indices.count
 		local indices = ffi.new("uint32_t[?]", index_count)
 		local det = m[1] * (
@@ -368,7 +373,12 @@ local function decode(path, full_path, mesh_callback, physics_callback, skeleton
 	for _, node in ipairs(data.nodes) do
 		if node.skin == 0 and node.mesh then
 			for _, primitive in ipairs(data.meshes[node.mesh + 1].primitives) do
-				local vertices, vertex_count, aabb = assert(gltf_decoder.BuildVertices(primitive))
+				local vertices, vertex_count, aabb = assert(
+					gltf_decoder.BuildVertices(
+						primitive,
+						primitive.material ~= nil and gltf.MaterialNeedsVFlip(data, primitive.material)
+					)
+				)
 				local joints, weights = primitive.attributes.JOINTS_0, primitive.attributes.WEIGHTS_0
 				assert(joints and weights, path .. " has a primitive without joints")
 				assert(weights.component_type == "float", "only float skin weights are supported")

@@ -222,6 +222,29 @@ local function decode_material(material_info)
 	return material
 end
 
+function gltf.MaterialNeedsVFlip(data, material_index)
+	local material = data.materials[material_index + 1]
+
+	if not material then return false end
+
+	local pbr = material.pbr_metallic_roughness
+	local spec_gloss = material.pbr_specular_glossiness
+	local reference = pbr and
+		pbr.base_color_texture or
+		spec_gloss and
+		spec_gloss.diffuse_texture or
+		pbr and
+		pbr.metallic_roughness_texture or
+		material.normal_texture or
+		material.emissive_texture
+
+	if not reference then return false end
+
+	local image = data.images[data.textures[reference.index + 1].source + 1]
+	local extension = image.path:lower():match("%.(%w+)$")
+	return extension == "png" or extension == "bmp"
+end
+
 function gltf.Load(path)
 	local base_dir = get_directory(path)
 	local json_data, read_err = read_file_checked(path)
