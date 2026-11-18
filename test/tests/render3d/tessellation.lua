@@ -12,6 +12,7 @@ local tessellation = import("goluwa/render3d/scene/tessellation.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 
 local function create_facing_quad()
 	local cube = Polygon3D.New()
@@ -98,7 +99,13 @@ T.Test3D("Graphics render3d tessellated height maps raise real geometry out of t
 end)
 
 T.Test3D("Graphics render3d parallax height maps stay inside the mesh", function(draw)
-	local r, g, rows = draw_center(draw, false)
+	local tessellate_all = pvars.Get("r_tessellation_all")
+	pvars.SetSession("r_tessellation_all", false)
+	local ok, r, g, rows = pcall(draw_center, draw, false)
+	pvars.SetSession("r_tessellation_all", tessellate_all)
+
+	if not ok then error(r, 0) end
+
 	T(rows)["=="](0)
 	T(g)[">"](200)
 	T(r)["<"](10)
