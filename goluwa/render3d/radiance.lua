@@ -124,6 +124,11 @@ radiance.spatial_retries = pvars.Setup2{
 	integer = true,
 	help = "times a spatial neighbour that lies on another surface or has no reservoir is drawn again, each time from half the radius. in foliage and beside thin geometry most neighbours are otherwise wasted",
 }
+radiance.specular_reuse = pvars.Setup2{
+	key = "radiance_specular_reuse",
+	default = true,
+	help = "the reflection ray's hits are clamped against fireflies, and the light the clamp cuts off comes from the pixel's gi reservoir instead (its sample weighed by the specular lobe), which find small bright things (an emitter, a sunlit patch at low exposure) far more often than the ray. rough reflections of them keep their full brightness without the ray's speckle, and only that part follows a light change as slowly as the diffuse gi. off, the clamped light is dropped and those reflections read darker",
+}
 radiance.validation = pvars.Setup2{
 	key = "radiance_validation",
 	default = false,

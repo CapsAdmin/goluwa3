@@ -98,6 +98,8 @@ local function restir_uniform(trace, filter_iteration)
 		{"accum_history_moments_tex", "int"},
 		{"accum_history_irradiance_tex", "int"},
 		{"raw_specular_tex", "int"},
+		{"candidate_specular_tex", "int"},
+		{"specular_reuse", "int"},
 		{"accum_history_specular_tex", "int"},
 		{"brdf_lut_tex", "int"},
 		{"specular_emitter_roughness", "float"},
@@ -211,7 +213,9 @@ local function restir_uniform(trace, filter_iteration)
 			block.accum_history_tex = self:GetTextureIndex(attachment("radiance_accumulate", previous, 1))
 			block.accum_history_moments_tex = self:GetTextureIndex(attachment("radiance_accumulate", previous, 2))
 			block.accum_history_irradiance_tex = self:GetTextureIndex(attachment("radiance_accumulate", previous, 3))
-			block.raw_specular_tex = self:GetTextureIndex(attachment("radiance_candidates", 1, 4))
+			block.raw_specular_tex = self:GetTextureIndex(attachment("radiance_spatial", 1, 7))
+			block.candidate_specular_tex = self:GetTextureIndex(attachment("radiance_candidates", 1, 4))
+			block.specular_reuse = radiance.specular_reuse:Get() and 1 or 0
 			block.accum_history_specular_tex = self:GetTextureIndex(attachment("radiance_accumulate", previous, 4))
 			block.specular_emitter_roughness = radiance.specular_emitter_roughness:Get()
 			block.brdf_lut_tex = self:GetTextureIndex(
@@ -632,6 +636,63 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				return restir_hit_sample(origin, dir, !miss, t, instance, primitive, barycentrics, emitter, miss || emitter ? vec3(0.0) : shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics));
 			}
 ]] .. RESOLVE_GLSL
+-- the specular lobe a pixel reflects with, shared by its ray (the candidates) and the reservoirs that stand in for the ray on rough surfaces (the spatial pass)
+local SPECULAR_LOBE_GLSL = scene_hits.CONSTANTS_GLSL .. surface_weather.GetRainSurfaceGLSL("restir_data") .. ibl.GetBRDFGLSLCode() .. [[
+	// the specular lobe: one ray a pixel, over the visible normals of the pixel's surface (a mirror's own direction when it is smooth enough), shaded like every other ray hit. the accumulation and the filter average it over frames and pixels by the lobe
+	float radiance_specular_roughness(ivec2 gbuffer_pos, vec3 world_pos, float footprint, inout vec3 N) {
+		float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
+		]] .. surface_features.GetReflectionGLSL() .. [[
+
+		return roughness;
+	}
+
+	// the roughness and normal after the surface features that change the lobe (clearcoat, rain), the normal bent toward the view
+	float radiance_specular_lobe_setup(ivec2 gpos, vec3 P, vec3 V, vec3 geometric_N, float view_depth, inout vec3 N) {
+		float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * restir_data.inv_projection[1][1] / float(textureSize(TEXTURE(restir_data.depth_tex), 0).y);
+		float roughness = radiance_specular_roughness(gpos, P, footprint, N);
+		N = bend_normal_to_view(N, V);
+		return roughness;
+	}
+
+	// the rays follow the visible normals and the lobe also masks the light along each: the weight of that (the lobe over the density the rays are drawn at), which the sum of the weighted rays divides by their weights in the accumulation, so the average is the light over the lobe and not over the density
+	float radiance_specular_weight(vec3 N, vec3 V, float roughness, vec3 L) {
+		float a2 = max(roughness * roughness, 0.001);
+		a2 *= a2;
+		float NoV = max(dot(N, V), 1e-4);
+		float NoL = max(dot(N, L), 1e-4);
+		float lambda_v = 0.5 * (sqrt(1.0 + a2 * (1.0 - NoV * NoV) / (NoV * NoV)) - 1.0);
+		float lambda_l = 0.5 * (sqrt(1.0 + a2 * (1.0 - NoL * NoL) / (NoL * NoL)) - 1.0);
+		return (1.0 + lambda_v) / (1.0 + lambda_v + lambda_l);
+	}
+
+	// the luminance the ray's hits are clamped to against fireflies, in absolute units
+	float radiance_specular_hit_limit() {
+		return restir_data.pre_exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(get_exposure(), 1e-8) : 1e30;
+	}
+
+	// whether this pixel's ray leaves emissive hits to an emitter sample this frame instead of reading their emission
+	bool radiance_specular_samples_emitters(ivec2 pos, float roughness) {
+		return radiance_cache_data.radiance_cache_emitter_count > 0 && roughness >= max(restir_data.specular_emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0) && restir_random(pos, 52u) < 1.0 - smoothstep(0.35, 0.6, roughness);
+	}
+
+	// the part of a reservoir sample's light the ray's clamp would have cut off its hit: sky is never clamped, and emission is not when the ray leaves it to its emitter sample
+	vec3 radiance_specular_clipped(restir_sample s, float limit, bool emission_sampled) {
+		if (s.kind == RESTIR_SKY || (s.kind == RESTIR_EMITTER && emission_sampled)) return vec3(0.0);
+
+		float l = luminance(s.L);
+		return l > limit ? s.L * (1.0 - limit / l) : vec3(0.0);
+	}
+
+	// what a weighted ray averages to per solid angle of light: the visible normal density of the reflected direction times its masking weight, D G2 / (4 NoV)
+	float radiance_specular_lobe(vec3 N, vec3 V, float roughness, vec3 L) {
+		if (dot(N, L) <= 0.0) return 0.0;
+
+		float alpha = max(0.001, roughness * roughness);
+		float NoV = max(dot(N, V), 1e-4);
+		float G1 = 2.0 * NoV / (NoV + sqrt(alpha * alpha + (1.0 - alpha * alpha) * NoV * NoV));
+		return G1 * D_GGXAlpha(alpha, max(dot(N, normalize(V + L)), 0.0)) / (4.0 * NoV) * radiance_specular_weight(N, V, roughness, L);
+	}
+]]
 
 -- traces this frame's new candidates for the pixels whose turn it is, one thread per tracing pixel so no warp traces a few rays at the cost of a full one
 local function pass_candidates()
@@ -683,26 +744,7 @@ local function pass_candidates()
 			layout(set = 0, binding = 4, r32f) uniform writeonly image2D out_e;
 		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
 		-- temporal and spatial reuse stand in for more candidates: one by each of the emitter tree's weighings
-		shader = "#extension GL_EXT_control_flow_attributes : require\n" .. TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. surface_weather.GetRainSurfaceGLSL("restir_data") .. ibl.GetBRDFGLSLCode() .. scene_hits.GetDirectionGLSL() .. [[
-			// the specular lobe: one ray a pixel, over the visible normals of the pixel's surface (a mirror's own direction when it is smooth enough), shaded like every other ray hit. the accumulation and the filter average it over frames and pixels by the lobe
-			float radiance_specular_roughness(ivec2 gbuffer_pos, vec3 world_pos, float footprint, inout vec3 N) {
-				float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
-				]] .. surface_features.GetReflectionGLSL() .. [[
-
-				return roughness;
-			}
-
-			// the rays follow the visible normals and the lobe also masks the light along each: the weight of that (the lobe over the density the rays are drawn at), which the sum of the weighted rays divides by their weights in the accumulation, so the average is the light over the lobe and not over the density
-			float radiance_specular_weight(vec3 N, vec3 V, float roughness, vec3 L) {
-				float a2 = max(roughness * roughness, 0.001);
-				a2 *= a2;
-				float NoV = max(dot(N, V), 1e-4);
-				float NoL = max(dot(N, L), 1e-4);
-				float lambda_v = 0.5 * (sqrt(1.0 + a2 * (1.0 - NoV * NoV) / (NoV * NoV)) - 1.0);
-				float lambda_l = 0.5 * (sqrt(1.0 + a2 * (1.0 - NoL * NoL) / (NoL * NoL)) - 1.0);
-				return (1.0 + lambda_v) / (1.0 + lambda_v + lambda_l);
-			}
-
+		shader = "#extension GL_EXT_control_flow_attributes : require\n" .. TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. SPECULAR_LOBE_GLSL .. scene_hits.GetDirectionGLSL() .. [[
 			// the rays are averaged unweighted over the visible normal distribution, so an emitter sample must enter at that density of its direction
 			// the diffuse emitter sample's candidates, picked for its origin and normal: the light of each divides out that normal's cosine, so it is evaluated there and only the lobe uses the bent normal
 			vec3 radiance_specular_emitter_light(vec3 origin, vec3 receiver_N, vec3 N, vec3 geometric_N, vec3 V, float roughness, uint index, int triangles[EMITTER_CANDIDATES], float weights[EMITTER_CANDIDATES]) {
@@ -766,14 +808,13 @@ local function pass_candidates()
 				radiance_specular_ray ray;
 				ray.V = normalize(restir_data.camera_position - P);
 				ray.geometric_N = get_geometric_normal(gpos, P, depth, ray.V, N);
-				float footprint = view_depth / sqrt(max(abs(dot(ray.geometric_N, ray.V)), 0.01)) * 2.0 * restir_data.inv_projection[1][1] / float(textureSize(TEXTURE(restir_data.depth_tex), 0).y);
-				ray.roughness = radiance_specular_roughness(gpos, P, footprint, N);
-				ray.N = bend_normal_to_view(N, ray.V);
+				ray.N = N;
+				ray.roughness = radiance_specular_lobe_setup(gpos, P, ray.V, ray.geometric_N, view_depth, ray.N);
 				ray.R = reflection_direction(ray.N, ray.V, ray.roughness, vec2(restir_random(pos, 50u), restir_random(pos, 51u)), ray.environment_roughness);
 				ray.lobe_below = dot(ray.N, ray.R) <= 0.0;
 				ray.R = reflection_above(ray.geometric_N, reflection_above(ray.N, ray.R, 0.001), 0.01);
 				// an emitter sample reads low across a broad lobe (half of the light a furnace gives a rough metal at roughness 1), where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
-				ray.sample_emitters = radiance_cache_data.radiance_cache_emitter_count > 0 && ray.roughness >= max(restir_data.specular_emitter_roughness, REFLECTION_MIRROR_THRESHOLD * 3.0) && restir_random(pos, 52u) < 1.0 - smoothstep(0.35, 0.6, ray.roughness);
+				ray.sample_emitters = radiance_specular_samples_emitters(pos, ray.roughness);
 				ray.origin = P + ray.geometric_N * (0.0002 + 0.0001 * view_depth);
 				return ray;
 			}
@@ -782,8 +823,7 @@ local function pass_candidates()
 				radiance = scene_radiance_through_air(radiance, ray.origin, ray.R, hit_t, SCENE_HIT_MAX_DISTANCE);
 
 				if (ray.roughness > REFLECTION_MIRROR_THRESHOLD && hit_t < SCENE_HIT_MAX_DISTANCE) {
-					float limit = restir_data.pre_exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(get_exposure(), 1e-8) : 1e30;
-					radiance = reflection_limit_hit(radiance, limit);
+					radiance = reflection_limit_hit(radiance, radiance_specular_hit_limit());
 				}
 
 				float ray_weight = mix(1.0, ray.lobe_below ? 0.0 : radiance_specular_weight(ray.N, ray.V, ray.roughness, ray.R), smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, ray.roughness));
@@ -1264,11 +1304,15 @@ local function pass_spatial()
 				"r32g32b32a32_sfloat",
 				{"restir_raw_effective", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_raw_specular", "rgba", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
 		},
 		framebuffer_count = 1,
 		scale = radiance.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(6),
+		storage_images = storage_images(7),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
@@ -1281,8 +1325,9 @@ local function pass_spatial()
 			layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_c;
 			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_receiver;
 			layout(set = 0, binding = 5, rgba32f) uniform writeonly image2D out_effective;
+			layout(set = 0, binding = 6, rgba32f) uniform writeonly image2D out_specular;
 		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
-		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. RESOLVE_GLSL .. [[
+		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. RESOLVE_GLSL .. SPECULAR_LOBE_GLSL .. [[
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -1299,6 +1344,7 @@ local function pass_spatial()
 				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth)) {
 					imageStore(out_raw, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					imageStore(out_effective, pos, vec4(0.0, 0.0, 0.0, 1.0));
+					imageStore(out_specular, pos, vec4(0.0));
 					imageStore(out_a, pos, vec4(0.0));
 					imageStore(out_b, pos, vec4(0.0));
 					imageStore(out_c, pos, vec4(0.0));
@@ -1323,6 +1369,21 @@ local function pass_spatial()
 				vec3 response = max(EON_directional_albedo(albedo, roughness, NoV), vec3(1e-4));
 				bool weigh = all(greaterThan(response, vec3(1e-3)));
 				vec3 effective = weigh && own_cosine > 0.0 ? irradiance * Fd_EON(albedo, roughness, own_cosine, NoV, dot(dir, V)) * RESTIR_PI / response : irradiance;
+				// the specular ray's hits are clamped against fireflies, and what the clamp cuts off comes from this pixel's reservoir instead: weighed by the lobe rather than the cosine it estimates the same light over the lobe, and drawn by light it finds the bright things that the ray hits rarely. clamped part plus cut part is the whole, so the mean holds without the ray's speckle. the neighbours would lower its noise a little, but carrying the lobe through their loop costs the pass a quarter of its occupancy
+				vec3 specular_N = N;
+				float specular_roughness = 0.0;
+				bool specular_clipped = false;
+				float specular_limit = 1e30;
+				bool specular_emission_sampled = false;
+
+				if (restir_data.specular_reuse != 0 && (flags & RESTIR_FLAG_TRACED) != 0) {
+					specular_roughness = radiance_specular_lobe_setup(gpos, P, V, get_geometric_normal(gpos, P, depth, V, N), view_depth, specular_N);
+					specular_clipped = specular_roughness > REFLECTION_MIRROR_THRESHOLD;
+					specular_limit = radiance_specular_hit_limit();
+					specular_emission_sampled = radiance_specular_samples_emitters(pos, specular_roughness);
+				}
+
+				vec3 specular_excess = specular_clipped && own_cosine > 0.0 ? radiance_specular_clipped(own, specular_limit, specular_emission_sampled) * (radiance_specular_lobe(specular_N, V, specular_roughness, dir) * W) : vec3(0.0);
 				// the reservoir handed to next frame: one sample resampled from this pixel's and its neighbours' by the same weights as the irradiance
 				restir_sample picked = own;
 				float picked_target = own_target;
@@ -1448,6 +1509,12 @@ local function pass_spatial()
 				float sky = (sky_flags & RESTIR_FLAG_MISS) == 0 ? 0.0 : (sky_flags & RESTIR_FLAG_GUIDE_MIX) != 0 ? 1.0 / max(1.0 - restir_data.guided, 0.05) : 1.0;
 				imageStore(out_raw, pos, vec4(irradiance, sky));
 				imageStore(out_effective, pos, vec4(effective, sky));
+				// the ray's weight stays the denominator: its weighted light and the reservoirs' estimate both average to the light over the lobe times that weight's mean
+				vec4 ray_specular = texelFetch(TEXTURE(restir_data.candidate_specular_tex), pos, 0);
+
+				if (!any(isnan(specular_excess)) && !any(isinf(specular_excess))) ray_specular.rgb += specular_excess;
+
+				imageStore(out_specular, pos, ray_specular);
 
 				if (!(picked_W >= 0.0 && picked_W < 1e30)) {
 					picked_W = 0.0;
