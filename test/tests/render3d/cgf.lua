@@ -606,7 +606,7 @@ T.Test("CryMTL loader maps shininess and specular color to roughness and metalli
 	assert(
 		vfs.Write(
 			path,
-			[[<Material><SubMaterials><Material Name="steel" Shader="Metal" Specular="0.9,0.9,0.9" Shininess="30" /><Material Name="paint" Shader="Illum" SurfaceType="mat_metal_sheet" Specular="0.3,0.3,0.3" Shininess="30" /><Material Name="matte" Shader="Illum" Specular="0,0,0" Shininess="30" /><Material Name="plastic" Shader="Illum" Specular="0.6,0.6,0.6" Shininess="30" /><Material Name="dull" Shader="Illum" Specular="0.06,0.06,0.06" Shininess="30" /></SubMaterials></Material>]]
+			[[<Material><SubMaterials><Material Name="steel" Shader="Metal" Specular="0.9,0.9,0.9" Shininess="30" /><Material Name="paint" Shader="Illum" SurfaceType="mat_metal_sheet" Specular="0.3,0.3,0.3" Shininess="30" /><Material Name="matte" Shader="Illum" Specular="0,0,0" Shininess="30" /><Material Name="plastic" Shader="Illum" Specular="0.6,0.6,0.6" Shininess="30" /><Material Name="dull" Shader="Illum" Specular="0.06,0.06,0.06" Shininess="30" /><Material Name="chrome" Shader="Metal" Specular="0.125,0.125,0.125" Shininess="10"><PublicParams Glossiness="0.98" FresnelBias="0.9" /></Material></SubMaterials></Material>]]
 		)
 	)
 	local steel = mtl_material.FromCryMTL(path, 0)
@@ -614,9 +614,12 @@ T.Test("CryMTL loader maps shininess and specular color to roughness and metalli
 	local matte = mtl_material.FromCryMTL(path, 2)
 	local plastic = mtl_material.FromCryMTL(path, 3)
 	local dull = mtl_material.FromCryMTL(path, 4)
+	local chrome = mtl_material.FromCryMTL(path, 5)
 	local lobe = (2 / 32) ^ 0.25
 	T(steel:GetMetallicMultiplier())["=="](1)
-	T(math.abs(steel:GetRoughnessMultiplier() - lobe))["<"](0.0001)
+	T(math.abs(steel:GetRoughnessMultiplier() - 0.25))["<"](0.0001)
+	T(chrome:GetMetallicMultiplier())["=="](1)
+	T(math.abs(chrome:GetRoughnessMultiplier() - 0.02))["<"](0.0001)
 	T(steel:GetSpecularMultiplier())["=="](1)
 	T(paint:GetMetallicMultiplier())["=="](0)
 	T(matte:GetSpecularMultiplier())["=="](1)

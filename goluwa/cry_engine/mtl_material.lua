@@ -484,21 +484,23 @@ local function apply_cry_material_node(self, material_node, material_path)
 	do
 		local specular = self.cry_specular_color
 		local intensity = specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722
-		local is_metal = intensity > 0 and
-			(
-				shader == "Metal" or
-				(
-					attrs.SurfaceType or
-					""
-				):find("metal", 1, true) ~= nil
+		local metallic = math.smoothstep(0.3, 0.8, tonumber(params.FresnelBias) or 0)
+
+		if shader == "Metal" or (attrs.SurfaceType or ""):find("metal", 1, true) then
+			metallic = math.max(metallic, math.smoothstep(0.4, 0.7, intensity))
+		end
+
+		local lobe = shader == "Metal" and
+			1 - (
+				tonumber(params.Glossiness) or
+				0.75
 			)
-		local metal_low, metal_high = 0.4, 0.7
-		local metallic = is_metal and math.smoothstep(metal_low, metal_high, intensity) or 0
-		local lobe = math.lerp(
-			math.smoothstep(0, 0.3, intensity),
-			1,
-			math.max(0.12, (2 / ((tonumber(attrs.Shininess) or 0) + 2)) ^ 0.25)
-		)
+			or
+			math.lerp(
+				math.smoothstep(0, 0.3, intensity),
+				1,
+				math.max(0.12, (2 / ((tonumber(attrs.Shininess) or 0) + 2)) ^ 0.25)
+			)
 		self:SetMetallicMultiplier(metallic)
 
 		if has_gen("GLOSS_DIFFUSEALPHA") and alpha_test == 0 and self.AlbedoTexture then
@@ -510,13 +512,9 @@ local function apply_cry_material_node(self, material_node, material_path)
 		if self:HasExplicitRoughnessTexture() then
 			self:SetRoughnessMin(1)
 			self:SetRoughnessMax(lobe)
-			self:SetMetallicFromRoughnessMask(is_metal)
-
-			if is_metal then
-				self:SetMetallicMaskMin(metal_low / intensity)
-				self:SetMetallicMaskMax(metal_high / intensity)
-				self:SetMetallicMultiplier(1)
-			end
+			self:SetMetallicFromRoughnessMask(metallic > 0)
+			self:SetMetallicMaskMin(0)
+			self:SetMetallicMaskMax(0.5)
 		else
 			self:SetRoughnessMultiplier(lobe)
 		end
