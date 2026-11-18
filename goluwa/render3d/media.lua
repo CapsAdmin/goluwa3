@@ -204,6 +204,33 @@ media.slots = {}
 media.generation = 0
 local slot_ids = {}
 
+do
+	local absorbing = {}
+
+	function media.GetAbsorbing(color, distance)
+		local key = string.format("absorbing_%.6f_%.6f_%.6f_%.6f", color[1], color[2], color[3], distance)
+
+		if not absorbing[key] then
+			absorbing[key] = true
+			media.presets[key] = {
+				Absorption = Vec3(
+					-math.log(color[1]) / distance,
+					-math.log(color[2]) / distance,
+					-math.log(color[3]) / distance
+				),
+				Scattering = Vec3(0, 0, 0),
+				Molecular = Vec3(0, 0, 0),
+				PorousScattering = Vec3(0, 0, 0),
+				PhaseG = 0,
+				IOR = 1.5,
+				AbbeNumber = 0,
+			}
+		end
+
+		return key
+	end
+end
+
 function media.Acquire(name, density)
 	assert(media.presets[name], "unknown medium " .. tostring(name))
 	assert(density > 0, "medium density must be above 0")

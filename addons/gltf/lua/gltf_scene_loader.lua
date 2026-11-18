@@ -11,6 +11,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local media = import("goluwa/render3d/media.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local gltf_scene_loader = {}
 
@@ -260,13 +261,38 @@ local function build_material(gltf_data, material_index)
 	end
 
 	local emissive = info.emissive_factor or {0, 0, 0}
-	config.EmissiveMultiplier = Color(emissive[1], emissive[2], emissive[3], 1)
+
+	if
+		not info.emissive_texture and
+		(
+			emissive[1] > 0 or
+			emissive[2] > 0 or
+			emissive[3] > 0
+		)
+	then
+		config.EmissiveTexture = Texture.GetWhite()
+		config.EmissiveTextureIsColor = true
+	end
+
+	local strength = info.emissive_strength or 1
+	config.EmissiveMultiplier = Color(emissive[1] * strength, emissive[2] * strength, emissive[3] * strength, 1)
+
+	if info.specular_factor then config.SpecularMultiplier = info.specular_factor end
+
+	if info.clearcoat_factor then
+		config.Clearcoat = info.clearcoat_factor
+		config.ClearcoatRoughness = info.clearcoat_roughness_factor
+	end
 
 	if info.transmission_factor and info.transmission_factor > 0 then
 		config.Refraction = info.transmission_factor
 		config.IndexOfRefraction = info.ior or 1.5
 		config.AbbeNumber = (info.dispersion or 0) > 0 and 20 / info.dispersion or 0
 		config.RefractionThickness = (info.thickness_factor or 0) > 0 and -1 or 0
+
+		if info.attenuation_color and info.attenuation_distance then
+			config.Medium = media.GetAbsorbing(info.attenuation_color, info.attenuation_distance)
+		end
 	end
 
 	return Material.New(config)

@@ -395,6 +395,24 @@ function Texture.GetFallback()
 	return create_fallback_texture()
 end
 
+do
+	local white_texture = NULL
+
+	function Texture.GetWhite()
+		if white_texture:IsValid() then return white_texture end
+
+		local buffer = ffi.new("uint8_t[4]", 255, 255, 255, 255)
+		white_texture = Texture.New{
+			width = 1,
+			height = 1,
+			format = "r8g8b8a8_unorm",
+			buffer = buffer,
+			sampler = {min_filter = "nearest", mag_filter = "nearest"},
+		}
+		return white_texture
+	end
+end
+
 function Texture.ClearCache()
 	texture_cache = {}
 end
@@ -1108,23 +1126,20 @@ do
 		return streamed_textures
 	end
 
-	table.insert(
-		import("goluwa/render/vulkan/internal/checkpoints.lua").state_reporters,
-		function()
-			local streamed = 0
+	table.insert(import("goluwa/render/vulkan/internal/checkpoints.lua").state_reporters, function()
+		local streamed = 0
 
-			for _ in pairs(streamed_textures) do
-				streamed = streamed + 1
-			end
-
-			return string.format(
-				"texture streaming: %d streamed textures, %d uploads in flight, %d images waiting to retire",
-				streamed,
-				#inflight,
-				#retired
-			)
+		for _ in pairs(streamed_textures) do
+			streamed = streamed + 1
 		end
-	)
+
+		return string.format(
+			"texture streaming: %d streamed textures, %d uploads in flight, %d images waiting to retire",
+			streamed,
+			#inflight,
+			#retired
+		)
+	end)
 
 	function Texture.PollStreamUploads()
 		if not inflight[1] and not retired[1] then return end

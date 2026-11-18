@@ -189,6 +189,21 @@ local function decode_material(material_info)
 
 	if extensions.KHR_materials_volume then
 		material.thickness_factor = extensions.KHR_materials_volume.thicknessFactor or 0
+		material.attenuation_color = extensions.KHR_materials_volume.attenuationColor
+		material.attenuation_distance = extensions.KHR_materials_volume.attenuationDistance
+	end
+
+	if extensions.KHR_materials_emissive_strength then
+		material.emissive_strength = extensions.KHR_materials_emissive_strength.emissiveStrength or 1
+	end
+
+	if extensions.KHR_materials_specular then
+		material.specular_factor = extensions.KHR_materials_specular.specularFactor or 1
+	end
+
+	if extensions.KHR_materials_clearcoat then
+		material.clearcoat_factor = extensions.KHR_materials_clearcoat.clearcoatFactor or 0
+		material.clearcoat_roughness_factor = extensions.KHR_materials_clearcoat.clearcoatRoughnessFactor or 0
 	end
 
 	local spec_gloss = material_info.extensions and
@@ -235,6 +250,9 @@ function gltf.Load(path)
 		KHR_materials_dispersion = true,
 		KHR_materials_volume = true,
 		KHR_lights_punctual = true,
+		KHR_materials_emissive_strength = true,
+		KHR_materials_specular = true,
+		KHR_materials_clearcoat = true,
 		EXT_mesh_gpu_instancing = true,
 	}
 
