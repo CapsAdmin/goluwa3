@@ -418,7 +418,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	}
 
 	float restir_random(ivec2 pos, uint stream) {
-		return float(pcg3d(uvec3(uvec2(pos), uint(restir_data.frame) * 16u + stream)).x >> 8u) / 16777216.0;
+		return float(pcg3d(uvec3(uvec2(pos), (uint(restir_data.frame) << 8u) + stream)).x >> 8u) / 16777216.0;
 	}
 
 	bool restir_history_matches(ivec2 q, ivec2 size, vec3 N, float prev_depth, float tolerance) {
