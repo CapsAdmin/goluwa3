@@ -534,6 +534,13 @@ local RESOLVE_GLSL = [[
 		return false;
 	}
 
+	// aimed at the sample's point lifted off its own surface
+	bool restir_sample_visible(vec3 origin, restir_sample s) {
+		vec3 to_sample = s.kind == RESTIR_SKY ? s.x * SCENE_HIT_MAX_DISTANCE : s.x + s.n * 0.01 * restir_data.view_scale - origin;
+		float ray_length = length(to_sample);
+		return scene_hit_visible(origin, to_sample / ray_length, s.kind == RESTIR_SKY ? ray_length : max(ray_length - 0.03 * restir_data.view_scale, 0.0));
+	}
+
 	restir_sample restir_resolve(restir_sample s) {
 		if (s.kind != RESTIR_EMITTER) return s;
 
@@ -1327,13 +1334,7 @@ local function pass_spatial()
 						float own_at_q = q_M * luminance(own.L) * restir_receiver_cosine(own, q_P, q_N, q_dir, q_dist) * restir_jacobian(own, q_P, P);
 
 						// a neighbour that cannot see this pixel's sample could not have found it, crediting it anyway darkens light found through gaps (canopies)
-						if (own_at_q > 0.0 && own_target > 0.0 && restir_data.visibility != 0) {
-							vec3 q_origin = restir_ray_origin(q_gpos, q_P, q_N, q_view_depth, q_depth);
-							vec3 to_own = own.kind == RESTIR_SKY ? own.x * SCENE_HIT_MAX_DISTANCE : own.x + own.n * 0.01 * restir_data.view_scale - q_origin;
-							float own_length = length(to_own);
-
-							if (!scene_hit_visible(q_origin, to_own / own_length, own.kind == RESTIR_SKY ? own_length : max(own_length - 0.03 * restir_data.view_scale, 0.0))) own_at_q = 0.0;
-						}
+						if (own_at_q > 0.0 && own_target > 0.0 && restir_data.visibility != 0 && !restir_sample_visible(restir_ray_origin(q_gpos, q_P, q_N, q_view_depth, q_depth), own)) own_at_q = 0.0;
 
 						own_weight += own_target * M / k + own_at_q > 0.0 ? own_target * M / k / (own_target * M / k + own_at_q) : 1.0;
 						float jacobian = restir_jacobian(s, P, q_P);
@@ -1343,12 +1344,7 @@ local function pass_spatial()
 
 						if (!(jacobian > 0.0 && jacobian < 1e20) || s_cosine <= 0.0 || q_W <= 0.0 || luminance(s.L) <= 0.0) continue;
 
-						if (restir_data.visibility != 0) {
-							vec3 to_sample = s.kind == RESTIR_SKY ? s.x * SCENE_HIT_MAX_DISTANCE : s.x + s.n * 0.01 * restir_data.view_scale - origin;
-							float ray_length = length(to_sample);
-
-							if (!scene_hit_visible(origin, to_sample / ray_length, s.kind == RESTIR_SKY ? ray_length : max(ray_length - 0.03 * restir_data.view_scale, 0.0))) continue;
-						}
+						if (restir_data.visibility != 0 && !restir_sample_visible(origin, s)) continue;
 
 						float target_here = luminance(s.L) * s_cosine * M / k;
 						float target_there = q_M * luminance(s.L) * restir_receiver_cosine(s, q_P, q_N, q_dir, q_dist) / jacobian;
