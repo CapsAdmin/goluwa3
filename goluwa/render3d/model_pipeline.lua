@@ -2297,7 +2297,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				}
 
 				if (s.normal_weight > 0.001) {
-					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
+					vec3 layer_normal = normalize(s.normal);
+					float along = dot(layer_normal, N);
+					layer_normal = normalize(N * along + (layer_normal - N * along) * ]=] .. camera_block_name .. [=[.normal_map_strength);
+					s.normal = normalize(mix(N, layer_normal, s.normal_weight));
 				} else {
 					s.normal = N;
 				}
