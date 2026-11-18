@@ -50,8 +50,15 @@ scattering.LOOKUP_GLSL = [[
 		float v = (fr + 0.5) / float(SC_R);
 		float fs = clamp((mu_s - SC_MU_S_MIN) / (1.0 - SC_MU_S_MIN), 0.0, 1.0) * float(SC_S - 1);
 		float fade = smoothstep(SC_MU_S_MIN - 0.05, SC_MU_S_MIN, mu_s);
-		mean_radiance = textureLod(TEXTURE(table), vec2((fs + 0.5) / float(2 * SC_S), v), 0.0).rgb * fade;
-		irradiance = textureLod(TEXTURE(table), vec2((fs + float(SC_S) + 0.5) / float(2 * SC_S), v), 0.0).rgb * fade;
+		float is0 = min(floor(fs), float(SC_S - 2));
+		float ws = fs - is0;
+		const vec3 FLOOR = vec3(1e-9);
+		vec3 mean_0 = max(textureLod(TEXTURE(table), vec2((is0 + 0.5) / float(2 * SC_S), v), 0.0).rgb, FLOOR);
+		vec3 mean_1 = max(textureLod(TEXTURE(table), vec2((is0 + 1.5) / float(2 * SC_S), v), 0.0).rgb, FLOOR);
+		vec3 irradiance_0 = max(textureLod(TEXTURE(table), vec2((is0 + float(SC_S) + 0.5) / float(2 * SC_S), v), 0.0).rgb, FLOOR);
+		vec3 irradiance_1 = max(textureLod(TEXTURE(table), vec2((is0 + float(SC_S) + 1.5) / float(2 * SC_S), v), 0.0).rgb, FLOOR);
+		mean_radiance = exp(mix(log(mean_0), log(mean_1), ws)) * fade;
+		irradiance = exp(mix(log(irradiance_0), log(irradiance_1), ws)) * fade;
 	}
 
 	vec3 sc_lookup(int table, float r, float mu, float mu_s, float nu) {
