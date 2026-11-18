@@ -107,6 +107,11 @@ radiance.visibility = pvars.Setup2{
 	default = true,
 	help = "a neighbour's hit point is only taken after a ray from this pixel reaches it. off, light from behind nearby walls and corners leaks in and contact shadows fade",
 }
+radiance.temporal_search = pvars.Setup2{
+	key = "radiance_temporal_search",
+	default = true,
+	help = "when none of the 4 texels last frame's position falls between holds this pixel's surface (thin things like fences and leaves under the jitter, edges that moved), the reservoir and the denoiser take their history from the texel around them that does instead of giving it up",
+}
 radiance.validation = pvars.Setup2{
 	key = "radiance_validation",
 	default = false,

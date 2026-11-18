@@ -69,6 +69,7 @@ local function restir_uniform(trace, filter_iteration)
 		{"spatial_samples", "int"},
 		{"spatial_radius", "float"},
 		{"visibility", "int"},
+		{"temporal_search", "int"},
 		{"validation", "int"},
 		{"accumulation", "float"},
 		{"filter_enabled", "int"},
@@ -176,6 +177,7 @@ local function restir_uniform(trace, filter_iteration)
 			block.spatial_samples = radiance.spatial_samples:Get()
 			block.spatial_radius = radiance.spatial_radius:Get()
 			block.visibility = radiance.visibility:Get() and 1 or 0
+			block.temporal_search = radiance.temporal_search:Get() and 1 or 0
 			block.validation = radiance.validation:Get() and 1 or 0
 			block.accumulation = render3d.IsDenoisingBypassed() and 1 or radiance.accumulation:Get()
 			block.filter_enabled = radiance.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
@@ -429,12 +431,13 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	}
 
 	// the gi pixel's centre is reprojected, not the screen pixel it samples this frame, or a still view resamples its history bilinearly every frame and smears it
-	bool restir_history_taps(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, ivec2 size, out ivec2 base, out vec4 weights, out float prev_depth, out float tolerance, out float moved) {
+	bool restir_history_taps(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, ivec2 size, out ivec2 base, out vec4 weights, out float prev_depth, out float tolerance, out float moved, out vec2 position) {
 		weights = vec4(0.0);
 		base = ivec2(0);
 		prev_depth = 0.0;
 		tolerance = 0.0;
 		moved = 0.0;
+		position = vec2(-1.0);
 
 		if (restir_data.history_valid == 0) return false;
 
@@ -460,7 +463,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 		if (prev_depth <= 1e-5 || any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)))) return false;
 
-		vec2 position = prev_uv * vec2(size) - 0.5;
+		position = prev_uv * vec2(size) - 0.5;
 		moved = length(position - vec2(pos));
 		base = ivec2(floor(position));
 		vec2 f = position - vec2(base);
@@ -474,6 +477,31 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		}
 
 		return dot(weights, vec4(1.0)) > 0.0;
+	}
+
+	// a thin thing (a fence, a leaf) under the jitter: the 4 texels around last frame's position hold what is behind it half the time, the texel around them that holds this surface carries its history
+	bool restir_history_search(vec2 position, ivec2 size, vec3 N, float prev_depth, float tolerance, out ivec2 found) {
+		found = ivec2(-1);
+
+		if (restir_data.temporal_search == 0 || position.x <= -1.0) return false;
+
+		ivec2 nearest = ivec2(floor(position + 0.5));
+		float best = 1e30;
+
+		for (int i = 0; i < 9; i++) {
+			ivec2 q = nearest + ivec2(i % 3 - 1, i / 3 - 1);
+
+			if (!restir_history_matches(q, size, N, prev_depth, tolerance)) continue;
+
+			float error = abs(texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0).w - prev_depth);
+
+			if (error < best) {
+				best = error;
+				found = q;
+			}
+		}
+
+		return found.x >= 0;
 	}
 ]]
 -- the world cache lookup at off screen hits (light past the first bounce) runs for a whole thread group on one frame in 1/share and counts 1/share as much: a linear estimate, so no bias and nothing leaks, and coherent per group, so the warps that skip it skip its visibility rays
@@ -1069,8 +1097,12 @@ local function pass_temporal()
 					float tolerance;
 
 					float moved;
+					vec2 position;
 
-					if (restir_data.temporal != 0 && restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved)) {
+					bool history = restir_data.temporal != 0 && restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved, position);
+					ivec2 q = ivec2(0);
+
+					if (history) {
 						float pick = restir_random(pos, 2u) * dot(weights, vec4(1.0));
 						int tap = 3;
 
@@ -1085,13 +1117,17 @@ local function pass_temporal()
 
 						while (tap > 0 && weights[tap] <= 0.0) tap--;
 
-						ivec2 q = base + ivec2(tap & 1, tap >> 1);
+						q = base + ivec2(tap & 1, tap >> 1);
 						// permutation sampling: the frame swaps reservoirs with a neighbour, so a lucky sample does not sit in one spot for its whole history
 						ivec2 permuted = q ^ ivec2(int(frame) & 1, (int(frame) >> 1) & 1);
 
 						// only with a new sample to weigh against: alone, a neighbour's hit point beside a crease enters with its full reconnection jacobian and sits there as a dot
 						if (traces && restir_data.permutation != 0 && restir_history_matches(permuted, size, N, prev_depth, tolerance)) q = permuted;
+					} else if (restir_data.temporal != 0) {
+						history = restir_history_search(position, size, N, prev_depth, tolerance, q);
+					}
 
+					if (history) {
 						float h_W;
 						float h_M;
 						int h_flags;
@@ -1483,8 +1519,16 @@ local function pass_accumulate()
 				float tolerance;
 
 				float moved;
+				vec2 position;
 
-				if (restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved)) {
+				bool history_found = restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved, position);
+
+				if (!history_found && restir_history_search(position, size, N, prev_depth, tolerance, base)) {
+					weights = vec4(1.0, 0.0, 0.0, 0.0);
+					history_found = true;
+				}
+
+				if (history_found) {
 					float total = 0.0;
 
 					for (int i = 0; i < 4; i++) {
