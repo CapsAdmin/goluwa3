@@ -296,12 +296,22 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 			goto continue
 		end
 
-		local index_data, index_count, index_type
+		local source, index_count, index_type = nil, vertex_count, "uint32_t"
 
 		if primitive.indices then
-			index_data = primitive.indices.data
+			source = primitive.indices.data
 			index_count = primitive.indices.count
 			index_type = primitive.indices.component_type == "uint32_t" and "uint32_t" or "uint16_t"
+		end
+
+		local index_data = ffi.new(index_type .. "[?]", index_count)
+
+		for k = 0, index_count - 3, 3 do
+			if source then
+				index_data[k], index_data[k + 1], index_data[k + 2] = source[k], source[k + 2], source[k + 1]
+			else
+				index_data[k], index_data[k + 1], index_data[k + 2] = k, k + 2, k + 1
+			end
 		end
 
 		local poly = Polygon3D.New()
