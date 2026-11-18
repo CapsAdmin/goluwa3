@@ -18,12 +18,33 @@ render3d.bloom_strength = pvars.Setup2{
 	min = 0,
 	help = "scales the share of the light the glare takes",
 }
+render3d.bloom_threshold = pvars.Setup2{
+	key = "r_bloom_threshold",
+	default = 1,
+	min = 0,
+	help = "camera mode: only light brighter than this (exposed, 1 is display white) blooms, with a soft knee below it. 0 blooms everything. the eye has no threshold, it scatters everything",
+}
 render3d.eye_chromatic_halo = pvars.Setup2{
 	key = "r_eye_chromatic_halo",
 	default = true,
 	help = "in eye mode the glare depends on wavelength: the core spreads in proportion to it (diffraction) and the wide veil scatters more for blue (1/wavelength^4), which leaves a coloured fringe around white lights",
 }
 pvars.EndGroup()
+
+function render3d.GetBloomThreshold()
+	return exposure_model.IsEye() and 0 or render3d.bloom_threshold:Get()
+end
+
+render3d.bloom_threshold_glsl = [[
+	float bloom_threshold_weight(vec3 color, float exposure, float threshold) {
+		if (threshold <= 0.0) return 1.0;
+
+		float luma = luminance(color) * exposure;
+		float knee = 0.5 * threshold;
+		float soft = clamp(luma - threshold + knee, 0.0, 2.0 * knee);
+		return max(soft * soft / (4.0 * knee), luma - threshold) / max(luma, 1e-6);
+	}
+]]
 
 do
 	local weights = {{}, {}, {}}
@@ -85,6 +106,9 @@ local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 
 	#ifdef BLOOM_EFFECT_LAYER
 	layout(set = 0, binding = 3) uniform sampler2D layer_tex;
+	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
+	layout(set = 0, binding = 5) uniform sampler2D prev_exposure_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. render3d.bloom_threshold_glsl .. [[
 	#endif
 
 	vec3 bloom_sample(vec2 uv) {
@@ -175,6 +199,7 @@ local block = {
 	{"has_layer", "int"},
 	{"source_weight", "vec4"},
 	{"merge_weight", "vec4"},
+	{"threshold", "float"},
 }
 
 local function build_pass(name, scale, shader, sampled_images, write)
@@ -223,9 +248,22 @@ return function()
 								post_source.GetAntiAliasedSceneTexture()
 						end,
 					},
+					{
+						binding_index = 4,
+						get_texture = function()
+							return post_source.GetExposureTexture()
+						end,
+					},
+					{
+						binding_index = 5,
+						get_texture = function()
+							return post_source.GetExposureTexture(true)
+						end,
+					},
 				},
 				function(block)
 					block.has_layer = post_source.IsEffectLayerActive() and 1 or 0
+					block.threshold = post_source.GetExposureTexture() and render3d.GetBloomThreshold() or 0
 				end
 			)
 		else

@@ -170,6 +170,7 @@ local fields = {
 	{key = "camera.white_balance_tint", exposure = true},
 	{key = "r_tonemapper"},
 	{key = "r_bloom_strength"},
+	{key = "r_bloom_threshold"},
 }
 grade.fields = fields
 local field_keys = {}

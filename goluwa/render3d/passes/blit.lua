@@ -8,6 +8,7 @@ local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local grade = import("goluwa/render3d/grade.lua")
 local afterimage = import("goluwa/render3d/passes/afterimage.lua")
+import("goluwa/render3d/passes/bloom.lua")
 local assets = import("goluwa/assets.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local hdr_output = import("goluwa/render/hdr_output.lua")
@@ -515,6 +516,7 @@ glare_pass = {
 			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 			vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength.rgb * exposure;
 
+
 			if (compute.has_star != 0) glare += texture(star_tex, edge_clamp_uv(uv, textureSize(star_tex, 0))).rgb * exposure;
 
 			imageStore(out_glare, pos, vec4(glare, 1.0));
@@ -563,7 +565,7 @@ local compute_shader = [[
 		return mix(x * (mapped / m), vec3(mapped), compressed * compressed);
 	}
 
-	]] .. ROD_RESPONSE_GLSL .. [[
+	]] .. ROD_RESPONSE_GLSL .. render3d.bloom_threshold_glsl .. [[
 
 	]] .. exposure_model.GetCameraSettingsGLSL("compute") .. [[
 
@@ -642,7 +644,8 @@ local compute_shader = [[
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
 		if (compute.debug_passthrough == 0 && compute.has_bloom_tex != 0) {
-			col = max(col * (1.0 - compute.bloom_strength.rgb) + texelFetch(glare_tex, pos, 0).rgb * glare_keep / exposure, vec3(0.0));
+			vec3 bloomed = scene.rgb * bloom_threshold_weight(scene.rgb, exposure, compute.bloom_threshold);
+			col = max(col - compute.bloom_strength.rgb * bloomed + texelFetch(glare_tex, pos, 0).rgb * glare_keep / exposure, vec3(0.0));
 		}
 
 		if (compute.debug_passthrough == 0 && compute.has_afterimage != 0) col = apply_afterimage(col, texture_catmull_rom(afterimage_tex, uv).rgb, texture_catmull_rom(afterimage_bleach_tex, uv).rgb, texture_catmull_rom(afterimage_source_tex, uv), exposure, compute.afterimage_intensity);
@@ -868,6 +871,7 @@ for _, pass in ipairs{
 			{"has_exposure_tex", "int"},
 			{"tonemapper", "int"},
 			{"bloom_strength", "vec4"},
+			{"bloom_threshold", "float"},
 			{"night_vision", "float"},
 			{"night_vision_log10_threshold", "float"},
 			{"debug_passthrough", "int"},
@@ -906,6 +910,7 @@ for _, pass in ipairs{
 			block.dither_steps = dither:Get() and 2 ^ bits - 1 or 0
 			block.tonemapper = render3d.GetTonemapperIndex()
 			write_bloom_strength(block.bloom_strength)
+			block.bloom_threshold = render3d.GetBloomThreshold()
 			block.night_vision = exposure_model.IsEye() and exposure_model.Get("eye.night_vision") and 1 or 0
 			block.night_vision_log10_threshold = math.log(exposure_model.Get("eye.night_vision_threshold")) / math.log(10)
 			block.debug_passthrough = post_source.GetDebugTexture() and 1 or 0
