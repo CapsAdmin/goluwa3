@@ -129,6 +129,11 @@ radiance.specular_reuse = pvars.Setup2{
 	default = true,
 	help = "the reflection ray's hits are clamped against fireflies, and the light the clamp cuts off comes from the pixel's gi reservoir instead (its sample weighed by the specular lobe), which find small bright things (an emitter, a sunlit patch at low exposure) far more often than the ray. rough reflections of them keep their full brightness without the ray's speckle, and only that part follows a light change as slowly as the diffuse gi. off, the clamped light is dropped and those reflections read darker",
 }
+radiance.specular_tracking = pvars.Setup2{
+	key = "radiance_specular_tracking",
+	default = true,
+	help = "a smooth surface's reflection history is read where last frame showed the reflected point (its image behind the surface at the hit distance), not where the surface was, so glossy reflections keep their history while the camera moves. off, it follows the surface and is cut by how far the view turns",
+}
 radiance.validation = pvars.Setup2{
 	key = "radiance_validation",
 	default = false,

@@ -101,6 +101,10 @@ local function restir_uniform(trace, filter_iteration)
 		{"candidate_specular_tex", "int"},
 		{"specular_reuse", "int"},
 		{"accum_history_specular_tex", "int"},
+		{"accum_tracking_tex", "int"},
+		{"accum_history_tracking_tex", "int"},
+		{"candidate_hit_tex", "int"},
+		{"specular_tracking", "int"},
 		{"brdf_lut_tex", "int"},
 		{"specular_emitter_roughness", "float"},
 	}
@@ -217,6 +221,10 @@ local function restir_uniform(trace, filter_iteration)
 			block.candidate_specular_tex = self:GetTextureIndex(attachment("radiance_candidates", 1, 4))
 			block.specular_reuse = radiance.specular_reuse:Get() and 1 or 0
 			block.accum_history_specular_tex = self:GetTextureIndex(attachment("radiance_accumulate", previous, 4))
+			block.accum_tracking_tex = self:GetTextureIndex(attachment("radiance_accumulate", current, 5))
+			block.accum_history_tracking_tex = self:GetTextureIndex(attachment("radiance_accumulate", previous, 5))
+			block.candidate_hit_tex = self:GetTextureIndex(attachment("radiance_candidates", 1, 5))
+			block.specular_tracking = radiance.specular_tracking:Get() and 1 or 0
 			block.specular_emitter_roughness = radiance.specular_emitter_roughness:Get()
 			block.brdf_lut_tex = self:GetTextureIndex(
 				assert(
@@ -1555,19 +1563,74 @@ local function pass_accumulate()
 				"r32g32b32a32_sfloat",
 				{"restir_accumulated_specular", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
+			{"r32g32b32a32_sfloat", {"restir_specular_tracking", "r", 0.1}},
 		},
 		framebuffer_count = 2,
 		scale = radiance.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(4),
+		storage_images = storage_images(5),
 		uniform_buffers = {restir_uniform(false)},
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_moments;
 			layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_irradiance;
 			layout(set = 0, binding = 3, rgba32f) uniform writeonly image2D out_specular;
+			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_tracking;
 		]],
 		shader = SURFACE_GLSL .. [[
+			// last frame's screen position of the point a distance along -V from P, scaled so a point at any distance (the sky) keeps its precision
+			vec2 radiance_previous_image_uv(vec3 P, vec3 V, float distance_behind, out float w) {
+				mat4 to_clip = restir_data.prev_projection * restir_data.prev_view;
+				vec4 clip = (to_clip * vec4(P, 1.0)) / (1.0 + distance_behind) + (to_clip * vec4(-V, 0.0)) * (distance_behind / (1.0 + distance_behind));
+				w = clip.w;
+				return clip.xy / max(clip.w, 1e-9) * 0.5 + 0.5;
+			}
+
+			// how far, in pixels, the image at a hit distance moves on the screen between last frame and this one, relative to the surface
+			vec2 radiance_image_shift(vec3 P, vec3 V, float hit, ivec2 size) {
+				float w_surface;
+				float w_image;
+				return (radiance_previous_image_uv(P, V, hit, w_image) - radiance_previous_image_uv(P, V, 0.0, w_surface)) * vec2(size);
+			}
+
+			// the reflection seen in a smooth surface moves on the screen as the reflected point does, not as the surface: its image lies behind the surface along the view ray, by the hit distance for a mirror and by less as the lobe widens and leans toward the normal (the dominant direction factor, as nrd does), so a rough lobe's image slides back onto the surface. the history is read where last frame showed that image, on texels that hold this pixel's plane, which the line from last frame's camera to the image crosses
+			bool radiance_virtual_taps(vec3 P, vec3 N, vec3 V, float hit, float dominance, vec2 position, ivec2 size, float tolerance, out ivec2 base, out vec4 weights) {
+				base = ivec2(0);
+				weights = vec4(0.0);
+
+				if (position.x <= -1.0 || !(hit > 0.0)) return false;
+
+				float w_surface;
+				float w_image;
+				vec2 delta = radiance_previous_image_uv(P, V, hit * dominance, w_image) - radiance_previous_image_uv(P, V, 0.0, w_surface);
+
+				if (w_image <= 1e-9 || w_surface <= 1e-5) return false;
+
+				vec2 virtual_position = position + delta * vec2(size);
+				vec3 previous_camera = -(transpose(mat3(restir_data.prev_view)) * restir_data.prev_view[3].xyz);
+				// the line from last frame's camera toward the image, as a direction for an image too far to place
+				float behind = hit * dominance;
+				vec3 ray = (P - previous_camera) / (1.0 + behind) - V * (behind / (1.0 + behind));
+				float facing = dot(ray, N);
+
+				if (abs(facing) < 1e-6) return false;
+
+				vec3 Q = previous_camera + ray * (dot(P - previous_camera, N) / facing);
+				float expected_depth = -(restir_data.prev_view * vec4(Q, 1.0)).z;
+
+				if (expected_depth <= 1e-5) return false;
+
+				base = ivec2(floor(virtual_position));
+				vec2 f = virtual_position - vec2(base);
+
+				for (int i = 0; i < 4; i++) {
+					if (!restir_history_matches(base + ivec2(i & 1, i >> 1), size, N, expected_depth, tolerance)) continue;
+
+					weights[i] = ((i & 1) == 1 ? f.x : 1.0 - f.x) * ((i >> 1) == 1 ? f.y : 1.0 - f.y) + 1e-4;
+				}
+
+				return dot(weights, vec4(1.0)) > 0.0;
+			}
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -1586,6 +1649,7 @@ local function pass_accumulate()
 					imageStore(out_moments, pos, vec4(0.0));
 					imageStore(out_irradiance, pos, vec4(0.0));
 					imageStore(out_specular, pos, vec4(0.0));
+					imageStore(out_tracking, pos, vec4(0.0));
 					return;
 				}
 
@@ -1595,6 +1659,7 @@ local function pass_accumulate()
 				vec4 history_moments = vec4(0.0);
 				vec3 history_irradiance = vec3(0.0);
 				vec4 history_specular = vec4(0.0);
+				vec4 history_tracking = vec4(0.0);
 				ivec2 base;
 				vec4 weights;
 
@@ -1622,12 +1687,14 @@ local function pass_accumulate()
 						vec4 moments = texelFetch(TEXTURE(restir_data.accum_history_moments_tex), q, 0);
 						vec3 plain = texelFetch(TEXTURE(restir_data.accum_history_irradiance_tex), q, 0).rgb;
 						vec4 specular = texelFetch(TEXTURE(restir_data.accum_history_specular_tex), q, 0);
+						vec4 tracking = texelFetch(TEXTURE(restir_data.accum_history_tracking_tex), q, 0);
 
-						if (any(isnan(value)) || any(isnan(moments)) || any(isnan(plain)) || any(isnan(specular))) continue;
+						if (any(isnan(value)) || any(isnan(moments)) || any(isnan(plain)) || any(isnan(specular)) || any(isnan(tracking))) continue;
 
 						history += value * weights[i];
 						history_irradiance += plain * weights[i];
 						history_specular += specular * weights[i];
+						history_tracking += tracking * weights[i];
 						history_moments += moments * weights[i];
 						total += weights[i];
 					}
@@ -1637,6 +1704,7 @@ local function pass_accumulate()
 						history_moments /= total;
 						history_irradiance /= total;
 						history_specular /= total;
+						history_tracking /= total;
 					}
 				}
 
@@ -1660,12 +1728,79 @@ local function pass_accumulate()
 				float view_turn = acos(clamp(dot(normalize(restir_data.camera_position - P), normalize(previous_camera - P)), -1.0, 1.0));
 				float lobe_width = max(gbuffer_roughness(gpos), 0.001);
 				float specular_length = min(min(history_moments.w, view_turn > 0.0 ? 0.5 * lobe_width / view_turn : history_length) + 1.0, history_length);
+				bool traced = (int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5) & RESTIR_FLAG_TRACED) != 0;
+				// the reflection is tracked by the inverse distance from the camera to its image (the camera to the surface plus the hit), which the image's motion on the screen is proportional to: averaged, a ray that escapes to the sky counts as far away only for its share, where an average of distances would put every image it touches at infinity. this frame's ray on a smooth surface, where it is exact, the accumulated one as the lobe widens and a single ray wanders over it (nrd's curve, already most of the way at perceptual roughness 0.1)
+				float wander = (1.0 - exp2(-200.0 * lobe_width)) * pow(sqrt(lobe_width), 0.25);
+				float surface_distance = distance(restir_data.camera_position, P);
+				// weighed by the light each ray brought: what is seen of a glossy reflection is its bright part (a lamp, a window), and a broad lobe also finds the dark things right beside the surface, whose nearness would make the image trail
+				float raw_inverse = traced ? 1.0 / (surface_distance + max(texelFetch(TEXTURE(restir_data.candidate_hit_tex), pos, 0).r, 0.0)) : 0.0;
+				vec4 ray_specular = texelFetch(TEXTURE(restir_data.candidate_specular_tex), pos, 0);
+				float raw_weight = traced ? luminance(ray_specular.rgb) + 1e-6 : 0.0;
+				float history_inverse = history_tracking.y > 0.0 ? history_tracking.x / history_tracking.y : 0.0;
+				float history_inverse_spread = history_tracking.y > 0.0 ? sqrt(max(history_tracking.z / history_tracking.y - history_inverse * history_inverse, 0.0)) : 0.0;
+				float inverse = history_found && history_inverse > 0.0 ? (raw_inverse > 0.0 ? mix(raw_inverse, history_inverse, wander) : history_inverse) : raw_inverse;
+				float hit = inverse > 0.0 ? max(1.0 / inverse - surface_distance, 0.0) : 0.0;
+				// how far behind the surface the reflection's image lies, as a share of the hit distance: the dominant direction factor of the lobe, all of a mirror's, none of a fully rough one's
+				float dominance = (1.0 - lobe_width) * (sqrt(1.0 - lobe_width) + lobe_width);
+				vec3 V_view = normalize(restir_data.camera_position - P);
+				ivec2 virtual_base;
+				vec4 virtual_weights;
+
+				if (restir_data.specular_tracking != 0 && history_found && radiance_virtual_taps(P, N, V_view, hit, dominance, position, size, tolerance, virtual_base, virtual_weights)) {
+					vec4 virtual_specular = vec4(0.0);
+					vec4 virtual_tracking = vec4(0.0);
+					float virtual_length = 0.0;
+					float total = 0.0;
+
+					for (int i = 0; i < 4; i++) {
+						if (virtual_weights[i] <= 0.0) continue;
+
+						ivec2 q = virtual_base + ivec2(i & 1, i >> 1);
+						vec4 specular = texelFetch(TEXTURE(restir_data.accum_history_specular_tex), q, 0);
+						vec4 tracking = texelFetch(TEXTURE(restir_data.accum_history_tracking_tex), q, 0);
+						float tracked_length = texelFetch(TEXTURE(restir_data.accum_history_moments_tex), q, 0).w;
+
+						if (any(isnan(specular)) || any(isnan(tracking)) || isnan(tracked_length)) continue;
+
+						virtual_specular += specular * virtual_weights[i];
+						virtual_tracking += tracking * virtual_weights[i];
+						virtual_length += tracked_length * virtual_weights[i];
+						total += virtual_weights[i];
+					}
+
+					if (total > 0.0) {
+						virtual_specular /= total;
+						virtual_tracking /= total;
+						virtual_length /= total;
+						// a tracking distance that disagrees with the one found there last frame puts the image elsewhere: the history counts for less the more they differ, but only where one ray is the reflection (a mirror). on a glossy surface the rays scatter over the lobe and their distances always disagree, its history would never grow
+						float virtual_inverse = virtual_tracking.y > 0.0 ? virtual_tracking.x / virtual_tracking.y : inverse;
+						float confidence = mix(1.0 - clamp(20.0 * abs(inverse - virtual_inverse) / max(max(inverse, virtual_inverse), 1e-12), 0.0, 1.0), 1.0, smoothstep(0.0, 0.5, wander));
+						// the image history replaces the surface's outright: a share of the surface's, misplaced by the reflection's motion every frame, builds up over a long history into a smear
+						history_specular = virtual_specular;
+						history_tracking = virtual_tracking;
+						specular_length = min(mix(1.0, virtual_length, confidence) + 1.0, history_length);
+						// a broad lobe sees near and far things at once (a box beside the surface, a lamp across the room), and their images move apart on the screen however the history is moved: it keeps only as many frames as they take to drift apart by half the lobe's own footprint on the screen. a mirror sees one thing and keeps all of its history
+						float near_inverse = history_inverse + history_inverse_spread;
+						float far_inverse = max(history_inverse - history_inverse_spread, 1e-9);
+						float drift = length(radiance_image_shift(P, V_view, dominance * max(1.0 / near_inverse - surface_distance, 0.0), size) - radiance_image_shift(P, V_view, dominance * max(1.0 / far_inverse - surface_distance, 0.0), size));
+						float footprint = hit * lobe_width / max(surface_distance + hit, 1e-6) / (2.0 * abs(restir_data.inv_projection[1][1]) / float(size.y));
+
+						if (drift > 1e-3) specular_length = min(specular_length, max(0.5 * footprint / drift, 1.0) + 1.0);
+					}
+				}
+
 				imageStore(out_color, pos, mix(history, current, alpha));
 				imageStore(out_moments, pos, vec4(history_length, moments, specular_length));
+				vec3 tracking = history_tracking.xyz;
+				vec3 raw_tracking = vec3(raw_inverse * raw_weight, raw_weight, raw_inverse * raw_inverse * raw_weight);
+
+				if (raw_inverse > 0.0) tracking = history_tracking.y > 0.0 ? mix(history_tracking.xyz, raw_tracking, max(1.0 / specular_length, 0.1)) : raw_tracking;
+
+				imageStore(out_tracking, pos, vec4(tracking, history_tracking.w));
 				imageStore(out_irradiance, pos, vec4(mix(history_irradiance, texelFetch(TEXTURE(restir_data.raw_tex), pos, 0).rgb, alpha), 1.0));
 				vec4 accumulated_specular = history_specular;
 
-				if ((int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5) & RESTIR_FLAG_TRACED) != 0) {
+				if (traced) {
 					vec3 specular_mean = vec3(0.0);
 					vec3 specular_squared = vec3(0.0);
 
