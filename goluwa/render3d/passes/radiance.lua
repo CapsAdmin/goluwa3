@@ -1604,7 +1604,7 @@ local function pass_filter(iteration)
 			layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D out_geometry;
 			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_specular;
 		]],
-		shader = SURFACE_GLSL .. [[
+		shader = SURFACE_GLSL .. post_source.GetPreExposureGLSL("restir_data") .. [[
 			#define RESTIR_FILTER_FIRST ]] .. (
 				iteration == 0 and
 				"1" or
@@ -1616,6 +1616,16 @@ local function pass_filter(iteration)
 				"1" or
 				"0"
 			) .. [[
+
+			vec4 restir_filter_specular(ivec2 q) {
+				vec4 specular = texelFetch(TEXTURE(restir_data.filter_specular_source_tex), q, 0);
+
+				#if RESTIR_FILTER_FIRST
+				specular.rgb *= get_pre_exposure();
+				#endif
+
+				return specular;
+			}
 
 			float restir_filter_deviation(ivec2 q, vec4 value) {
 				#if RESTIR_FILTER_FIRST
@@ -1651,7 +1661,7 @@ local function pass_filter(iteration)
 				}
 
 				vec4 center = texelFetch(TEXTURE(restir_data.filter_source_tex), pos, 0);
-				vec4 specular = texelFetch(TEXTURE(restir_data.filter_specular_source_tex), pos, 0);
+				vec4 specular = restir_filter_specular(pos);
 				// a smooth surface keeps its reflection sharp: the specular is only averaged out as far as its lobe is wide
 				float specular_reach = 9.0 * smoothstep(0.04, 0.6, sqrt(gbuffer_roughness(gpos)));
 												float specular_gate = clamp(specular_reach - float(restir_data.filter_step) + 1.0, 0.0, 1.0);
@@ -1689,7 +1699,7 @@ local function pass_filter(iteration)
 								if (!restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth)) continue;
 
 								value = texelFetch(TEXTURE(restir_data.filter_source_tex), q, 0);
-								q_specular = texelFetch(TEXTURE(restir_data.filter_specular_source_tex), q, 0);
+								q_specular = restir_filter_specular(q);
 
 								if (any(isnan(value)) || any(isnan(q_specular))) continue;
 

@@ -5,9 +5,17 @@ local test_scene = import("goluwa/render3d/test_scene.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local PASSES = {
+local FORWARD_PASSES = {
 	"goluwa/render3d/light_grid.lua",
 	"goluwa/render3d/passes/gbuffer.lua",
+	"goluwa/render3d/passes/lighting.lua",
+	"goluwa/render3d/passes/blit.lua",
+}
+local RADIANCE_PASSES = {
+	"goluwa/render3d/light_grid.lua",
+	"goluwa/render3d/passes/gbuffer.lua",
+	"goluwa/render3d/passes/radiance_cache.lua",
+	"goluwa/render3d/passes/radiance.lua",
 	"goluwa/render3d/passes/lighting.lua",
 	"goluwa/render3d/passes/blit.lua",
 }
@@ -17,13 +25,13 @@ local function luminance(texture, x, y)
 	return r * 0.2126 + g * 0.7152 + b * 0.0722
 end
 
-local function disc_stats(draw, pitch)
+local function disc_stats(draw, pitch, frames)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(20))
 	camera:SetPosition(Vec3(0, 3, 0))
 	camera:SetAngles{x = math.rad(pitch), y = 0, z = 0}
 
-	for _ = 1, 12 do
+	for _ = 1, frames do
 		draw()
 	end
 
@@ -48,10 +56,10 @@ local function disc_stats(draw, pitch)
 	return peak, area
 end
 
-T.Test3D("Graphics render3d a perfect mirror reflects the sun disc at full strength and its size", function(draw)
+local function check_mirror(draw, pass_paths, frames)
 	local passes = {}
 
-	for i, path in ipairs(PASSES) do
+	for i, path in ipairs(pass_paths) do
 		local module = import(path)
 		passes[i] = module.pass or module
 	end
@@ -59,25 +67,23 @@ T.Test3D("Graphics render3d a perfect mirror reflects the sun disc at full stren
 	render3d.Initialize{passes = passes}
 	local elevation = 25
 	test_scene.Reset{sun = {elevation = elevation, azimuth = 0}}
-	local mirror = shapes.Polygon{
-		Name = "mirror",
-		Position = Vec3(0, 0, 0),
-		Polygon = function(poly)
-			shapes.BuildPlane(poly, Vec3(0, 0, 0), Vec3(0, 1, 0), 4000, 4000)
-		end,
-		Material = {
-			Color = Color(1, 1, 1, 1),
-			MetallicMultiplier = 1,
-			RoughnessMultiplier = 0,
-			DoubleSided = true,
-		},
-		Collision = false,
-		RigidBody = false,
+	test_scene.Box{
+		name = "mirror",
+		pos = Vec3(0, -0.1, 0),
+		size = Vec3(4000, 0.2, 4000),
+		material = shapes.Material{Color = Color(1, 1, 1, 1), Roughness = 0, Metallic = 1},
 	}
-	test_scene.GetRoot():AddChild(mirror)
-	local sky_peak, sky_area = disc_stats(draw, elevation)
-	local mirror_peak, mirror_area = disc_stats(draw, -elevation)
+	local sky_peak, sky_area = disc_stats(draw, elevation, frames)
+	local mirror_peak, mirror_area = disc_stats(draw, -elevation, frames)
 	test_scene.Reset()
 	T(mirror_peak > sky_peak * 0.1)["=="](true)
 	T(mirror_area < sky_area * 3)["=="](true)
+end
+
+T.Test3D("Graphics render3d a perfect mirror reflects the sun disc at full strength and its size", function(draw)
+	check_mirror(draw, FORWARD_PASSES, 12)
+end)
+
+T.Test3DRayTracing("Graphics render3d a perfect mirror traced by the radiance pass reflects the sun disc at full strength and its size", function(draw)
+	check_mirror(draw, RADIANCE_PASSES, 60)
 end)
