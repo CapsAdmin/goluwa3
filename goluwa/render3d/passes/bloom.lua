@@ -212,7 +212,7 @@ return function()
 					{
 						binding_index = 1,
 						get_texture = function()
-							return post_source.GetRawSceneSourceTexture()
+							return post_source.GetAntiAliasedSceneTexture()
 						end,
 					},
 					{
@@ -220,7 +220,7 @@ return function()
 						get_texture = function()
 							return post_source.IsEffectLayerActive() and
 								post_source.GetEffectLayerTexture() or
-								post_source.GetRawSceneSourceTexture()
+								post_source.GetAntiAliasedSceneTexture()
 						end,
 					},
 				},
