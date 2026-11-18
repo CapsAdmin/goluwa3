@@ -135,7 +135,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					fade_distance = surface_type.project_axis == 2 and 128 or 2048,
-					specular = material:GetSpecularMultiplier(),
+					specular = 0,
 					scatter = 0,
 					roughness = 1,
 					medium = material.cry_medium_density or 0,
