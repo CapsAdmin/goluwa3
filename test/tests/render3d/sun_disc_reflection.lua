@@ -87,3 +87,44 @@ end)
 T.Test3DRayTracing("Graphics render3d a perfect mirror traced by the radiance pass reflects the sun disc at full strength and its size", function(draw)
 	check_mirror(draw, RADIANCE_PASSES, 60)
 end)
+
+T.Test3DRayTracing("Graphics render3d a rough floor traced by the radiance pass shows no speckle of the sun disc", function(draw)
+	local passes = {}
+
+	for i, path in ipairs(RADIANCE_PASSES) do
+		local module = import(path)
+		passes[i] = module.pass or module
+	end
+
+	render3d.Initialize{passes = passes}
+	local elevation = 25
+	test_scene.Reset{sun = {elevation = elevation, azimuth = 0}}
+	test_scene.Box{
+		name = "floor",
+		pos = Vec3(0, -0.1, 0),
+		size = Vec3(4000, 0.2, 4000),
+		material = shapes.Material{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.3, Metallic = 0},
+	}
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(40))
+	camera:SetPosition(Vec3(0, 3, 0))
+	camera:SetAngles{x = math.rad(-elevation), y = 0, z = 0}
+
+	for _ = 1, 90 do
+		draw()
+	end
+
+	local scene = post_source.GetRawSceneSourceTexture():Download()
+	local values = {}
+
+	for y = math.floor(scene.height * 0.55), math.floor(scene.height * 0.95), 2 do
+		for x = 0, scene.width - 1, 2 do
+			values[#values + 1] = luminance(scene, x, y)
+		end
+	end
+
+	table.sort(values)
+	local median, peak = values[math.floor(#values / 2)], values[#values]
+	test_scene.Reset()
+	T(peak < median * 20)["=="](true)
+end)

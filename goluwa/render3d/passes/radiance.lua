@@ -868,7 +868,7 @@ local function pass_candidates()
 								vec3 L = hit ? shade_scene_hit(ray_origin, ray_dir, reflected ? specular.environment_roughness : 1.0, t, instance, primitive, barycentrics) : vec3(0.0);
 
 								if (reflected) {
-									specular_L = hit ? L : sample_environment_specular(restir_data.env_tex, ray_dir, specular.N, specular.environment_roughness);
+									specular_L = hit ? L : sample_environment_specular_lod(restir_data.env_tex, ray_dir, specular.N, specular.environment_roughness, specular.roughness > REFLECTION_MIRROR_THRESHOLD ? 1.0 : 0.0);
 									specular_t = hit ? t : SCENE_HIT_MAX_DISTANCE;
 								} else {
 									diffuse_L = L;

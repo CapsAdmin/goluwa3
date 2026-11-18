@@ -205,13 +205,17 @@ function ibl.GetEnvironmentGLSLCode()
 				return normalize(mix(normal, reflection_dir, lerp_factor));
 			}
 
-			vec3 sample_environment_specular(int env_tex, vec3 reflection_dir, vec3 normal, float perceptual_roughness) {
+			vec3 sample_environment_specular_lod(int env_tex, vec3 reflection_dir, vec3 normal, float perceptual_roughness, float min_lod) {
 				if (env_tex == -1) return vec3(0.0);
 				float max_mip = get_environment_max_mip(env_tex);
 				vec3 sample_dir = correct_environment_lookup_dir(get_specular_dominant_direction(reflection_dir, normal, perceptual_roughness));
 				float horizon = saturate(1.0 + dot(reflection_dir, normal));
-				vec4 stored = textureLod(TEXTURE(env_tex), dir_to_equirect_uv(sample_dir), perceptual_roughness * max_mip);
+				vec4 stored = textureLod(TEXTURE(env_tex), dir_to_equirect_uv(sample_dir), max(perceptual_roughness * max_mip, min_lod));
 				return stored.rgb * stored.a * horizon * horizon;
+			}
+
+			vec3 sample_environment_specular(int env_tex, vec3 reflection_dir, vec3 normal, float perceptual_roughness) {
+				return sample_environment_specular_lod(env_tex, reflection_dir, normal, perceptual_roughness, 0.0);
 			}
 
 			vec3 sample_environment_irradiance(int irradiance_tex, vec3 normal) {
