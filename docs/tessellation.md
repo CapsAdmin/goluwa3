@@ -26,6 +26,7 @@ A material with a height map and `HeightTessellate` (or every height mapped mate
 - With `VK_NV_cluster_acceleration_structure` (`r_tessellation_rt`), tessellated models within `r_tessellation_rt_distance` of the camera are traced with their relief. Each frame `tessellation_rt_select` gives every base triangle distance based edge rates (`r_tessellation_rt_pixels`, at most 8 per edge, so a patch is one cluster of at most 64 triangles and 45 vertices), `tessellation_rt_vertices` evaluates the lattice with the same `tess_evaluate` the raster vertex stage uses and writes core and extras vertices and global indices, one cluster acceleration structure per patch is built against a static index template per rate, and one BLAS per model from its patches. Budgets are fixed (32768 patches a frame); models that do not fit keep their base mesh.
 - Cluster ids of tessellated patches have the top bit set; `scene_hit_row` routes those hits to mesh row 0 (`meshes.TESSELLATION_ROW`), which describes the per frame vertex and index buffers.
 - Shadow maps still draw the base mesh.
+- The ray traced build (`tessellation.BuildRT`, from `instances.Build`) runs before the raster draw in a frame, so it refreshes the shared batch table itself: a job list that grew since the last draw would otherwise read batch records past the end (null vertex and extras addresses, device lost while terrain tiles stream in).
 
 ## Pitfalls
 
