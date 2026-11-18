@@ -118,6 +118,12 @@ radiance.disocclusion_samples = pvars.Setup2{
 	integer = true,
 	help = "neighbouring reservoirs a pixel without a history (just disoccluded, or moving fast) resamples instead of radiance_spatial_samples. such a pixel has only its own fresh sample and the denoiser has nothing to average yet",
 }
+radiance.spatial_retries = pvars.Setup2{
+	key = "radiance_spatial_retries",
+	default = 3,
+	integer = true,
+	help = "times a spatial neighbour that lies on another surface or has no reservoir is drawn again, each time from half the radius. in foliage and beside thin geometry most neighbours are otherwise wasted",
+}
 radiance.validation = pvars.Setup2{
 	key = "radiance_validation",
 	default = false,

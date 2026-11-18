@@ -71,6 +71,7 @@ local function restir_uniform(trace, filter_iteration)
 		{"visibility", "int"},
 		{"temporal_search", "int"},
 		{"disocclusion_samples", "int"},
+		{"spatial_retries", "int"},
 		{"validation", "int"},
 		{"accumulation", "float"},
 		{"filter_enabled", "int"},
@@ -180,6 +181,7 @@ local function restir_uniform(trace, filter_iteration)
 			block.visibility = radiance.visibility:Get() and 1 or 0
 			block.temporal_search = radiance.temporal_search:Get() and 1 or 0
 			block.disocclusion_samples = radiance.disocclusion_samples:Get()
+			block.spatial_retries = radiance.spatial_retries:Get()
 			block.validation = radiance.validation:Get() and 1 or 0
 			block.accumulation = render3d.IsDenoisingBypassed() and 1 or radiance.accumulation:Get()
 			block.filter_enabled = radiance.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
@@ -1343,10 +1345,6 @@ local function pass_spatial()
 					vec3 effective_neighbours = vec3(0.0);
 
 					for (int i = 0; i < count; i++) {
-						float angle = turn + float(i) * 2.39996323;
-						float radius = sqrt((float(i) + restir_random(pos, 64u + uint(i))) / k) * restir_data.spatial_radius;
-						ivec2 q = pos + ivec2(round(vec2(cos(angle), sin(angle)) * radius));
-
 						ivec2 q_gpos;
 						vec3 q_P;
 						vec3 q_N;
@@ -1356,9 +1354,23 @@ local function pass_spatial()
 						float q_M = 0.0;
 						int q_flags;
 						restir_sample s;
+						ivec2 q = pos;
 
-						if (q != pos && all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, size)) && restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth) && dot(N, q_N) >= 0.9 && abs(dot(N, q_P - P)) <= plane_tolerance) {
-							s = restir_resolve(restir_load(restir_data.reservoir_a_tex, restir_data.reservoir_b_tex, restir_data.reservoir_c_tex, q, q_W, q_M, q_flags));
+						// a neighbour on another surface or without a reservoir is a wasted sample (foliage, thin geometry): it is drawn again, closer. the choice depends only on the geometry, not on the samples, so the weights hold
+						for (int attempt = 0; attempt <= restir_data.spatial_retries && q_M <= 0.0; attempt++) {
+							float angle = turn + float(i) * 2.39996323;
+							float radius = sqrt((float(i) + restir_random(pos, 64u + uint(i))) / k) * restir_data.spatial_radius;
+
+							if (attempt > 0) {
+								angle = restir_random(pos, 128u + uint(i * 4 + attempt)) * 6.28318530718;
+								radius = sqrt(restir_random(pos, 192u + uint(i * 4 + attempt))) * restir_data.spatial_radius / float(1 << attempt);
+							}
+
+							q = pos + ivec2(round(vec2(cos(angle), sin(angle)) * radius));
+
+							if (q != pos && all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, size)) && restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth) && dot(N, q_N) >= 0.9 && abs(dot(N, q_P - P)) <= plane_tolerance) {
+								s = restir_resolve(restir_load(restir_data.reservoir_a_tex, restir_data.reservoir_b_tex, restir_data.reservoir_c_tex, q, q_W, q_M, q_flags));
+							}
 						}
 
 						if (q_M <= 0.0) {
