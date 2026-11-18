@@ -180,6 +180,7 @@ function terrain.Translate(level_data)
 			} or
 			nil,
 		layers = has_layers and get_or_create_cry_terrain_layers(terrain) or nil,
+		layer_blend = "passes",
 	}
 end
 

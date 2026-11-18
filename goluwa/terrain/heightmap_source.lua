@@ -26,6 +26,7 @@ local NEAREST = {
 -- height: {width, height, samples = uint16 array of width * height} (a height map)
 -- color: a Texture, the color map, covering the map
 -- indices: {width, height, samples = uint8 array}, the layer id at every height sample, 0 is none (optional)
+-- layer_blend: "passes" draws the layers like CryEngine's terrain passes, each over the ones with a lower id with the square root of its weight as alpha (optional, a plain weighted blend)
 -- layers: {[id] = {albedo, normal, height, height_scale, scale, detail, additive_detail, specular,
 --   scatter, roughness, medium}}, the detail layers by id (medium: the density of the terrain medium (`media.TERRAIN_MEDIUM`) the layer is made of, 0 is none, see features/medium.lua)
 -- Returns a terrain source, source.Data is the data.
@@ -126,24 +127,65 @@ function HeightmapSource.New(data)
 				return 0;
 			}
 
+			int slot_layer(int slot) {
+				switch (slot) {
+					case 0: return terrain_bake.layer0;
+					case 1: return terrain_bake.layer1;
+					case 2: return terrain_bake.layer2;
+					case 3: return terrain_bake.layer3;
+					case 4: return terrain_bake.layer4;
+					case 5: return terrain_bake.layer5;
+					case 6: return terrain_bake.layer6;
+					case 7: return terrain_bake.layer7;
+				}
+
+				return -1;
+			}
+
 			vec4 map_slot_weights(vec2 world, int first_slot) {
 				ivec2 size = textureSize(TEXTURE(terrain_bake.texture2), 0);
 				vec2 p = map_uv_clamped(world) * vec2(size);
 				ivec2 base = ivec2(floor(p));
 				vec2 f = p - vec2(base);
-				vec4 weights = vec4(0.0);
+				float weights[8] = float[8](0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
 				for (int i = 0; i < 4; i++) {
 					ivec2 offset = ivec2(i & 1, i >> 1);
 					ivec2 cell = clamp(base + offset, ivec2(0), size - 1);
 					int id = int(texelFetch(TEXTURE(terrain_bake.texture2), cell, 0).r * 255.0 + 0.5);
-					float weight = (offset.x == 1 ? f.x : 1.0 - f.x) * (offset.y == 1 ? f.y : 1.0 - f.y);
-					int slot = map_slot(id) - first_slot;
+					weights[map_slot(id)] += (offset.x == 1 ? f.x : 1.0 - f.x) * (offset.y == 1 ? f.y : 1.0 - f.y);
+				}
+]] .. (
+				data.layer_blend == "passes" and
+				[[
 
-					if (slot >= 0 && slot < 4) weights[slot] += weight;
+				float alphas[8];
+
+				for (int slot = 0; slot < 8; slot++) {
+					alphas[slot] = sqrt(weights[slot]);
 				}
 
-				return weights;
+				float total = 0.0;
+
+				for (int slot = 0; slot < 8; slot++) {
+					float covered = 1.0;
+
+					for (int other = 0; other < 8; other++) {
+						if (slot_layer(other) > slot_layer(slot)) covered *= 1.0 - alphas[other];
+					}
+
+					weights[slot] = alphas[slot] * covered;
+					total += weights[slot];
+				}
+
+				for (int slot = 0; slot < 8; slot++) {
+					weights[slot] /= max(total, 0.0001);
+				}
+]] or
+				""
+			) .. [[
+
+				return vec4(weights[first_slot], weights[first_slot + 1], weights[first_slot + 2], weights[first_slot + 3]);
 			}
 
 			vec4 terrain_splat(vec2 world, float h, vec3 n) {
