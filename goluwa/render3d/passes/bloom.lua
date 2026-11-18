@@ -24,6 +24,12 @@ render3d.bloom_threshold = pvars.Setup2{
 	min = 0,
 	help = "camera mode: only light brighter than this (exposed, 1 is display white) blooms, with a soft knee below it. 0 blooms everything. the eye has no threshold, it scatters everything",
 }
+render3d.bloom_floor = pvars.Setup2{
+	key = "r_bloom_floor",
+	default = 0.3,
+	min = 0,
+	help = "camera mode: glow dimmer than this (exposed, 1 is display white) is cut after the blur, so dark areas next to a bright one stay clean. a soft floor, 0 is off. the eye has no floor",
+}
 render3d.eye_chromatic_halo = pvars.Setup2{
 	key = "r_eye_chromatic_halo",
 	default = true,
@@ -33,6 +39,10 @@ pvars.EndGroup()
 
 function render3d.GetBloomThreshold()
 	return exposure_model.IsEye() and 0 or render3d.bloom_threshold:Get()
+end
+
+function render3d.GetBloomFloor()
+	return exposure_model.IsEye() and 0 or render3d.bloom_floor:Get()
 end
 
 render3d.bloom_threshold_glsl = [[

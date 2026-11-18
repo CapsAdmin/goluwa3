@@ -171,6 +171,7 @@ local fields = {
 	{key = "r_tonemapper"},
 	{key = "r_bloom_strength"},
 	{key = "r_bloom_threshold"},
+	{key = "r_bloom_floor"},
 }
 grade.fields = fields
 local field_keys = {}

@@ -492,9 +492,11 @@ glare_pass = {
 	block = {
 		{"bloom_strength", "vec4"},
 		{"has_star", "int"},
+		{"floor", "float"},
 	},
 	write = function(self, block)
 		write_bloom_strength(block.bloom_strength)
+		block.floor = render3d.GetBloomFloor()
 		block.has_star = get_star_texture() and 1 or 0
 		return block
 	end,
@@ -516,6 +518,7 @@ glare_pass = {
 			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 			vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength.rgb * exposure;
 
+			if (compute.floor > 0.0) glare *= glare / (glare + compute.floor);
 
 			if (compute.has_star != 0) glare += texture(star_tex, edge_clamp_uv(uv, textureSize(star_tex, 0))).rgb * exposure;
 
