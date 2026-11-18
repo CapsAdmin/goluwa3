@@ -177,10 +177,7 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call)
 				}
 			}
 
-			float raster_end = min(@@BLOCK@@.shadows.terrain_shadow_params.z, @@BLOCK@@.shadows.cascade_splits[cascade_count - 1]);
-			float terrain_weight = smoothstep(raster_end * 0.8, raster_end, dist);
-
-			if (terrain_weight > 0.0) shadow = min(shadow, mix(1.0, get_terrain_shadow(world_pos), terrain_weight));
+			shadow = min(shadow, get_terrain_shadow(world_pos));
 
 			return shadow;
 ]==]
