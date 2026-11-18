@@ -40,7 +40,7 @@ local enabled = pvars.Setup2{
 }
 local tessellate_all = pvars.Setup2{
 	key = "r_tessellation_all",
-	default = false,
+	default = true,
 	callback = invalidate_scene,
 	help = "tessellate every height mapped material, not only the ones marked HeightTessellate",
 }
@@ -1765,7 +1765,9 @@ function tessellation.BuildRT(cmd)
 
 	for i, job in ipairs(state.job_rows) do
 		local instance = data[job.id]
-		local dx, dy, dz = instance.center_x - camera.x, instance.center_y - camera.y, instance.center_z - camera.z
+		local dx, dy, dz = instance.center_x - camera.x,
+		instance.center_y - camera.y,
+		instance.center_z - camera.z
 
 		if
 			math.sqrt(dx * dx + dy * dy + dz * dz) - instance.radius <= max_distance and
@@ -1822,7 +1824,13 @@ function tessellation.BuildRT(cmd)
 	upload(cmd, rt.args, args, RT_ARG_COUNT * 8)
 	upload(cmd, rt.slot_buffer, rt.slots_cpu, state.job_count * 4)
 	upload(cmd, rt.infos_buffer, rt.infos_cpu, rt_jobs * 16)
-	upload(cmd, rt.infos_buffer, rt.infos_cpu + rt.job_capacity * 4, 4, rt.job_capacity * 16)
+	upload(
+		cmd,
+		rt.infos_buffer,
+		rt.infos_cpu + rt.job_capacity * 4,
+		4,
+		rt.job_capacity * 16
+	)
 	upload(cmd, rt.job_of_buffer, rt.job_of_cpu, rt.instance_capacity * 4)
 	cmd:FillBuffer(rt.counters, 0, RT_COUNTER_BYTES, 0)
 	cmd:PipelineBarrier{srcStage = "transfer", dstStage = "transfer", memoryBarrier = true}
