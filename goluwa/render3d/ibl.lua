@@ -210,12 +210,14 @@ function ibl.GetEnvironmentGLSLCode()
 				float max_mip = get_environment_max_mip(env_tex);
 				vec3 sample_dir = correct_environment_lookup_dir(get_specular_dominant_direction(reflection_dir, normal, perceptual_roughness));
 				float horizon = saturate(1.0 + dot(reflection_dir, normal));
-				return textureLod(TEXTURE(env_tex), dir_to_equirect_uv(sample_dir), perceptual_roughness * max_mip).rgb * horizon * horizon;
+				vec4 stored = textureLod(TEXTURE(env_tex), dir_to_equirect_uv(sample_dir), perceptual_roughness * max_mip);
+				return stored.rgb * stored.a * horizon * horizon;
 			}
 
 			vec3 sample_environment_irradiance(int irradiance_tex, vec3 normal) {
 				if (irradiance_tex == -1) return vec3(0.0);
-				return texture(TEXTURE(irradiance_tex), dir_to_equirect_uv(correct_environment_lookup_dir(normal))).rgb;
+				vec4 stored = texture(TEXTURE(irradiance_tex), dir_to_equirect_uv(correct_environment_lookup_dir(normal)));
+				return stored.rgb * stored.a;
 			}
 		]]
 end

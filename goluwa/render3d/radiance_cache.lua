@@ -932,11 +932,12 @@ function radiance_cache.GetCommonGLSL()
 		vec3 radiance_cache_sky(vec3 dir) {
 			if (radiance_cache_data.radiance_cache_env_tex < 0) return vec3(0.0);
 
-			return textureLod(
+			vec4 stored = textureLod(
 				TEXTURE(radiance_cache_data.radiance_cache_env_tex),
 				dir_to_equirect_uv(correct_environment_lookup_dir(dir)),
 				1.0
-			).rgb * radiance_cache_data.radiance_cache_sky_intensity;
+			);
+			return stored.rgb * stored.a * radiance_cache_data.radiance_cache_sky_intensity;
 		}
 
 		vec3 radiance_cache_fog_ambient() {

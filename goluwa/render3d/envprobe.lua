@@ -697,6 +697,28 @@ function envprobe.CreatePipelines()
 		envprobe.capture_bundles = nil
 	end
 
+	local function get_probe_scale(probe)
+		local sky = atmosphere.sky
+
+		if probe ~= envprobe.environment_probe or not sky then return 1 end
+
+		local peak = atmosphere.GetSunIlluminance() * atmosphere.GetTransmittance(sky.sun_direction):GetLuminance() / (
+				math.pi * atmosphere.SUN_ANGULAR_RADIUS ^ 2
+			)
+		return 2 ^ math.ceil(math.log(math.max(peak / 30000, 1), 2))
+	end
+
+	local function write_sky_constants(self, block)
+		local sun = get_primary_sun(render3d.GetLights())
+		local sun_direction = directional_shadows.GetPrimarySunDirection(render3d.GetLights())
+		sun_direction:CopyToFloatPointer(block.sun_direction)
+		block.sun_direction[3] = 0
+		block.sun_illuminance = sun and sun:GetPhotometricAmount() or atmosphere.GetSunIlluminance()
+		envprobe.camera:GetPosition():CopyToFloatPointer(block.camera_position)
+		atmosphere.WriteBlock(self, block, envprobe.camera:GetPosition(), sun_direction)
+		return block
+	end
+
 	envprobe.sky_pipeline = EasyPipeline.New{
 		name = "envprobe_sky",
 		ConstantPlacement = {
@@ -723,16 +745,7 @@ function envprobe.CreatePipelines()
 						{"sun_illuminance", "float"},
 						unpack(atmosphere.GetBlockLayout()),
 					},
-					write = function(self, block)
-						local sun = get_primary_sun(render3d.GetLights())
-						local sun_direction = directional_shadows.GetPrimarySunDirection(render3d.GetLights())
-						sun_direction:CopyToFloatPointer(block.sun_direction)
-						block.sun_direction[3] = 0
-						block.sun_illuminance = sun and sun:GetPhotometricAmount() or atmosphere.GetSunIlluminance()
-						envprobe.camera:GetPosition():CopyToFloatPointer(block.camera_position)
-						atmosphere.WriteBlock(self, block, envprobe.camera:GetPosition(), sun_direction)
-						return block
-					end,
+					write = write_sky_constants,
 				},
 			},
 			custom_declarations = [[
@@ -961,31 +974,45 @@ function envprobe.CreatePipelines()
 		},
 	}
 	envprobe.prefilter_pipeline = EasyPipeline.New{
+		ConstantPlacement = {
+			mode = "auto",
+			fallback = "uniform_buffer",
+		},
 		ColorFormat = {{envprobe.FORMAT, {"color", "rgba"}}},
 		RasterizationSamples = "1",
 		CullMode = "none",
 		DepthTest = false,
 		DepthWrite = false,
 		fragment = {
-			push_constants = {
+			constants = {
 				{
 					name = "fragment",
+					storage = "auto",
+					prefer = "push",
 					block = {
 						{"roughness", "float"},
 						{"input_texture_index", "int"},
 						{"resolution", "float"},
+						{"add_sun_disc", "int"},
+						{"probe_scale", "float"},
+						{"sun_direction", "vec4"},
+						{"camera_position", "vec4"},
+						{"sun_illuminance", "float"},
+						unpack(atmosphere.GetBlockLayout()),
 					},
 					write = function(self, block)
 						local probe = envprobe.current_prefilter_probe
 						block.roughness = envprobe.current_roughness or 0
 						block.input_texture_index = self:GetCubeMapTextureIndex(probe.source_cubemap)
 						block.resolution = probe.size
-						return block
+						block.add_sun_disc = probe == envprobe.environment_probe and 1 or 0
+						block.probe_scale = get_probe_scale(probe)
+						return write_sky_constants(self, block)
 					end,
 				},
 			},
 			custom_declarations = [[
-			]] .. glsl_common.GetEquirectGLSL() .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. glsl_common.GetEquirectGLSL() .. ibl.GetBRDFGLSLCode() .. atmosphere.GetGLSLDefines("fragment", "fragment.sun_illuminance") .. atmosphere.GetGLSLCode() .. [[
 			]],
 			shader = [[
 
@@ -1001,7 +1028,25 @@ function envprobe.CreatePipelines()
 
 					if (roughness < 0.001) {
 						prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
-						set_color(vec4(prefilteredColor, 1.0));
+
+						if (fragment.add_sun_disc != 0) {
+							vec2 du = dFdx(in_uv);
+							vec2 dv = dFdy(in_uv);
+							vec3 sun_disc = vec3(0.0);
+							vec3 moon_disc = vec3(0.0);
+
+							for (int y = 0; y < 4; y++) {
+								for (int x = 0; x < 4; x++) {
+									vec3 disc_dir = equirect_uv_to_dir(in_uv + du * ((float(x) + 0.5) / 4.0 - 0.5) + dv * ((float(y) + 0.5) / 4.0 - 0.5));
+									sun_disc += get_sun_disc(disc_dir, fragment.camera_position.xyz);
+									moon_disc += get_moon_disc(disc_dir, fragment.camera_position.xyz);
+								}
+							}
+
+							prefilteredColor += (sun_disc + moon_disc) / 16.0;
+						}
+
+						set_color(vec4(min(prefilteredColor / fragment.probe_scale, vec3(65504.0)), fragment.probe_scale));
 						return;
 					}
 
@@ -1038,8 +1083,8 @@ function envprobe.CreatePipelines()
 						prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
 					}
 
-					prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));
-					set_color(vec4(prefilteredColor, 1.0));
+					prefilteredColor = clamp(prefilteredColor / fragment.probe_scale, vec3(0.0), vec3(65504.0));
+					set_color(vec4(prefilteredColor, fragment.probe_scale));
 				}
 			]],
 		},
@@ -1057,11 +1102,13 @@ function envprobe.CreatePipelines()
 					block = {
 						{"input_texture_index", "int"},
 						{"source_lod", "float"},
+						{"probe_scale", "float"},
 					},
 					write = function(self, block)
 						local probe = envprobe.current_prefilter_probe
 						block.input_texture_index = self:GetCubeMapTextureIndex(probe.source_cubemap)
 						block.source_lod = math.max(math.log(probe.size / envprobe.IRRADIANCE_SOURCE_SIZE) / math.log(2), 0)
+						block.probe_scale = get_probe_scale(probe)
 						return block
 					end,
 				},
@@ -1103,7 +1150,7 @@ function envprobe.CreatePipelines()
 						}
 					}
 
-					set_color(vec4(irradiance / 3.14159265359, 1.0));
+					set_color(vec4(irradiance / (3.14159265359 * fragment.probe_scale), fragment.probe_scale));
 				}
 			]],
 		},

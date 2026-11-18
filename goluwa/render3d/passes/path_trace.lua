@@ -371,7 +371,10 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 			vec3 pt_sky(vec3 dir) {
 				if (lighting_data.env_tex == -1) return vec3(0.0);
 
-				return textureLod(TEXTURE(lighting_data.env_tex), dir_to_equirect_uv(correct_environment_lookup_dir(dir)), 0.0).rgb;
+				// mip 0 holds the sun disc, which pt_sun_hit adds
+				float lod = dot(dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9998 ? 1.0 : 0.0;
+				vec4 stored = textureLod(TEXTURE(lighting_data.env_tex), dir_to_equirect_uv(correct_environment_lookup_dir(dir)), lod);
+				return stored.rgb * stored.a;
 			}
 
 			vec3 pt_sun_hit(vec3 dir, vec3 P, float bsdf_pdf, bool bent, bool primary) {

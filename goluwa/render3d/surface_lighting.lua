@@ -608,7 +608,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				if (type == 0) {
 					lobe_alpha = saturate(s.roughness_alpha + SUN_ANGULAR_RADIUS * 0.5);
 					lobe_energy = s.roughness_alpha / lobe_alpha;
-					lobe_energy *= lobe_energy;
+					lobe_energy *= lobe_energy * smoothstep(SUN_ANGULAR_RADIUS * 0.65, SUN_ANGULAR_RADIUS * 2.6, s.roughness_alpha);
 				}
 
 				float glow_widening = 0.0;
