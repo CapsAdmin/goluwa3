@@ -284,10 +284,33 @@ function gltf.Load(path)
 
 	if gltf_data.images then
 		for i, image_info in ipairs(gltf_data.images) do
+			local image_path = image_info.uri and (base_dir .. image_info.uri) or nil
+
+			if not image_path then
+				local view = gltf_data.bufferViews[image_info.bufferView + 1]
+				image_path = string.format(
+					"storage/cache/glb_%s_%d_%d%s",
+					(path:match("([^/]+)$") or "model"):gsub("[^%w]", "_"),
+					i - 1,
+					view.byteLength,
+					image_info.mimeType == "image/png" and ".png" or ".jpg"
+				)
+
+				if not fs.exists(image_path) then
+					assert(fs.create_directory_recursive("storage/cache/"))
+					assert(
+						fs.write_file(
+							image_path,
+							ffi.string(buffers[view.buffer + 1] + (view.byteOffset or 0), view.byteLength)
+						)
+					)
+				end
+			end
+
 			result.images[i] = {
 				uri = image_info.uri,
 				mime_type = image_info.mimeType,
-				path = image_info.uri and (base_dir .. image_info.uri) or nil,
+				path = image_path,
 				buffer_view = image_info.bufferView,
 			}
 		end

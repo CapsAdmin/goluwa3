@@ -8,7 +8,6 @@ local gltf = import("goluwa/codecs/gltf.lua")
 local animation_bank = import("goluwa/render3d/animation_bank.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
-local fs = import("goluwa/filesystem/fs.lua")
 local gltf_decoder = {}
 local CLIP_FPS = 30
 
@@ -59,28 +58,7 @@ function gltf_decoder.BuildVertices(primitive)
 end
 
 local function extract_texture(data, texture_index)
-	local source = data.textures[texture_index + 1].source
-	local image = data.images[source + 1]
-
-	if image.path then return image.path end
-
-	local view = data.raw.bufferViews[image.buffer_view + 1]
-	local extension = image.mime_type == "image/png" and ".png" or ".jpg"
-	local path = string.format(
-		"storage/cache/glb_%s_%d_%d%s",
-		(data.path:match("([^/]+)$") or "model"):gsub("[^%w]", "_"),
-		source,
-		view.byteLength,
-		extension
-	)
-
-	if not fs.exists(path) then
-		assert(fs.create_directory_recursive("storage/cache/"))
-		local buffer = data.buffers[view.buffer + 1]
-		assert(fs.write_file(path, ffi.string(buffer + (view.byteOffset or 0), view.byteLength)))
-	end
-
-	return path
+	return data.images[data.textures[texture_index + 1].source + 1].path
 end
 
 local function node_matrix(node)
