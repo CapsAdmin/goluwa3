@@ -630,6 +630,17 @@ function mtl_material.FromCryMTL(path, sub_material)
 	end
 
 	apply_cry_material_node(self, material_node, path)
+
+	if
+		RENDER_3D and
+		not is_terrain_layer_shader(material_node.attrs and material_node.attrs.Shader)
+	then
+		self.bake_name = cache_key
+		self.bake_generation = 1
+		self.bake_estimators = {roughness = true}
+		import("goluwa/render3d/material_bake.lua").Request(self)
+	end
+
 	Material.RecordCacheRequest("crymtl", cache_key, self)
 	return self
 end

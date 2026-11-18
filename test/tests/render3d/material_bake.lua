@@ -172,7 +172,7 @@ T.Test3D("material_bake names the cache entry after the material and shares it b
 	local function key_of(vmt_path)
 		local material = Material.New{}
 		material:SetAlbedoTexture(Texture.New{path = "textures/a.vtf", srgb = true, defer = true})
-		material.vmt_path = vmt_path
+		material.bake_name = vmt_path
 		return material_bake.GetKey(material)
 	end
 

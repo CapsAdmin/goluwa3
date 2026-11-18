@@ -21,6 +21,12 @@ local crypto = import("goluwa/crypto.lua")
 local objects = import("goluwa/objects/objects.lua")
 local material_bake = {}
 material_bake.estimators = {albedo = true, roughness = true, normal = true}
+
+-- a loader can give a material its own set (material.bake_estimators), the estimators are tuned for Source content
+function material_bake.GetEstimators(material)
+	return material.bake_estimators or material_bake.estimators
+end
+
 material_bake.estimator_params = {
 	flatten = 0.35,
 	local_contrast = 0.4,
@@ -74,6 +80,7 @@ local function get_quad()
 end
 
 local render_tileable = false
+local render_estimators = material_bake.estimators
 local render_normal_estimate = true
 local render_texel = 1 / 256
 
@@ -104,14 +111,14 @@ local function get_uniform_buffers()
 				block.terrain_only = 0
 				block.normal_map_strength = 1
 				block.noise_phase = 0
-				block.estimate_albedo = material_bake.estimators.albedo and 1 or 0
+				block.estimate_albedo = render_estimators.albedo and 1 or 0
 				block.estimate_tileable = render_tileable and 1 or 0
-				block.estimate_roughness = material_bake.estimators.roughness and 1 or 0
+				block.estimate_roughness = render_estimators.roughness and 1 or 0
 				block.estimate_texel = render_texel
 				block.estimate_flatten = material_bake.estimator_params.flatten
 				block.estimate_local_contrast = material_bake.estimator_params.local_contrast
 				block.estimate_saturation = material_bake.estimator_params.saturation
-				block.estimate_normal = (material_bake.estimators.normal and render_normal_estimate) and 1 or 0
+				block.estimate_normal = (render_estimators.normal and render_normal_estimate) and 1 or 0
 				block.estimate_normal_noise = material_bake.estimator_params.normal_noise
 				block.estimate_normal_strength = material_bake.estimator_params.normal
 				return block
@@ -346,7 +353,8 @@ function material_bake.Render(material, width, height, skip_normal_estimate)
 	}
 	local previous_material = render3d.GetMaterial()
 	local previous_world = render3d.GetWorldMatrix()
-	render_tileable = not tostring(material.vmt_path):find("^materials/models/")
+	render_tileable = not tostring(material.bake_name):find("^materials/models/")
+	render_estimators = material_bake.GetEstimators(material)
 	render_texel = 1 / width
 	render_normal_estimate = not skip_normal_estimate
 	local micro_detail = material:GetMicroDetailTexture()
@@ -380,7 +388,7 @@ end
 -- Emissive (bc7 srgb, the color before EmissiveMultiplier) is added when the material emits.
 -- Texture transforms are not part of the bake, they stay on the material.
 function material_bake.WantsNormalEstimate(material)
-	return material_bake.estimators.normal and
+	return material_bake.GetEstimators(material).normal and
 		not material:GetNormalTexture()
 		and
 		not (
@@ -428,7 +436,8 @@ function material_bake.Bake(material, width, height)
 		layer2:SetAlbedo2Texture(nil)
 		layer2:SetNormal2Texture(nil)
 		layer2:SetBlendTexture(nil)
-		layer2.vmt_path = material.vmt_path
+		layer2.bake_name = material.bake_name
+		layer2.bake_estimators = material.bake_estimators
 		local width2, height2 = 4, 4
 
 		for _, texture in ipairs{material:GetAlbedo2Texture(), material:GetNormal2Texture() or false} do
@@ -667,9 +676,20 @@ function material_bake.GetKey(material)
 		end
 	end
 
+	if material.bake_estimators then
+		local enabled = {}
+
+		for name, on in pairs(material.bake_estimators) do
+			if on then enabled[#enabled + 1] = name end
+		end
+
+		table.sort(enabled)
+		parts[#parts + 1] = "estimators=" .. table.concat(enabled, ",")
+	end
+
 	table.sort(parts)
 	local hash = to_hex(crypto.SHA1(table.concat(parts, "\n")))
-	local name = material.vmt_path:gsub("^materials/maps/[^/]+/", ""):gsub("^materials/", ""):gsub("%.vmt$", ""):gsub("_%-?%d+_%-?%d+_%-?%d+$", ""):gsub("[^%w]+", "_"):sub(1, 80)
+	local name = material.bake_name:gsub("^materials/maps/[^/]+/", ""):gsub("^materials/", ""):gsub("%.vmt$", ""):gsub("_%-?%d+_%-?%d+_%-?%d+$", ""):gsub("[^%w]+", "_"):sub(1, 80)
 	return name .. "_" .. hash
 end
 
@@ -750,7 +770,7 @@ local function build_meta(material, key, width, height)
 			estimated_normal = material_bake.WantsNormalEstimate(material),
 			emits = material_bake.Emits(material),
 			slots = slots_of(material),
-			estimators = table.copy(material_bake.estimators),
+			estimators = table.copy(material_bake.GetEstimators(material)),
 			estimator_params = table.copy(material_bake.estimator_params),
 		},
 	}
@@ -794,7 +814,7 @@ local function apply_cached(material, generation, key)
 
 		stats.processed = stats.processed + 1
 
-		if material.baked or material.vmt_generation ~= generation then return end
+		if material.baked or material.bake_generation ~= generation then return end
 
 		stats.cached = stats.cached + 1
 		material.bake_key = key
@@ -814,7 +834,7 @@ end
 local function process(material, generation, key)
 	stats.processed = stats.processed + 1
 
-	if material.baked or material.vmt_generation ~= generation then return end
+	if material.baked or material.bake_generation ~= generation then return end
 
 	if has_cache(material, key) then
 		stats.processed = stats.processed - 1
@@ -829,7 +849,7 @@ local function process(material, generation, key)
 		if texture then
 			assert(
 				texture:IsReady(),
-				"baking " .. tostring(material.vmt_path) .. " but " .. getter .. " is not loaded: " .. tostring(texture.config.path)
+				"baking " .. tostring(material.bake_name) .. " but " .. getter .. " is not loaded: " .. tostring(texture.config.path)
 			)
 
 			if texture:IsFallback() then
@@ -915,7 +935,7 @@ function material_bake.Request(material)
 	if not material_bake.enabled:Get() then return end
 
 	material_bake.PruneCache()
-	local generation = material.vmt_generation
+	local generation = material.bake_generation
 
 	if material.baked or queued[material] == generation then
 		material_bake.LoadDeferred(material)

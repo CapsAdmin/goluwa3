@@ -1808,6 +1808,8 @@ end
 function vmt_material.Apply(material, vmt)
 	material:ResetToDefaults()
 	material.vmt_generation = (material.vmt_generation or 0) + 1
+	material.bake_generation = material.vmt_generation
+	material.bake_name = material.vmt_path
 	material.vmt_surfaceprop = nil
 	material.has_uv_transform = nil
 	material.proxy_frame = nil
