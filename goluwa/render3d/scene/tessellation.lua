@@ -1121,6 +1121,12 @@ end
 
 local batch_table
 
+local function update_batches(pipeline)
+	batch_table = batch_table or gbuffer_instancing.NewBatchTable("tessellation_batches")
+	state.batches_address = batch_table:Update(pipeline, state.batches, state.batch_serial, system.GetFrameNumber())
+	return state.batches_address
+end
+
 function tessellation.PreDraw(cmd)
 	state.ready = false
 
@@ -1180,9 +1186,7 @@ end
 function tessellation.Draw(pipeline, cmd)
 	if not state.ready or not render3d.IsPipelineReady(pipeline) then return end
 
-	batch_table = batch_table or gbuffer_instancing.NewBatchTable("tessellation_batches")
-	local batches_address = batch_table:Update(pipeline, state.batches, state.batch_serial, system.GetFrameNumber())
-	state.batches_address = batches_address
+	local batches_address = update_batches(pipeline)
 	local terrain = render3d.GetPipelineVariant(
 		tessellation.name,
 		draw.GetVariant(
@@ -1730,16 +1734,21 @@ function tessellation.BuildRT(cmd)
 		not enabled:Get()
 		or
 		not render.GetDevice().cluster_acceleration_structure_supported or
-		next(rows) == nil or
-		not state.batches_address
+		next(rows) == nil
 	then
 		return
 	end
+
+	local pipeline = get_pipeline()
+
+	if not pipeline then return end
 
 	build_jobs()
 
 	if state.job_count == 0 then return end
 
+	-- the raster draw comes later in the frame, until then its batch table may still list the previous jobs
+	update_batches(pipeline)
 	local tlas_table, data_table = instances.GetTables()
 	ensure_rt_buffers()
 	ensure_rt_jobs(state.job_count, tlas_table.capacity)
