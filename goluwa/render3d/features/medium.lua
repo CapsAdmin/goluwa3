@@ -101,7 +101,13 @@ return {
 		s.medium_transmission = 0.0;
 
 		if (s.medium_slot > 0.0 && s.transmission > 0.0) {
-			s.medium_extinction = get_medium_slot_extinction(int(s.medium_slot + 0.5)).rgb;
+			int medium_slot = int(s.medium_slot + 0.5);
+			vec4 slot_extinction = get_medium_slot_extinction(medium_slot);
+			vec4 slot_scattering = get_medium_slot_scattering(medium_slot);
+			s.medium_extinction = slot_extinction.rgb;
+			s.medium_density = slot_extinction.a;
+			s.medium_scattering = slot_scattering.rgb;
+			s.medium_g = slot_scattering.a;
 			s.medium_porosity = 1.0;
 			s.medium_back = 0.0;
 			s.medium_body = 0.0;
