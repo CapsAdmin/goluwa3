@@ -2119,7 +2119,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 
 				float far_a = far.x > 0.0 ? smoothstep(far.y * 0.5, far.y, distance_to_camera) : 0.0;
 				float far_b = far.z > 0.0 ? smoothstep(far.w * 0.5, far.w, distance_to_camera) : 0.0;
-				float fade = fade_distance > 0.0 ? smoothstep(fade_distance * 0.5, fade_distance, distance_to_camera) : 0.0;
+				float fade = fade_distance > 0.0 ? 1.0 - sqrt(max(1.0 - pow(min(distance_to_camera / fade_distance, 1.0), 4.0), 0.0)) : 0.0;
 				vec4 albedo = vec4(0.0);
 				vec3 n = vec3(0.0);
 				anti_tiling *= 1.0 - smoothstep(100.0, 200.0, distance_to_camera);
@@ -2156,7 +2156,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 					if (detail_strength > 0.0) {
 						if (additive_detail > 0.0) {
 							vec3 base_gamma = pow(base, vec3(1.0 / 2.2));
-							albedo.rgb = pow(max(base_gamma + (albedo.rgb - 0.5) * detail_strength, vec3(0.0)), vec3(2.2)) * additive_detail;
+							vec3 detail = albedo.rgb - texture_average(albedo_tex).rgb * fade - 0.5 * (1.0 - fade);
+							albedo.rgb = pow(max(base_gamma + detail * detail_strength, vec3(0.0)), vec3(2.2)) * mix(additive_detail, 1.0, fade);
 						} else {
 							vec3 average = texture_average(albedo_tex).rgb;
 							albedo.rgb = base * mix(vec3(1.0), albedo.rgb / max(average, vec3(0.01)), detail_strength);
