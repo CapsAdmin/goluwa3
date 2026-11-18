@@ -358,10 +358,13 @@ function material_bake.Render(material, width, height, skip_normal_estimate)
 	render_texel = 1 / width
 	render_normal_estimate = not skip_normal_estimate
 	local micro_detail = material:GetMicroDetailTexture()
+	local ground_color = material:GetGroundColorTexture()
 	local emissive_multiplier = material:GetEmissiveMultiplier()
 	local specular_multiplier = material:GetSpecularMultiplier()
 	material:SetSpecularMultiplier(1)
 	material:SetMicroDetailTexture(nil)
+	-- the ground color is sampled at the world position, which the uv space draw does not have
+	material:SetGroundColorTexture(nil)
 	material:SetEmissiveMultiplier(Color(1, 1, 1, 1))
 	render3d.SetMaterial(material)
 	render3d.SetWorldMatrix(identity)
@@ -374,6 +377,7 @@ function material_bake.Render(material, width, height, skip_normal_estimate)
 	render3d.SetMaterial(previous_material)
 	render3d.SetWorldMatrix(previous_world)
 	material:SetMicroDetailTexture(micro_detail)
+	material:SetGroundColorTexture(ground_color)
 	material:SetEmissiveMultiplier(emissive_multiplier)
 	material:SetSpecularMultiplier(specular_multiplier)
 

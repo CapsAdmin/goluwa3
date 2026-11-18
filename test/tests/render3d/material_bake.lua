@@ -168,6 +168,24 @@ T.Test3D("material_bake skips materials whose texture is the missing texture fal
 	end, true):IsFallback())["=="](false)
 end)
 
+T.Test3D("material_bake renders without the ground color and leaves it on the material", function()
+	local material = Material.New{}
+	material:SetAlbedoTexture(make_texture(function(x, y)
+		return x * 4, y * 3 + 20, 90, 255
+	end, true))
+	local before = material_bake.Render(material, SIZE, SIZE)
+	local ground = make_texture(function()
+		return 255, 0, 0, 255
+	end, true)
+	material:SetGroundColorTexture(ground)
+	material:SetGroundColorBlend(1)
+	local after = material_bake.Render(material, SIZE, SIZE)
+	T(material:GetGroundColorTexture() == ground)["=="](true)
+	T(
+		compare(before:GetAttachment(1):Download(), after:GetAttachment(1):Download(), {0, 1, 2})
+	)["=="](0)
+end)
+
 T.Test3D("material_bake names the cache entry after the material and shares it between map patches", function()
 	local function key_of(vmt_path)
 		local material = Material.New{}

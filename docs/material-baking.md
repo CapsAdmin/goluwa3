@@ -27,7 +27,7 @@ Material file: every bake writes `material.mat` (`material_file.lua`) next to it
 
 Saving a scene with its materials is in [scene-export.md](scene-export.md).
 
-Loaders: the vmt loader and the cry material loader call `Request`; a material carries `bake_name` (cache name), `bake_generation` (a reload bumps it so a stale bake is dropped) and optionally `bake_estimators`, its own set (`GetEstimators`, added to the key only when set). The cry loader asks for roughness only, since its albedos are not lightmap modulated and nearly all have normal maps; the roughness estimator only raises roughness, and most cry materials already sit near 1.
+Loaders: the vmt loader and the cry material loader call `Request`; a material carries `bake_name` (cache name), `bake_generation` (a reload bumps it so a stale bake is dropped) and optionally `bake_estimators`, its own set (`GetEstimators`, added to the key only when set). The cry loader asks for roughness only, since its albedos are not lightmap modulated and nearly all have normal maps; the roughness estimator only raises roughness, and most cry materials already sit near 1. The ground color (`GroundColorTexture`) is cleared for the draw like micro detail, it is sampled at a world position the uv space draw does not have, and a loader may set it after `Request`.
 
 Not done: the vmt loader still sets the properties the bake then drops, height is not baked (it is an input texture, not a derived value), and the baked set has not been compared against the gbuffer output for a real mesh, only through the bake pass itself.
 
