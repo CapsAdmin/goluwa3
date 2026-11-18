@@ -52,8 +52,8 @@ local orange = mat(Color(0.9, 0.4, 0.05, 1), 0.9)
 local cyan = mat(Color(0.05, 0.6, 0.65, 1), 0.9)
 box(
 	"ground",
-	Vec3(80, -1, -30),
-	Vec3(300, 2, 160),
+	Vec3(80, -1, -55),
+	Vec3(300, 2, 210),
 	mat(Color(0.9, 0.9, 0.9, 1), 1, 1)
 )
 
@@ -1075,8 +1075,18 @@ do
 	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
 	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), red)
 	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
-	box(name .. "_front_left", Vec3(cx - w / 4 - 0.75, h / 2, cz + d / 2), Vec3(w / 2 - 1.5, h, t), white)
-	box(name .. "_front_right", Vec3(cx + w / 4 + 0.75, h / 2, cz + d / 2), Vec3(w / 2 - 1.5, h, t), white)
+	box(
+		name .. "_front_left",
+		Vec3(cx - w / 4 - 0.75, h / 2, cz + d / 2),
+		Vec3(w / 2 - 1.5, h, t),
+		white
+	)
+	box(
+		name .. "_front_right",
+		Vec3(cx + w / 4 + 0.75, h / 2, cz + d / 2),
+		Vec3(w / 2 - 1.5, h, t),
+		white
+	)
 	box(name .. "_front_top", Vec3(cx, h - 0.75, cz + d / 2), Vec3(3, 1.5, t), white)
 	box(
 		name .. "_lamp",
@@ -1084,7 +1094,12 @@ do
 		Vec3(0.1, 0.3, d - 3),
 		emissive_mat(Color(0.7, 0.85, 1, 1), 12)
 	)
-	sphere(name .. "_ball", Vec3(cx + 2, 1, cz - 1), 0.8, mat(Color(0.9, 0.9, 0.9, 1), 0.3, 1))
+	sphere(
+		name .. "_ball",
+		Vec3(cx + 2, 1, cz - 1),
+		0.8,
+		mat(Color(0.9, 0.9, 0.9, 1), 0.3, 1)
+	)
 	box(name .. "_block", Vec3(cx - 2.5, 0.9, cz - 2), Vec3(1.2, 1.6, 1.2), blue)
 end
 
@@ -1133,7 +1148,12 @@ do
 	local cx, cz, w, h, d, t = 80, -140, 12, 4, 10, 0.4
 	local name = "bars_room"
 	room(name, cx, cz, w, h, d, white)
-	box(name .. "_backdrop", Vec3(cx, h / 2, cz - d / 2 + t / 2 + 0.02), Vec3(w - 1, h - 0.6, 0.02), yellow)
+	box(
+		name .. "_backdrop",
+		Vec3(cx, h / 2, cz - d / 2 + t / 2 + 0.02),
+		Vec3(w - 1, h - 0.6, 0.02),
+		yellow
+	)
 
 	for i = 0, 23 do
 		box(
@@ -1156,6 +1176,68 @@ do
 	end
 
 	point_light(name .. "_light", Vec3(cx, h - 0.5, cz - 3.5), neutral, 2000, 12)
+end
+
+do
+	local cx, cz, w, h, d, t = 120, -140, 12, 4, 12, 0.3
+	local door_w, door_h = 1.6, 2.4
+	local side = (w - door_w) / 2
+	local name = "glossy_room"
+	box(
+		name .. "_floor",
+		Vec3(cx, 0.05, cz),
+		Vec3(w, 0.1, d),
+		mat(Color(0.95, 0.95, 0.95, 1), 0.25, 1)
+	)
+	box(name .. "_roof", Vec3(cx, h + t / 2, cz), Vec3(w, t, d), white)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), red)
+	box(name .. "_right_low", Vec3(cx + w / 2, 0.75, cz), Vec3(t, 1.5, d), white)
+	box(name .. "_right_high", Vec3(cx + w / 2, 3.5, cz), Vec3(t, 1, d), white)
+	box(name .. "_right_a", Vec3(cx + w / 2, 2.25, cz - 3.5), Vec3(t, 1.5, 5), white)
+	box(name .. "_right_b", Vec3(cx + w / 2, 2.25, cz + 3.5), Vec3(t, 1.5, 5), white)
+	box(
+		name .. "_front_left",
+		Vec3(cx - w / 2 + side / 2, h / 2, cz + d / 2),
+		Vec3(side, h, t),
+		white
+	)
+	box(
+		name .. "_front_right",
+		Vec3(cx + w / 2 - side / 2, h / 2, cz + d / 2),
+		Vec3(side, h, t),
+		white
+	)
+	box(
+		name .. "_front_top",
+		Vec3(cx, (h + door_h) / 2, cz + d / 2),
+		Vec3(door_w, h - door_h, t),
+		white
+	)
+	box(
+		name .. "_box_a",
+		Vec3(cx - 2, 0.7, cz - 2),
+		Vec3(1.2, 1.2, 1.2),
+		mat(Color(0.1, 0.3, 0.9, 1), 0.9)
+	)
+	box(
+		name .. "_box_b",
+		Vec3(cx + 0.5, 0.5, cz - 3),
+		Vec3(0.8, 0.8, 0.8),
+		mat(Color(0.9, 0.8, 0.1, 1), 0.9)
+	)
+	box(
+		name .. "_box_c",
+		Vec3(cx + 2.5, 1.1, cz - 1.5),
+		Vec3(0.5, 2, 0.5),
+		mat(Color(0.1, 0.8, 0.2, 1), 0.9)
+	)
+	box(
+		name .. "_panel",
+		Vec3(cx - 1, 2.6, cz - d / 2 + 0.2),
+		Vec3(1.5, 0.4, 0.05),
+		emissive_mat(Color(1, 0.9, 0.8, 1), 30)
+	)
 end
 
 do
