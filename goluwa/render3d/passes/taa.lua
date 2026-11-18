@@ -458,6 +458,7 @@ return {
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
 			{"r16g16_sfloat", {"history_state", "rg"}},
+			{"r16g16b16a16_sfloat", {"linear_color", "rgba"}},
 		},
 		framebuffer_count = 2,
 		fragment = {
@@ -472,6 +473,7 @@ return {
 						{"source_tex", "int"},
 						{"history_tex", "int"},
 						{"history_state_tex", "int"},
+						{"linear_history_tex", "int"},
 						{"inputs_tex", "int"},
 						{"view_depth_tex", "int"},
 						{"reactivity_tex", "int"},
@@ -490,6 +492,7 @@ return {
 						block.source_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "taa"}))
 						block.history_tex = self:GetTextureIndex(attachment("taa", true, 1))
 						block.history_state_tex = self:GetTextureIndex(attachment("taa", true, 2))
+						block.linear_history_tex = self:GetTextureIndex(attachment("taa", true, 3))
 						block.inputs_tex = self:GetTextureIndex(attachment("taa_inputs", false, 1))
 						block.view_depth_tex = self:GetTextureIndex(attachment("taa_inputs", false, 2))
 						block.reactivity_tex = self:GetTextureIndex(attachment("taa_shading", false, 1))
@@ -561,11 +564,12 @@ return {
 				return clamp(uv, vec2(0.5) / size, vec2(1.0) - vec2(0.5) / size);
 			}
 
-			vec3 fetch_history(vec2 uv, float history_scale) {
-				return compress(textureLod(TEXTURE(taa_data.history_tex), uv, 0.0).rgb * history_scale, exposure);
+			vec3 fetch_history(int history_tex, vec2 uv, float history_scale, bool compressed) {
+				vec3 c = textureLod(TEXTURE(history_tex), uv, 0.0).rgb * history_scale;
+				return compressed ? compress(c, exposure) : c;
 			}
 
-			vec3 sample_history(vec2 uv, vec2 size, float history_scale) {
+			vec3 sample_history(int history_tex, vec2 uv, vec2 size, float history_scale, bool compressed) {
 				vec2 position = uv * size;
 				vec2 center = floor(position - 0.5) + 0.5;
 				vec2 f = position - center;
@@ -577,11 +581,11 @@ return {
 				vec2 tc0 = clamp_uv((center - 1.0) / size, size);
 				vec2 tc3 = clamp_uv((center + 2.0) / size, size);
 				vec2 tc12 = clamp_uv((center + w2 / w12) / size, size);
-				vec3 tap_top = fetch_history(vec2(tc12.x, tc0.y), history_scale);
-				vec3 tap_left = fetch_history(vec2(tc0.x, tc12.y), history_scale);
-				vec3 tap_middle = fetch_history(vec2(tc12.x, tc12.y), history_scale);
-				vec3 tap_right = fetch_history(vec2(tc3.x, tc12.y), history_scale);
-				vec3 tap_bottom = fetch_history(vec2(tc12.x, tc3.y), history_scale);
+				vec3 tap_top = fetch_history(history_tex, vec2(tc12.x, tc0.y), history_scale, compressed);
+				vec3 tap_left = fetch_history(history_tex, vec2(tc0.x, tc12.y), history_scale, compressed);
+				vec3 tap_middle = fetch_history(history_tex, vec2(tc12.x, tc12.y), history_scale, compressed);
+				vec3 tap_right = fetch_history(history_tex, vec2(tc3.x, tc12.y), history_scale, compressed);
+				vec3 tap_bottom = fetch_history(history_tex, vec2(tc12.x, tc3.y), history_scale, compressed);
 				vec4 result =
 					vec4(tap_top, 1.0) * (w12.x * w0.y) +
 					vec4(tap_left, 1.0) * (w0.x * w12.y) +
@@ -638,10 +642,12 @@ return {
 				lock *= float(is_uv_inside(hr_uv + motion));
 
 				vec3 history = vec3(0.0);
+				vec3 linear_history = vec3(0.0);
 
 				if (existing_sample && !initial_sample) {
 					float history_scale = get_pre_exposure() / get_previous_pre_exposure();
-					history = sample_history(reprojected_uv, output_size, history_scale);
+					history = sample_history(taa_data.history_tex, reprojected_uv, output_size, history_scale, true);
+					linear_history = sample_history(taa_data.linear_history_tex, reprojected_uv, output_size, history_scale, false);
 				}
 
 				float history_weight = min(accumulation, mix(accumulation, 0.15, clamp(velocity_4k / 0.5, 0.0, 1.0)));
@@ -661,6 +667,7 @@ return {
 				vec3 upsampled = vec3(0.0);
 				float upsampled_weight = 0.0;
 				vec3 box_center = vec3(0.0);
+				vec3 linear_center = vec3(0.0);
 				vec3 box_vec = vec3(0.0);
 				vec3 aabb_min = vec3(1e9);
 				vec3 aabb_max = vec3(-1e9);
@@ -674,7 +681,8 @@ return {
 						ivec2 sample_pos = src_input_pos + offset_tl + col_row;
 						ivec2 clamped_pos = clamp(sample_pos, ivec2(0), input_size - 1);
 						float on_screen = float(all(greaterThanEqual(sample_pos, ivec2(0))) && all(lessThan(sample_pos, input_size)));
-						vec3 c = compress(max(texelFetch(TEXTURE(taa_data.source_tex), clamped_pos, 0).rgb, vec3(0.0)), exposure);
+						vec3 linear = max(texelFetch(TEXTURE(taa_data.source_tex), clamped_pos, 0).rgb, vec3(0.0));
+						vec3 c = compress(linear, exposure);
 						farthest_view_depth = max(farthest_view_depth, texelFetch(TEXTURE(taa_data.view_depth_tex), clamped_pos, 0).r);
 
 						if (!initial_sample) {
@@ -686,6 +694,7 @@ return {
 
 						float w = exp(-2.3 * dot(sample_offset, sample_offset)) * on_screen;
 						box_center += c * w;
+						linear_center += linear * w;
 						box_vec += c * c * w;
 						box_weight += w;
 						aabb_min = min(aabb_min, c);
@@ -695,6 +704,7 @@ return {
 
 				box_weight = abs(box_weight) > 1.175494351e-38 ? box_weight : 1.0;
 				box_center /= box_weight;
+				linear_center /= box_weight;
 				box_vec = sqrt(abs(box_vec / box_weight - box_center * box_center));
 
 				upsampled_weight *= float(upsampled_weight > FP16_MIN);
@@ -710,6 +720,8 @@ return {
 					history_weight = 0.0;
 				}
 
+				float linear_blend = AVERAGE_LANCZOS_WEIGHT_PER_FRAME / (history_weight + AVERAGE_LANCZOS_WEIGHT_PER_FRAME);
+
 				float box_t = max(
 					clamp(velocity_4k / 20.0, 0.0, 1.0),
 					max(
@@ -722,7 +734,9 @@ return {
 
 				if (length(transformed_history) > 1.0) {
 					vec3 clamped = normalize(transformed_history) * scaled_box_vec + box_center;
-					history = mix(clamped, history, clamp(max(luma_instability, lock_contribution) * accumulation * (1.0 - disocclusion), 0.0, 1.0));
+					float kept = clamp(max(luma_instability, lock_contribution) * accumulation * (1.0 - disocclusion), 0.0, 1.0);
+					history = mix(clamped, history, kept);
+					linear_blend = mix(linear_blend, 1.0, (1.0 - kept) * (1.0 - 1.0 / length(transformed_history)));
 				}
 
 				history_weight *= float(history_weight > FP16_MIN);
@@ -731,6 +745,7 @@ return {
 				result.x = min(result.x, FP16_MAX * exposure / (1.0 + FP16_MAX * exposure));
 				set_color(vec4(decompress(result, exposure), view_depth));
 				set_history_state(vec2(stored_accumulation, lock));
+				set_linear_color(vec4(min(mix(linear_history, linear_center, linear_blend), vec3(FP16_MAX)), 1.0));
 			}
 		]],
 		},

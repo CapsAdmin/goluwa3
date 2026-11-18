@@ -154,6 +154,14 @@ function post_source.GetAntiAliasedSceneTexture()
 	return get_anti_aliased_scene_texture({name = "effects_post"})
 end
 
+function post_source.GetBloomSceneTexture()
+	if render3d.IsAntiAliasingEnabled("taa") then
+		return render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(3)
+	end
+
+	return post_source.GetAntiAliasedSceneTexture()
+end
+
 function post_source.GetScreenFieldsTexture()
 	if
 		render3d.IsPassEnabled("screen_fields") and
