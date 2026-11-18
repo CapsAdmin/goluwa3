@@ -532,31 +532,34 @@ local scatter_pass = {
 			float sun_visibility = get_fog_sun_visibility(world_pos, sun_dir) * mix(1.0, gi_emitter.r, sun_ray_weight) * dot(raymarched_shadow, vec3(1.0 / 3.0));
 			vec3 fluid_sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
 			sun_visibility *= dot(froxel_fluid_shadow, vec3(1.0 / 3.0));
-			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
 			vec4 gi = texelFetch(froxel_gi, ivec3(id.xy >> 1, id.z), 0);
 			float open_sky = gi.a < 0.0 ? 1.0 : gi.a;
 			vec3 probe_ambient = gi.a < 0.0 ? shared_sky_ambient : gi.rgb;
 			vec3 ambient = mix(probe_ambient, shared_sky_ambient, open_sky);
-			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
-			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
+			vec3 scattering = get_ground_fog_lit_scatter(fog_point, ambient) * per_meter;
 			vec3 air_up = fog_point / length(fog_point);
 			float glow_visibility = (gi_emitter.a >= 0.0 ? gi_emitter.a : 1.0) * mix(0.15, 1.0, get_terrain_shadow(world_pos)) * (gi_emitter.g < 0.0 ? 1.0 : gi_emitter.g);
-			vec3 sky_multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1 ?
-				ambient * air_scattering :
-				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
-			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * glow_visibility);
+			bool primary_is_sun = dot(sun_dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9999;
+			vec3 sky_multi = vec3(0.0);
 
-			{
-				bool primary_is_sun = dot(sun_dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9999;
-				vec3 other_dir = primary_is_sun ? ATMOSPHERE_MOON_DIRECTION : ATMOSPHERE_SKY_SUN_DIRECTION;
-				float other_mu = dot(ray_dir, other_dir);
-				vec3 other = (primary_is_sun ? ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE : ATMOSPHERE_SUN_DISC_ILLUMINANCE) * SUN_COLOR * per_meter;
-				scattering += glow_visibility * other * sample_transmittance_lut(fog_point, other_dir) * (RAYLEIGH_BETA * (density_r * phase_rayleigh(other_mu)) + MIE_BETA * (density_m * mie_phase(other_mu)));
+			for (int body = 0; body < 2; body++) {
+				bool is_sun = body == 0;
+				vec3 body_dir = is_sun ? ATMOSPHERE_SKY_SUN_DIRECTION : ATMOSPHERE_MOON_DIRECTION;
+				float body_illuminance = is_sun ? ATMOSPHERE_SUN_DISC_ILLUMINANCE : ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE;
+				float body_visibility = is_sun == primary_is_sun ? sun_visibility : glow_visibility;
+				float body_mu = dot(ray_dir, body_dir);
+				vec3 body_light = body_illuminance * SUN_COLOR * per_meter;
+				scattering += body_light * sample_transmittance_lut(fog_point, body_dir) * get_ground_fog_sun_transmittance(fog_point, body_dir) * body_visibility * (RAYLEIGH_BETA * (density_r * phase_rayleigh(body_mu)) + MIE_BETA * (density_m * mie_phase(body_mu)));
+				scattering += get_ground_fog_lit_scatter(fog_point, get_ground_fog_sun(fog_point, ray_dir, body_dir, body_illuminance) * clamp(body_visibility, 0.0, 1.0)) * per_meter;
 
 				if (ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX != -1) {
-					scattering += sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, other_dir), other_mu) * other * open_sky * glow_visibility;
+					sky_multi += sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, body_dir), body_mu) * body_light;
 				}
 			}
+
+			if (ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1) sky_multi = ambient * air_scattering;
+
+			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * glow_visibility);
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction * GROUND_FOG_TINT * GROUND_FOG_ALBEDO;
 

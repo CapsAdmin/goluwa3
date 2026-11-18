@@ -755,7 +755,7 @@ function envprobe.CreatePipelines()
 						: vec3(0.0, 1.0, 0.0);
 
 					if (probe_ray_dir.y < 0.0 && ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX == -1) {
-						sky_color_output = get_ground_radiance(get_atmosphere_camera_origin(fragment.camera_position.xyz), probe_sun_dir);
+						sky_color_output = get_ground_radiance(get_atmosphere_camera_origin(fragment.camera_position.xyz));
 					}
 
 					sky_color_output = apply_ground_fog_ray(
@@ -1147,9 +1147,7 @@ local function get_probe_capture_bundle(size)
 	bundle = render3d.CreatePipelineBundle{
 		framebuffer_size = {x = size, y = size},
 		filter = function(name)
-			return name:find("^gbuffer") ~= nil or
-				name == "lighting" or
-				name == "water"
+			return name:find("^gbuffer") ~= nil or name == "lighting" or name == "water"
 		end,
 	}
 	envprobe.capture_bundles[size] = bundle

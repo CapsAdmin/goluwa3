@@ -865,8 +865,13 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		float r = length(point);
 		vec3 up = point / r;
 		sc_ambient(ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX, r, dot(up, ATMOSPHERE_SKY_SUN_DIRECTION), mean_radiance, irradiance);
-		mean_radiance *= ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR;
-		irradiance *= ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR;
+		mean_radiance *= ATMOSPHERE_SUN_DISC_ILLUMINANCE * SUN_COLOR;
+		irradiance *= ATMOSPHERE_SUN_DISC_ILLUMINANCE * SUN_COLOR;
+		vec3 moon_mean_radiance;
+		vec3 moon_irradiance;
+		sc_ambient(ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX, r, dot(up, ATMOSPHERE_MOON_DIRECTION), moon_mean_radiance, moon_irradiance);
+		mean_radiance += moon_mean_radiance * ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE * SUN_COLOR;
+		irradiance += moon_irradiance * ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE * SUN_COLOR;
 
 		if (!with_clouds || ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX == -1) return;
 
@@ -905,13 +910,18 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		irradiance = irradiance * (alpha_cos / weight_cos) + light_cos;
 	}
 
-	vec3 get_ground_radiance(vec3 ray_origin, vec3 sun_dir) {
+	vec3 get_sun_and_moon_ground_irradiance(vec3 ray_origin) {
 		vec3 up = normalize(ray_origin);
-		vec3 sun_irradiance = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * max(dot(up, sun_dir), 0.0);
+		vec3 sun = ATMOSPHERE_SUN_DISC_ILLUMINANCE * sample_transmittance_lut(ray_origin, ATMOSPHERE_SKY_SUN_DIRECTION) * max(dot(up, ATMOSPHERE_SKY_SUN_DIRECTION), 0.0);
+		vec3 moon = ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE * sample_transmittance_lut(ray_origin, ATMOSPHERE_MOON_DIRECTION) * max(dot(up, ATMOSPHERE_MOON_DIRECTION), 0.0);
+		return (sun + moon) * SUN_COLOR;
+	}
+
+	vec3 get_ground_radiance(vec3 ray_origin) {
 		vec3 mean_radiance;
 		vec3 sky_irradiance;
 		get_sky_hemisphere_integrals(ray_origin, true, mean_radiance, sky_irradiance);
-		return GROUND_ALBEDO / PI * (sun_irradiance + sky_irradiance);
+		return GROUND_ALBEDO / PI * (get_sun_and_moon_ground_irradiance(ray_origin) + sky_irradiance);
 	}
 
 	bool get_ground_fog_segment_with_ground_clip(
@@ -984,14 +994,13 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 sky_irradiance;
 		get_sky_hemisphere_integrals(ray_origin, true, mean_radiance, sky_irradiance);
 		vec3 up = normalize(ray_origin);
-		vec3 sun_dir = ATMOSPHERE_SKY_SUN_DIRECTION;
-		vec3 sun_irradiance = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * max(dot(up, sun_dir), 0.0);
+		vec3 sun_irradiance = get_sun_and_moon_ground_irradiance(ray_origin);
 		vec3 sky_light = 0.5 * (mean_radiance + GROUND_ALBEDO / PI * (sky_irradiance + sun_irradiance));
 		float thickness = 1.0 - exp(-get_ground_fog_layer_optical_depth());
 		return sky_light * (1.0 - thickness) + (sky_irradiance + sun_irradiance) * (GROUND_FOG_IRRADIANCE_FRACTION * pow(thickness, GROUND_FOG_IRRADIANCE_THICKNESS) / PI);
 	}
 
-	vec3 get_ground_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir) {
+	vec3 get_ground_fog_sun(vec3 ray_origin, vec3 ray_dir, vec3 sun_dir, float illuminance) {
 		float altitude = length(ray_origin) - PLANET_RADIUS;
 		float sun_up = dot(normalize(ray_origin), sun_dir);
 		float mu = dot(ray_dir, sun_dir);
@@ -1008,15 +1017,17 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 			c *= GROUND_FOG_OCTAVE_PHASE;
 		}
 
-		return ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * octaves * ATMOSPHERE_FOG_RAY_STRENGTH;
+		return illuminance * SUN_COLOR * sample_transmittance_lut(ray_origin, sun_dir) * octaves * ATMOSPHERE_FOG_RAY_STRENGTH;
 	}
 
-	vec3 get_ground_fog_in_scatter(vec3 point, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 ambient) {
-		vec3 lit = ambient + get_ground_fog_sun(point, ray_dir, sun_dir) * clamp(sun_visibility, 0.0, 1.0);
-
+	vec3 get_ground_fog_lit_scatter(vec3 point, vec3 lit) {
 		if (ATMOSPHERE_FOG_COLOR.w > 0.5) lit *= ATMOSPHERE_FOG_COLOR.rgb;
 
 		return lit * ground_fog_extinction(point) * GROUND_FOG_TINT * GROUND_FOG_ALBEDO;
+	}
+
+	vec3 get_ground_fog_in_scatter(vec3 point, vec3 ray_dir, vec3 sun_dir, float sun_visibility, vec3 ambient) {
+		return get_ground_fog_lit_scatter(point, ambient + get_ground_fog_sun(point, ray_dir, sun_dir, ATMOSPHERE_SUN_ILLUMINANCE) * clamp(sun_visibility, 0.0, 1.0));
 	}
 
 	struct GroundFogSegment {
