@@ -70,6 +70,7 @@ local function restir_uniform(trace, filter_iteration)
 		{"spatial_radius", "float"},
 		{"visibility", "int"},
 		{"temporal_search", "int"},
+		{"disocclusion_samples", "int"},
 		{"validation", "int"},
 		{"accumulation", "float"},
 		{"filter_enabled", "int"},
@@ -178,6 +179,7 @@ local function restir_uniform(trace, filter_iteration)
 			block.spatial_radius = radiance.spatial_radius:Get()
 			block.visibility = radiance.visibility:Get() and 1 or 0
 			block.temporal_search = radiance.temporal_search:Get() and 1 or 0
+			block.disocclusion_samples = radiance.disocclusion_samples:Get()
 			block.validation = radiance.validation:Get() and 1 or 0
 			block.accumulation = render3d.IsDenoisingBypassed() and 1 or radiance.accumulation:Get()
 			block.filter_enabled = radiance.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
@@ -1332,15 +1334,17 @@ local function pass_spatial()
 					vec3 origin = restir_ray_origin(gpos, P, N, view_depth, depth);
 					float turn = restir_random(pos, 4u) * 6.28318530718;
 					float plane_tolerance = 0.01 + 0.02 * view_depth;
-					float k = float(restir_data.spatial_samples);
+					// a pixel with no history (disoccluded, or moving fast) has only its own fresh sample and nothing for the denoiser to average, it reuses more neighbours
+					int count = M < 2.0 ? max(restir_data.spatial_samples, restir_data.disocclusion_samples) : restir_data.spatial_samples;
+					float k = float(count);
 					float own_weight = 0.0;
 					float valid = 0.0;
 					vec3 neighbours = vec3(0.0);
 					vec3 effective_neighbours = vec3(0.0);
 
-					for (int i = 0; i < restir_data.spatial_samples; i++) {
+					for (int i = 0; i < count; i++) {
 						float angle = turn + float(i) * 2.39996323;
-						float radius = sqrt((float(i) + restir_random(pos, 5u + uint(i))) / k) * restir_data.spatial_radius;
+						float radius = sqrt((float(i) + restir_random(pos, 64u + uint(i))) / k) * restir_data.spatial_radius;
 						ivec2 q = pos + ivec2(round(vec2(cos(angle), sin(angle)) * radius));
 
 						ivec2 q_gpos;
@@ -1391,7 +1395,7 @@ local function pass_spatial()
 						float w = luminance(s.L) * s_cosine * weight * jacobian * q_W;
 						picked_sum += w;
 
-						if (restir_random(pos, 16u + uint(i)) * picked_sum < w) {
+						if (restir_random(pos, 96u + uint(i)) * picked_sum < w) {
 							picked = s;
 							picked_target = luminance(s.L) * s_cosine;
 							picked_own = false;

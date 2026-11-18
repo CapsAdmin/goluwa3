@@ -112,6 +112,12 @@ radiance.temporal_search = pvars.Setup2{
 	default = true,
 	help = "when none of the 4 texels last frame's position falls between holds this pixel's surface (thin things like fences and leaves under the jitter, edges that moved), the reservoir and the denoiser take their history from the texel around them that does instead of giving it up",
 }
+radiance.disocclusion_samples = pvars.Setup2{
+	key = "radiance_disocclusion_samples",
+	default = 8,
+	integer = true,
+	help = "neighbouring reservoirs a pixel without a history (just disoccluded, or moving fast) resamples instead of radiance_spatial_samples. such a pixel has only its own fresh sample and the denoiser has nothing to average yet",
+}
 radiance.validation = pvars.Setup2{
 	key = "radiance_validation",
 	default = false,
