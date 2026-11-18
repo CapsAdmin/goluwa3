@@ -66,11 +66,10 @@ function screen_reconstruct.GetWorldRayGLSL(block_name, options)
 				vec4 clip_pos = vec4(%s * 2.0 - 1.0, 0.0, 1.0);
 				vec4 view_pos = %s.inv_projection * clip_pos;
 				view_pos /= view_pos.w;
-				vec3 world_pos = (%s.inv_view * vec4(view_pos.xyz, 1.0)).xyz;
-				return normalize(world_pos - %s.camera_position.xyz);
+				return normalize(mat3(%s.inv_view) * view_pos.xyz);
 			}
 	]]
-	):format(function_name, uv_expr, block_name, block_name, block_name)
+	):format(function_name, uv_expr, block_name, block_name)
 end
 
 function screen_reconstruct.GetViewRayFromUVGLSL(block_name, options)

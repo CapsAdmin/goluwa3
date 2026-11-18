@@ -371,8 +371,7 @@ return {
 				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
 				vec4 view_pos = lighting_data.inv_projection * clip_pos;
 				view_pos /= view_pos.w;
-				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
-				vec3 sky_dir = normalize(world_pos - lighting_data.camera_position.xyz);
+				vec3 sky_dir = normalize(mat3(lighting_data.inv_view) * view_pos.xyz);
 				vec3 sun_dir = get_primary_sun_direction();
 				vec3 sky_color_output = vec3(0.0);
 
