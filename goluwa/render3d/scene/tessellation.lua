@@ -21,7 +21,7 @@ local GROUPS = 2
 local TERRAIN_GROUP = 1
 local TOPOLOGY_WORDS = 9
 local PID_WORDS = 6
-local JOB_BYTES = 72
+local JOB_BYTES = 80
 local STATE_COMMANDS_BYTES = GROUPS * BUCKETS * 16
 local STATE_ARGS_OFFSET = 256
 local STATE_BYTES = STATE_ARGS_OFFSET + 8 * 8
@@ -43,11 +43,6 @@ local tessellate_all = pvars.Setup2{
 	default = true,
 	callback = invalidate_scene,
 	help = "tessellate every height mapped material, not only the ones marked HeightTessellate",
-}
-local target_pixels = pvars.Setup2{
-	key = "r_tessellation_pixels",
-	default = 4,
-	help = "edge length in pixels the tessellation aims for, lower is denser",
 }
 local seam_band = pvars.Setup2{
 	key = "r_tessellation_seam_band",
@@ -415,6 +410,8 @@ local TESS_GLSL = [[
 		uint index_is_32;
 		float height_scale;
 		uint flags;
+		float uv_size;
+		float texel;
 		uint pad;
 	};
 
@@ -440,6 +437,14 @@ local TESS_GLSL = [[
 		uint word = indices.w[i >> 1];
 		return (i & 1u) == 0u ? (word & 0xFFFFu) : (word >> 16);
 	}
+
+	uint tess_edge_rate(float edge_length, float edge_pixels, float relief_pixels, float uv_size, float texel, float error, int max_log) {
+		if (relief_pixels <= error || edge_length <= 0.0) return 0u;
+
+		float ratio = error / relief_pixels;
+		float spacing = max(uv_size * max(ratio * ratio, texel), error * edge_length / max(edge_pixels, 1e-6));
+		return uint(clamp(int(ceil(log2(max(edge_length / spacing, 1.0)) - 1e-6)), 0, max_log));
+	}
 ]] .. vertex_layout.BuildGlslAccessors("tess_vertex", "TessVertexData")
 local state = {
 	ready = false,
@@ -457,8 +462,9 @@ local state = {
 local compute_block = {
 	{"view_projection", "mat4"},
 	{"camera_position", "vec3"},
-	{"target_pixels", "float"},
+	{"error", "float"},
 	{"resolution", "vec2"},
+	{"focal", "float"},
 	{"job_count", "int"},
 	{"triangle_count", "int"},
 	{"capacity", "int"},
@@ -469,8 +475,9 @@ local function write_compute_block(self, block)
 	state.view_projection:CopyToFloatPointer(block.view_projection)
 	local position = state.camera_position
 	block.camera_position[0], block.camera_position[1], block.camera_position[2] = position.x, position.y, position.z
-	block.target_pixels = target_pixels:Get()
+	block.error = pvars.Get("r_cluster_lod_error")
 	block.resolution[0], block.resolution[1] = state.resolution.x, state.resolution.y
+	block.focal = state.focal
 	block.job_count = state.job_count
 	block.triangle_count = state.triangle_count
 	block.capacity = state.triangle_capacity
@@ -602,15 +609,15 @@ local function get_compute_pipelines()
 
 						vec4 ca = tess_clip(world, position[ia] + dir[ia] * (0.5 * height_scale * scale[ia]));
 						vec4 cb = tess_clip(world, position[ib] + dir[ib] * (0.5 * height_scale * scale[ib]));
-						int log_rate = TESS_MAX_LOG;
+						uint log_rate = uint(TESS_MAX_LOG);
 
 						if (ca.w > 0.01 && cb.w > 0.01) {
 							float pixels = length((ca.xy / ca.w - cb.xy / cb.w) * 0.5 * compute.resolution);
-							float wanted = max(pixels / compute.target_pixels, 1.0);
-							log_rate = min(int(ceil(log2(wanted) - 1e-6)), TESS_MAX_LOG);
+							float relief_pixels = height_scale * max(scale[ia], scale[ib]) * compute.focal / min(ca.w, cb.w);
+							log_rate = tess_edge_rate(distance((world * vec4(position[ia], 1.0)).xyz, (world * vec4(position[ib], 1.0)).xyz), pixels, relief_pixels, job.uv_size * min(scale[ia], scale[ib]), job.texel, compute.error, TESS_MAX_LOG);
 						}
 
-						rate[e] = uint(log_rate);
+						rate[e] = log_rate;
 					}
 
 					uint inner = max(max(rate[0], rate[1]), rate[2]);
@@ -1021,10 +1028,46 @@ local JobType = ffi.typeof([[struct {
 	uint32_t index_is_32;
 	float height_scale;
 	uint32_t flags;
+	float uv_size;
+	float texel;
 	uint32_t pad;
 }]])
 assert(ffi.sizeof(JobType) == JOB_BYTES)
 local JobPointer = ffi.typeof("$ *", JobType)
+local terrain_relief_detail
+
+do
+	local layers = {}
+
+	for i = 1, 8 do
+		local suffix = i > 4 and "2" or ""
+		layers[i] = {
+			texture = "TerrainLayer" .. i .. "HeightTexture",
+			scales = "TerrainLayerScales" .. suffix,
+			height_scales = "TerrainLayerHeightScales" .. suffix,
+			component = ({"r", "g", "b", "a"})[(i - 1) % 4 + 1],
+		}
+	end
+
+	function terrain_relief_detail(material)
+		local best_relief, uv_size, texel = 0, 1, 1
+
+		for _, layer in ipairs(layers) do
+			local texture = material[layer.texture]
+
+			if texture then
+				local scale = material[layer.scales][layer.component]
+				local relief = material[layer.height_scales][layer.component] * scale
+
+				if relief > best_relief then
+					best_relief, uv_size, texel = relief, scale, 1 / texture:GetWidth()
+				end
+			end
+		end
+
+		return uv_size, texel
+	end
+end
 
 local function build_jobs()
 	if state.built_serial ~= row_serial then
@@ -1085,9 +1128,12 @@ local function build_jobs()
 		if material.terrain_tile then
 			out.height_scale = material:GetTerrainShell()
 			out.flags = 2
+			out.uv_size, out.texel = terrain_relief_detail(material)
 		else
 			out.height_scale = material:GetHeightScale()
 			out.flags = material.Decal and 1 or 0
+			out.uv_size = 1
+			out.texel = 1 / material:GetHeightTexture():GetWidth()
 		end
 
 		first = first + job.topology.triangle_count
@@ -1144,6 +1190,7 @@ function tessellation.PreDraw(cmd)
 	state.view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()
 	state.camera_position = camera:GetPosition()
 	state.resolution = render3d.GetRenderSize()
+	state.focal = 0.5 * state.resolution.y * math.abs(camera:BuildUnjitteredProjectionMatrix().m11)
 	local commands = ffi.cast("uint32_t *", state.state_cpu)
 
 	for slot = 0, GROUPS * BUCKETS - 1 do
@@ -1229,11 +1276,6 @@ local rt_distance = pvars.Setup2{
 	default = 40,
 	help = "how far from the camera (in meters, from the edge of a model) tessellated models are traced with their relief, farther ones are traced as their base mesh",
 }
-local rt_pixels = pvars.Setup2{
-	key = "r_tessellation_rt_pixels",
-	default = 8,
-	help = "edge length in pixels (at 1080p and 60 degrees) the traced tessellation aims for, lower is denser",
-}
 pvars.EndGroup()
 local rt = {
 	built = false,
@@ -1244,7 +1286,7 @@ local rt = {
 }
 local rt_block = {
 	{"camera_position", "vec3"},
-	{"target_pixels", "float"},
+	{"error", "float"},
 	{"job_count", "int"},
 	{"triangle_count", "int"},
 	{"seam_band", "float"},
@@ -1255,7 +1297,7 @@ local rt_block = {
 local function write_rt_block(self, block)
 	local position = rt.camera_position
 	block.camera_position[0], block.camera_position[1], block.camera_position[2] = position.x, position.y, position.z
-	block.target_pixels = rt_pixels:Get()
+	block.error = pvars.Get("r_cluster_lod_rt_error")
 	block.job_count = state.job_count
 	block.triangle_count = state.triangle_count
 	block.seam_band = seam_band:Get()
@@ -1317,7 +1359,10 @@ local function get_rt_pipelines()
 					mat4 world = TessWorldData(args.a[1]).w[lo * 2u];
 					TessVertexData data = TessVertexData(job.vertices);
 					TessWords topology = TessWords(job.topology);
+					TessPidData pids = TessPidData(job.pids);
+					bool terrain = (job.flags & 2u) != 0u;
 					vec3 position[3];
+					float scale[3];
 					uint pid[3];
 					int off_grid = 0;
 
@@ -1325,6 +1370,7 @@ local function get_rt_pipelines()
 						uint vertex = tess_index(job.indices, job.index_is_32, tri * 3u + k);
 						position[k] = (world * vec4(tess_vertex_position(data, vertex), 1.0)).xyz;
 						pid[k] = topology.w[tri * 9u + k];
+						scale[k] = terrain ? 1.0 : pids.p[pid[k]].scale;
 						off_grid += abs(tess_vertex_tangent(data, vertex).w) > 1.5 ? 1 : 0;
 					}
 
@@ -1342,8 +1388,10 @@ local function get_rt_pipelines()
 							ib = swap;
 						}
 
-						float pixels = distance(position[ia], position[ib]) * ]=] .. cluster_lod_reference_pixels .. [=[ / max(distance(compute.camera_position, 0.5 * (position[ia] + position[ib])), 0.05);
-						rate[e] = uint(clamp(int(ceil(log2(max(pixels / compute.target_pixels, 1.0)) - 1e-6)), 0, RT_MAX_LOG));
+						float edge_length = distance(position[ia], position[ib]);
+						float pixels = edge_length * ]=] .. cluster_lod_reference_pixels .. [=[ / max(distance(compute.camera_position, 0.5 * (position[ia] + position[ib])), 0.05);
+						float relief_pixels = job.height_scale * max(scale[ia], scale[ib]) * ]=] .. cluster_lod_reference_pixels .. [=[ / max(min(distance(compute.camera_position, position[ia]), distance(compute.camera_position, position[ib])), 0.05);
+						rate[e] = tess_edge_rate(edge_length, pixels, relief_pixels, job.uv_size * min(scale[ia], scale[ib]), job.texel, compute.error, RT_MAX_LOG);
 					}
 
 					uint inner = max(max(rate[0], rate[1]), rate[2]);
@@ -1758,6 +1806,7 @@ function tessellation.BuildRT(cmd)
 	state.view_projection = camera_object:BuildViewMatrix() * camera_object:BuildUnjitteredProjectionMatrix()
 	state.camera_position = camera
 	state.resolution = render3d.GetRenderSize()
+	state.focal = 0.5 * state.resolution.y * math.abs(camera_object:BuildUnjitteredProjectionMatrix().m11)
 	local data = data_table:Get()
 	local max_distance = rt_distance:Get()
 	ffi.fill(rt.job_of_cpu, rt.instance_capacity * 4, 0xFF)
