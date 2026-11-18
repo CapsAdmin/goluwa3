@@ -262,13 +262,45 @@ local gi_pass = {
 			return h.x ^ h.y ^ h.z;
 		}
 
+		const int SCREEN_SUN_STEPS = 24;
+		const float SCREEN_SUN_NEAR = 100.0;
+		const float SCREEN_SUN_FAR = 150000.0;
+
+		float screen_sun_visibility(vec3 P, vec3 sun_dir, float jitter) {
+			vec3 origin = (froxel_data.view * vec4(P, 1.0)).xyz;
+			vec3 dir = mat3(froxel_data.view) * sun_dir;
+
+			if (dir.z > -0.05 || origin.z > -0.1) return 1.0;
+
+			float start_depth = -origin.z;
+
+			for (int i = 0; i < SCREEN_SUN_STEPS; i++) {
+				vec3 p = origin + dir * (SCREEN_SUN_NEAR * pow(SCREEN_SUN_FAR / SCREEN_SUN_NEAR, (float(i) + jitter) / float(SCREEN_SUN_STEPS)));
+				vec4 clip = froxel_data.projection * vec4(p, 1.0);
+				vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+
+				if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
+
+				float depth = textureLod(TEXTURE(froxel_data.depth_tex), uv, 0.0).r;
+
+				if (depth <= 0.0) continue;
+
+				float scene_depth = get_view_depth(uv, depth);
+				float ray_depth = -p.z;
+
+				if (scene_depth > start_depth && scene_depth < ray_depth && ray_depth - scene_depth < scene_depth) return 0.0;
+			}
+
+			return 1.0;
+		}
+
 		void main() {
 			ivec3 quad = ivec3(gl_GlobalInvocationID);
 			ivec2 size = ivec2(froxel_data.froxel_size);
 
 			if (any(greaterThanEqual(quad.xy * 2, size))) return;
 
-			imageStore(out_gi_emitter, quad, vec4(0.0, 0.0, 0.0, -1.0));
+			imageStore(out_gi_emitter, quad, vec4(-1.0, -1.0, 0.0, -1.0));
 
 			uint start = froxel_hash(uvec3(quad.xy, uint(quad.z) + uint(froxel_data.frame) * 128u));
 			ivec3 id = ivec3(-1);
@@ -296,16 +328,21 @@ local gi_pass = {
 			vec3 P = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
 			float other_visibility = -1.0;
 
+			vec3 glow_body = froxel_data.atmosphere_sun_direction.y > -0.2 ? froxel_data.atmosphere_sun_direction : froxel_data.atmosphere_moon_direction;
+			float other_elevation = max(glow_body.y, 0.1);
+			vec2 other_horizontal = normalize(glow_body.xz + vec2(1e-6));
+			uint on = froxel_hash(uvec3(seed, id.z, 11u));
+			vec3 cone = vec3(float(on & 0x3ffu), float((on >> 10u) & 0x3ffu), float((on >> 20u) & 0x3ffu)) / 511.5 - 1.0;
+			vec3 glow_dir = normalize(vec3(other_horizontal.x * sqrt(1.0 - other_elevation * other_elevation), other_elevation, other_horizontal.y * sqrt(1.0 - other_elevation * other_elevation)) + cone * 0.1);
+			float sun_visibility = screen_sun_visibility(P, glow_body, jitter.z + 0.5);
+			float glow_screen_visibility = screen_sun_visibility(P, glow_dir, jitter.x + 0.5);
+			imageStore(out_gi_emitter, quad, vec4(sun_visibility, glow_screen_visibility, 0.0, -1.0));
+
 			#ifdef SCENE_HITS
 			{
-				vec3 glow_body = ATMOSPHERE_SKY_SUN_DIRECTION.y > -0.2 ? ATMOSPHERE_SKY_SUN_DIRECTION : ATMOSPHERE_MOON_DIRECTION;
-				float other_elevation = max(glow_body.y, 0.1);
-				vec2 other_horizontal = normalize(glow_body.xz + vec2(1e-6));
-				uint on = froxel_hash(uvec3(seed, id.z, 11u));
-				vec3 cone = vec3(float(on & 0x3ffu), float((on >> 10u) & 0x3ffu), float((on >> 20u) & 0x3ffu)) / 511.5 - 1.0;
-				vec3 glow_dir = normalize(vec3(other_horizontal.x * sqrt(1.0 - other_elevation * other_elevation), other_elevation, other_horizontal.y * sqrt(1.0 - other_elevation * other_elevation)) + cone * 0.3);
 				other_visibility = scene_hit_visible(P, glow_dir, SCENE_HIT_MAX_DISTANCE) ? 1.0 : 0.0;
-				imageStore(out_gi_emitter, quad, vec4(0.0, 0.0, 0.0, other_visibility));
+				sun_visibility *= scene_hit_visible(P, normalize(glow_body + cone.zxy * 0.005), SCENE_HIT_MAX_DISTANCE) ? 1.0 : 0.0;
+				imageStore(out_gi_emitter, quad, vec4(sun_visibility, glow_screen_visibility, 0.0, other_visibility));
 			}
 			#endif
 
@@ -490,24 +527,24 @@ local scatter_pass = {
 			float mu = dot(ray_dir, sun_dir);
 			vec3 raymarched_shadow = fluid_sun_transmittance(world_pos, sun_dir, -1, FLUID_MODE_FROXELS);
 			vec3 froxel_fluid_shadow = fluid_sun_transmittance(world_pos, sun_dir, -1, FLUID_MODE_RAYMARCH);
-			float sun_visibility = get_fog_sun_visibility(world_pos, sun_dir) * dot(raymarched_shadow, vec3(1.0 / 3.0));
+			vec4 gi_emitter = texelFetch(froxel_gi_emitter, ivec3(id.xy >> 1, id.z), 0);
+			float sun_ray_weight = gi_emitter.r < 0.0 ? 0.0 : smoothstep(0.8, 1.0, depth / froxel_data.shadows.cascade_splits[froxel_data.shadows.cascade_count - 1]);
+			float sun_visibility = get_fog_sun_visibility(world_pos, sun_dir) * mix(1.0, gi_emitter.r, sun_ray_weight) * dot(raymarched_shadow, vec3(1.0 / 3.0));
 			vec3 fluid_sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
 			sun_visibility *= dot(froxel_fluid_shadow, vec3(1.0 / 3.0));
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
 			vec4 gi = texelFetch(froxel_gi, ivec3(id.xy >> 1, id.z), 0);
 			float open_sky = gi.a < 0.0 ? 1.0 : gi.a;
 			vec3 probe_ambient = gi.a < 0.0 ? shared_sky_ambient : gi.rgb;
-			vec4 gi_emitter = texelFetch(froxel_gi_emitter, ivec3(id.xy >> 1, id.z), 0);
-			vec3 glow = gi_emitter.rgb;
-			vec3 ambient = mix(probe_ambient, shared_sky_ambient, open_sky) + glow;
+			vec3 ambient = mix(probe_ambient, shared_sky_ambient, open_sky);
 			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
 			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
 			vec3 air_up = fog_point / length(fog_point);
-			float glow_visibility = gi_emitter.a >= 0.0 ? gi_emitter.a : mix(0.15, 1.0, get_terrain_shadow(world_pos));
+			float glow_visibility = (gi_emitter.a >= 0.0 ? gi_emitter.a : 1.0) * mix(0.15, 1.0, get_terrain_shadow(world_pos)) * (gi_emitter.g < 0.0 ? 1.0 : gi_emitter.g);
 			vec3 sky_multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1 ?
 				ambient * air_scattering :
 				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
-			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * glow_visibility) + glow * air_scattering;
+			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * glow_visibility);
 
 			{
 				bool primary_is_sun = dot(sun_dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9999;
