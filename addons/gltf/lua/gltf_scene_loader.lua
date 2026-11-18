@@ -85,6 +85,7 @@ end
 
 local build_vertex_data = import("goluwa/render3d/model_decoders/gltf.lua").BuildVertices
 local MAX_SAMPLED_MIP_LOD = 4
+local KEEP_PACKED_INDEX_COUNT = 4096 * 3
 
 local function translate_gltf_sampler(sampler_info)
 	local min_filter = "linear"
@@ -308,7 +309,11 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 			goto continue
 		end
 
-		local vertices, vertex_count, aabb = build_vertex_data(primitive, primitive.material ~= nil and gltf.MaterialNeedsVFlip(gltf_data, primitive.material))
+		local vertices, vertex_count, aabb = build_vertex_data(
+			primitive,
+			primitive.material ~= nil and
+				gltf.MaterialNeedsVFlip(gltf_data, primitive.material)
+		)
 
 		if not vertices then
 			print(
@@ -342,7 +347,16 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 		end
 
 		local poly = Polygon3D.New()
-		poly:UploadVertexArray(vertices, vertex_count, index_data, index_count, false, nil, aabb, index_type)
+		poly:UploadVertexArray(
+			vertices,
+			vertex_count,
+			index_data,
+			index_count,
+			index_count >= KEEP_PACKED_INDEX_COUNT,
+			nil,
+			aabb,
+			index_type
+		)
 		local material
 
 		if primitive.material then
@@ -495,7 +509,7 @@ function gltf_scene_loader.Load(path, options)
 		gltf_data, materials, mesh_primitives = cached.gltf_data, cached.materials, cached.mesh_primitives
 	else
 		local err
-		gltf_data, err = gltf.Load(path)
+		gltf_data, err = gltf.Load(path, {lazy_meshes = true})
 
 		if not gltf_data then return nil, err end
 

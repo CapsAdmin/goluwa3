@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local json = import("goluwa/codecs/json.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local base64 = import("goluwa/codecs/base64.lua")
+local meshopt = import("goluwa/codecs/meshopt.lua")
 local gltf = {}
 local COMPONENT_TYPE = {
 	[5120] = {type = "int8_t", size = 1},
@@ -72,6 +73,7 @@ local function split_glb(data)
 	return json_data, bin_data
 end
 
+local SMALL_BUFFER_BYTES = 4 * 1024 * 1024
 local LFS_POINTER = "version https://git-lfs"
 
 local function read_file_checked(path)
@@ -104,10 +106,32 @@ end
 local function read_accessor_raw(gltf_data, accessor_index, buffers)
 	local accessor = gltf_data.accessors[accessor_index + 1]
 	local buffer_view = gltf_data.bufferViews[accessor.bufferView + 1]
-	local buffer = buffers[buffer_view.buffer + 1]
+	local compression = buffer_view.extensions and buffer_view.extensions.EXT_meshopt_compression
+	local buffer
+	local view_offset = buffer_view.byteOffset or 0
+
+	if compression then
+		local source = ffi.cast("uint8_t*", buffers[compression.buffer + 1]) + (
+				compression.byteOffset or
+				0
+			)
+
+		if compression.mode == "ATTRIBUTES" then
+			buffer = meshopt.DecodeVertexBuffer(compression.count, compression.byteStride, source, compression.byteLength)
+		elseif compression.mode == "TRIANGLES" then
+			buffer = meshopt.DecodeIndexBuffer(compression.count, compression.byteStride, source, compression.byteLength)
+		else
+			error("unsupported EXT_meshopt_compression mode " .. tostring(compression.mode))
+		end
+
+		view_offset = 0
+	else
+		buffer = buffers[buffer_view.buffer + 1]
+	end
+
 	local component_info = COMPONENT_TYPE[accessor.componentType]
 	local component_count = ACCESSOR_TYPE[accessor.type]
-	local byte_offset = (buffer_view.byteOffset or 0) + (accessor.byteOffset or 0)
+	local byte_offset = view_offset + (accessor.byteOffset or 0)
 	local byte_stride = buffer_view.byteStride or (component_info.size * component_count)
 	local buffer_ptr = ffi.cast("uint8_t*", buffer)
 	local total_elements = accessor.count * component_count
@@ -245,7 +269,8 @@ function gltf.MaterialNeedsVFlip(data, material_index)
 	return extension == "png" or extension == "bmp"
 end
 
-function gltf.Load(path)
+function gltf.Load(path, options)
+	options = options or {}
 	local base_dir = get_directory(path)
 	local json_data, read_err = read_file_checked(path)
 
@@ -273,6 +298,7 @@ function gltf.Load(path)
 		KHR_materials_dispersion = true,
 		KHR_materials_volume = true,
 		KHR_lights_punctual = true,
+		EXT_meshopt_compression = true,
 		KHR_materials_emissive_strength = true,
 		KHR_materials_specular = true,
 		KHR_materials_clearcoat = true,
@@ -296,19 +322,30 @@ function gltf.Load(path)
 	end
 
 	local buffers = {}
+	local last_index, last_buffer
+	setmetatable(
+		buffers,
+		{
+			__index = function(self, index)
+				if index == last_index then return last_buffer end
 
-	if gltf_data.buffers then
-		for i, buffer_info in ipairs(gltf_data.buffers) do
-			local buffer_data = load_buffer(base_dir, buffer_info, i == 1 and embedded_bin or nil)
+				local buffer_data = load_buffer(base_dir, gltf_data.buffers[index], index == 1 and embedded_bin or nil)
 
-			if buffer_data then
+				if not buffer_data then return nil end
+
 				local c_buffer = ffi.new("uint8_t[?]", #buffer_data)
 				ffi.copy(c_buffer, buffer_data, #buffer_data)
-				buffers[i] = c_buffer
-			end
-		end
-	end
 
+				if #buffer_data <= SMALL_BUFFER_BYTES then
+					rawset(self, index, c_buffer)
+				else
+					last_index, last_buffer = index, c_buffer
+				end
+
+				return c_buffer
+			end,
+		}
+	)
 	local result = {
 		path = path,
 		base_dir = base_dir,
@@ -381,8 +418,8 @@ function gltf.Load(path)
 	end
 
 	if gltf_data.meshes then
-		for i, mesh_info in ipairs(gltf_data.meshes) do
-			local mesh = {name = mesh_info.name, primitives = {}}
+		local function decode_primitives(mesh_info)
+			local primitives = {}
 
 			for j, primitive_info in ipairs(mesh_info.primitives) do
 				local primitive = {
@@ -399,10 +436,25 @@ function gltf.Load(path)
 					primitive.attributes[attr_name] = read_accessor_raw(gltf_data, accessor_index, buffers)
 				end
 
-				mesh.primitives[j] = primitive
+				primitives[j] = primitive
 			end
 
-			result.meshes[i] = mesh
+			return primitives
+		end
+
+		for i, mesh_info in ipairs(gltf_data.meshes) do
+			if options.lazy_meshes then
+				result.meshes[i] = setmetatable(
+					{name = mesh_info.name},
+					{
+						__index = function(_, key)
+							if key == "primitives" then return decode_primitives(mesh_info) end
+						end,
+					}
+				)
+			else
+				result.meshes[i] = {name = mesh_info.name, primitives = decode_primitives(mesh_info)}
+			end
 		end
 	end
 
