@@ -232,7 +232,6 @@ return {
 					render3d.camera_block,
 					render3d.prev_camera_block,
 					{"history_weight", "float"},
-					{"jitter", "vec2"},
 					{"pixels_per_degree", "float"},
 					{"strength", "float"},
 				},
@@ -250,9 +249,6 @@ return {
 					last_frame, last_width, last_height = frame, size.x, size.y
 					block.pixels_per_degree = exposure_model.GetPixelsPerDegree(size.y) / 2
 					block.strength = render3d.bloom_strength:Get()
-					local jitter = render3d.GetCamera():GetJitter()
-					block.jitter[0] = jitter.x
-					block.jitter[1] = jitter.y
 					return block
 				end,
 			},

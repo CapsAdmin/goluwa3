@@ -48,7 +48,6 @@ local function restir_uniform(trace, filter_iteration)
 		{"frame", "int"},
 		{"history_valid", "int"},
 		{"jitter_shift", "vec2"},
-		{"jitter", "vec2"},
 		{"prev_view", "mat4"},
 		{"prev_projection", "mat4"},
 		{"temporal", "int"},
@@ -158,8 +157,6 @@ local function restir_uniform(trace, filter_iteration)
 			local viewport = camera:GetViewport()
 			block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
 			block.jitter_shift[1] = (render3d.previous_jitter.y - camera:GetJitter().y) / viewport.h
-			block.jitter[0] = camera:GetJitter().x
-			block.jitter[1] = camera:GetJitter().y
 			local prev_view = render3d.GetPreviousViewMatrix() or camera:BuildViewMatrix()
 			local prev_projection = render3d.GetPreviousProjectionMatrix() or camera:BuildProjectionMatrix()
 			prev_view:CopyToFloatPointer(block.prev_view)

@@ -468,7 +468,6 @@ return {
 					binding_index = 2,
 					block = {
 						render3d.camera_block,
-						{"jitter", "vec2"},
 						{"jitter_phase_count", "float"},
 						{"source_tex", "int"},
 						{"history_tex", "int"},
@@ -482,13 +481,7 @@ return {
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
-						local camera = render3d.GetCamera()
-						local jitter = camera:GetJitter()
-						local viewport = camera:GetViewport()
-						local input = render3d.GetRenderSize()
-						block.jitter[0] = jitter.x * input.x / viewport.w
-						block.jitter[1] = jitter.y * input.y / viewport.h
-						block.jitter_phase_count = get_jitter_phase_count(input, viewport)
+						block.jitter_phase_count = get_jitter_phase_count(render3d.GetRenderSize(), render3d.GetCamera():GetViewport())
 						block.source_tex = self:GetTextureIndex(post_source.GetSceneSourceTexture({name = "taa"}))
 						block.history_tex = self:GetTextureIndex(attachment("taa", true, 1))
 						block.history_state_tex = self:GetTextureIndex(attachment("taa", true, 2))

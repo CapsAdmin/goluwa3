@@ -98,6 +98,7 @@ render3d.camera_block = {
 	{"view", "mat4"},
 	{"projection", "mat4"},
 	{"render_size", "vec2"},
+	{"jitter", "vec2"},
 	{"camera_position", "vec3"},
 	{"normal_map_strength", "float"},
 	{"terrain_only", "int"},
@@ -117,6 +118,9 @@ function render3d.WriteCameraBlock(self, block)
 	local size = render3d.GetRenderSize()
 	block.render_size[0] = size.x
 	block.render_size[1] = size.y
+	local viewport = camera:GetViewport()
+	block.jitter[0] = camera:GetJitter().x * size.x / viewport.w
+	block.jitter[1] = camera:GetJitter().y * size.y / viewport.h
 	camera:GetPosition():CopyToFloatPointer(block.camera_position)
 	block.normal_map_strength = normal_map_strength:Get()
 	block.terrain_only = gbuffer_inspect.IsTerrainOnly() and 1 or 0
