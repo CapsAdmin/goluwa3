@@ -75,6 +75,8 @@ local function restir_uniform(trace, filter_iteration)
 		{"validation", "int"},
 		{"accumulation", "float"},
 		{"edge_accumulation", "float"},
+		{"sticky_pick", "int"},
+		{"pick_tex", "int"},
 		{"filter_enabled", "int"},
 		{"reservoir_a_tex", "int"},
 		{"reservoir_b_tex", "int"},
@@ -192,6 +194,8 @@ local function restir_uniform(trace, filter_iteration)
 			block.validation = radiance.validation:Get() and 1 or 0
 			block.accumulation = render3d.IsDenoisingBypassed() and 1 or radiance.accumulation:Get()
 			block.edge_accumulation = render3d.IsDenoisingBypassed() and 1 or radiance.edge_accumulation:Get()
+			block.sticky_pick = radiance.sticky_pick:Get() and 1 or 0
+			block.pick_tex = self:GetTextureIndex(attachment("radiance_pick", 1, 1))
 			assert(block.edge_accumulation > 0, "radiance_edge_accumulation must be above 0")
 			block.filter_enabled = radiance.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
 			block.reservoir_a_tex = self:GetTextureIndex(attachment("radiance_temporal", current, 1))
@@ -321,6 +325,31 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return vec3(float(instance), float(primitive), float(q.x | (q.y << 11u) | (flipped ? 1u << 22u : 0u)));
 	}
 
+	vec3 restir_previous_view_ray(vec2 uv);
+	vec4 restir_history_plane(vec3 N, vec3 previous_point);
+	float restir_history_tolerance(float prev_depth, ivec2 size);
+	bool restir_history_matches(ivec2 q, ivec2 size, vec3 G, vec4 plane, float tolerance);
+
+	// whether the surface screen pixel q shows is the one gi pixel pos stood for last frame
+	bool restir_pick_holds_history(ivec2 q, ivec2 pos, ivec2 size, ivec2 gsize) {
+		float q_depth = gbuffer_depth(q);
+
+		if (q_depth <= 0.0 || restir_data.velocity_tex == -1) return false;
+
+		vec2 uv = (vec2(q) + 0.5) / vec2(gsize);
+		vec3 motion = texture(TEXTURE(restir_data.velocity_tex), uv).rgb;
+
+		if (motion.z <= 1e-5) return false;
+
+		vec3 Q = get_world_pos(uv, q_depth);
+		vec3 G = normalize(gbuffer_geometric_normal(q));
+
+		if (dot(G, restir_data.camera_position - Q) < 0.0) G = -G;
+
+		vec4 plane = restir_history_plane(G, restir_previous_view_ray(uv - motion.xy) * motion.z);
+		return restir_history_matches(ivec2(floor(((vec2(pos) + 0.5) / vec2(size) - motion.xy) * vec2(size))), size, G, plane, restir_history_tolerance(motion.z, size));
+	}
+
 	// below full resolution a gi pixel takes the screen pixel whose jittered sample lands nearest its centre: any other pick (rotating, or the nearest surface) shows another surface every frame under the taa jitter at edges and on thin things, never keeps its history and flickers
 	ivec2 restir_gbuffer_pos(ivec2 pos, ivec2 size, ivec2 gsize) {
 		ivec2 first = reflection_floor_div(pos * gsize, size);
@@ -328,8 +357,33 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 		if (span == ivec2(1)) return min(first, gsize - 1);
 
+		#ifndef RESTIR_PICK_PASS
+		int picked = int(texelFetch(TEXTURE(restir_data.pick_tex), pos, 0).r + 0.5);
+		return min(first + ivec2(picked & 255, picked >> 8), gsize - 1);
+		#endif
+
+		ivec2 last = min(first + span, gsize) - 1;
 		vec2 target = (vec2(pos) + 0.5) * vec2(gsize) / vec2(size);
-		return clamp(ivec2(floor(target + restir_data.jitter)), first, min(first + span, gsize) - 1);
+		ivec2 nearest = clamp(ivec2(floor(target + restir_data.jitter)), first, last);
+
+		if (restir_data.sticky_pick == 0 || restir_data.history_valid == 0 || restir_pick_holds_history(nearest, pos, size, gsize)) return nearest;
+
+		ivec2 low = clamp(ivec2(floor(target - 0.5)), first, last);
+		ivec2 best = nearest;
+		float best_distance = 1e30;
+
+		for (int i = 0; i < 4; i++) {
+			ivec2 q = min(low + ivec2(i & 1, i >> 1), last);
+			vec2 offset = vec2(q) + 0.5 - restir_data.jitter - target;
+			float distance = dot(offset, offset);
+
+			if (q == nearest || distance >= best_distance || !restir_pick_holds_history(q, pos, size, gsize)) continue;
+
+			best = q;
+			best_distance = distance;
+		}
+
+		return best;
 	}
 
 	vec3 restir_geometric_normal(ivec2 gpos, vec3 P) {
@@ -778,6 +832,38 @@ local SPECULAR_LOBE_GLSL = scene_hits.CONSTANTS_GLSL .. surface_weather.GetRainS
 		return G1 * D_GGXAlpha(alpha, max(dot(N, normalize(V + L)), 0.0)) / (4.0 * NoV) * radiance_specular_weight(N, V, roughness, L);
 	}
 ]]
+
+-- below full resolution the screen pixel each gi pixel reads, chosen once a frame for every pass (as an offset in its block)
+local function pass_pick()
+	return {
+		name = "radiance_pick",
+		ComputePass = true,
+		is_enabled = function()
+			return radiance.GetScale() < 1
+		end,
+		ColorFormat = {{"r32_sfloat", {"restir_pick", "r", 1 / 16}}},
+		framebuffer_count = 1,
+		scale = radiance.GetScale,
+		LocalSize = LOCAL_SIZE,
+		storage_images = storage_images(1),
+		uniform_buffers = {restir_uniform(false)},
+		custom_declarations = [[
+			layout(set = 0, binding = 0, r32f) uniform writeonly image2D out_pick;
+		]],
+		shader = "#define RESTIR_PICK_PASS\n" .. SURFACE_GLSL .. [[
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_pick);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
+				ivec2 picked = restir_gbuffer_pos(pos, size, gsize) - reflection_floor_div(pos * gsize, size);
+				imageStore(out_pick, pos, vec4(float(picked.x + picked.y * 256)));
+			}
+		]],
+	}
+end
 
 -- traces this frame's new candidates for the pixels whose turn it is, one thread per tracing pixel so no warp traces a few rays at the cost of a full one
 local function pass_candidates()
@@ -2102,6 +2188,7 @@ end
 if not render.GetDevice().ray_query_supported then return {} end
 
 return {
+	pass_pick(),
 	pass_candidates(),
 	pass_temporal(),
 	pass_spatial(),

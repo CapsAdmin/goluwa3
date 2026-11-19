@@ -16,6 +16,7 @@ local function recreate_framebuffers()
 	if not pipelines or not pipelines.radiance_temporal then return end
 
 	for _, name in ipairs{
+		"radiance_pick",
 		"radiance_candidates",
 		"radiance_temporal",
 		"radiance_spatial",
@@ -161,6 +162,11 @@ radiance.edge_accumulation = pvars.Setup2{
 	default = 64,
 	integer = true,
 	help = "most frames the denoiser averages beside an edge or on a thin thing, where the spatial filter stops at the other surface and averages little. it goes from radiance_accumulation to this as more of the pixels around lie on other surfaces. lights that change still cut it",
+}
+radiance.sticky_pick = pvars.Setup2{
+	key = "radiance_sticky_pick",
+	default = true,
+	help = "below full resolution a gi pixel whose usual screen pixel moved onto another surface under the taa jitter or motion (leaves, bars, thin edges) keeps a neighbouring screen pixel that still shows the surface it stood for, instead of restarting its history and blinking dark",
 }
 radiance.light_change = pvars.Setup2{
 	key = "radiance_light_change",
