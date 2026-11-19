@@ -298,7 +298,8 @@ function radiance_cache.GetScreenSampleGLSL(block_name)
 
 			if (size == ivec2(]] .. block_name .. [[.render_size)) return texelFetch(TEXTURE(screen_tex), ivec2(uv * vec2(size)), 0);
 
-			vec2 position = uv * vec2(size) - 0.5;
+			// the gi texels stand for their centres in the unjittered image
+			vec2 position = (uv - ]] .. block_name .. [[.jitter / ]] .. block_name .. [[.render_size) * vec2(size) - 0.5;
 			ivec2 base = ivec2(floor(position));
 			vec3 ray = radiance_cache_screen_ray(uv);
 			vec3 ray_x = radiance_cache_screen_ray(uv + vec2(1.0 / float(size.x), 0.0)) - ray;

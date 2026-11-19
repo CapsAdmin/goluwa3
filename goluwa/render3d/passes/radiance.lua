@@ -346,6 +346,43 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 		P = get_world_pos((vec2(gpos) + 0.5) / vec2(gsize), depth);
 		N = normalize(gbuffer_normal(gpos));
+
+		// below full resolution a gi pixel stands for its centre in the unjittered image (on the plane of the screen pixel it reads, with the normal there):
+		// the screen pixel moves with the taa jitter, which a mirror shows as its reflection jumping at a resolution taa cannot resolve
+		if (size != gsize) {
+			vec2 centre = (vec2(pos) + 0.5) * vec2(gsize) / vec2(size) + restir_data.jitter;
+			vec3 face = get_geometric_normal(gpos, P, depth, normalize(restir_data.camera_position - P));
+			vec3 G = restir_geometric_normal(gpos, P);
+			vec3 dir = get_world_pos(centre / vec2(gsize), depth) - restir_data.camera_position;
+			float facing = dot(dir, face);
+
+			if (abs(facing) > 1e-6 * length(dir)) {
+				float t = dot(P - restir_data.camera_position, face) / facing;
+
+				if (t > 0.5 && t < 2.0) P = restir_data.camera_position + dir * t;
+			}
+
+			ivec2 base = ivec2(floor(centre - 0.5));
+			vec2 f = centre - 0.5 - vec2(base);
+			float tolerance = 0.01 * distance(P, restir_data.camera_position);
+			vec3 sum = vec3(0.0);
+
+			for (int i = 0; i < 4; i++) {
+				ivec2 q = clamp(base + ivec2(i & 1, i >> 1), ivec2(0), gsize - 1);
+				float q_depth = gbuffer_depth(q);
+
+				if (q_depth <= 0.0) continue;
+
+				vec3 Q = get_world_pos((vec2(q) + 0.5) / vec2(gsize), q_depth);
+
+				if (abs(dot(Q - P, face)) > tolerance || dot(restir_geometric_normal(q, Q), G) < 0.9) continue;
+
+				sum += normalize(gbuffer_normal(q)) * (((i & 1) == 1 ? f.x : 1.0 - f.x) * ((i >> 1) == 1 ? f.y : 1.0 - f.y) + 1e-4);
+			}
+
+			if (dot(sum, sum) > 0.0) N = normalize(sum);
+		}
+
 		view_depth = -(restir_data.view * vec4(P, 1.0)).z;
 		return true;
 	}
@@ -445,8 +482,9 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 	// how far a history texel lies off the pixel's plane (last frame's view space normal and offset): a surface seen at a grazing angle changes its depth by far more than the tolerance between the jittered or rotated points a texel stands for, but stays on its plane
 	float restir_history_plane_distance(ivec2 q, ivec2 size, vec4 plane, out vec4 g) {
+		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
 		g = texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0);
-		return abs(dot(plane.xyz, restir_previous_view_ray((vec2(q) + 0.5) / vec2(size) - restir_data.jitter_shift) * g.w) - plane.w);
+		return abs(dot(plane.xyz, restir_previous_view_ray((vec2(q) + 0.5) / vec2(size) + (size == gsize ? -restir_data.jitter_shift : restir_data.jitter / vec2(gsize))) * g.w) - plane.w);
 	}
 
 	// G is the geometric normal: a normal map makes neighbouring pixels of one surface look like different ones
@@ -469,7 +507,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return prev_depth * (0.01 + 4.0 * abs(restir_data.inv_projection[1][1]) / float(size.y)) + 0.01;
 	}
 
-	// the gi pixel's centre is reprojected, not the screen pixel it samples this frame, or a still view resamples its history bilinearly every frame and smears it
+	// the gi pixel's centre is reprojected, not the screen pixel it samples this frame, or a still view resamples its history bilinearly every frame and smears it. below full resolution that centre is fixed in the unjittered image, so the jitter between the frames is not added
 	bool restir_history_taps(ivec2 pos, ivec2 gpos, vec3 P, vec3 G, ivec2 size, out ivec2 base, out vec4 weights, out vec4 plane, out float tolerance, out float moved, out vec2 position) {
 		weights = vec4(0.0);
 		base = ivec2(0);
@@ -502,7 +540,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		if (prev_depth <= 1e-5) return false;
 
 		plane = restir_history_plane(G, restir_previous_view_ray(prev_uv) * prev_depth);
-		prev_uv += restir_data.jitter_shift + (vec2(pos) + 0.5) / vec2(size) - uv;
+		prev_uv += (size == gsize ? restir_data.jitter_shift : vec2(0.0)) + (vec2(pos) + 0.5) / vec2(size) - uv;
 
 		if (any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)))) return false;
 
