@@ -503,6 +503,21 @@ else
 		}, meta)
 	end
 
+	function process.get_environment()
+		local env = {}
+		local i = 0
+
+		while ffi.C.environ[i] ~= nil do
+			local key, value = ffi.string(ffi.C.environ[i]):match("^([^=]*)=(.*)$")
+
+			if key then env[key] = value end
+
+			i = i + 1
+		end
+
+		return env
+	end
+
 	if ffi.os == "OSX" then
 		ffi.cdef("int _NSGetExecutablePath(char *buf, uint32_t *bufsize);")
 	end
