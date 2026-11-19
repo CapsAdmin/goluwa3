@@ -324,15 +324,17 @@ function FrameRecorder.New(config)
 	for _, channel in ipairs(config.channels or {{name = "color"}}) do
 		local source = channel.source or "output"
 		local format = channel.format or "rgba8"
-		local info = FrameRecorder.FORMATS[format] or error("unknown frame recorder format " .. tostring(format), 2)
+		local info = FrameRecorder.FORMATS[format] or
+			error("unknown frame recorder format " .. tostring(format), 2)
+		local color = source == "output" or source == "scene"
 		local merged = {
 			source = source,
 			format = format,
 			scale = config.scale,
 			crop = config.crop,
 			exposure = config.exposure,
-			encode = source == "output" and (format == "rgba8" or format == "r8") and "srgb" or "none",
-			luma = source == "output" and info.components == 1,
+			encode = color and (format == "rgba8" or format == "r8") and "srgb" or "none",
+			luma = color and info.components == 1,
 			glsl = FrameRecorder.BOX_AVERAGE,
 		}
 
@@ -350,6 +352,10 @@ local function resolve_source(source)
 	if source == "output" then return render.target:GetOutputTexture() end
 
 	if type(source) == "function" then return source() end
+
+	if source == "scene" then
+		return import("goluwa/render3d/post_source.lua").GetSceneSourceTexture({name = "blit_compute"})
+	end
 
 	if type(source) == "string" then
 		local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
@@ -993,6 +999,245 @@ function Clip:Stats(source, config)
 
 	self:RemoveChannel(name)
 	return stats
+end
+
+do
+	local function percentile(frame, component, fraction)
+		local values = {}
+
+		for y = 0, frame.height - 1, 2 do
+			for x = 0, frame.width - 1, 2 do
+				local v = select(component, frame:GetPixel(x, y))
+
+				if v == v then values[#values + 1] = v end
+			end
+		end
+
+		table.sort(values)
+		return values[math.max(1, math.floor(#values * fraction))] or 0
+	end
+
+	function Clip:Noise(source, config)
+		config = config or {}
+		local channel = self:GetChannel(source)
+		local window = config.window or 8
+		local lags = config.lags or {1, 4, 16, 64}
+		local prefix = config.name or source .. "_noise"
+		local row = config.row or math.floor(channel.height / 2)
+		assert(#lags == 4, "Noise takes four lags")
+		assert(
+			self.count > window and self.count > lags[4],
+			"the clip is too short for the window and lags"
+		)
+		self:Map{
+			name = prefix,
+			format = "rgba32f",
+			frames = 1,
+			batch = 1,
+			p0 = window,
+			glsl = ([[
+				vec4 map(int frame, ivec2 pixel) {
+					int count = channel_frames(SOURCE);
+					int window = int(param(0));
+					float sum = 0.0;
+					float flicker = 0.0;
+					float last = luma(fetch(SOURCE, 0, pixel));
+					float running = 0.0;
+					float smooth_sum = 0.0;
+					float smooth_sum2 = 0.0;
+
+					for (int i = 0; i < window; i++) running += luma(fetch(SOURCE, i, pixel));
+
+					for (int i = 0; i < count; i++) {
+						float v = luma(fetch(SOURCE, i, pixel));
+						sum += v;
+						flicker += abs(v - last);
+						last = v;
+
+						if (i >= window) running += v - luma(fetch(SOURCE, i - window, pixel));
+
+						if (i >= window - 1) {
+							float average = running / float(window);
+							smooth_sum += average;
+							smooth_sum2 += average * average;
+						}
+					}
+
+					float smooth_count = float(count - window + 1);
+					float smooth_mean = smooth_sum / smooth_count;
+					return vec4(sum / float(count), flicker / float(count - 1), sqrt(max(smooth_sum2 / smooth_count - smooth_mean * smooth_mean, 0.0)), 0.0);
+				}
+			]]):gsub("SOURCE", source),
+		}
+		self:Map{
+			name = prefix .. "_autocorrelation",
+			format = "rgba32f",
+			frames = 1,
+			batch = 1,
+			p0 = lags[1],
+			p1 = lags[2],
+			p2 = lags[3],
+			p3 = lags[4],
+			glsl = ([[
+				float correlation(ivec2 pixel, int lag, float mean, float variance) {
+					int count = channel_frames(SOURCE) - lag;
+					float sum = 0.0;
+
+					for (int i = 0; i < count; i++) {
+						sum += (luma(fetch(SOURCE, i, pixel)) - mean) * (luma(fetch(SOURCE, i + lag, pixel)) - mean);
+					}
+
+					return sum / float(count) / variance;
+				}
+
+				vec4 map(int frame, ivec2 pixel) {
+					int count = channel_frames(SOURCE);
+					float sum = 0.0;
+					float sum2 = 0.0;
+
+					for (int i = 0; i < count; i++) {
+						float v = luma(fetch(SOURCE, i, pixel));
+						sum += v;
+						sum2 += v * v;
+					}
+
+					float mean = sum / float(count);
+					float variance = sum2 / float(count) - mean * mean;
+
+					if (variance <= mean * mean * 1e-8) return vec4(uintBitsToFloat(0x7fc00000u));
+
+					return vec4(
+						correlation(pixel, int(param(0)), mean, variance),
+						correlation(pixel, int(param(1)), mean, variance),
+						correlation(pixel, int(param(2)), mean, variance),
+						correlation(pixel, int(param(3)), mean, variance)
+					);
+				}
+			]]):gsub("SOURCE", source),
+		}
+		self:Slice(source, {row = row, name = prefix .. "_slice"})
+		local noise = self:ReadFrame(prefix, 1)
+		local result = {
+			window = window,
+			lags = lags,
+			row = row,
+			flicker_p99 = percentile(noise, 2, 0.99),
+			boil_p99 = percentile(noise, 3, 0.99),
+			white_noise_boil_ratio = 1 / math.sqrt(window) / (2 / math.sqrt(math.pi)),
+			autocorrelation = {0, 0, 0, 0},
+			varying_fraction = 0,
+		}
+		local luma_sum, flicker_sum, boil_sum, count = 0, 0, 0, 0
+
+		for y = 0, noise.height - 1, 2 do
+			for x = 0, noise.width - 1, 2 do
+				local l, f, b = noise:GetPixel(x, y)
+				luma_sum, flicker_sum, boil_sum, count = luma_sum + l, flicker_sum + f, boil_sum + b, count + 1
+			end
+		end
+
+		result.mean = luma_sum / count
+		result.flicker = flicker_sum / count
+		result.boil = boil_sum / count
+		result.boil_ratio = result.boil / result.flicker
+		result.correlation = result.boil_ratio / result.white_noise_boil_ratio
+		result.relative_flicker = result.flicker / result.mean
+		result.relative_boil = result.boil / result.mean
+		local autocorrelation = self:ReadFrame(prefix .. "_autocorrelation", 1)
+		local varying = 0
+
+		for y = 0, autocorrelation.height - 1, 2 do
+			for x = 0, autocorrelation.width - 1, 2 do
+				local a, b, c, d = autocorrelation:GetPixel(x, y)
+
+				if a == a then
+					local sums = result.autocorrelation
+					sums[1], sums[2], sums[3], sums[4] = sums[1] + a, sums[2] + b, sums[3] + c, sums[4] + d
+					varying = varying + 1
+				end
+			end
+		end
+
+		for i = 1, 4 do
+			result.autocorrelation[i] = varying > 0 and result.autocorrelation[i] / varying or 0
+		end
+
+		result.varying_fraction = varying / count
+
+		do
+			local values = result.autocorrelation
+
+			if values[1] < 0.5 then
+				result.lifetime = lags[1] * values[1] / 0.5
+			else
+				for i = 2, 4 do
+					if values[i] < 0.5 then
+						local t = (values[i - 1] - 0.5) / (values[i - 1] - values[i])
+						result.lifetime = math.exp(math.log(lags[i - 1]) + t * (math.log(lags[i]) - math.log(lags[i - 1])))
+
+						break
+					end
+				end
+			end
+		end
+
+		local scale = math.max(result.flicker_p99, result.boil_p99, 1e-12)
+		local panel_width = config.panel_width or math.min(channel.width, 1280)
+		local panel_height = math.floor(panel_width * channel.height / channel.width / 2) * 2
+		result.panel = prefix .. "_panel"
+		self:Map{
+			name = result.panel,
+			format = "rgba8",
+			frames = 1,
+			width = panel_width,
+			height = panel_height,
+			p0 = 1 / scale,
+			p1 = row,
+			p2 = 0.5 / math.max(result.boil_p99, 1e-12),
+			p3 = (
+					channel.format == "rgba8" or
+					channel.format == "r8"
+				)
+				and
+				0 or
+				0.18 / math.max(result.mean, 1e-30),
+			glsl = ([[
+				vec3 heat(float v) {
+					v = clamp(v, 0.0, 1.0);
+					return clamp(vec3(v * 3.0, v * 3.0 - 1.0, v * 3.0 - 2.0), 0.0, 1.0);
+				}
+
+				vec4 map(int frame, ivec2 pixel) {
+					ivec2 half_size = output_size() / 2;
+					ivec2 quadrant = min(pixel / half_size, ivec2(1));
+					ivec2 local_pixel = pixel - quadrant * half_size;
+					ivec2 size = channel_size(SOURCE);
+					ivec2 source_pixel = local_pixel * size / half_size;
+
+					if (quadrant == ivec2(0, 0)) {
+						if (abs(source_pixel.y - int(param(1))) * half_size.y < size.y) return vec4(0.0, 1.0, 1.0, 1.0);
+
+						vec3 color = fetch(SOURCE, channel_frames(SOURCE) / 2, source_pixel).rgb;
+
+						if (param(3) > 0.0) color = recorder_to_srgb(clamp(color * param(3), 0.0, 1.0));
+
+						return vec4(color, 1.0);
+					}
+
+					vec4 n = fetch(NOISE, 0, source_pixel);
+
+					if (quadrant == ivec2(1, 0)) return vec4(heat(n.y * param(0)), 1.0);
+
+					if (quadrant == ivec2(0, 1)) return vec4(heat(n.z * param(0)), 1.0);
+
+					ivec2 slice_pixel = local_pixel * channel_size(SLICE) / half_size;
+					float mean = fetch(NOISE, 0, ivec2(slice_pixel.x, int(param(1)))).x;
+					return vec4(vec3(0.5 + (luma(fetch(SLICE, 0, slice_pixel)) - mean) * param(2)), 1.0);
+				}
+			]]):gsub("SOURCE", source):gsub("NOISE", prefix):gsub("SLICE", prefix .. "_slice"),
+		}
+		return result
+	end
 end
 
 function Clip:RemoveChannel(name)

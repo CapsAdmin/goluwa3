@@ -137,3 +137,46 @@ T.Test("FrameRecorder rolling clip", function()
 
 	clip:Remove()
 end)
+
+local noise_run = {}
+
+T.Test2DFrames("FrameRecorder Noise tells flicker from boiling", 48, function(w, h, frame)
+	render2d.SetColor(0, 0, 0, 1)
+	render2d.DrawRect(0, 0, w, h)
+	local flicker = (frame * 7919 % 13) / 13
+	render2d.SetColor(flicker, flicker, flicker, 1)
+	render2d.DrawRect(32, 32, 64, 64)
+	local boil = 0.5 + 0.3 * math.sin(frame / 48 * math.pi * 2)
+	render2d.SetColor(boil, boil, boil, 1)
+	render2d.DrawRect(160, 32, 64, 64)
+
+	if frame == 1 then
+		noise_run.clip = nil
+
+		FrameRecorder.Record({frames = 48}, function(clip)
+			noise_run.clip = clip
+		end)
+	end
+end)
+
+T.Test("FrameRecorder Noise maps", function()
+	local clip = assert(noise_run.clip, "the noise recording did not finish")
+	local result = clip:Noise("color", {lags = {1, 2, 4, 8}, panel_width = 256})
+	local noise = clip:ReadFrame("color_noise", 1)
+	local autocorrelation = clip:ReadFrame("color_noise_autocorrelation", 1)
+	local _, flicker_a, boil_a = noise:GetPixel(64, 64)
+	local _, flicker_b, boil_b = noise:GetPixel(192, 64)
+	T(flicker_a)[">"](0.1)
+	T(boil_a / flicker_a)["<"](0.6)
+	T(boil_b / flicker_b)[">"](2)
+	T(select(1, autocorrelation:GetPixel(64, 64)))["<"](0.5)
+	T(select(1, autocorrelation:GetPixel(192, 64)))[">"](0.9)
+	local a = autocorrelation:GetPixel(300, 300)
+	assert(a ~= a, "a pixel that never changes has no autocorrelation")
+	T(result.varying_fraction)[">"](0)
+	T(result.varying_fraction)["<"](0.2)
+	local panel = clip:ReadFrame(result.panel, 1)
+	T(panel.width)["=="](256)
+	T(panel.height)["=="](256)
+	clip:Remove()
+end)
