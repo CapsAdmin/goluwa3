@@ -361,19 +361,19 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 				vec4 light_space_pos = light_space_matrix * vec4(offset_pos, 1.0);
 				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
+				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
+				float footprint_texels = sun_radius_tan > 0.0 ? SOFT_SHADOW_MAX_TEXELS : filter_radius_texels;
+				vec2 edge = (footprint_texels + 1.0) / shadow_size;
 
 				if (
 					proj_coords.z > 1.0 ||
 					proj_coords.z < 0.0 ||
-					proj_coords.x < 0.002 ||
-					proj_coords.x > 0.998 ||
-					proj_coords.y < 0.002 ||
-					proj_coords.y > 0.998
+					any(lessThan(proj_coords.xy, edge)) ||
+					any(greaterThan(proj_coords.xy, 1.0 - edge))
 				) {
 					return -1.0;
 				}
 
-				vec2 shadow_size = vec2(textureSize(TEXTURE(shadow_map_idx), 0));
 				if (sun_radius_tan > 0.0) {
 					float soft = sampleSoftShadowMap(
 						shadow_map_idx,
