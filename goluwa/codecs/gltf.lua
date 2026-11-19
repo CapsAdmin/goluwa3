@@ -163,7 +163,19 @@ end
 local function decode_texture_ref(ref)
 	if not ref then return nil end
 
-	return {index = ref.index, tex_coord = ref.texCoord}
+	local transform = ref.extensions and ref.extensions.KHR_texture_transform
+	return {
+		index = ref.index,
+		tex_coord = ref.texCoord,
+		scale = ref.scale,
+		strength = ref.strength,
+		transform = transform and
+			{
+				offset = transform.offset or {0, 0},
+				scale = transform.scale or {1, 1},
+				rotation = transform.rotation or 0,
+			},
+	}
 end
 
 local function decode_material(material_info)
@@ -172,16 +184,8 @@ local function decode_material(material_info)
 		double_sided = material_info.doubleSided or false,
 		alpha_mode = material_info.alphaMode or "OPAQUE",
 		alpha_cutoff = material_info.alphaCutoff or 0.5,
-		normal_texture = material_info.normalTexture and
-			{
-				index = material_info.normalTexture.index,
-				scale = material_info.normalTexture.scale,
-			},
-		occlusion_texture = material_info.occlusionTexture and
-			{
-				index = material_info.occlusionTexture.index,
-				strength = material_info.occlusionTexture.strength,
-			},
+		normal_texture = decode_texture_ref(material_info.normalTexture),
+		occlusion_texture = decode_texture_ref(material_info.occlusionTexture),
 		emissive_texture = decode_texture_ref(material_info.emissiveTexture),
 		emissive_factor = material_info.emissiveFactor,
 	}
@@ -220,6 +224,8 @@ local function decode_material(material_info)
 	if extensions.KHR_materials_emissive_strength then
 		material.emissive_strength = extensions.KHR_materials_emissive_strength.emissiveStrength or 1
 	end
+
+	if extensions.KHR_materials_unlit then material.unlit = true end
 
 	if extensions.KHR_materials_specular then
 		material.specular_factor = extensions.KHR_materials_specular.specularFactor or 1
@@ -303,6 +309,8 @@ function gltf.Load(path, options)
 		KHR_materials_specular = true,
 		KHR_materials_clearcoat = true,
 		EXT_mesh_gpu_instancing = true,
+		KHR_texture_transform = true,
+		KHR_materials_unlit = true,
 	}
 
 	if gltf_data.extensionsRequired then

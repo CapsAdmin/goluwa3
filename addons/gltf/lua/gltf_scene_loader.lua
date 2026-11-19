@@ -1,5 +1,7 @@
 local ffi = require("ffi")
 local gltf = import("goluwa/codecs/gltf.lua")
+local ktx2 = import("goluwa/codecs/ktx2.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local tasks = import("goluwa/tasks.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -127,7 +129,7 @@ local function translate_gltf_sampler(sampler_info)
 	}
 end
 
-local function load_texture(gltf_data, texture_ref, srgb)
+local function load_texture(gltf_data, texture_ref, srgb, view)
 	if not texture_ref then return nil end
 
 	local texture_info = gltf_data.textures[texture_ref.index + 1]
@@ -147,16 +149,51 @@ local function load_texture(gltf_data, texture_ref, srgb)
 	local sampler_info = texture_info.sampler and
 		gltf_data.raw.samplers and
 		gltf_data.raw.samplers[texture_info.sampler + 1]
+	local path = image_info.path
+	local block_compressed = path:ends_with(".dds") or path:ends_with(".ktx2")
 	local texture = Texture.New{
-		path = image_info.path,
-		cache_key = gltf_data.path .. ":" .. texture_ref.index,
-		format = not image_info.path:ends_with(".dds") and "r8g8b8a8_unorm" or nil,
+		path = path,
+		cache_key = gltf_data.path .. ":" .. texture_ref.index .. (view and ":swizzled" or ""),
+		format = not block_compressed and "r8g8b8a8_unorm" or nil,
 		srgb = srgb,
 		mip_map_levels = "auto",
 		sampler = translate_gltf_sampler(sampler_info),
+		stream = true,
+		view = view,
 	}
 	tasks.Wait()
 	return texture
+end
+
+-- a texture with only red and green cannot hold glTF's metallic in blue: texproc packs roughness in red, metallic in green
+local TWO_CHANNEL_METALLIC_ROUGHNESS = {component_r = "zero", component_g = "r", component_b = "g", component_a = "one"}
+local TWO_CHANNEL_FORMATS = {bc5_unorm_block = true, bc5_snorm_block = true}
+
+local function is_two_channel(gltf_data, texture_ref)
+	if not texture_ref then return false end
+
+	local texture_info = gltf_data.textures[texture_ref.index + 1]
+	local image_info = texture_info and gltf_data.images[texture_info.source + 1]
+
+	if not (image_info and image_info.path and image_info.path:ends_with(".ktx2")) then
+		return false
+	end
+
+	local header = ktx2.ReadFileHeader(image_info.path)
+	return header ~= nil and TWO_CHANNEL_FORMATS[header.format] == true
+end
+
+local function apply_texture_transform(config, texture_ref)
+	local transform = texture_ref and texture_ref.transform
+
+	if not transform then return end
+
+	local c, s = math.cos(transform.rotation), math.sin(transform.rotation)
+	local sx, sy = transform.scale[1], transform.scale[2]
+	local u = Vec4(c * sx, s * sy, transform.offset[1], 0)
+	local v = Vec4(-s * sx, c * sy, transform.offset[2], 0)
+	config.BaseTextureTransformU, config.BaseTextureTransformV = u, v
+	config.BumpTransformU, config.BumpTransformV = u, v
 end
 
 local spec_gloss_push_constant_t = ffi.typeof("int[1]")
@@ -244,7 +281,15 @@ local function build_material(gltf_data, material_index)
 		config.MetallicMultiplier = pbr.metallic_factor or 1
 		config.RoughnessMultiplier = pbr.roughness_factor or 1
 		config.AlbedoTexture = load_texture(gltf_data, pbr.base_color_texture, true)
-		config.MetallicRoughnessTexture = load_texture(gltf_data, pbr.metallic_roughness_texture)
+		apply_texture_transform(config, pbr.base_color_texture)
+		config.MetallicRoughnessTexture = load_texture(
+			gltf_data,
+			pbr.metallic_roughness_texture,
+			false,
+			is_two_channel(gltf_data, pbr.metallic_roughness_texture) and
+				TWO_CHANNEL_METALLIC_ROUGHNESS or
+				nil
+		)
 	else
 		config.ColorMultiplier = Color(1, 1, 1, 1)
 		config.MetallicMultiplier = 0
@@ -279,6 +324,8 @@ local function build_material(gltf_data, material_index)
 	config.EmissiveMultiplier = Color(emissive[1] * strength, emissive[2] * strength, emissive[3] * strength, 1)
 
 	if info.specular_factor then config.SpecularMultiplier = info.specular_factor end
+
+	if info.unlit then config.Unlit = true end
 
 	if info.clearcoat_factor then
 		config.Clearcoat = info.clearcoat_factor
