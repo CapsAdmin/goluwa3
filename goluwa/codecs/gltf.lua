@@ -543,5 +543,6 @@ function gltf.Load(path, options)
 	return result
 end
 
+gltf.ReadAccessor = read_accessor_raw
 gltf.file_extensions = {"gltf", "glb"}
 return gltf
