@@ -15,6 +15,9 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local media = import("goluwa/render3d/media.lua")
 local weather = import("goluwa/render3d/weather.lua")
+local fs = import("goluwa/filesystem/fs.lua")
+local cluster_stream = import("goluwa/render3d/scene/cluster_stream.lua")
+local bake_scene = import("goluwa/render3d/cluster_stream/bake_scene.lua")
 local gltf_scene_loader = {}
 
 local function decompose_node_matrix(m)
@@ -346,8 +349,69 @@ local function build_material(gltf_data, material_index)
 	return Material.New(config)
 end
 
-local function build_mesh_primitives(gltf_data, mesh, materials)
+local function build_streamed_primitive(cache_path, material)
+	local geometry = cluster_stream.LoadGeometry(cache_path)
+	local vertices, vertex_count, indices, index_count = cluster_stream.BuildFallback(geometry, cluster_stream.GetFallbackLevel(geometry))
+	local header = geometry.header
+	local poly = Polygon3D.New()
+	poly:UploadVertexArray(
+		vertices,
+		vertex_count,
+		indices,
+		index_count,
+		false,
+		nil,
+		AABB(
+			header.aabb_min[0],
+			header.aabb_min[1],
+			header.aabb_min[2],
+			header.aabb_max[0],
+			header.aabb_max[1],
+			header.aabb_max[2]
+		),
+		"uint32_t"
+	)
+	poly.cluster_geometry = geometry
+	return {polygon3d = poly, material = material}
+end
+
+local function get_material(gltf_data, materials, index)
+	if not index then return nil end
+
+	local material = materials[index + 1]
+
+	if not material then
+		material = build_material(gltf_data, index)
+		materials[index + 1] = material
+	end
+
+	return material
+end
+
+local function build_mesh_primitives(gltf_data, mesh_index, materials, options)
 	local primitives = {}
+	local raw_mesh = gltf_data.raw.meshes[mesh_index]
+
+	if options.cluster_cache then
+		local all_baked = true
+
+		for i, raw_primitive in ipairs(raw_mesh.primitives) do
+			local cache_path = bake_scene.GetCachePath(options.cluster_cache, gltf_data, mesh_index, i)
+
+			if fs.exists(cache_path) then
+				primitives[#primitives + 1] = build_streamed_primitive(cache_path, get_material(gltf_data, materials, raw_primitive.material))
+			else
+				all_baked = false
+				options.skipped_primitives = (options.skipped_primitives or 0) + 1
+			end
+		end
+
+		if all_baked or options.only_baked then return primitives end
+
+		primitives = {}
+	end
+
+	local mesh = gltf_data.meshes[mesh_index]
 
 	for i, primitive in ipairs(mesh.primitives) do
 		if primitive.mode ~= "triangles" then
@@ -404,18 +468,10 @@ local function build_mesh_primitives(gltf_data, mesh, materials)
 			aabb,
 			index_type
 		)
-		local material
-
-		if primitive.material then
-			material = materials[primitive.material + 1]
-
-			if not material then
-				material = build_material(gltf_data, primitive.material)
-				materials[primitive.material + 1] = material
-			end
-		end
-
-		primitives[#primitives + 1] = {polygon3d = poly, material = material}
+		primitives[#primitives + 1] = {
+			polygon3d = poly,
+			material = get_material(gltf_data, materials, primitive.material),
+		}
 
 		::continue::
 	end
@@ -568,6 +624,16 @@ function gltf_scene_loader.Load(path, options)
 		}
 	end
 
+	if options.cluster_cache == nil and options.name then
+		local directory = cluster_stream.GetCacheDirectory(options.name)
+
+		if fs.is_directory(directory) then
+			options.cluster_cache = directory
+
+			if options.only_baked == nil then options.only_baked = true end
+		end
+	end
+
 	local scene = gltf_data.scenes[gltf_data.scene + 1]
 	local root_node_indices = scene and scene.nodes or {}
 	local reachable
@@ -599,7 +665,7 @@ function gltf_scene_loader.Load(path, options)
 			local primitives = mesh_primitives[mesh_index]
 
 			if not primitives then
-				primitives = build_mesh_primitives(gltf_data, mesh, materials)
+				primitives = build_mesh_primitives(gltf_data, mesh_index, materials, options)
 				mesh_primitives[mesh_index] = primitives
 				tasks.Wait()
 			end
@@ -620,6 +686,15 @@ function gltf_scene_loader.Load(path, options)
 				end
 			end
 		end
+	end
+
+	if options.skipped_primitives then
+		logf(
+			"gltf %s: %d primitives have no cluster stream bake in %s and were skipped\n",
+			path,
+			options.skipped_primitives,
+			options.cluster_cache
+		)
 	end
 
 	local root_entity = Entity.New{Name = options.name or path, Parent = options.parent}

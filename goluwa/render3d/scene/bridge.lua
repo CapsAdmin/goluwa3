@@ -8,6 +8,7 @@ local draw = import("goluwa/render3d/scene/draw.lua")
 local scene_parts = import("goluwa/render3d/scene/parts.lua")
 local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
 local tessellation = import("goluwa/render3d/scene/tessellation.lua")
+local cluster_stream = import("goluwa/render3d/scene/cluster_stream.lua")
 local cluster_rt = import("goluwa/render3d/scene/cluster_rt.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local lod = import("goluwa/render3d/lod.lua")
@@ -17,6 +18,7 @@ local bridge = {}
 local function clear_row(id)
 	draw.ClearRow(id)
 	tessellation.ClearRow(id)
+	cluster_stream.ClearRow(id)
 	cluster_rt.ClearInstance(id)
 end
 
@@ -267,8 +269,12 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local drawn = in_view and module.MaterialDrawsInGBuffer(material)
 	local translucent = in_view and module.MaterialDrawsTranslucent(material)
 	local tessellated = drawn and tessellation.IsEligible(material, entry)
+	local streamed = drawn and
+		not tessellated and
+		entry.polygon3d.cluster_geometry ~= nil and
+		cluster_stream.IsAvailable()
 
-	if tessellated then drawn = false end
+	if tessellated or streamed then drawn = false end
 
 	if shown and visual.CastShadows then flags = instances.RASTER_SHADOW end
 
@@ -324,7 +330,13 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		tessellation.ClearRow(item.id)
 	end
 
-	item.raster = (drawn or translucent or tessellated) or nil
+	if streamed then
+		cluster_stream.SetRow(item.id, mesh, material, entry.polygon3d, matrix, material:GetRasterBothFaces())
+	else
+		cluster_stream.ClearRow(item.id)
+	end
+
+	item.raster = (drawn or translucent or tessellated or streamed) or nil
 end
 
 local function item_mask(item, frame)

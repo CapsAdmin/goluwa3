@@ -8,6 +8,7 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local gbuffer_extras = import("goluwa/render3d/gbuffer_extras.lua")
 local tessellation = import("goluwa/render3d/scene/tessellation.lua")
+local cluster_stream = import("goluwa/render3d/scene/cluster_stream.lua")
 local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
@@ -957,6 +958,25 @@ do
 				)
 				pass.name = tessellation.name
 				pass.vertex = tessellation.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
+				return pass
+			end,
+		}
+	)
+	render3d.RegisterPipelineVariants(
+		cluster_stream.name,
+		{
+			prewarm = {},
+			label = function(variant)
+				local features = shader_features.GetName(scene_draw.GetVariantBits(variant))
+				return "cluster_stream" .. (features ~= "" and "," .. features or "")
+			end,
+			build = function(variant)
+				local pass = build_multi_draw_pass(
+					build_ssdm_fragment_shader(false, true, false, true),
+					scene_draw.GetVariantBits(variant)
+				)
+				pass.name = cluster_stream.name
+				pass.vertex = cluster_stream.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
 				return pass
 			end,
 		}
