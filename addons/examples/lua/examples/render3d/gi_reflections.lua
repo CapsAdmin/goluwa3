@@ -5,6 +5,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
+import("lua/saved_views.lua").SetScene()
 local static_body = {MotionType = "static", Friction = 0.8, Restitution = 0}
 
 local function mat(color, roughness, metallic)
@@ -192,7 +193,12 @@ do
 	box("tower_floor1", Vec3(cx, 0.05, 0), Vec3(w, 0.1, d), grey)
 	box("tower_wall1_back", Vec3(cx, floor1_h / 2, -d / 2), Vec3(w, floor1_h, t), grey)
 	box("tower_wall1_front", Vec3(cx, floor1_h / 2, d / 2), Vec3(w, floor1_h, t), grey)
-	box("tower_wall1_left", Vec3(cx - w / 2, floor1_h / 2, 0), Vec3(t, floor1_h, d), grey)
+	box(
+		"tower_wall1_left",
+		Vec3(cx - w / 2, floor1_h / 2, 0),
+		Vec3(t, floor1_h, d),
+		grey
+	)
 	box(
 		"tower_wall1_right",
 		Vec3(cx + w / 2, floor1_h / 2, 0),
@@ -382,7 +388,17 @@ do
 	local cx, cz, w, h, d = 125, -60, 10, 4, 8
 	room("desk_room", cx, cz, w, h, d, white)
 	box("desk_room_desk", Vec3(cx - 2, 0.4, cz - 2.8), Vec3(3, 0.8, 1.2), orange)
-	spot_light("desk_room_desk_lamp", Vec3(cx - 2, 1.25, cz - 2.8), -90, 0, warm, 450, 6, 30, 50)
+	spot_light(
+		"desk_room_desk_lamp",
+		Vec3(cx - 2, 1.25, cz - 2.8),
+		-90,
+		0,
+		warm,
+		450,
+		6,
+		30,
+		50
+	)
 	point_light(
 		"desk_room_floor_lamp",
 		Vec3(cx + w / 2 - 0.5, 0.3, cz - d / 2 + 0.5),
@@ -468,7 +484,13 @@ do
 	local surfaces = {
 		{pos = Vec3(cx, 0.1, cz), u = w / 2, v = d / 2, axis = "y", sign = 1},
 		{pos = Vec3(cx, inner_y, cz), u = w / 2, v = d / 2, axis = "y", sign = -1},
-		{pos = Vec3(cx, h / 2, cz - inner_z), u = w / 2, v = h / 2, axis = "z", sign = 1},
+		{
+			pos = Vec3(cx, h / 2, cz - inner_z),
+			u = w / 2,
+			v = h / 2,
+			axis = "z",
+			sign = 1,
+		},
 		{
 			pos = Vec3(cx, h / 2, cz + inner_z),
 			u = w / 2,
@@ -476,7 +498,13 @@ do
 			axis = "z",
 			sign = -1,
 		},
-		{pos = Vec3(cx - inner_x, h / 2, cz), u = d / 2, v = h / 2, axis = "x", sign = 1},
+		{
+			pos = Vec3(cx - inner_x, h / 2, cz),
+			u = d / 2,
+			v = h / 2,
+			axis = "x",
+			sign = 1,
+		},
 		{
 			pos = Vec3(cx + inner_x, h / 2, cz),
 			u = d / 2,
@@ -882,7 +910,11 @@ do
 
 			for seg = 0, SEGMENTS do
 				local phi = seg / SEGMENTS * math.pi * 2
-				local dir = Vec3(math.sin(theta) * math.cos(phi), math.cos(theta), math.sin(theta) * math.sin(phi))
+				local dir = Vec3(
+					math.sin(theta) * math.cos(phi),
+					math.cos(theta),
+					math.sin(theta) * math.sin(phi)
+				)
 				local r = RADIUS * (1 + 0.08 * noise(dir.x * 3, dir.y * 3, dir.z * 3))
 
 				for _, spike in ipairs(spikes) do
@@ -1061,7 +1093,14 @@ do
 		}
 	end
 
-	plane("floor", Vec3(cx, 0.11, cz), Vec3(0, 1, 0), w / 2 - t / 2, d / 2 - t / 2, cobbles)
+	plane(
+		"floor",
+		Vec3(cx, 0.11, cz),
+		Vec3(0, 1, 0),
+		w / 2 - t / 2,
+		d / 2 - t / 2,
+		cobbles
+	)
 	plane(
 		"ridged_back",
 		Vec3(cx, h / 2, cz - d / 2 + t / 2 + 0.01),

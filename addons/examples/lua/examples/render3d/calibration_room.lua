@@ -7,6 +7,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local exposure = import("goluwa/render3d/exposure.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+import("lua/saved_views.lua").SetScene()
 local root = Entity.New{Name = "calibration_room"}
 local ROOM_WIDTH = 4
 local ROOM_DEPTH = 3.6
