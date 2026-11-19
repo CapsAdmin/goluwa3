@@ -241,6 +241,5 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 end
 
 import.loaded["goluwa/render3d/model_loader.lua"] = model_loader
-import("goluwa/render3d/model_decoders/gltf.lua")
 import("goluwa/render3d/model_decoders/mesh.lua")
 return model_loader

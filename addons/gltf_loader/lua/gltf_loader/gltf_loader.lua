@@ -1,10 +1,8 @@
 local loaders = import("goluwa/loaders.lua")
-local gltf_scene_loader = import("lua/gltf_scene_loader.lua")
-local gltf_scenes = import("lua/gltf_scenes.lua")
+local gltf_scene_loader = import("addons/gltf_loader/lua/gltf_loader/scene_loader.lua")
+local gltf_scenes = import("addons/gltf_loader/lua/gltf_loader/scenes.lua")
 local GAME_ID = "scenes"
-loaders.Register(
-	"gltf",
-	{
+local gltf_loader = {
 		Find = function(name)
 			if gltf_scenes.FindIndex(name) then return name end
 
@@ -34,5 +32,6 @@ loaders.Register(
 		GetMapThumbnail = function(map)
 			return gltf_scenes.FindThumbnail(map.name)
 		end,
-	}
-)
+}
+loaders.Register("gltf", gltf_loader)
+return gltf_loader

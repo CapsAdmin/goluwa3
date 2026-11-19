@@ -1,8 +1,8 @@
 local commands = import("goluwa/cli/commands.lua")
 local tasks = import("goluwa/tasks.lua")
 local event = import("goluwa/event.lua")
-local gltf_scene_loader = import("lua/gltf_scene_loader.lua")
-local gltf_scenes = import("lua/gltf_scenes.lua")
+local gltf_scene_loader = import("addons/gltf_loader/lua/gltf_loader/scene_loader.lua")
+local gltf_scenes = import("addons/gltf_loader/lua/gltf_loader/scenes.lua")
 
 commands.Add("gltf_scene=string", function(name)
 	local path = assert(gltf_scenes.FindIndex(name), "could not find gltf scene " .. name)

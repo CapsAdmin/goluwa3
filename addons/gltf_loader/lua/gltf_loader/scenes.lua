@@ -1,6 +1,6 @@
 local fs = import("goluwa/filesystem/fs.lua")
 local gltf_scenes = {}
-gltf_scenes.DIR = "addons/gltf/scenes/"
+gltf_scenes.DIR = "addons/gltf_loader/scenes/"
 local SUBDIRECTORIES = {"", "gltf/", "glTF/", "glTF-Binary/"}
 local FILE_RANKS = {
 	{"^scene%.gltf$"},
