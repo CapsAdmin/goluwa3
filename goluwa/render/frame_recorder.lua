@@ -998,6 +998,7 @@ end
 function Clip:RemoveChannel(name)
 	local channel = self:GetChannel(name)
 	remove_channel(channel)
+
 	for i, other in ipairs(self.channels) do
 		if other == channel then
 			table.remove(self.channels, i)
@@ -1078,28 +1079,31 @@ function Frame:GetSize()
 	return self.width, self.height
 end
 
-function Frame:GetPixel(x, y)
-	local format = self.format_info
-	local components = format.components
-	local base = y * self.row_elements + x * components
-	local values = self.values
-	local out = {0, 0, 0, 1}
+do
+	local function decode(element, v)
+		if element == "uint8_t" then return v / 255 end
 
-	for c = 0, components - 1 do
-		local v = values[base + c]
+		if element == "uint16_t" then return math.half2float(v) end
 
-		if format.element == "uint8_t" then
-			v = v / 255
-		elseif format.element == "uint16_t" then
-			v = math.half2float(v)
-		end
-
-		out[c + 1] = v
+		return v
 	end
 
-	if components == 1 then out[2], out[3] = out[1], out[1] end
+	function Frame:GetPixel(x, y)
+		local format = self.format_info
+		local components = format.components
+		local element = format.element
+		local base = y * self.row_elements + x * components
+		local values = self.values
+		local r = decode(element, values[base])
 
-	return out[1], out[2], out[3], out[4]
+		if components == 1 then return r, r, r, 1 end
+
+		local g = decode(element, values[base + 1])
+
+		if components == 2 then return r, g, 0, 1 end
+
+		return r, g, decode(element, values[base + 2]), decode(element, values[base + 3])
+	end
 end
 
 function Frame:ToPNG(opt)
