@@ -524,30 +524,39 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return dot(weights, vec4(1.0)) > 0.0;
 	}
 
-	// a thin thing (a fence, a leaf) under the jitter: the 4 texels around last frame's position hold what is behind it half the time, the texel around them that holds this surface carries its history
+	// a thin thing (a fence, a leaf) under the jitter: the 4 texels around last frame's position hold what is behind it half the time, the nearest ring around them with a texel that holds this surface carries its history
 	bool restir_history_search(vec2 position, ivec2 size, vec3 G, vec4 plane, float tolerance, out ivec2 found) {
 		found = ivec2(-1);
 
 		if (restir_data.temporal_search == 0 || position.x <= -1.0) return false;
 
 		ivec2 nearest = ivec2(floor(position + 0.5));
-		float best = 1e30;
 
-		for (int i = 0; i < 9; i++) {
-			ivec2 q = nearest + ivec2(i % 3 - 1, i / 3 - 1);
+		for (int ring = 1; ring <= 2; ring++) {
+			float best = 1e30;
 
-			if (!restir_history_matches(q, size, G, plane, tolerance)) continue;
+			for (int y = -ring; y <= ring; y++) {
+				for (int x = -ring; x <= ring; x++) {
+					if (max(abs(x), abs(y)) != ring && ring > 1) continue;
 
-			vec4 g;
-			float error = restir_history_plane_distance(q, size, plane, g);
+					ivec2 q = nearest + ivec2(x, y);
 
-			if (error < best) {
-				best = error;
-				found = q;
+					if (!restir_history_matches(q, size, G, plane, tolerance)) continue;
+
+					vec4 g;
+					float error = restir_history_plane_distance(q, size, plane, g);
+
+					if (error < best) {
+						best = error;
+						found = q;
+					}
+				}
 			}
+
+			if (found.x >= 0) return true;
 		}
 
-		return found.x >= 0;
+		return false;
 	}
 ]]
 -- the world cache lookup at off screen hits (light past the first bounce) runs for a whole thread group on one frame in 1/share and counts 1/share as much: a linear estimate, so no bias and nothing leaks, and coherent per group, so the warps that skip it skip its visibility rays
