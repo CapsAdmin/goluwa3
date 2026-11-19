@@ -955,7 +955,7 @@ do
 
 			if not cached then
 				local extension = path:lower():match("%.[^%.]+$") or ""
-				local provider = import("goluwa/vfs.lua").GetAddonField("material_loaders")[extension]
+				local provider = import("goluwa/vfs.lua").GetAddonModules("material_loaders")[extension:sub(2)]
 
 				if provider then import(provider) end
 

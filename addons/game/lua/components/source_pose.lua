@@ -379,7 +379,7 @@ function META:AddDonorClips(skeleton)
 			local donor = clip_donors[donor_path]
 
 			if not donor then
-				donor = import("lua/source_loader/model_decoders/mdl.lua").LoadSkeleton(donor_path)
+				donor = import("lua/model_decoders/mdl.lua").LoadSkeleton(donor_path)
 				clip_donors[donor_path] = donor
 			end
 
@@ -390,7 +390,7 @@ function META:AddDonorClips(skeleton)
 	end
 
 	local donor = female and DONOR_FEMALE or DONOR_MALE
-	local mdl_decoder = import("lua/source_loader/model_decoders/mdl.lua")
+	local mdl_decoder = import("lua/model_decoders/mdl.lua")
 	mdl_decoder.AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
 	mdl_decoder.AddAnimations(skeleton, DONOR_GET_UP, is_get_up_clip, DONOR_BIND_BONES)
 	import("goluwa/render3d/animation_retarget.lua").AddBanks(skeleton)

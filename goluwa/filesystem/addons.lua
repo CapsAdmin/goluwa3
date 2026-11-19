@@ -1,5 +1,6 @@
 local callstack = import("goluwa/debug/callstack.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 vfs.loaded_addons = vfs.loaded_addons or {}
 vfs.disabled_addons = vfs.disabled_addons or {}
 local whitelist
@@ -184,6 +185,39 @@ function vfs.GetAddonField(field)
 	end
 
 	return merged
+end
+
+do
+	local cache = {}
+	local cache_generation
+
+	function vfs.GetAddonModules(directory)
+		if cache_generation ~= vfs.mount_generation then
+			cache = {}
+			cache_generation = vfs.mount_generation
+		end
+
+		local modules = cache[directory]
+
+		if modules then return modules end
+
+		modules = {}
+
+		for _, info in ipairs(vfs.loaded_addons) do
+			if info.load ~= false then
+				for _, file in ipairs(fs.get_files(info.path .. "lua/" .. directory .. "/") or {}) do
+					local name = file:match("^(.+)%.lua$")
+
+					if name and not modules[name] then
+						modules[name] = "lua/" .. directory .. "/" .. file
+					end
+				end
+			end
+		end
+
+		cache[directory] = modules
+		return modules
+	end
 end
 
 function vfs.GetAddonLuaRoots()

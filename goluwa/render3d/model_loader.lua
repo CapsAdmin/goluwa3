@@ -45,11 +45,11 @@ function model_loader.FindModelDecoder(path)
 		end
 	end
 
-	for extension, module in pairs(vfs.GetAddonField("model_decoders")) do
-		if path:ends_with(extension) and not import.loaded[module] then
-			import(module)
-			return model_loader.FindModelDecoder(path)
-		end
+	local module = vfs.GetAddonModules("model_decoders")[path:lower():match("%.([^%./]+)$")]
+
+	if module and not import.loaded[module] then
+		import(module)
+		return model_loader.FindModelDecoder(path)
 	end
 end
 

@@ -22,12 +22,12 @@ Tests live in each addon's `tests/`. Tests do not run autorun, so a test of a ga
 
 ## Loader addons
 
-`source_loader` (Source 1 and 2), `crysis_loader` and `gltf_loader` are independent addons. Core never imports from them (`test/tests/other/core_dependencies.lua` checks); they import core. Their `config.lua` declares what they provide, and core imports it on first use through `vfs.GetAddonField(field)`:
+`source_loader` (Source 1 and 2), `crysis_loader` and `gltf_loader` are independent addons. Core never imports from them (`test/tests/other/core_dependencies.lua` checks); they import core. Core finds what they provide by file, the way `autorun` works: `vfs.GetAddonModules(dir)` lists `lua/<dir>/*.lua` across the mounted addons (first mount wins) and core imports the file named after what it needs, on first use. The file registers itself on import, so adding one needs no list anywhere.
 
-- `loaders = {name = module}`: a loader module that calls `loaders.Register(name, ...)` (`goluwa/loaders.lua`). `map`, the load window and mounting import them on demand.
-- `model_decoders = {[".ext"] = module}`: `model_loader` imports the module the first time a path with that extension has no decoder.
-- `material_loaders = {[".ext"] = module}`: `Material.GetOverrideFromPath` imports it for an unknown extension.
-- `components = {name = module}`: returned by `Entity.GetValidComponents`.
+- `lua/loaders/<name>.lua`: calls `loaders.Register(name, ...)` (`goluwa/loaders.lua`). `map`, the load window and mounting import them by name or all at once.
+- `lua/model_decoders/<ext>.lua`: `model_loader` imports it the first time a path with that extension has no decoder. One file per extension; a decoder with two extensions has a one-line alias file for the second (`vmesh_c.lua`, `glb.lua`). Code a worker job imports must not live here (it would register on import): `crysis_loader/cgf.lua` is the worker side of `model_decoders/cgf.lua`.
+- `lua/material_loaders/<ext>.lua`: `Material.GetOverrideFromPath` imports it for an unknown extension.
+- `components = {name = module}` in `config.lua` is still a manifest (`vfs.GetAddonField`), returned by `Entity.GetValidComponents`.
 
 Addon codecs live in `lua/codecs/` and are found by the codec registry next to `goluwa/codecs/`. Generic code that came from Source (units, brush and displacement geometry, collision builders, `static_geometry`) is in `goluwa/static_world/`; the Source material lookup and the pak mounting plug in through `static_geometry.material_source` and the `StaticWorldPak` event.
 

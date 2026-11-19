@@ -22,12 +22,16 @@ T.Test("core does not import from the loader addons", function()
 	T(table.concat(offenders, "\n"))["=="]("")
 end)
 
-T.Test("addon manifests point at files that exist", function()
+T.Test("addon manifests and scanned modules point at files that exist", function()
 	local missing = {}
 
-	for _, field in ipairs({"loaders", "model_decoders", "material_loaders", "components"}) do
-		for key, module in pairs(vfs.GetAddonField(field)) do
-			if not vfs.IsFile(module) then missing[#missing + 1] = field .. " " .. key .. ": " .. module end
+	for key, module in pairs(vfs.GetAddonField("components")) do
+		if not vfs.IsFile(module) then missing[#missing + 1] = "components " .. key .. ": " .. module end
+	end
+
+	for _, directory in ipairs({"loaders", "model_decoders", "material_loaders"}) do
+		for key, module in pairs(vfs.GetAddonModules(directory)) do
+			if not vfs.IsFile(module) then missing[#missing + 1] = directory .. " " .. key .. ": " .. module end
 		end
 	end
 

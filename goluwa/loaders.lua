@@ -24,7 +24,7 @@ function loaders.Register(name, loader)
 end
 
 local function get_loader(name)
-	local module = vfs.GetAddonField("loaders")[name]
+	local module = vfs.GetAddonModules("loaders")[name]
 
 	if module then import(module) end
 
@@ -32,7 +32,7 @@ local function get_loader(name)
 end
 
 local function get_registered()
-	for _, module in pairs(vfs.GetAddonField("loaders")) do
+	for _, module in pairs(vfs.GetAddonModules("loaders")) do
 		import(module)
 	end
 

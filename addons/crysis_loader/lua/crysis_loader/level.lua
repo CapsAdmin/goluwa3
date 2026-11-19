@@ -1654,7 +1654,7 @@ function level.Load(level_dir)
 	end
 
 	if vegetation_prototypes then
-		local cgf_decoder = import("lua/crysis_loader/model_decoders/cgf.lua")
+		local cgf_decoder = import("lua/crysis_loader/cgf.lua")
 
 		for _, prototype in ipairs(vegetation_prototypes.list) do
 			prototype.model_path = game.ResolveModelPath(level_dir, prototype.model_path)

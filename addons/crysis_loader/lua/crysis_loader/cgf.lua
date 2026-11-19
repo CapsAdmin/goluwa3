@@ -832,7 +832,7 @@ end
 cgf.Decoder = {}
 cgf.Decoder.job = [=[
 	local input = ...
-	return import("lua/crysis_loader/model_decoders/cgf.lua").PackModel(input)
+	return import("lua/crysis_loader/cgf.lua").PackModel(input)
 ]=]
 
 function cgf.Decoder.Gather(path, full_path)
