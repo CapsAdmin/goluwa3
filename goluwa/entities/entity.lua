@@ -21,7 +21,6 @@ function Entity.GetValidComponents()
 		valid_components.water_volume = import("goluwa/entities/components/water_volume.lua")
 		valid_components.spawn_point = import("goluwa/entities/components/spawn_point.lua")
 		valid_components.visibility = import("goluwa/entities/components/visibility.lua")
-		valid_components.source_light = import("goluwa/entities/components/source_light.lua")
 		valid_components.map_constraint = import("goluwa/entities/components/map_constraint.lua")
 
 		if RENDER_3D then
@@ -51,7 +50,6 @@ function Entity.GetValidComponents()
 		valid_components.static_mesh = import("goluwa/entities/components/static_mesh.lua")
 		valid_components.decal = import("goluwa/entities/components/decal.lua")
 		valid_components.terrain = import("goluwa/entities/components/terrain.lua")
-		valid_components.cry_level = import("goluwa/entities/components/cry_level.lua")
 	end
 
 	return valid_components

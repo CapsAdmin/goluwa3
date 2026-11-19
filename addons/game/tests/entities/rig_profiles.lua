@@ -6,7 +6,7 @@ local Skeleton = import("goluwa/render3d/skeleton.lua")
 local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
 local mesh_pack = import("addons/source_loader/lua/source_loader/source2/mesh_pack.lua")
 import("goluwa/render3d/model_loader.lua")
-local mdl_decoder = import("goluwa/render3d/model_decoders/mdl.lua")
+local mdl_decoder = import("addons/source_loader/lua/source_loader/model_decoders/mdl.lua")
 local rig_profiles = import("lua/rig_profiles.lua")
 
 local function is_rotation(fix)
