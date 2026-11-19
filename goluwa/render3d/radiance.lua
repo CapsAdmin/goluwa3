@@ -166,7 +166,7 @@ radiance.edge_accumulation = pvars.Setup2{
 radiance.sticky_pick = pvars.Setup2{
 	key = "radiance_sticky_pick",
 	default = true,
-	help = "below full resolution a gi pixel whose usual screen pixel moved onto another surface under the taa jitter or motion (leaves, bars, thin edges) keeps a neighbouring screen pixel that still shows the surface it stood for, instead of restarting its history and blinking dark",
+	help = "below full resolution a gi pixel whose usual screen pixel moved onto another surface under the taa jitter or motion (leaves, bars, thin edges) keeps a screen pixel of its block that still shows the surface it stood for, and never stands for the sky where its block shows a surface. where its face still changes (faces meeting at its point, bars a pixel apart) the denoiser keeps the other face's history for a few frames. without it those pixels restart their history and blink dark",
 }
 radiance.light_change = pvars.Setup2{
 	key = "radiance_light_change",

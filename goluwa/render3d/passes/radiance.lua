@@ -366,24 +366,43 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		vec2 target = (vec2(pos) + 0.5) * vec2(gsize) / vec2(size);
 		ivec2 nearest = clamp(ivec2(floor(target + restir_data.jitter)), first, last);
 
-		if (restir_data.sticky_pick == 0 || restir_data.history_valid == 0 || restir_pick_holds_history(nearest, pos, size, gsize)) return nearest;
+		if (restir_data.sticky_pick == 0) return nearest;
 
-		ivec2 low = clamp(ivec2(floor(target - 0.5)), first, last);
-		ivec2 best = nearest;
-		float best_distance = 1e30;
+		bool history = restir_data.history_valid != 0;
+		bool nearest_surface = gbuffer_depth(nearest) > 0.0;
 
-		for (int i = 0; i < 4; i++) {
-			ivec2 q = min(low + ivec2(i & 1, i >> 1), last);
-			vec2 offset = vec2(q) + 0.5 - restir_data.jitter - target;
-			float distance = dot(offset, offset);
+		if (nearest_surface && history && restir_pick_holds_history(nearest, pos, size, gsize)) return nearest;
 
-			if (q == nearest || distance >= best_distance || !restir_pick_holds_history(q, pos, size, gsize)) continue;
+		// a pixel of the block that still shows last frame's surface, else the nearest one with a surface: a gi pixel standing for the sky lights nothing and loses the history of the thing in front
+		ivec2 kept = nearest;
+		float kept_distance = 1e30;
+		ivec2 surface = nearest;
+		float surface_distance = 1e30;
 
-			best = q;
-			best_distance = distance;
+		for (int y = first.y; y <= last.y; y++) {
+			for (int x = first.x; x <= last.x; x++) {
+				ivec2 q = ivec2(x, y);
+
+				if (q == nearest || gbuffer_depth(q) <= 0.0) continue;
+
+				vec2 offset = vec2(q) + 0.5 - restir_data.jitter - target;
+				float distance = dot(offset, offset);
+
+				if (distance < surface_distance) {
+					surface = q;
+					surface_distance = distance;
+				}
+
+				if (history && distance < kept_distance && restir_pick_holds_history(q, pos, size, gsize)) {
+					kept = q;
+					kept_distance = distance;
+				}
+			}
 		}
 
-		return best;
+		if (kept_distance < 1e30) return kept;
+
+		return nearest_surface ? nearest : surface;
 	}
 
 	vec3 restir_geometric_normal(ivec2 gpos, vec3 P) {
@@ -1845,6 +1864,26 @@ local function pass_accumulate()
 					history_found = true;
 				}
 
+				// a pixel the jitter moves between faces that meet at its point (bar ends a pixel apart with the slab behind, a corner) finds none of its own face's history: a restart is one dark sample, so it keeps the other face's for a few frames, as taa blends the two in the lit image
+				bool crossed = false;
+
+				if (!history_found && restir_data.sticky_pick != 0 && position.x > -1.0) {
+					ivec2 q = ivec2(floor(position + 0.5));
+
+					if (all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, size))) {
+						ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
+						vec4 g = texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0);
+						vec3 previous_point = restir_previous_view_ray((vec2(q) + 0.5) / vec2(size) + (size == gsize ? -restir_data.jitter_shift : restir_data.jitter / vec2(gsize))) * g.w;
+
+						if (g.w > 0.0 && distance(previous_point, (restir_data.prev_view * vec4(P, 1.0)).xyz) <= tolerance) {
+							base = q;
+							weights = vec4(1.0, 0.0, 0.0, 0.0);
+							history_found = true;
+							crossed = true;
+						}
+					}
+				}
+
 				if (history_found) {
 					float total = 0.0;
 
@@ -1877,7 +1916,7 @@ local function pass_accumulate()
 					}
 				}
 
-				float history_length = history_moments.x;
+				float history_length = crossed ? min(history_moments.x, RESTIR_CHANGED_HISTORY) : history_moments.x;
 
 				for (int y = -1; y <= 1; y++) {
 					for (int x = -1; x <= 1; x++) {
