@@ -74,6 +74,7 @@ local function restir_uniform(trace, filter_iteration)
 		{"spatial_retries", "int"},
 		{"validation", "int"},
 		{"accumulation", "float"},
+		{"edge_accumulation", "float"},
 		{"filter_enabled", "int"},
 		{"reservoir_a_tex", "int"},
 		{"reservoir_b_tex", "int"},
@@ -190,6 +191,8 @@ local function restir_uniform(trace, filter_iteration)
 			block.spatial_retries = radiance.spatial_retries:Get()
 			block.validation = radiance.validation:Get() and 1 or 0
 			block.accumulation = render3d.IsDenoisingBypassed() and 1 or radiance.accumulation:Get()
+			block.edge_accumulation = render3d.IsDenoisingBypassed() and 1 or radiance.edge_accumulation:Get()
+			assert(block.edge_accumulation > 0, "radiance_edge_accumulation must be above 0")
 			block.filter_enabled = radiance.filter:Get() and not render3d.IsDenoisingBypassed() and 1 or 0
 			block.reservoir_a_tex = self:GetTextureIndex(attachment("radiance_temporal", current, 1))
 			block.reservoir_b_tex = self:GetTextureIndex(attachment("radiance_temporal", current, 2))
@@ -1800,7 +1803,29 @@ local function pass_accumulate()
 
 				if ((int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5) & RESTIR_FLAG_LIGHT_CHANGED) != 0) history_length = min(history_length, RESTIR_CHANGED_HISTORY - 1.0);
 
-				history_length = min(history_length + 1.0, min(restir_data.accumulation, restir_data.history_cap));
+				float accumulation = restir_data.accumulation;
+
+				// a moving pixel would smear its resampled history along the edge over the longer history
+				if (history_found && moved < 2.0 && restir_data.edge_accumulation != accumulation) {
+					const ivec2 ring[8] = ivec2[8](ivec2(-2, -2), ivec2(0, -2), ivec2(2, -2), ivec2(-2, 0), ivec2(2, 0), ivec2(-2, 2), ivec2(0, 2), ivec2(2, 2));
+					ivec2 centre = ivec2(floor(position + 0.5));
+					float inside = 0.0;
+					float other = 0.0;
+
+					for (int i = 0; i < 8; i++) {
+						ivec2 q = centre + ring[i];
+
+						if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) continue;
+
+						inside += 1.0;
+
+						if (!restir_history_matches(q, size, G, plane, tolerance)) other += 1.0;
+					}
+
+					accumulation = mix(accumulation, restir_data.edge_accumulation, min(2.0 * other / max(inside, 1.0), 1.0) * smoothstep(2.0, 1.0, moved));
+				}
+
+				history_length = min(history_length + 1.0, min(accumulation, restir_data.history_cap));
 				float alpha = 1.0 / history_length;
 				vec2 moments = mix(history_moments.yz, vec2(current_luminance, current_luminance * current_luminance), alpha);
 				// the specular depends on where it is seen from: its history covers at most half a lobe width of the view turning at this frame's rate, or the light seen from elsewhere stays mixed in

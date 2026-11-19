@@ -156,6 +156,12 @@ radiance.accumulation = pvars.Setup2{
 	max = 100000,
 	help = "most frames the denoiser averages. with temporal and spatial reuse and the filter off and a still camera a very large number accumulates a reference",
 }
+radiance.edge_accumulation = pvars.Setup2{
+	key = "radiance_edge_accumulation",
+	default = 64,
+	integer = true,
+	help = "most frames the denoiser averages beside an edge or on a thin thing, where the spatial filter stops at the other surface and averages little. it goes from radiance_accumulation to this as more of the pixels around lie on other surfaces. lights that change still cut it",
+}
 radiance.light_change = pvars.Setup2{
 	key = "radiance_light_change",
 	default = 0.25,
