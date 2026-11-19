@@ -22,7 +22,7 @@ local FloatPointer = ffi.typeof("const float *")
 local UInt16Pointer = ffi.typeof("const uint16_t *")
 local UInt32Pointer = ffi.typeof("const uint32_t *")
 
-function build.Build(input)
+function build.PrepareMesh(input)
 	local vertex_count, index_count = input.vertex_count, input.index_count
 	local floats = ffi.cast(FloatPointer, input.vertices)
 	local indices = ffi.cast(input.index_size == 2 and UInt16Pointer or UInt32Pointer, input.indices)
@@ -276,6 +276,29 @@ function build.Build(input)
 		mesh.wnx[w], mesh.wny[w], mesh.wnz[w] = nx, ny, nz
 	end
 
+	return mesh,
+	{
+		wedge_rep = wedge_rep,
+		first_wedge = first_wedge,
+		island_count = island_count,
+		has_bend = has_bend,
+	}
+end
+
+-- the original vertex a cluster triangle corner stands for
+function build.CornerVertex(mesh, prepared, position, island)
+	local w = mesh.wlookup[position * prepared.island_count + island] or
+		prepared.first_wedge[position]
+	return prepared.wedge_rep[w]
+end
+
+function build.Build(input)
+	local mesh, prepared = build.PrepareMesh(input)
+
+	if not mesh then return nil end
+
+	local wedge_rep, first_wedge, island_count, has_bend = prepared.wedge_rep, prepared.first_wedge, prepared.island_count, prepared.has_bend
+	local wlookup = mesh.wlookup
 	local started = os.clock()
 	local result = hierarchy.Build(mesh)
 	local clusters = result.clusters

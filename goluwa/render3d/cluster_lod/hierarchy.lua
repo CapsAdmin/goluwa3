@@ -899,6 +899,7 @@ local function union_sphere(spheres)
 end
 
 hierarchy.BoundingSphere = bounding_sphere
+hierarchy.KdSplit = kd_split
 
 function hierarchy.Build(mesh)
 	local_of = ffi.new("int32_t[?]", mesh.nv)
@@ -912,7 +913,14 @@ function hierarchy.Build(mesh)
 	vnd, vnd_new = ffi.new("double[?]", mesh.nv), ffi.new("double[?]", mesh.nv)
 	vbd, vbd_new = ffi.new("double[?]", mesh.nv), ffi.new("double[?]", mesh.nv)
 	local clusters = {}
-	local result = {mesh = mesh, clusters = clusters, levels = {}, time = {}}
+	local group_list = {}
+	local result = {
+		mesh = mesh,
+		clusters = clusters,
+		levels = {},
+		time = {},
+		group_list = group_list,
+	}
 	local t0 = clock()
 	local current = make_clusters(mesh, mesh.tris, mesh.nt, 0, clusters, mesh.isl)
 	result.time.cluster = clock() - t0
@@ -987,6 +995,12 @@ function hierarchy.Build(mesh)
 			spheres[#spheres + 1] = bounding_sphere(mesh, flat, total)
 			local sphere = union_sphere(spheres)
 			local err = max(local_err * ERROR_SCALE, child_err) + 1e-7
+			local group = {members = members, level = level - 1, stuck = stuck, err = err, sphere = sphere}
+			group_list[#group_list + 1] = group
+
+			for _, c in ipairs(members) do
+				c.group = group
+			end
 
 			if not stuck then
 				for _, c in ipairs(members) do
@@ -1001,6 +1015,7 @@ function hierarchy.Build(mesh)
 				for _, c in ipairs(make_clusters(mesh, out, out_n, level, clusters, mesh.wlookup and out_isl or nil)) do
 					c.err_self = err
 					c.sph_self = sphere
+					c.gen = group
 					next_level[#next_level + 1] = c
 					tri_total = tri_total + c.n
 				end
