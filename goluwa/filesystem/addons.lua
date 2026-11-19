@@ -172,6 +172,32 @@ function vfs.GetMountedAddons()
 	return vfs.loaded_addons
 end
 
+function vfs.GetAddonField(field)
+	local merged = {}
+
+	for _, info in ipairs(vfs.loaded_addons) do
+		if info.load ~= false and info[field] then
+			for key, value in pairs(info[field]) do
+				merged[key] = value
+			end
+		end
+	end
+
+	return merged
+end
+
+function vfs.GetAddonLuaRoots()
+	local roots = {}
+
+	for _, info in ipairs(vfs.loaded_addons) do
+		if info.load ~= false and vfs.IsDirectory(info.path .. "lua") then
+			roots[#roots + 1] = info.path .. "lua/"
+		end
+	end
+
+	return roots
+end
+
 function vfs.AutorunAddons(folder, force)
 	folder = folder or ""
 

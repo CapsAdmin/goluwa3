@@ -574,6 +574,14 @@ local worker_bootstrap = [=[
 		_G._WORKER_THREAD = true
 
 		local threads = get_threads()
+
+		local roots = rawget(_G, "GOLUWA_ADDON_LUA_ROOTS")
+
+		if roots and not rawget(import, "addon_lua_roots_set") then
+			import.addon_lua_roots_set = true
+			import.SetAddonLuaRoots(roots)
+		end
+
         local data = ffi.cast(threads.thread_data_ptr_t, udata)
 
         if data.shared_pointer ~= nil then
@@ -657,7 +665,16 @@ do
 		assert(type(worker_source) == "string", "threads.new requires a worker source string")
 		local self = setmetatable({}, meta)
 		self.thread_state = LuaState.New()
-		local ptr = self.thread_state:Run(worker_bootstrap, worker_source)
+		local roots = {}
+
+		for i, root in ipairs(import("goluwa/vfs.lua").GetAddonLuaRoots()) do
+			roots[i] = string.format("%q", root)
+		end
+
+		local ptr = self.thread_state:Run(
+			"_G.GOLUWA_ADDON_LUA_ROOTS = {" .. table.concat(roots, ",") .. "}\n" .. worker_bootstrap,
+			worker_source
+		)
 
 		if ffi.os == "Windows" then
 			self.func_ptr = ffi.cast("thread_callback", ptr)

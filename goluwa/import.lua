@@ -44,6 +44,28 @@ function import:ResolvePath(path)
 end
 
 import.loadfile = _G.loadfile
+
+function import.SetAddonLuaRoots(roots)
+	local loadfile = import.loadfile
+	local io_open = io.open
+	import.loadfile = function(path)
+		if path:sub(1, 4) == "lua/" then
+			local rest = path:sub(5)
+
+			for _, root in ipairs(roots) do
+				local file = io_open(root .. rest, "rb")
+
+				if file then
+					file:close()
+					return loadfile(root .. rest)
+				end
+			end
+		end
+
+		return loadfile(path)
+	end
+end
+
 local source_paths = {}
 
 function import.SourceToPath(source)
