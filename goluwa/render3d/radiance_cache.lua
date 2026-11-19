@@ -1192,45 +1192,57 @@ function radiance_cache.GetCommonGLSL()
 			second = vec4(0.0);
 			vec4 result = vec4(0.0);
 			int count = radiance_cache_data.radiance_cache_cascade_count;
+			int first = 0;
+			float keep = 1.0;
 
-			for (int c = 0; c < count; c++) {
-				float fine = c == count - 1 ? 1.0 : radiance_cache_cascade_blend(c, P, smooth_blend);
+			for (; first < count - 1; first++) {
+				keep = radiance_cache_cascade_blend(first, P, smooth_blend);
 
-				if (fine <= 0.0) continue;
+				if (keep > 0.0) break;
+			}
 
-				result = radiance_cache_sample_cascade_pair(c, P, N, L, L2, V, smooth_blend, visibility_min_weight, weight, second);
+			if (first == count - 1) keep = 1.0;
 
-				if (c == count - 1) break;
+			#ifdef RADIANCE_CACHE_VISIBILITY_STATS
+			float fine_hidden_share = 0.0;
+			vec3 fine_unoccluded = vec3(0.0);
+			#endif
 
-				float keep = fine;
+			// the cascade and the coarser one it fades into share one call site: two inline the whole lookup twice into every consumer
+			for (int c = first; c < min(first + 2, count); c++) {
+				float cascade_weight;
+				vec4 cascade_second;
+				vec4 cascade = radiance_cache_sample_cascade_pair(c, P, N, L, L2, V, smooth_blend, visibility_min_weight, cascade_weight, cascade_second);
 
-				#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
-				if (visibility_min_weight < RADIANCE_CACHE_NO_VISIBILITY_RAYS) keep *= smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
-				#endif
+				if (c == first) {
+					result = cascade;
+					weight = cascade_weight;
+					second = cascade_second;
 
-				if (keep >= 1.0) break;
+					#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
+					if (visibility_min_weight < RADIANCE_CACHE_NO_VISIBILITY_RAYS) keep *= smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
+					#endif
 
-				#ifdef RADIANCE_CACHE_VISIBILITY_STATS
-				float fine_hidden_share = radiance_cache_stats_hidden_share;
-				vec3 fine_unoccluded = radiance_cache_stats_unoccluded;
-				#endif
+					if (keep >= 1.0) break;
 
-				float coarse_weight;
-				vec4 coarse_second;
-				vec4 coarse = radiance_cache_sample_cascade_pair(c + 1, P, N, L, L2, V, smooth_blend, visibility_min_weight, coarse_weight, coarse_second);
+					#ifdef RADIANCE_CACHE_VISIBILITY_STATS
+					fine_hidden_share = radiance_cache_stats_hidden_share;
+					fine_unoccluded = radiance_cache_stats_unoccluded;
+					#endif
 
-				#ifdef RADIANCE_CACHE_VISIBILITY_STATS
-				radiance_cache_stats_hidden_share = coarse_weight > 0.0 ? mix(radiance_cache_stats_hidden_share, fine_hidden_share, keep) : fine_hidden_share;
-				radiance_cache_stats_unoccluded = coarse_weight > 0.0 ? mix(radiance_cache_stats_unoccluded, fine_unoccluded, keep) : fine_unoccluded;
-				#endif
-
-				if (coarse_weight > 0.0) {
-					weight = mix(coarse_weight, weight, keep);
-					result = mix(coarse, result, keep);
-					second = mix(coarse_second, second, keep);
+					continue;
 				}
 
-				break;
+				#ifdef RADIANCE_CACHE_VISIBILITY_STATS
+				radiance_cache_stats_hidden_share = cascade_weight > 0.0 ? mix(radiance_cache_stats_hidden_share, fine_hidden_share, keep) : fine_hidden_share;
+				radiance_cache_stats_unoccluded = cascade_weight > 0.0 ? mix(radiance_cache_stats_unoccluded, fine_unoccluded, keep) : fine_unoccluded;
+				#endif
+
+				if (cascade_weight > 0.0) {
+					weight = mix(cascade_weight, weight, keep);
+					result = mix(cascade, result, keep);
+					second = mix(cascade_second, second, keep);
+				}
 			}
 
 			#ifndef RADIANCE_CACHE_UNSCALED
