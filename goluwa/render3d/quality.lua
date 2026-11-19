@@ -17,6 +17,7 @@ quality.PRESETS = {
 		shadow_size_scale = 0.25,
 		screen_shadow_step_scale = 0,
 		android_render_height = 360,
+		gi_resolution = "quarter",
 	},
 	medium = {
 		disabled_passes = {motion_blur = true, dof = true},
@@ -25,6 +26,7 @@ quality.PRESETS = {
 		shadow_size_scale = 0.5,
 		screen_shadow_step_scale = 0.5,
 		android_render_height = 540,
+		gi_resolution = "half",
 	},
 	high = {
 		disabled_passes = {},
@@ -33,6 +35,7 @@ quality.PRESETS = {
 		shadow_size_scale = 1,
 		screen_shadow_step_scale = 1,
 		android_render_height = 0,
+		gi_resolution = "full",
 	},
 }
 local preset
@@ -54,7 +57,7 @@ pvars.Setup2{
 	key = "r_quality",
 	default = "auto",
 	enums = {"auto", "low", "medium", "high"},
-	help = "high runs every pass at full detail. medium turns off motion blur and depth of field and halves the fog grid, cloud steps, screen space shadow steps and shadow map sizes. low also turns off volumetric fog, clouds, ambient occlusion and screen space shadows and quarters the shadow maps. auto is low on android, otherwise high with ray tracing hardware and medium without. on android the preset also picks the height of the render buffers (low 360, medium 540, high native) when the app starts",
+	help = "high runs every pass at full detail. medium turns off motion blur and depth of field, halves the fog grid, cloud steps, screen space shadow steps and shadow map sizes and runs the ray traced gi at half resolution. low also turns off volumetric fog, clouds, ambient occlusion and screen space shadows, quarters the shadow maps and runs the gi at quarter resolution. auto is low on android, otherwise high with ray tracing hardware and medium without. on android the preset also picks the height of the render buffers (low 360, medium 540, high native) when the app starts",
 	callback = function(value, init)
 		if init then return end
 

@@ -4,32 +4,41 @@ local system = import("goluwa/system.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
+local quality = import("goluwa/render3d/quality.lua")
+local event = import("goluwa/event.lua")
 local radiance = {}
 radiance.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
 pvars.StartGroup("Lighting", "ReSTIR GI", {store = false, prefix = "radiance_"})
+
+local function recreate_framebuffers()
+	local pipelines = render3d.pipelines
+
+	if not pipelines or not pipelines.radiance_temporal then return end
+
+	for _, name in ipairs{
+		"radiance_candidates",
+		"radiance_temporal",
+		"radiance_spatial",
+		"radiance_accumulate",
+		"radiance_filter_0",
+		"radiance_filter_1",
+		"radiance_filter_2",
+		"radiance_filter",
+	} do
+		pipelines[name]:RecreateFramebuffers()
+	end
+end
+
+event.AddListener("RenderQualityChanged", "radiance_resolution", function()
+	if radiance.resolution:Get() == "auto" then recreate_framebuffers() end
+end)
+
 radiance.resolution = pvars.Setup2{
 	key = "radiance_resolution",
-	default = "full",
-	enums = {"full", "half", "quarter"},
-	help = "the resolution the gi reservoirs are kept, resampled and denoised at, relative to the screen. below full a gi pixel stands for one of the 2x2 screen pixels below it, a different one each frame, and loses its history where those pixels are different surfaces (foliage). radiance_rays sets how many of them trace",
-	callback = function()
-		local pipelines = render3d.pipelines
-
-		if not pipelines or not pipelines.radiance_temporal then return end
-
-		for _, name in ipairs{
-			"radiance_candidates",
-			"radiance_temporal",
-			"radiance_spatial",
-			"radiance_accumulate",
-			"radiance_filter_0",
-			"radiance_filter_1",
-			"radiance_filter_2",
-			"radiance_filter",
-		} do
-			pipelines[name]:RecreateFramebuffers()
-		end
-	end,
+	default = "auto",
+	enums = {"auto", "full", "half", "quarter"},
+	help = "the resolution the gi reservoirs are kept, resampled and denoised at, relative to the screen. auto follows r_quality (high full, medium half, low quarter). below full a gi pixel stands for one of the 2x2 screen pixels below it, a different one each frame, and loses its history where those pixels are different surfaces (foliage). radiance_rays sets how many of them trace",
+	callback = recreate_framebuffers,
 }
 radiance.specular_emitter_roughness = pvars.Setup2{
 	key = "radiance_specular_emitter_roughness",
@@ -337,7 +346,10 @@ function radiance.GetRayShare()
 end
 
 function radiance.GetScale()
-	return radiance.RESOLUTION_SCALES[radiance.resolution:Get()]
+	local resolution = radiance.resolution:Get()
+	return radiance.RESOLUTION_SCALES[resolution == "auto" and
+	quality.Get().gi_resolution or
+	resolution]
 end
 
 do
