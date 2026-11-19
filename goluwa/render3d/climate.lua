@@ -414,6 +414,40 @@ local function get_state()
 	}
 end
 
+do
+	local function differs(a, b)
+		if type(a) == "number" and type(b) == "number" then
+			return math.abs(a - b) > 1e-9 * math.max(1, math.abs(a), math.abs(b))
+		end
+
+		return a ~= b
+	end
+
+	function climate.Capture()
+		local state = get_state()
+		local out = {}
+
+		for key, default in pairs(climate.DEFAULTS) do
+			if key == "clouds" then
+				for i, layer in ipairs(state.clouds) do
+					out.clouds = out.clouds or {}
+					out.clouds[i] = {name = layer.name}
+
+					for field, default_value in pairs(clouds.LAYER_DEFAULTS) do
+						if field ~= "name" and differs(layer[field], default_value) then
+							out.clouds[i][field] = layer[field]
+						end
+					end
+				end
+			elseif differs(state[key], default) then
+				out[key] = state[key]
+			end
+		end
+
+		return out
+	end
+end
+
 local function resolve(preset)
 	if type(preset) == "string" then
 		preset = climate.presets[preset] or error("unknown climate preset " .. preset, 3)
