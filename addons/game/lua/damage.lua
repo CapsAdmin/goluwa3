@@ -1,10 +1,8 @@
-local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local network = import("goluwa/network/network.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-Entity.RegisterComponent("health", import("lua/components/health.lua"))
 local damage = {}
 local NO_ATTRIBUTES = {}
 local godmode = pvars.Setup2{

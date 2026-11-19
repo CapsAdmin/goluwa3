@@ -88,7 +88,7 @@ T.Test("The default outfit places the eye and limbs where the pose bones are", f
 end)
 
 T.Test("a weapon that hides the player hides the whole outfit in first person and puts the head camera back at the eye", function()
-	Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
+	import("lua/components/player_avatar.lua")
 	local holds = {value = false}
 	local player = Entity.New{transform = {}, player_avatar = {}}
 	player.weapon_holder = {
@@ -126,7 +126,6 @@ end)
 
 T.Test("the camera weapon hides the player", function()
 	import("lua/weapons.lua")
-	Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 	local instance = Entity.New{prefab = {Path = "weapon_camera"}}
 	T(instance.weapon:IsHidesPlayer())["=="](true)
 	instance:Remove()

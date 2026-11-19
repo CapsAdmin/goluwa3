@@ -2,7 +2,6 @@ local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 import("lua/damage.lua")
-import("addons/game/lua/autorun/characters.lua")
 
 local function create(refill_delay)
 	return Entity.New{

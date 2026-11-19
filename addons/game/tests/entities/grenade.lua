@@ -6,7 +6,6 @@ local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local weapons = import("lua/weapons.lua")
 import("lua/damage.lua")
-Entity.RegisterComponent("grenade", import("lua/components/grenade.lua"))
 
 local function create_ground()
 	return Entity.New{

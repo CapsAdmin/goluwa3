@@ -10,8 +10,7 @@ local loaders = import("goluwa/loaders.lua")
 local event = import("goluwa/event.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 import("addons/game/lua/autorun/characters.lua")
-Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
-Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
+import("lua/components/character_movement.lua")
 
 local function create_character(scale)
 	local character = Entity.New{
@@ -170,7 +169,7 @@ T.Test("the scale of a character comes from its movement, else its npc transform
 end)
 
 T.TestPhysics("a player avatar and the movement of its character keep the same scale", function()
-	Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
+	import("lua/components/player_avatar.lua")
 	local character = create_character(2)
 	character:AddComponent("player_avatar")
 	T(character.player_avatar.Scale)["=="](2)

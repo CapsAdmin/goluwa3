@@ -1,7 +1,18 @@
 local objects = import("goluwa/objects/objects.lua")
 local Entity = objects.CreateTemplate("entity")
 Entity.Base = import("goluwa/entities/base.lua")
-local valid_components = {}
+local vfs = import("goluwa/vfs.lua")
+local valid_components = setmetatable({}, {
+	__index = function(self, name)
+		local module = vfs.GetAddonModules("components")[name]
+
+		if module then
+			local meta = import(module)
+			rawset(self, name, meta)
+			return meta
+		end
+	end,
+})
 
 function Entity.RegisterComponent(name, meta)
 	valid_components[name] = meta
@@ -50,10 +61,6 @@ function Entity.GetValidComponents()
 		valid_components.static_mesh = import("goluwa/entities/components/static_mesh.lua")
 		valid_components.decal = import("goluwa/entities/components/decal.lua")
 		valid_components.terrain = import("goluwa/entities/components/terrain.lua")
-
-		for name, module in pairs(import("goluwa/vfs.lua").GetAddonField("components")) do
-			valid_components[name] = import(module)
-		end
 	end
 
 	return valid_components

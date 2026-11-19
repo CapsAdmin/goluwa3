@@ -173,20 +173,6 @@ function vfs.GetMountedAddons()
 	return vfs.loaded_addons
 end
 
-function vfs.GetAddonField(field)
-	local merged = {}
-
-	for _, info in ipairs(vfs.loaded_addons) do
-		if info.load ~= false and info[field] then
-			for key, value in pairs(info[field]) do
-				merged[key] = value
-			end
-		end
-	end
-
-	return merged
-end
-
 do
 	local cache = {}
 	local cache_generation

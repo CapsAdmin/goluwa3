@@ -9,8 +9,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
 local pose_variation = import("lua/pose_variation.lua")
 import("addons/game/lua/autorun/characters.lua")
-Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
-Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
+import("lua/components/character_movement.lua")
 
 local function create_ground()
 	return Entity.New{

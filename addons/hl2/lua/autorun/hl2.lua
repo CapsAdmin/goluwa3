@@ -1,4 +1,3 @@
-local Entity = import("goluwa/entities/entity.lua")
 local Color = import("goluwa/structs/color.lua")
 local commands = import("goluwa/cli/commands.lua")
 local message = import("goluwa/network/message.lua")
@@ -8,7 +7,6 @@ local animations = import("lua/animations.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
 local weapon_categories = import("lua/weapon_categories.lua")
 local players = import("lua/players.lua")
-Entity.RegisterComponent("hl2_projectile", import("lua/components/hl2_projectile.lua"))
 weapon_categories.Register{Name = "hl2", Icon = "pistol", Label = "HL2", Color = Color(1, 0.55, 0.1, 1)}
 animations.Register(
 	"hl2_swing",

@@ -4,7 +4,6 @@ local prefab = import("goluwa/entities/prefab.lua")
 local weapons = import("lua/weapons.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 
 T.Test("Weapons are built in prefabs with a model, a loaded script and a muzzle on tools", function()
 	for _, name in ipairs(weapons.GetNames()) do
@@ -51,7 +50,7 @@ T.Test("Spawned weapons serialize and come back with their script values", funct
 end)
 
 T.Test("A held weapon model is scaled with its holder and a dropped one is not", function()
-	Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+	import("lua/components/weapon_holder.lua")
 	local holder_entity = Entity.New{transform = {}, weapon_holder = {}}
 	holder_entity.character_movement = {
 		Scale = 3,

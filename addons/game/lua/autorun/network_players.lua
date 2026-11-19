@@ -14,11 +14,9 @@ local outfit = import("lua/outfit.lua")
 import("lua/weapons.lua")
 import("lua/damage.lua")
 import("lua/outfit_source.lua")
-Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
-Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
-Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
-Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
-Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+import("lua/components/player_avatar.lua")
+import("lua/components/character_movement.lua")
+import("lua/components/weapon_holder.lua")
 local ACK_INTERVAL = 1 / 60
 local RELAY_BATCH = 4
 local OUTFIT_PUSH_DELAY = 0.2

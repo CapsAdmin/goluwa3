@@ -3,7 +3,6 @@ local Entity = import("goluwa/entities/entity.lua")
 local weapons = import("lua/weapons.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 import("addons/jrpg/lua/autorun/weapons.lua")
 
 T.Test("Magic weapons come back with their element after serializing", function()

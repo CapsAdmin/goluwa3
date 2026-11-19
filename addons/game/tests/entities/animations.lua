@@ -2,7 +2,6 @@ local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local animations = import("lua/animations/definitions.lua")
-import("addons/game/lua/autorun/characters.lua")
 
 local function create()
 	return Entity.New{transform = {Position = Vec3(0, 0, 0)}, character_pose = {}}

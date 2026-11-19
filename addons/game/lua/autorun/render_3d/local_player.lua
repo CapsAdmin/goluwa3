@@ -7,8 +7,8 @@ local players = import("lua/players.lua")
 local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 import("lua/weapons.lua")
 import("lua/damage.lua")
-Entity.RegisterComponent("camera", import("lua/components/camera.lua"))
-Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
+import("lua/components/camera.lua")
+import("lua/components/player_input.lua")
 local current = Entity.World:GetKeyed("player_camera_rig")
 
 if current and current:IsValid() then current:Remove() end

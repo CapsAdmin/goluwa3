@@ -3,9 +3,8 @@ local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local weapons = import("lua/weapons.lua")
-Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
-Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
-Entity.RegisterComponent("usable", import("lua/components/usable.lua"))
+import("lua/components/weapon_holder.lua")
+import("lua/components/usable.lua")
 local BUTTON = usercmd.BUTTON
 local PROBE = [[
 local objects = import("goluwa/objects/objects.lua")

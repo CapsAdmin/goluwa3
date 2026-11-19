@@ -5,7 +5,6 @@ local steam = import("goluwa/steam/steam.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-import("addons/game/lua/autorun/characters.lua")
 local props = import("lua/props.lua")
 local npcs = import("lua/npcs.lua")
 

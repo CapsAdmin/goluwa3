@@ -4,7 +4,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local physics = import("goluwa/physics.lua")
-Entity.RegisterComponent("magic_projectile", import("lua/components/magic_projectile.lua"))
 
 T.TestPhysics("magic projectiles bounce off the world and fade out", function()
 	local wall = Entity.New{

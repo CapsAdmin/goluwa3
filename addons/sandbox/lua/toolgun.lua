@@ -9,8 +9,7 @@ local game_history = import("lua/game_history.lua")
 local trace_debug = import("lua/trace_debug.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
 local Constraint = import("lua/components/constraint.lua")
-Entity.RegisterComponent("constraint", Constraint)
-Entity.RegisterComponent("tool_camera", import("lua/components/tool_camera.lua"))
+import("lua/components/tool_camera.lua")
 local toolgun = {}
 import.loaded["lua/toolgun.lua"] = toolgun
 toolgun.Range = 200
