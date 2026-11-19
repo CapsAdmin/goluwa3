@@ -41,24 +41,36 @@ The `saved_views` addon keeps named views per scene in `addons/saved_views/lua/v
 - A scene is `loaders.loaded_map` (`source:gm_construct`) or, for a procedural scene, whatever it passes to `import("lua/saved_views.lua").SetScene({MODE = "ocean"})` at the top of its script (the name is its own path under `lua/`, from `debug.getinfo`, so renaming the file never goes out of sync with the call, only with the data file; the optional table is env vars replayed with `process.setenv` before the script is imported again). `SetScene` is cleared by the next `SceneLoad`.
 - Views are good enough, not exact: scenes with randomness or animation do not reproduce pixel for pixel, and surface conditions, fluid volumes, overlays and the eye exposure mode are not part of a view.
 
-## Motion maps
+## Recording frames
 
-`MotionRecorder` (`goluwa/render/motion_recorder.lua`) debugs motion without saving frames: each frame the swapchain is copied to one of two gpu textures and a compute pass runs your glsl on every block of pixels (`mm.block` wide) of the pair, writing one `vec4` per cell into a single buffer. Nothing is read back until the end, so recording does not stall the frame. It compares what is presented, so it works in 2D and 3D and sees TAA jitter, GI flicker and UI.
-
-The default (`MotionRecorder.Diff`) is the mean signed and absolute luma difference of each 4x4 block, which leaves only what changed. `MotionRecorder.Flow` block matches for a motion vector per cell (radius `p0`; motion beyond it per frame is not tracked). Your own preset is a table:
+`FrameRecorder` (`goluwa/render/frame_recorder.lua`) records real frames for analysis without stalling: each kept frame is written by one compute pass, inside the frame's own command buffer, into buffers allocated at `Start` (vram, or host memory with `host = true`), and nothing is read back until the clip is used. The pass crops, box averages down in linear light and converts, so storage is `scale^2 * format bytes` per pixel (1440p `rgba8` is 15 MB a frame, `r8` 3.7 MB).
 
 ```lua
-MotionRecorder.Record(3, function(map) -- seconds, then one readback
-    map:GetStats()                  -- per frame: mean, max, active fraction of the magnitude; z, w mean of channels 3, 4
-    map:SaveSheet("tmp/sheet.png")  -- contact sheet of frames
-    map:SaveHeatmap("tmp/heat.png") -- where it changed over the whole recording
-    map:SaveFrame(i, "tmp/f.png")
-end, {
-    block = 8, p0 = 2, scale = 0.2, -- p0..p3 are read with param(0..3)
-    glsl = [[vec4 analyze(ivec2 cell, ivec2 origin) { return vec4(cur_luma(origin) - prev_luma(origin)); }]],
-    magnitude = function(x, y, z, w) return math.abs(x) end, -- stats and heatmap
-    draw = function(x, y, z, w, scale) return x / scale, 0, 0 end, -- r, g, b in 0..1 per cell
-})
+local FrameRecorder = import("goluwa/render/frame_recorder.lua")
+FrameRecorder.Record({
+    frames = 300,          -- capacity, allocated up front
+    every = 2,             -- or fps = 30 (game time); skipping hides flicker that alternates every frame
+    fixed_dt = 1 / 60,     -- step the game by a fixed time while recording, so two runs line up frame for frame
+    channels = {
+        {name = "color"},                                                      -- the presented image, rgba8 srgb
+        {name = "luma", format = "r8", scale = 0.5, crop = {0.25, 0.25, 0.5, 0.5}},
+        {name = "depth", source = "depth", format = "r32f", scale = 0.5},      -- raw reversed z, the sky is 0
+        {name = "velocity", source = "velocity", format = "rg16f", scale = 0.5}, -- any gbuffer texture name
+    },
+}, function(clip)
+    local diff = clip:Diff("color")               -- per pixel luma change against the previous frame
+    print(clip:Stats(diff.name)[10].active)       -- per frame mean, max, fraction above a threshold
+    clip:SaveFrame(clip:Variance("color").name, 1, "tmp/flicker.png", {scale = 10})
+    clip:SaveSheet("color", "tmp/sheet.png", {frames = 12})
+    clip:SaveVideo("color", "tmp/clip.mkv")       -- lossless ffv1 through ffmpeg
+    clip:Remove()
+end)
 ```
 
-The glsl can use `fetch_prev`/`fetch_cur`, `prev_luma`/`cur_luma` (sqrt of luminance) and `mm.block`; unset fields come from `Diff`. Periodic spikes in `active` while the camera is still point at temporal effects updating in bursts. A fixed view repro is the pattern in `tmp/motion/construct.lua`.
+- `rolling = true` with `recorder = FrameRecorder.New(config):Start()` keeps the last `frames` until `recorder:Stop()` returns the clip: start it, reproduce the glitch, stop.
+- Sources: `"output"` (default, what is presented, decoded to linear for averaging and encoded back for `rgba8`/`r8`, which store luma), `"depth"`, a gbuffer texture name, a texture or a function returning one. Other sources are stored raw unless `encode = "srgb"` (with `exposure` for hdr data). Formats: `rgba8`, `r8`, `r16f`, `rg16f`, `rgba16f`, `r32f`, `rg32f`, `rgba32f`.
+- A channel's `glsl` replaces the box average with `vec4 preprocess(ivec2 pixel)`, using `source(p)`, `previous(p)` (the frame rendered just before, even when it is not kept), `source_size()`, `output_size()` and `param(0..3)` from `p0..p3`.
+- `clip:Map{name, glsl, format, width, height, frames}` runs `vec4 map(int frame, ivec2 pixel)` over the clip on the gpu and stores the result as a new channel, so maps chain. The glsl reads `fetch(channel, frame, pixel)` (channel names are int constants, frames count from 0, both are clamped), `channel_size`, `channel_frames`, `frame_count`, `frame_meta(frame)` (game time, time since the previous kept frame, rendered frame index, engine frame number) and `luma(v)`. `Diff`, `Flow` (block matched motion per cell), `Variance` (one frame: mean, temporal deviation, mean and max frame to frame change per pixel), `Slice` (one row or column stacked over time: judder and flicker show as patterns) and `Stats` are maps.
+- Options: `Diff(source, {block})` averages blocks, `Flow(source, {block = 8, radius = 8, stride = 2})` (motion beyond the radius per kept frame is not tracked), `Slice(source, {row = y} or {column = x})`, `Stats(source, {expression = "abs(v.y)", threshold = 0.02})` (glsl of the fetched `v`), `SaveSheet(name, path, {frames = count or list, columns, scale, offset, abs})`, `SaveVideo(name, path, {fps, codec_args})` for `rgba8`/`r8` channels (Map others to `rgba8` first).
+- `clip:ReadFrame(name, i)` copies one frame to the cpu (`:GetPixel(x, y)`, `:Save(path, {scale, offset, abs})`); `clip:GetFrameMeta(i)` has the time, frame numbers and whatever `on_frame(meta)` added (camera matrices, for example).
+- Maps run after recording, so slow analysis does not touch the recorded frame times. Large maps are split into submits of `batch` frames (default 4) to stay clear of gpu timeouts.
