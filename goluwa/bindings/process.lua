@@ -484,16 +484,17 @@ else
 		end
 
 		local envp = ffi.new("char*[?]", count + 1)
+		local entries = {}
 		local i = 0
 
 		for k, v in pairs(env) do
-			local entry = k .. "=" .. v
-			envp[i] = ffi.cast("char*", entry)
+			entries[i + 1] = k .. "=" .. v
+			envp[i] = ffi.cast("char*", entries[i + 1])
 			i = i + 1
 		end
 
 		envp[count] = nil
-		return envp
+		return envp, entries
 	end
 
 	function process.get_current()
@@ -614,12 +615,9 @@ else
 
 			local argv = build_argv(command, opts.args)
 
-			if opts.env then
-				local envp = build_envp(opts.env)
-				ffi.C.execve(command, argv, envp)
-			else
-				ffi.C.execvp(command, argv)
-			end
+			local envp, entries = build_envp(opts.env)
+			ffi.C.environ = envp
+			ffi.C.execvp(command, argv)
 
 			ffi.C._exit(127)
 		else
