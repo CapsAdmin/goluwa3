@@ -233,8 +233,19 @@ function build.PrepareMesh(input)
 		end
 	end
 
+	local hardlock
+
+	if input.locked_vertices then
+		hardlock = ffi.new("uint8_t[?]", position_count)
+
+		for v = 0, vertex_count - 1 do
+			if input.locked_vertices[v] == 1 then hardlock[position_of[v]] = 1 end
+		end
+	end
+
 	local mesh = {
 		nv = position_count,
+		hardlock = hardlock,
 		nt = kept,
 		x = ffi.new("double[?]", position_count),
 		y = ffi.new("double[?]", position_count),

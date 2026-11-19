@@ -285,9 +285,17 @@ local NORMAL_TOL = 0.35
 local BEND_TOL = 0.15
 local BEND_VALUES = 6
 local vuv, vuv_new, vnd, vnd_new, vbd, vbd_new
+local vshared, vowner
 
-local function simplify(mesh, tris, isl, nt, target, stats)
+-- mode 0 keeps every open edge, uv seam and attribute within tolerance. A group that cannot simplify is tried
+-- again with mode 1, which lets open edges that no other group or chunk shares collapse and loosens the attribute
+-- tolerances, then mode 2, which also ignores uv seams. The error stays the measured position deviation
+local function simplify(mesh, tris, isl, nt, target, stats, mode)
 	assert(nt <= MAXT, "group too big")
+	mode = mode or 0
+	local hardlock = mesh.hardlock
+	local uv_tol = mode == 0 and UV_TOL or UV_TOL * 4
+	local normal_tol = mode == 0 and NORMAL_TOL or NORMAL_TOL * 2
 	local attrs = mesh.wlookup ~= nil
 	local nisl = mesh.nisl
 	local wlookup = mesh.wlookup
@@ -318,7 +326,21 @@ local function simplify(mesh, tris, isl, nt, target, stats)
 				local_of[g] = l
 				gid[l] = g
 				valive[l] = 1
-				lock[l] = (lockpos and lockpos[g]) and 1 or 0
+				lock[l] = (
+						(
+							hardlock and
+							hardlock[g] == 1
+						)
+						or
+						(
+							mode < 2 and
+							lockpos and
+							lockpos[g]
+						)
+					)
+					and
+					1 or
+					0
 				ver[l] = 0
 				vhead[l] = -1
 				qw[l] = 0
@@ -348,9 +370,9 @@ local function simplify(mesh, tris, isl, nt, target, stats)
 				if not found then
 					if count < 4 then
 						vi[l * 4 + count] = ti
-						vw[l * 4 + count] = wlookup[g * nisl + ti]
+						vw[l * 4 + count] = wlookup[g * nisl + ti] or -1
 						vic[l] = count + 1
-					else
+					elseif mode < 2 then
 						lock[l] = 1
 					end
 				end
@@ -415,8 +437,16 @@ local function simplify(mesh, tris, isl, nt, target, stats)
 
 	for key, count in pairs(edges) do
 		if count ~= 2 then
-			lock[floor(key / 8192)] = 1
-			lock[key % 8192] = 1
+			local u, w = floor(key / 8192), key % 8192
+
+			if mode == 0 or count > 2 then
+				lock[u] = 1
+				lock[w] = 1
+			else
+				if vshared[gid[u]] == 1 then lock[u] = 1 end
+
+				if vshared[gid[w]] == 1 then lock[w] = 1 end
+			end
 		end
 	end
 
@@ -639,7 +669,7 @@ local function simplify(mesh, tris, isl, nt, target, stats)
 
 			if shared ~= both or new_locked_edge then ok = false end
 
-			if ok and attrs then
+			if ok and attrs and mode < 2 then
 				for j = 0, vic[from] - 1 do
 					if wedge_in(to, vi[from * 4 + j]) < 0 then
 						ok = false
@@ -751,7 +781,7 @@ local function simplify(mesh, tris, isl, nt, target, stats)
 
 					new_u, new_n, new_b = udev[from] + worst_uv, ndev[from] + worst_n, bdev[from] + worst_b
 
-					if new_u > UV_TOL or new_n > NORMAL_TOL or new_b > BEND_TOL then
+					if mode < 2 and (new_u > uv_tol or new_n > normal_tol or new_b > BEND_TOL) then
 						ok = false
 						attr_rejected = attr_rejected + 1
 					end
@@ -912,6 +942,8 @@ function hierarchy.Build(mesh)
 	vuv, vuv_new = ffi.new("double[?]", mesh.nv), ffi.new("double[?]", mesh.nv)
 	vnd, vnd_new = ffi.new("double[?]", mesh.nv), ffi.new("double[?]", mesh.nv)
 	vbd, vbd_new = ffi.new("double[?]", mesh.nv), ffi.new("double[?]", mesh.nv)
+	vshared, vowner = ffi.new("uint8_t[?]", mesh.nv), ffi.new("int32_t[?]", mesh.nv)
+	local vfrozen = ffi.new("uint8_t[?]", mesh.nv)
 	local clusters = {}
 	local group_list = {}
 	local result = {
@@ -955,6 +987,26 @@ function hierarchy.Build(mesh)
 		group_time = group_time + clock() - t1
 		local next_level = {}
 		local tri_total = 0
+		ffi.copy(vshared, vfrozen, mesh.nv)
+		ffi.fill(vowner, mesh.nv * 4, 0xFF)
+
+		for r = 1, #runs, 2 do
+			for i = runs[r], runs[r + 1] - 1 do
+				local c = current[ids[i] + 1]
+				local ct = c.tris
+
+				for k = 0, c.n * 3 - 1 do
+					local v = ct[k]
+					local owner = vowner[v]
+
+					if owner < 0 then
+						vowner[v] = r
+					elseif owner ~= r then
+						vshared[v] = 1
+					end
+				end
+			end
+		end
 
 		for r = 1, #runs, 2 do
 			local members = {}
@@ -982,7 +1034,14 @@ function hierarchy.Build(mesh)
 			end
 
 			local t2 = clock()
-			local out, out_isl, out_n, local_err = simplify(mesh, flat, flat_isl, total, floor(total / 2), stats)
+			local out, out_isl, out_n, local_err
+
+			for mode = 0, 2 do
+				out, out_isl, out_n, local_err = simplify(mesh, flat, flat_isl, total, floor(total / 2), stats, mode)
+
+				if out_n <= total * 0.9 then break end
+			end
+
 			simplify_time = simplify_time + clock() - t2
 			groups = groups + 1
 			local stuck = out_n > total * 0.9
@@ -990,6 +1049,10 @@ function hierarchy.Build(mesh)
 			if stuck then
 				stuck_groups = stuck_groups + 1
 				stuck_tris = stuck_tris + total
+
+				for k = 0, total * 3 - 1 do
+					vfrozen[flat[k]] = 1
+				end
 			end
 
 			spheres[#spheres + 1] = bounding_sphere(mesh, flat, total)
