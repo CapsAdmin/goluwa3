@@ -107,10 +107,22 @@ local change_min_interval = pvars.Setup2{
 	help = "least frames between two updates of a cascade that were triggered by the lighting changing",
 }
 radiance_cache.MIN_PROBES_PER_AXIS = 4
-radiance_cache.RAYS_PER_PROBE = 128
+radiance_cache.RAYS_PER_PROBE = pvars.Setup2{
+	key = "radiance_cache_rays",
+	default = 128,
+	integer = true,
+	help = "rays each probe traces when its cascade updates, with the emitter samples this is most of the probe update. fewer is cheaper and noisier, which the probe history hides. built into the shaders, read at startup",
+}:Get()
+assert(radiance_cache.RAYS_PER_PROBE > 0, "radiance_cache_rays must be above 0")
 radiance_cache.HALF_PRECISION_RAYS = true
 radiance_cache.ALPHA_TEST = true
-radiance_cache.EMITTER_SAMPLES = 32
+radiance_cache.EMITTER_SAMPLES = pvars.Setup2{
+	key = "radiance_cache_emitter_samples",
+	default = 32,
+	integer = true,
+	help = "emitter samples each probe takes when its cascade updates, each walks the emitter light tree and traces a shadow ray, on maps with many emitters the walk is most of the probe trace. built into the shaders, read at startup",
+}:Get()
+assert(radiance_cache.EMITTER_SAMPLES > 0, "radiance_cache_emitter_samples must be above 0")
 radiance_cache.LIGHT_SAMPLES = 2
 radiance_cache.IRRADIANCE_TEXELS = 8
 radiance_cache.GUIDE_TEXELS = 8
