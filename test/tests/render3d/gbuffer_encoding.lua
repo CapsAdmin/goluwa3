@@ -42,7 +42,7 @@ local decode_pass = {
 			if (x == 3) value = vec4(gbuffer_transmission_color(uv), gbuffer_transmission_scattering(uv));
 			if (x == 4) value = vec4(gbuffer_normal(pixel), gbuffer_specular(pixel) * 0.04);
 			if (x == 5) value = vec4(gbuffer_clearcoat(uv), gbuffer_clearcoat_roughness(uv), gbuffer_clearcoat_rain(uv), 0.0);
-			if (x == 6) value = vec4(gbuffer_clearcoat_normal(uv), 0.0);
+			if (x == 6) value = vec4(gbuffer_geometric_normal(uv), 0.0);
 
 			if (x == 7) value = vec4(gbuffer_secondary_specular(uv), gbuffer_secondary_specular_roughness(uv), gbuffer_sheen(uv), gbuffer_sheen_roughness(uv));
 			if (x == 8) value = vec4(gbuffer_specular_tint(uv), 0.0, 0.0, 0.0);
@@ -137,13 +137,13 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(transmission[2])["~"](0.6 / lum, 0.07)
 	T(transmission[3])["~"](0.2 / lum, 0.07)
 	T(transmission[4])["~"](0.4, 0.01)
-	local coat, coat_normal = texels[5], texels[6]
+	local coat, geometric_normal = texels[5], texels[6]
 	T(coat[1])["~"](0.7, 0.01)
 	T(coat[2])["~"](0.09, 0.005)
 	T(coat[3])["~"](0, 0.01)
-	T(coat_normal[1])["~"](0, 0.01)
-	T(coat_normal[2])["~"](0, 0.01)
-	T(coat_normal[3])["~"](1, 0.01)
+	T(geometric_normal[1])["~"](0, 0.01)
+	T(geometric_normal[2])["~"](0, 0.01)
+	T(geometric_normal[3])["~"](1, 0.01)
 	local lobe, tint = texels[7], texels[8]
 	T(lobe[1])["~"](0.6, 0.01)
 	T(lobe[2])["~"](0.25, 0.005)

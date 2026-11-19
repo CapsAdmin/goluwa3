@@ -37,13 +37,6 @@ return {
 			default = "0.0",
 			readers = {"lighting", "radiance"},
 		},
-		{
-			name = "clearcoat_normal",
-			sheet = "clearcoat",
-			kind = "octa",
-			member = false,
-			readers = {"lighting", "radiance"},
-		},
 	},
 	surface_members = [[
 
@@ -64,13 +57,10 @@ return {
 		s.clearcoat *= 1.0 - w.snow;
 		s.clearcoat_rain = w.rain;
 	]],
-	gbuffer_write = [[
-		set_clearcoat_normal(gbuffer_encode_normal(s.coat_smooth_N));
-	]],
 	surface_decode = [[
 		s.coat_smooth_N = s.geometric_N;
 
-		if (s.clearcoat > 0.0) s.coat_smooth_N = gbuffer_clearcoat_normal(uv);
+		if (s.clearcoat > 0.0) s.coat_smooth_N = gbuffer_geometric_normal(uv);
 
 		s.coat_N = s.coat_smooth_N;
 
@@ -88,7 +78,7 @@ return {
 
 		if (gbuffer_clearcoat(gbuffer_pos) > 0.5) {
 			float coat_alpha = gbuffer_clearcoat_roughness(gbuffer_pos);
-			vec3 coat_N = gbuffer_clearcoat_normal(gbuffer_pos);
+			vec3 coat_N = gbuffer_geometric_normal(gbuffer_pos);
 			vec3 rain_N = coat_N;
 			apply_rain_surface(world_pos, footprint, gbuffer_clearcoat_rain(gbuffer_pos), rain_N, coat_alpha);
 			N = coat_N;

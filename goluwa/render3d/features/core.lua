@@ -2,6 +2,7 @@ return {
 	name = "core",
 	fields = {
 		{name = "normal", kind = "octa", member = false},
+		{name = "geometric_normal", kind = "octa", member = false},
 		{
 			name = "metallic",
 			kind = "unorm8",
@@ -49,6 +50,7 @@ return {
 		set_alpha(s.alpha);
 		set_albedo(s.albedo);
 		set_normal(gbuffer_encode_normal(s.N));
+		set_geometric_normal(gbuffer_encode_normal(s.geometric_N));
 		set_emissive(gbuffer_encode_emissive(s.emissive));
 	]],
 	surface_decode = [[
