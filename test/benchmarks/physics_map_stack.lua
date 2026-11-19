@@ -2,7 +2,7 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local physics = import("goluwa/physics.lua")
-local source_engine = import("goluwa/source_engine/source_engine.lua")
+local source_loader = import("addons/source_loader/lua/source_loader/source_loader.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local stats = import("goluwa/physics/stats.lua")
@@ -23,7 +23,7 @@ local WINDOW_STEPS = tonumber(os.getenv("WINDOW") or "60")
 local SLOW_STEP_MS = tonumber(os.getenv("SLOW_MS") or "300")
 local DT = 1 / 60
 local loaded_frames = 0
-source_engine.Load(MAP)
+source_loader.Load(MAP)
 
 local function step()
 	physics.instance.Step(DT)

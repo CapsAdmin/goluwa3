@@ -8,16 +8,16 @@ local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
 local Skeleton = import("goluwa/render3d/skeleton.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local resource = import("goluwa/source_engine/source2/resource.lua")
-local animation = import("goluwa/source_engine/source2/animation.lua")
-local vphys = import("goluwa/source_engine/source2/vphys.lua")
-local s2_material = import("goluwa/source_engine/source2/material.lua")
+local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
+local animation = import("addons/source_loader/lua/source_loader/source2/animation.lua")
+local vphys = import("addons/source_loader/lua/source_loader/source2/vphys.lua")
+local s2_material = import("addons/source_loader/lua/source_loader/source2/material.lua")
 local render = import("goluwa/render/render.lua")
 local f32_ptr_t = ffi.typeof("const float *")
 local DECAL_LIFT = 0.03
 local job = [=[
 	local input = ...
-	return import("goluwa/source_engine/source2/mesh_pack.lua").PackModel(input)
+	return import("addons/source_loader/lua/source_loader/source2/mesh_pack.lua").PackModel(input)
 ]=]
 local MAX_CACHED_FRAMES = 64
 local pose_stride = Skeleton.PoseSize

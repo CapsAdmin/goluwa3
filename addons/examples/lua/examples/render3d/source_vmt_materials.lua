@@ -6,7 +6,7 @@ local weather = import("goluwa/render3d/weather.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
-local vmt_material = import("goluwa/source_engine/vmt_material.lua")
+local vmt_material = import("addons/source_loader/lua/source_loader/vmt_material.lua")
 steam.MountSourceGame("gmod")
 local rows = {
 	{

@@ -1,4 +1,4 @@
-local UNIT = import("goluwa/source_engine/units.lua").meters
+local UNIT = import("addons/source_loader/lua/source_loader/units.lua").meters
 local attributes = {}
 attributes.List = {
 	{Name = "health", Init = 100, Step = 25, Base = 100, Help = "maximum health"},

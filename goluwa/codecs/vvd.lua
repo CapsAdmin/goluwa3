@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local source = import("goluwa/source_engine/units.lua")
+local source = import("addons/source_loader/lua/source_loader/units.lua")
 local vvd = {}
 vvd.file_extensions = {"vvd"}
 vvd.magic_headers = {"IDSV"}

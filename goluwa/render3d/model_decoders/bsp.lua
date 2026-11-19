@@ -1,7 +1,7 @@
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local bsp = import("goluwa/source_engine/bsp.lua")
-local static_geometry = import("goluwa/source_engine/static_geometry.lua")
-import("goluwa/source_engine/source_engine.lua")
+local bsp = import("addons/source_loader/lua/source_loader/bsp.lua")
+local static_geometry = import("addons/source_loader/lua/source_loader/static_geometry.lua")
+import("addons/source_loader/lua/source_loader/source_loader.lua")
 
 model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 	local ok, result = pcall(bsp.Load, full_path, true)

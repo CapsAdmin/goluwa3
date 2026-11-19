@@ -1,4 +1,4 @@
-local vmt_material = import("goluwa/source_engine/vmt_material.lua")
+local vmt_material = import("addons/source_loader/lua/source_loader/vmt_material.lua")
 local T = import("test/environment.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local steam = import("goluwa/steam/steam.lua")

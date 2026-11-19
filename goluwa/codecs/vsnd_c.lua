@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local resource = import("goluwa/source_engine/source2/resource.lua")
+local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
 local vsnd_c = {}
 vsnd_c.file_extensions = {"vsnd_c"}
 local u8_t = ffi.typeof("const uint8_t *")

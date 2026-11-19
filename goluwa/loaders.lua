@@ -6,7 +6,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local loaders = {}
 local registered = {}
 local LOADER_MODULES = {
-	source = "goluwa/source_engine/source_engine.lua",
+	source = "addons/source_loader/lua/source_loader/source_loader.lua",
 	cry = "goluwa/cry_engine/cry_engine.lua",
 }
 pvars.StartGroup("Loader", "Load window", {prefix = "load_"})

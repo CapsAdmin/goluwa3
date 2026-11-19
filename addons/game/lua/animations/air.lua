@@ -1,4 +1,4 @@
-local UNIT = import("goluwa/source_engine/units.lua").meters
+local UNIT = import("addons/source_loader/lua/source_loader/units.lua").meters
 local clip_redirect = import("lua/clip_redirect.lua")
 local REFERENCE_SPEED = 200 * UNIT
 local MAX_RATIO = 1.5

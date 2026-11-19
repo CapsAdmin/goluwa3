@@ -27,7 +27,7 @@ local group_maps_pvar = pvars.Setup2{
 	default = true,
 	help = "group the maps of the load window by name prefix",
 }
-local chain_levels_pvar = import("goluwa/source_engine/game.lua").chain_levels_pvar
+local chain_levels_pvar = import("addons/source_loader/lua/source_loader/game.lua").chain_levels_pvar
 local HINT = "double click a map to load it. tick a game to mount it now and at every start, double click a cover to tick it"
 local CHECK_SIZE = 22
 local CHECK_MARGIN = 8
