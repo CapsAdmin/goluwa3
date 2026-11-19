@@ -54,7 +54,7 @@ end)
 
 T.Test3D("subtracting a brush splits another into the convex pieces around it", function()
 	local Brush = import("goluwa/entities/components/brush.lua")
-	local brush_geometry = import("addons/source_loader/lua/source_loader/brush_geometry.lua")
+	local brush_geometry = import("goluwa/static_world/brush_geometry.lua")
 	local entity = create_world()
 	local target = Brush.CreateBox(entity, Vec3(0, 0, 0), Vec3(64, 64, 64), "brick/brickwall001a").brush
 	local hole = Brush.CreateBox(entity, Vec3(16, -8, 16), Vec3(48, 72, 48), "dev/dev_measuregeneric01").brush

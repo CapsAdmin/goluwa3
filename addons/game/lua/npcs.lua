@@ -4,7 +4,7 @@ local GridNav = import("goluwa/navigation/grid_nav.lua")
 local commands = import("goluwa/cli/commands.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local UNIT = import("addons/source_loader/lua/source_loader/units.lua").meters
+local UNIT = import("goluwa/static_world/units.lua").meters
 import("lua/damage.lua")
 local outfit = import("lua/outfit.lua")
 local movesets = import("lua/movesets.lua")

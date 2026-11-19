@@ -5,7 +5,7 @@ local event = import("goluwa/event.lua")
 local codec = import("goluwa/codec.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local attributes = import("lua/jrpg/attributes.lua")
-local UNIT = import("addons/source_loader/lua/source_loader/units.lua").meters
+local UNIT = import("goluwa/static_world/units.lua").meters
 local META = objects.CreateTemplate("rpg")
 META.Network = {
 	Mana = {"number", 0.1, "reliable", to_owner = true},

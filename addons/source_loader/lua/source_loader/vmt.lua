@@ -48,7 +48,7 @@ local function convert_typed_values(tbl)
 end
 
 local vdf = import("goluwa/codecs/vdf.lua")
-local surface_properties = import("addons/source_loader/lua/source_loader/surface_properties.lua")
+local surface_properties = import("lua/source_loader/surface_properties.lua")
 local vmt = {}
 vmt.ConvertTypedValues = convert_typed_values
 local DX_LEVEL = 95

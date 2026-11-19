@@ -1,6 +1,6 @@
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-local cry_game = import("addons/crysis_loader/lua/crysis_loader/game.lua")
+local cry_game = import("lua/crysis_loader/game.lua")
 local model_replacements = {}
 local entries = {}
 

@@ -8,7 +8,7 @@ local vfs = import("goluwa/vfs.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local UNIT = import("addons/source_loader/lua/source_loader/units.lua").meters
+local UNIT = import("goluwa/static_world/units.lua").meters
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
 Entity.RegisterComponent("usable", import("lua/components/usable.lua"))

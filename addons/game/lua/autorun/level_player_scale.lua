@@ -1,7 +1,7 @@
 local loaders = import("goluwa/loaders.lua")
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local units = import("goluwa/static_world/units.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
 local HULL_HEIGHT = 72 * units.meters
 local ENGINE_SCALES = {}

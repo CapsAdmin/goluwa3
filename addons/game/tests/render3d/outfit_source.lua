@@ -542,7 +542,7 @@ T.Test3D("citizen jump clips are added to player models with a matching bind pos
 		return T.Unavailable("gmod content not mounted")
 	end
 
-	local mdl_decoder = import("addons/source_loader/lua/source_loader/model_decoders/mdl.lua")
+	local mdl_decoder = import("lua/source_loader/model_decoders/mdl.lua")
 	local bones = {
 		["valvebiped.bip01_pelvis"] = true,
 		["valvebiped.bip01_l_thigh"] = true,

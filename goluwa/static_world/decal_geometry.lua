@@ -1,9 +1,9 @@
-local brush_geometry = import("addons/source_loader/lua/source_loader/brush_geometry.lua")
+local brush_geometry = import("goluwa/static_world/brush_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
-local static_geometry = import("addons/source_loader/lua/source_loader/static_geometry.lua")
+local units = import("goluwa/static_world/units.lua")
+local static_geometry = import("goluwa/static_world/static_geometry.lua")
 local decal_geometry = {}
 local OFFSET_FROM_SURFACE = 0.3
 local EDGES = {{"x", 1}, {"x", -1}, {"y", 1}, {"y", -1}}

@@ -1,6 +1,6 @@
 local pvars = import("goluwa/cli/pvars.lua")
 local Color = import("goluwa/structs/color.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local units = import("goluwa/static_world/units.lua")
 local lights = {}
 local instances = table.weak("k")
 

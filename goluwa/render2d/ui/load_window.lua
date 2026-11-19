@@ -27,7 +27,6 @@ local group_maps_pvar = pvars.Setup2{
 	default = true,
 	help = "group the maps of the load window by name prefix",
 }
-local chain_levels_pvar = import("addons/source_loader/lua/source_loader/game.lua").chain_levels_pvar
 local HINT = "double click a map to load it. tick a game to mount it now and at every start, double click a cover to tick it"
 local CHECK_SIZE = 22
 local CHECK_MARGIN = 8
@@ -290,7 +289,7 @@ local LoadView = react.Component(
 		local game_key, set_game_key = react.UseState(ALL_KEY)
 		local selected_map, set_selected_map = react.UseState()
 		local group_enabled, set_group_enabled = react.UseState(group_maps_pvar:Get())
-		local chain_levels, set_chain_levels = react.UseState(chain_levels_pvar:Get())
+		local chain_levels, set_chain_levels = react.UseState(loaders.chain_levels_pvar:Get())
 		local open_group, set_open_group = react.UseState()
 		local selected_game = data.by_key[game_key] ?? ALL_GAMES
 		local maps = react.UseMemo(
@@ -381,7 +380,7 @@ local LoadView = react.Component(
 						Text = "Chain levels",
 						Value = chain_levels,
 						OnChange = |value|-> do
-							chain_levels_pvar:Set(value)
+							loaders.chain_levels_pvar:Set(value)
 							set_chain_levels(value)
 						end,
 					},

@@ -3,7 +3,7 @@ local tasks = import("goluwa/tasks.lua")
 local steam = import("goluwa/steam/steam.lua")
 local Material = import("goluwa/render3d/material.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local vmt_material = import("addons/source_loader/lua/source_loader/vmt_material.lua")
+local vmt_material = import("lua/source_loader/vmt_material.lua")
 local material_bake = import("goluwa/render3d/material_bake.lua")
 
 local function apply(vmt, path)

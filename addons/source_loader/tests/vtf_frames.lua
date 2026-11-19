@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local vtf = import("goluwa/codecs/vtf.lua")
+local vtf = import("lua/codecs/vtf.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local ffi = require("ffi")
 local build = import("test/vtf_frames.lua")

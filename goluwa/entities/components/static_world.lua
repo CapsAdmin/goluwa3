@@ -2,10 +2,10 @@ local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local scene = import("goluwa/entities/scene.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
-local game = import("addons/source_loader/lua/source_loader/game.lua")
-local static_geometry = import("addons/source_loader/lua/source_loader/static_geometry.lua")
-local collision = import("addons/source_loader/lua/source_loader/bsp_collision.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local event = import("goluwa/event.lua")
+local static_geometry = import("goluwa/static_world/static_geometry.lua")
+local collision = import("goluwa/static_world/collision.lua")
+local units = import("goluwa/static_world/units.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -96,7 +96,7 @@ function META:OnAdd()
 end
 
 function META:OnDeserialized()
-	if self.Pak ~= "" then game.MountMapPak(self.Pak) end
+	if self.Pak ~= "" then event.Call("StaticWorldPak", self.Pak, true) end
 
 	self:Reload()
 end
@@ -390,7 +390,7 @@ end
 function META:OnRemove()
 	if META.active == self then META.active = nil end
 
-	if self.Pak ~= "" then game.UnmountMapPak(self.Pak) end
+	if self.Pak ~= "" then event.Call("StaticWorldPak", self.Pak, false) end
 
 	if RENDER_3D then VisibilityGroup.ShowAll() end
 end

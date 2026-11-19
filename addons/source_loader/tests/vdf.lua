@@ -82,7 +82,7 @@ T.Test("vdf: color and vector values stay strings and the result is serializable
 end)
 
 T.Test("vmt: typed values are converted to Color and Vec3", function()
-	local vmt = import("addons/source_loader/lua/source_loader/vmt.lua")
+	local vmt = import("lua/source_loader/vmt.lua")
 	local out = vdf.Decode([[
 "root"
 {

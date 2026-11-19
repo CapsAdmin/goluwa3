@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
 local assets = import("goluwa/assets.lua")
 local Texture = import("goluwa/render/texture.lua")
-local vtf = import("goluwa/codecs/vtf.lua")
+local event = import("goluwa/event.lua")
 local sprite_sheets = {}
 local cache = {}
 
@@ -60,8 +60,7 @@ function sprite_sheets.Load(path)
 	if cache[path] then return cache[path] end
 
 	local texture = assets.GetTexture(path)
-	local data = path:lower():find("%.vtf$") and vfs.Read(path)
-	local parsed = data and vtf.ParseSheet(data)
+	local parsed = event.Call("ParseSpriteSheet", path)
 
 	if parsed and #parsed.sequences > 0 then
 		table.sort(parsed.sequences, function(a, b)

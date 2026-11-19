@@ -59,7 +59,7 @@ A model whose `.phy` has `ragdollconstraint` blocks (gibs, boxes that fall apart
 ## Character movement (`addons/game/lua/components/character_movement.lua`, shared by players and npcs)
 
 - Source friction/accelerate/airaccelerate computed per fixed step and applied as ONE impulse. Body damping/friction 0, `LockRotation`, `CanSleep` false. Camera input latches `jump_requested`; velocity logic runs in `OnPhysicsUpdate(dt)`.
-- Source units: `units.meters = 0.01905` (`source_loader/units.lua`, not 0.0254): the 32x72 hull is a capsule, step 18u, jump 200u/s, gravity as body gravity scale.
+- Source units: `units.meters = 0.01905` (`goluwa/static_world/units.lua`, not 0.0254): the 32x72 hull is a capsule, step 18u, jump 200u/s, gravity as body gravity scale.
 - Ground is Source's check, not the contact flag: `FindGround` sweeps down (falls back to a ray at stair nosings). Steps follow Source StepMove; a rigid capsule cannot roll over ledges higher than about its radius, so `TryStepUp` sweeps forward/up/forward/down and teleports onto walkable ground.
 
 ## Stats

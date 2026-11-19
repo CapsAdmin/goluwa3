@@ -1,5 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
-local lights = import("addons/source_loader/lua/source_loader/lights.lua")
+local lights = import("lua/source_loader/lights.lua")
 local META = objects.CreateTemplate("source_light")
 META:StartStorable()
 META:GetSet("Info", nil, {type = "table", callback = "Apply"})

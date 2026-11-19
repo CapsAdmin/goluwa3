@@ -1,7 +1,7 @@
 local commands = import("goluwa/cli/commands.lua")
 local bake_scene = import("goluwa/render3d/cluster_stream/bake_scene.lua")
 local cluster_stream = import("goluwa/render3d/scene/cluster_stream.lua")
-local gltf_scenes = import("addons/gltf_loader/lua/gltf_loader/scenes.lua")
+local gltf_scenes = import("lua/gltf_loader/scenes.lua")
 
 commands.Add({
 	aliases = "gltf_bake",

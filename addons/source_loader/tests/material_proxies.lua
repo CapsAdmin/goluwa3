@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local material_proxies = import("addons/source_loader/lua/source_loader/material_proxies.lua")
+local material_proxies = import("lua/source_loader/material_proxies.lua")
 local vmt = [[
 "UnlitGeneric"
 {

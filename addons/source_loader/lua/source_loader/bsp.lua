@@ -1,8 +1,8 @@
 local ffi = require("ffi")
 local startup = import("goluwa/startup.lua")
-local vmt_loader = import("addons/source_loader/lua/source_loader/vmt.lua")
+local vmt_loader = import("lua/source_loader/vmt.lua")
 local vfs = import("goluwa/vfs.lua")
-local game = import("addons/source_loader/lua/source_loader/game.lua")
+local game = import("lua/source_loader/game.lua")
 local tasks = import("goluwa/tasks.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -15,11 +15,11 @@ local Color = import("goluwa/structs/color.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local R = vfs.GetAbsolutePath
 local bit = require("bit")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
-local collision = import("addons/source_loader/lua/source_loader/bsp_collision.lua")
-local brush_geometry = import("addons/source_loader/lua/source_loader/brush_geometry.lua")
-local bsp_clip = import("addons/source_loader/lua/source_loader/bsp_clip.lua")
-local static_geometry = import("addons/source_loader/lua/source_loader/static_geometry.lua")
+local units = import("goluwa/static_world/units.lua")
+local collision = import("lua/source_loader/bsp_collision.lua")
+local brush_geometry = import("goluwa/static_world/brush_geometry.lua")
+local bsp_clip = import("lua/source_loader/bsp_clip.lua")
+local static_geometry = import("goluwa/static_world/static_geometry.lua")
 local FloatArray = ffi.typeof("float[?]")
 local Int32Array = ffi.typeof("int32_t[?]")
 local bsp = {}
@@ -108,7 +108,7 @@ end
 
 local decode_job_source = [=[
 	local input = ...
-	local bsp = import("goluwa/codecs/bsp.lua")
+	local bsp = import("lua/codecs/bsp.lua")
 	local stage = not _G.thread_pool_job and import("goluwa/tasks.lua").Wait or nil
 	return assert(bsp.Decode(input.data, {cubemaps = input.cubemaps, entities_only = input.entities_only}, stage))
 ]=]

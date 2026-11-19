@@ -42,7 +42,7 @@ end
 vtex_c.thread_job = [[
 	local input = ...
 	local Buffer = import("goluwa/structs/buffer.lua")
-	local vtex_c = import("goluwa/codecs/vtex_c.lua")
+	local vtex_c = import("lua/codecs/vtex_c.lua")
 	local meta, data = vtex_c.DecodeBuffer(Buffer.New(input, #input))
 	return meta, data
 ]]

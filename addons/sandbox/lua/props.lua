@@ -3,8 +3,8 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local surface_properties = import("addons/source_loader/lua/source_loader/surface_properties.lua")
-local prop_data = import("addons/source_loader/lua/source_loader/prop_data.lua")
+local surface_properties = import("lua/source_loader/surface_properties.lua")
+local prop_data = import("lua/source_loader/prop_data.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local props = {}
 prefab.Register(

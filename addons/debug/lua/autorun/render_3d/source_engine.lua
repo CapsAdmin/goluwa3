@@ -1,7 +1,7 @@
 local commands = import("goluwa/cli/commands.lua")
-local vmt_material = import("addons/source_loader/lua/source_loader/vmt_material.lua")
+local vmt_material = import("lua/source_loader/vmt_material.lua")
 local fs = import("goluwa/filesystem/fs.lua")
-local lights = import("addons/source_loader/lua/source_loader/lights.lua")
+local lights = import("lua/source_loader/lights.lua")
 
 commands.Add("dump_unused_vmt_properties", function()
 	local vmt_stats = vmt_material.GetStats()

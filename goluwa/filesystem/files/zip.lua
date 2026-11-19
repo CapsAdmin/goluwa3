@@ -3,7 +3,7 @@ local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
 local bit = require("bit")
 local deflate = import("goluwa/codecs/deflate.lua")
-local cry_pak = import("goluwa/codecs/cry_pak.lua")
+local event = import("goluwa/event.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
 local Tree = import("goluwa/structs/tree.lua")
@@ -231,7 +231,10 @@ function CONTEXT:Open(path_info, mode, ...)
 		file:Close()
 
 		if file_info.compressionMethod == 6 then
-			compressed_data = cry_pak.Decrypt(compressed_data, file_info.crc32)
+			compressed_data = assert(
+				event.Call("ZipDecrypt", file_info.compressionMethod, compressed_data, file_info.crc32),
+				"no addon decrypts zip compression method 6"
+			)
 		end
 
 		if file_info.compressionMethod == 8 or file_info.compressionMethod == 6 then

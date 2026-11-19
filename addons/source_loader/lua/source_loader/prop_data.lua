@@ -1,6 +1,6 @@
 local vdf = import("goluwa/codecs/vdf.lua")
 local vfs = import("goluwa/vfs.lua")
-local surface_properties = import("addons/source_loader/lua/source_loader/surface_properties.lua")
+local surface_properties = import("lua/source_loader/surface_properties.lua")
 local prop_data = {}
 local entries
 local chunks

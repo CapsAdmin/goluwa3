@@ -1,6 +1,6 @@
 local tasks = import("goluwa/tasks.lua")
 local vfs = import("goluwa/vfs.lua")
-local vtf = import("goluwa/codecs/vtf.lua")
+local vtf = import("lua/codecs/vtf.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Texture = import("goluwa/render/texture.lua")
 local height_from_normals = import("goluwa/render/height_from_normals.lua")
@@ -10,10 +10,10 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local Material = import("goluwa/render3d/material.lua")
 local acoustics = import("goluwa/audio/acoustics.lua")
-local material_proxies = import("addons/source_loader/lua/source_loader/material_proxies.lua")
-local surface_types = import("addons/source_loader/lua/source_loader/surface_types.lua")
-local vmt_loader = import("addons/source_loader/lua/source_loader/vmt.lua")
-local surface_properties = import("addons/source_loader/lua/source_loader/surface_properties.lua")
+local material_proxies = import("lua/source_loader/material_proxies.lua")
+local surface_types = import("lua/source_loader/surface_types.lua")
+local vmt_loader = import("lua/source_loader/vmt.lua")
+local surface_properties = import("lua/source_loader/surface_properties.lua")
 local vmt_material = {}
 Material.vmt_materials = Material.vmt_materials or table.weak("k")
 local live_materials = Material.vmt_materials
@@ -1931,9 +1931,9 @@ end
 
 do
 	local reload_paths = {
-		["addons/source_loader/lua/source_loader/vmt_material.lua"] = true,
-		["addons/source_loader/lua/source_loader/material_proxies.lua"] = true,
-		["addons/source_loader/lua/source_loader/vmt.lua"] = true,
+		["lua/source_loader/vmt_material.lua"] = true,
+		["lua/source_loader/material_proxies.lua"] = true,
+		["lua/source_loader/vmt.lua"] = true,
 	}
 
 	event.AddListener("ModulesReloaded", "vmt_material", function(paths)
@@ -1950,4 +1950,11 @@ Material.RegisterOverrideLoader(".vmt", function(path)
 	return nil, vmt_material.FromVMT(path)
 end)
 
+local static_geometry = import("goluwa/static_world/static_geometry.lua")
+static_geometry.material_source = {
+	FromTexture = function(texname)
+		return vmt_material.FromVMT("materials/" .. texname .. ".vmt")
+	end,
+	UpdateHeightShell = vmt_material.UpdateHeightShell,
+}
 return vmt_material

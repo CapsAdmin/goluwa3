@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
-local vtf = import("goluwa/codecs/vtf.lua")
+local vtf = import("lua/codecs/vtf.lua")
 local pcf = {}
 pcf.Directory = "particles/"
 pcf.UNIT = 0.0254

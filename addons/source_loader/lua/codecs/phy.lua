@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local bit = require("bit")
-local source = import("addons/source_loader/lua/source_loader/units.lua")
+local source = import("goluwa/static_world/units.lua")
 local phy = {}
 phy.file_extensions = {"phy"}
 local int32_ptr_t = ffi.typeof("const int32_t *")

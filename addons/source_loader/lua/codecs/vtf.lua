@@ -218,7 +218,7 @@ vtf.returns_blob = true
 vtf.thread_job = [[
 	local input = ...
 	local Buffer = import("goluwa/structs/buffer.lua")
-	local vtf = import("goluwa/codecs/vtf.lua")
+	local vtf = import("lua/codecs/vtf.lua")
 	local meta, data = vtf.DecodeBuffer(Buffer.New(input, #input))
 
 	if not meta then error(data, 0) end

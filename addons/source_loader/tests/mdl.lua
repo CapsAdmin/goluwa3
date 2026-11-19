@@ -88,7 +88,7 @@ end)
 T.Test("mdl eyeballs come out in model space as engine units", function()
 	if not T.HasGmod() then return T.Unavailable("gmod content not mounted") end
 
-	local meta = import("goluwa/codecs/mdl.lua").Decode(vfs.Read("models/player/alyx.mdl"))
+	local meta = import("lua/codecs/mdl.lua").Decode(vfs.Read("models/player/alyx.mdl"))
 	local eyeballs = meta.bodypart_models[1][1].eyeballs
 	T(#eyeballs)["=="](2)
 

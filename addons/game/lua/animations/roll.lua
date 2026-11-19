@@ -1,6 +1,6 @@
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local UNIT = import("addons/source_loader/lua/source_loader/units.lua").meters
+local UNIT = import("goluwa/static_world/units.lua").meters
 local character_scale = import("lua/character_scale.lua")
 local PIVOT = 0.4
 local PIVOT_FORWARD = 0.2

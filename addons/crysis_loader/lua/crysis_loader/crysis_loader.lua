@@ -3,9 +3,9 @@ local steam = import("goluwa/steam/steam.lua")
 local startup = import("goluwa/startup.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local game = import("addons/crysis_loader/lua/crysis_loader/game.lua")
-local level = import("addons/crysis_loader/lua/crysis_loader/level.lua")
-local cry_scene = import("addons/crysis_loader/lua/crysis_loader/scene.lua")
+local game = import("lua/crysis_loader/game.lua")
+local level = import("lua/crysis_loader/level.lua")
+local cry_scene = import("lua/crysis_loader/scene.lua")
 local crysis_loader = {}
 
 function crysis_loader.Load(name, options)

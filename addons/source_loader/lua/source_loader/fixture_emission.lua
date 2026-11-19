@@ -1,6 +1,6 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local lights = import("addons/source_loader/lua/source_loader/lights.lua")
+local lights = import("lua/source_loader/lights.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")

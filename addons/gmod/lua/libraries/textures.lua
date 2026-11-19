@@ -82,7 +82,7 @@ do
 			local vmt_path = gine.ResolvePath(path, "material")
 
 			if vmt_path then
-				import("addons/source_loader/lua/source_loader/vmt.lua").Load(vmt_path, function(vmt)
+				import("lua/source_loader/vmt.lua").Load(vmt_path, function(vmt)
 					mat:SetShader(vmt.shader:lower())
 
 					for key, val in pairs(vmt) do

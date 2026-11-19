@@ -1,8 +1,7 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local vmt_material = import("addons/source_loader/lua/source_loader/vmt_material.lua")
-local brush_geometry = import("addons/source_loader/lua/source_loader/brush_geometry.lua")
-local collision = import("addons/source_loader/lua/source_loader/bsp_collision.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local brush_geometry = import("goluwa/static_world/brush_geometry.lua")
+local collision = import("goluwa/static_world/collision.lua")
+local units = import("goluwa/static_world/units.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local tasks = import("goluwa/tasks.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -64,7 +63,7 @@ function static_geometry.GetBatch(state, texname, group, kind, material)
 		local mesh = Polygon3D.New()
 		-- batches are uploaded again on every edit: content deduplication would hash the whole batch each time
 		mesh.Dynamic = true
-		material = material or vmt_material.FromVMT("materials/" .. texname .. ".vmt")
+		material = material or static_geometry.material_source.FromTexture(texname)
 		mesh:SetName(state.name .. ": " .. texname)
 		mesh.material = material
 		batch = {mesh = mesh, material = material, visibility_group = group}
@@ -476,7 +475,7 @@ function static_geometry.UploadBatch(batch)
 			aabb.min_x, aabb.min_y, aabb.min_z = aabb.min_x - margin, aabb.min_y - margin, aabb.min_z - margin
 			aabb.max_x, aabb.max_y, aabb.max_z = aabb.max_x + margin, aabb.max_y + margin, aabb.max_z + margin
 			batch.material.shell_tile_meters = tile
-			vmt_material.UpdateHeightShell(batch.material)
+			static_geometry.material_source.UpdateHeightShell(batch.material)
 			batch.mesh:AddHeightShell()
 		end
 	end
@@ -529,7 +528,7 @@ function static_geometry.AddPolygon(mesh, polygon)
 end
 
 function static_geometry.GetColliderMaterial(texname)
-	return RENDER_2D and vmt_material.FromVMT("materials/" .. texname .. ".vmt") or nil
+	return RENDER_2D and static_geometry.material_source.FromTexture(texname) or nil
 end
 
 function static_geometry.GetSideMaterials(record)

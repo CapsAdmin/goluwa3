@@ -5,21 +5,37 @@ local Buffer = import("goluwa/structs/buffer.lua")
 local codec = {}
 local codec_modules
 
+local function import_codec(lib)
+	if fs.is_file("goluwa/codecs/" .. lib .. ".lua") then
+		return import("goluwa/codecs/" .. lib .. ".lua")
+	end
+
+	return import("lua/codecs/" .. lib .. ".lua")
+end
+
 local function get_codec_modules()
 	if codec_modules then return codec_modules end
 
 	codec_modules = {}
 
-	for _, name in ipairs(fs.get_files("goluwa/codecs")) do
-		if not name:ends_with(".lua") then goto continue end
+	local directories = {{path = "goluwa/codecs/", import_prefix = "goluwa/codecs/"}}
 
-		local module_name = name:sub(1, -5)
-		codec_modules[#codec_modules + 1] = {
-			name = module_name,
-			mod = import("goluwa/codecs/" .. module_name .. ".lua"),
-		}
+	for _, root in ipairs(vfs.GetAddonLuaRoots()) do
+		directories[#directories + 1] = {path = root .. "codecs/", import_prefix = "lua/codecs/"}
+	end
 
-		::continue::
+	for _, directory in ipairs(directories) do
+		for _, name in ipairs(fs.get_files(directory.path) or {}) do
+			if not name:ends_with(".lua") then goto continue end
+
+			local module_name = name:sub(1, -5)
+			codec_modules[#codec_modules + 1] = {
+				name = module_name,
+				mod = import(directory.import_prefix .. module_name .. ".lua"),
+			}
+
+			::continue::
+		end
 	end
 
 	return codec_modules
@@ -144,13 +160,13 @@ function codec.GetLibrary(name)
 end
 
 function codec.Encode(lib, ...)
-	local data = import("goluwa/codecs/" .. lib .. ".lua")
+	local data = import_codec(lib)
 	local encode = data.encode or data.Encode
 	return encode(...)
 end
 
 function codec.Decode(lib, ...)
-	local data = import("goluwa/codecs/" .. lib .. ".lua")
+	local data = import_codec(lib)
 	local decode = data.decode or data.Decode
 	return decode(...)
 end
@@ -181,7 +197,7 @@ end
 
 function codec.DecodeData(path, file_content, lib)
 	if lib then
-		return codec.DecodeWithModule(path, file_content, import("goluwa/codecs/" .. lib .. ".lua"))
+		return codec.DecodeWithModule(path, file_content, import_codec(lib))
 	end
 
 	local candidates = collect_decoder_candidates(path, file_content)

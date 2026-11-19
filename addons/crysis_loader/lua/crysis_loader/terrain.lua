@@ -1,4 +1,4 @@
-local mtl_material = import("addons/crysis_loader/lua/crysis_loader/mtl_material.lua")
+local mtl_material = import("lua/crysis_loader/mtl_material.lua")
 local Color = import("goluwa/structs/color.lua")
 local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")

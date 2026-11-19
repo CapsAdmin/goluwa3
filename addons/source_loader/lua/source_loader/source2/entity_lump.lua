@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local bit = require("bit")
-local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
+local resource = import("lua/source_loader/source2/resource.lua")
 local entity_lump = {}
 local u32_t = ffi.typeof("uint32_t")
 local u8_t = ffi.typeof("const uint8_t *")

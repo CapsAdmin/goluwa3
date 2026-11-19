@@ -2,7 +2,7 @@
 local commands = import("goluwa/cli/commands.lua")
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local pvars = import("goluwa/cli/pvars.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local units = import("goluwa/static_world/units.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
 local function set_mode(culling, lod_level)

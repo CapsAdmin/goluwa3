@@ -1,15 +1,10 @@
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-local vtf = import("goluwa/codecs/vtf.lua")
+local vtf = import("lua/codecs/vtf.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
+local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local game = {}
-pvars.StartGroup("Engine", "Source maps", {prefix = "source_"})
-game.chain_levels_pvar = pvars.Setup2{
-	key = "source_chain_levels",
-	default = false,
-	help = "load the neighbouring levels of a chapter together, joined at their landmarks",
-}
 local map_games = {
 	["gm_.+"] = {"garry's mod", "tf2", "css"},
 	["rp_.+"] = {"garry's mod", "tf2", "css"},
@@ -110,6 +105,10 @@ do
 	end
 end
 
+event.AddListener("StaticWorldPak", "source_loader", function(path, mounting)
+	if mounting then game.MountMapPak(path) else game.UnmountMapPak(path) end
+end)
+
 function game.GetMountableGames()
 	local games = {}
 
@@ -135,7 +134,7 @@ end
 
 function game.ListLooseMaps(info)
 	if info.source2 then
-		return import("addons/source_loader/lua/source_loader/source2/world.lua").ListMaps(info)
+		return import("lua/source_loader/source2/world.lua").ListMaps(info)
 	end
 
 	local names = {}

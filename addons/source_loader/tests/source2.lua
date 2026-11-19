@@ -4,11 +4,11 @@ local steam = import("goluwa/steam/steam.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local vfs = import("goluwa/vfs.lua")
 local codec = import("goluwa/codec.lua")
-local kv3 = import("addons/source_loader/lua/source_loader/source2/kv3.lua")
-local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
-local vbib = import("addons/source_loader/lua/source_loader/source2/vbib.lua")
-local vtex_c = import("goluwa/codecs/vtex_c.lua")
-local entity_lump = import("addons/source_loader/lua/source_loader/source2/entity_lump.lua")
+local kv3 = import("lua/source_loader/source2/kv3.lua")
+local resource = import("lua/source_loader/source2/resource.lua")
+local vbib = import("lua/source_loader/source2/vbib.lua")
+local vtex_c = import("lua/codecs/vtex_c.lua")
+local entity_lump = import("lua/source_loader/source2/entity_lump.lua")
 
 T.Test("source 2 text kv3", function()
 	local data = kv3.DecodeText([[<!-- kv3 encoding:text:version{e21c7f3c} format:generic:version{7412167c} -->
@@ -105,7 +105,7 @@ T.Test("source 2 world physics", function()
 
 	steam.MountSourceGame(info)
 	vfs.Mount(info.vdf_directory .. "maps/a2_pistol.vpk/")
-	local children, body = import("addons/source_loader/lua/source_loader/source2/vphys.lua").Load("maps/a2_pistol/world_physics.vphys_c")
+	local children, body = import("lua/source_loader/source2/vphys.lua").Load("maps/a2_pistol/world_physics.vphys_c")
 	T(#children > 1000)["=="](true)
 	T(body.Friction > 0.5 and body.Friction <= 1)["=="](true)
 	T(body.FrictionCombineMode)["=="]("multiply")
@@ -132,7 +132,7 @@ T.Test("source 2 maps name their skybox in a skybox_reference entity", function(
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local world = import("addons/source_loader/lua/source_loader/source2/world.lua")
+	local world = import("lua/source_loader/source2/world.lua")
 
 	for name, expected in pairs{
 		a3_hotel_street = "maps/a3_hotel_street/hotel_street_skybox_static",
@@ -154,7 +154,7 @@ T.Test("source 2 maps keep vr hand poses out and build their constraints", funct
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local world = import("addons/source_loader/lua/source_loader/source2/world.lua")
+	local world = import("lua/source_loader/source2/world.lua")
 	vfs.Mount(world.GetMapDirectory(info) .. "a3_hotel_street.vpk/")
 	local data = world.Translate("a3_hotel_street", nil)
 	local kinds, banned, drawer = {}, 0, nil
@@ -196,7 +196,7 @@ T.Test("xen foliage materials absorb their transmission colour through a medium"
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	local Material = import("goluwa/render3d/material.lua")
 	local media = import("goluwa/render3d/media.lua")
 	local foam = material.GetInfo("materials/models/props/xen/xen_foam_straight_anchor01_to_xen_cleanup.vmat")
@@ -215,7 +215,7 @@ T.Test3D("source 2 glass, bottles and liquids are refractive with their colour a
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	local Material = import("goluwa/render3d/material.lua")
 	local media = import("goluwa/render3d/media.lua")
 	local glass_info = material.GetInfo("materials/models/particle/combine_ball_glass.vmat")
@@ -254,7 +254,7 @@ T.Test("vtex textures with clamp flags are not read as cube maps", function()
 
 	steam.MountSourceGame(info)
 	local Buffer = import("goluwa/structs/buffer.lua")
-	local vtex_c = import("goluwa/codecs/vtex_c.lua")
+	local vtex_c = import("lua/codecs/vtex_c.lua")
 	local data = vfs.Read("materials/models/hologram_fx/combine_locker_outline_color_tga_5bb97b2e.vtex_c")
 	local meta = vtex_c.DecodeBuffer(Buffer.New(data, #data))
 	T(meta.width)["=="](1024)
@@ -268,7 +268,7 @@ T.Test3D("source 2 alpha tests follow their edge strength and only named translu
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	local liquid = material.FromVMAT("materials/models/props/combine/combine_antlion_juice_tank_liquid_trans.vmat")
 	T(liquid:GetTranslucent())["=="](true)
 	T(liquid:GetAlphaTest())["=="](false)
@@ -290,7 +290,7 @@ T.Test3D("source 2 self illumination is a colour map scaled by the albedo factor
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	local liquid = material.FromVMAT("materials/models/props/combine/combine_antlion_juice_tank_liquid.vmat")
 	T(liquid:GetEmissiveTextureIsColor())["=="](true)
 	T(liquid:GetEmissiveAlbedoFactor())["=="](1)
@@ -308,7 +308,7 @@ T.Test3D("source 2 vr_complex materials without F_SPECULAR have no specular", fu
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	T(
 		material.FromVMAT("materials/particle/hologram/box_noise_00_holo_fail.vmat"):GetSpecularMultiplier()
 	)["=="](0)
@@ -318,7 +318,7 @@ T.Test3D("source 2 vr_complex materials without F_SPECULAR have no specular", fu
 end)
 
 T.Test("source 2 occluder draw calls have no material and are not packed", function()
-	local mesh_pack = import("addons/source_loader/lua/source_loader/source2/mesh_pack.lua")
+	local mesh_pack = import("lua/source_loader/source2/mesh_pack.lua")
 	local entries = {}
 	local data = {
 		m_sceneObjects = {
@@ -343,7 +343,7 @@ T.Test("vtex mean colour comes from the smallest mip of a prefix of the file", f
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local vtex_c = import("goluwa/codecs/vtex_c.lua")
+	local vtex_c = import("lua/codecs/vtex_c.lua")
 	local path = "models/props_combine/combine_fence/materials/combine_doorway_fence_lit_tga_ec057ec8.vtex_c"
 	local file_path, offset, size = vfs.GetReadLocation(path)
 	local file = assert(io.open(file_path, "rb"))
@@ -360,10 +360,10 @@ T.Test("source 2 draw call tints reach the model as tinted entries", function()
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local world = import("addons/source_loader/lua/source_loader/source2/world.lua")
+	local world = import("lua/source_loader/source2/world.lua")
 	vfs.Mount(world.GetMapDirectory(info) .. "a1_intro_world.vpk/")
-	local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
-	local mesh_pack = import("addons/source_loader/lua/source_loader/source2/mesh_pack.lua")
+	local resource = import("lua/source_loader/source2/resource.lua")
+	local mesh_pack = import("lua/source_loader/source2/mesh_pack.lua")
 	local tints = {}
 
 	for _, batch in ipairs{"b696", "b1071"} do
@@ -392,7 +392,7 @@ T.Test3D("source 2 material color tints are srgb", function()
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	local color = material.FromVMAT("materials/models/props/junk/plasticbucket001.vmat"):GetColorMultiplier()
 	T(math.abs(color.r - 0.737) < 0.01)["=="](true)
 	T(color.g < 0.07 and color.b < 0.05)["=="](true)
@@ -404,9 +404,9 @@ T.Test3D("source 2 foliage animation becomes engine vegetation bending", functio
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
-	local mesh_pack = import("addons/source_loader/lua/source_loader/source2/mesh_pack.lua")
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local resource = import("lua/source_loader/source2/resource.lua")
+	local mesh_pack = import("lua/source_loader/source2/mesh_pack.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	local path = "models/props_foliage/foliage_weed_001a.vmdl_c"
 	local res = resource.Load(vfs, path)
 	local meta = mesh_pack.PackModel{path = path, model = res.data, meshes = {}, masks = {}, external = 0}
@@ -425,7 +425,7 @@ T.Test("source 2 surface properties", function()
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local surface_properties = import("addons/source_loader/lua/source_loader/source2/surface_properties.lua")
+	local surface_properties = import("lua/source_loader/source2/surface_properties.lua")
 	local default = surface_properties.GetByHash(1977497166)
 	T(default.friction)["=="](0.8)
 	T(default.elasticity)["=="](0.25)
@@ -448,8 +448,8 @@ T.Test("source 2 skinned models pack a skeleton, weights and clips", function()
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local mesh_pack = import("addons/source_loader/lua/source_loader/source2/mesh_pack.lua")
-	local animation = import("addons/source_loader/lua/source_loader/source2/animation.lua")
+	local mesh_pack = import("lua/source_loader/source2/mesh_pack.lua")
+	local animation = import("lua/source_loader/source2/animation.lua")
 	local res = resource.Load(vfs, "models/characters/eli/eli.vmdl_c")
 	local model_data = resource.ReadKV3(res)
 	local meta, blob = mesh_pack.PackModel{
@@ -515,7 +515,7 @@ T.Test("source 2 material info", function()
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	local complex = material.GetInfo("materials/models/props/hooks_2.vmat")
 	T(complex.shader)["=="]("vr_complex.vfx")
 	T(complex.textures.g_tNormal ~= nil)["=="](true)
@@ -600,6 +600,6 @@ T.Test("source 2 materials take their physics surface", function()
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local material = import("addons/source_loader/lua/source_loader/source2/material.lua")
+	local material = import("lua/source_loader/source2/material.lua")
 	T(material.GetInfo("materials/architecture/hotel/hotel_wall_painted_001.vmat").surface)["=="]("world.plaster")
 end)

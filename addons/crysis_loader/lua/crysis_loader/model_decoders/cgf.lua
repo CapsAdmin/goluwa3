@@ -1,5 +1,5 @@
-local mtl_material = import("addons/crysis_loader/lua/crysis_loader/mtl_material.lua")
-local cry_units = import("addons/crysis_loader/lua/crysis_loader/units.lua")
+local mtl_material = import("lua/crysis_loader/mtl_material.lua")
+local cry_units = import("lua/crysis_loader/units.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -17,7 +17,7 @@ local lod = import("goluwa/render3d/lod.lua")
 local render = import("goluwa/render/render.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
-local cry_physics = import("goluwa/codecs/cry_physics.lua")
+local cry_physics = import("lua/codecs/cry_physics.lua")
 local cgf = {}
 cgf.FILE_TYPE_GEOMETRY = 0xFFFF0000
 cgf.FILE_TYPE_ANIMATION = 0xFFFF0001
@@ -832,7 +832,7 @@ end
 cgf.Decoder = {}
 cgf.Decoder.job = [=[
 	local input = ...
-	return import("addons/crysis_loader/lua/crysis_loader/model_decoders/cgf.lua").PackModel(input)
+	return import("lua/crysis_loader/model_decoders/cgf.lua").PackModel(input)
 ]=]
 
 function cgf.Decoder.Gather(path, full_path)

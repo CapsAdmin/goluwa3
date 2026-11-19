@@ -8,7 +8,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local damage = import("lua/damage.lua")
 local props = import("lua/props.lua")
-local prop_data = import("addons/source_loader/lua/source_loader/prop_data.lua")
+local prop_data = import("lua/source_loader/prop_data.lua")
 Entity.RegisterComponent("breakable", import("lua/components/breakable.lua"))
 Entity.RegisterComponent("fade_out", import("lua/components/fade_out.lua"))
 

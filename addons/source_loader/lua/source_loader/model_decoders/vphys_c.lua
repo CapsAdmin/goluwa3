@@ -1,5 +1,5 @@
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local vphys = import("addons/source_loader/lua/source_loader/source2/vphys.lua")
+local vphys = import("lua/source_loader/source2/vphys.lua")
 
 model_loader.AddModelDecoder("vphys_c", function(path, full_path, mesh_callback, physics_callback)
 	local children, body = vphys.Load(full_path)

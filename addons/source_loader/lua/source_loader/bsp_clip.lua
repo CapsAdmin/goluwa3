@@ -1,4 +1,4 @@
-local brush_geometry = import("addons/source_loader/lua/source_loader/brush_geometry.lua")
+local brush_geometry = import("goluwa/static_world/brush_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local bsp_clip = {}
 local EPSILON = 0.01

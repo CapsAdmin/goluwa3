@@ -1,5 +1,5 @@
 local startup = import("goluwa/startup.lua")
-local mtl_material = import("addons/crysis_loader/lua/crysis_loader/mtl_material.lua")
+local mtl_material = import("lua/crysis_loader/mtl_material.lua")
 local xml = import("goluwa/codecs/xml.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
@@ -7,11 +7,11 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
-local game = import("addons/crysis_loader/lua/crysis_loader/game.lua")
-local brush_list = import("addons/crysis_loader/lua/crysis_loader/brush_list.lua")
-local compiled_terrain = import("addons/crysis_loader/lua/crysis_loader/compiled_terrain.lua")
-local compiled_vegetation = import("addons/crysis_loader/lua/crysis_loader/compiled_vegetation.lua")
-local units = import("addons/crysis_loader/lua/crysis_loader/units.lua")
+local game = import("lua/crysis_loader/game.lua")
+local brush_list = import("lua/crysis_loader/brush_list.lua")
+local compiled_terrain = import("lua/crysis_loader/compiled_terrain.lua")
+local compiled_vegetation = import("lua/crysis_loader/compiled_vegetation.lua")
+local units = import("lua/crysis_loader/units.lua")
 local read_u32_le, read_u16_le, read_f32_le
 local sample_terrain_height01_at_world
 local f32_union = ffi.new("union { uint32_t u; float f; }")
@@ -1654,7 +1654,7 @@ function level.Load(level_dir)
 	end
 
 	if vegetation_prototypes then
-		local cgf_decoder = import("addons/crysis_loader/lua/crysis_loader/model_decoders/cgf.lua")
+		local cgf_decoder = import("lua/crysis_loader/model_decoders/cgf.lua")
 
 		for _, prototype in ipairs(vegetation_prototypes.list) do
 			prototype.model_path = game.ResolveModelPath(level_dir, prototype.model_path)

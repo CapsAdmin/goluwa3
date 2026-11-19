@@ -13,7 +13,7 @@ local damage = import("lua/damage.lua")
 local grab = import("lua/grab.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local META = objects.CreateTemplate("character_movement")
-local UNIT = import("addons/source_loader/lua/source_loader/units.lua").meters
+local UNIT = import("goluwa/static_world/units.lua").meters
 META.BodyMass = 85
 META.RagdollFriction = 0.6
 META:IsSet("Crouching", false)

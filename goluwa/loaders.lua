@@ -12,6 +12,11 @@ local LOADER_MODULES = {
 pvars.StartGroup("Loader", "Load window", {prefix = "load_"})
 local checked_games_pvar = pvars.Setup2{
 	key = "load_checked_games",
+loaders.chain_levels_pvar = pvars.Setup2{
+	key = "load_chain_levels",
+	default = false,
+	help = "load the neighbouring levels of a chapter together, joined at their landmarks",
+}
 	default = "",
 	help = "games ticked in the load window as loader:id, comma separated. they are mounted at startup",
 }

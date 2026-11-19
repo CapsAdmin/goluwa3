@@ -1,16 +1,15 @@
 local vdf = import("goluwa/codecs/vdf.lua")
 local media = import("goluwa/render3d/media.lua")
-local vmt_loader = import("addons/source_loader/lua/source_loader/vmt.lua")
+local vmt_loader = import("lua/source_loader/vmt.lua")
 local vfs = import("goluwa/vfs.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
-local brush_hull = import("goluwa/physics/brush_hull.lua")
 local bit = require("bit")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local units = import("goluwa/static_world/units.lua")
 local collision = {}
+local core_collision = import("goluwa/static_world/collision.lua")
+local build_brush_hull = core_collision.build_brush_hull
 local BSP_LUMP_PLANES = 2
 local BSP_CONTENTS_SOLID = 0x1
 local BSP_CONTENTS_WINDOW = 0x2
@@ -25,7 +24,6 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_GRATE,
 	BSP_CONTENTS_PLAYERCLIP
 )
-local BRUSH_POINT_EPSILON = 0.01
 local source_pos_to_engine = units.PositionToEngine
 local source_plane_to_engine = units.PlaneToEngine
 local source_height_to_engine_y = units.LengthToEngine
@@ -88,38 +86,6 @@ local function get_brush_planes(header, brush)
 	return planes
 end
 
-local function build_brush_hull(planes)
-	if not (planes and planes[1] and planes[4]) then return nil end
-
-	return brush_hull.BuildHullFromPlanes(planes, BRUSH_POINT_EPSILON)
-end
-
-local function build_primitive_from_hull(hull, brush_planes)
-	if
-		not (
-			hull and
-			hull.bounds_min and
-			hull.bounds_max and
-			brush_planes and
-			brush_planes[1]
-		)
-	then
-		return nil
-	end
-
-	return {
-		brush_planes = brush_planes,
-		brush_hull = hull,
-		aabb = AABB(
-			hull.bounds_min.x,
-			hull.bounds_min.y,
-			hull.bounds_min.z,
-			hull.bounds_max.x,
-			hull.bounds_max.y,
-			hull.bounds_max.z
-		),
-	}
-end
 
 local function get_model_brush_set(header, model_index)
 	local set = {}
@@ -372,84 +338,14 @@ local function get_displacement_corners(header, info)
 	return corners, start_corner
 end
 
-local function build_displacement_polygon(points, dims)
-	local poly = Polygon3D.New()
-	local vertices = poly.Vertices
 
-	for i = 1, dims * dims do
-		vertices[i] = {pos = points[i]}
-	end
-
-	local indices = {}
-	local count = 0
-
-	for x = 1, dims - 1 do
-		for y = 1, dims - 1 do
-			local a = y * dims + x
-			local b = (y - 1) * dims + x
-			local c = a + 1
-			local d = b + 1
-			indices[count + 1], indices[count + 2], indices[count + 3] = a - 1, b - 1, c - 1
-			indices[count + 4], indices[count + 5], indices[count + 6] = c - 1, b - 1, d - 1
-			count = count + 6
-		end
-	end
-
-	poly.indices = indices
-	poly:BuildBoundingBox()
-	return {Polygon3D = poly}
-end
-
-local function build_displacement_collision_shape(positions, dims)
-	local points = {}
-
-	for i = 1, dims * dims do
-		points[i] = source_pos_to_engine(positions[i])
-	end
-
-	return build_displacement_polygon(points, dims)
-end
-
-local function build_triangle_soup_shape(positions)
-	local poly = Polygon3D.New()
-	local vertices = poly.Vertices
-	local indices = {}
-
-	for i, position in ipairs(positions) do
-		vertices[i] = {pos = source_pos_to_engine(position)}
-		indices[i] = i - 1
-	end
-
-	poly.indices = indices
-	poly:BuildBoundingBox()
-	return {Polygon3D = poly}
-end
-
-collision.build_triangle_soup_shape = build_triangle_soup_shape
 collision.BSP_CONTENTS_SOLID = BSP_CONTENTS_SOLID
-collision.build_displacement_collision_shape = build_displacement_collision_shape
-collision.build_displacement_polygon = build_displacement_polygon
 collision.get_displacement_corners = get_displacement_corners
 collision.collect_water_volumes = collect_water_volumes
 collision.get_model_lowest_point = get_model_lowest_point
 collision.get_model_brush_set = get_model_brush_set
 collision.is_collidable_brush = is_collidable_brush
 
-function collision.build_brush_primitive(brush_planes)
-	return build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
-end
-
-function collision.update_brush_primitive(primitive, brush_planes)
-	local updated = build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
-
-	if not updated then return false end
-
-	primitive.brush_planes = updated.brush_planes
-	primitive.brush_hull = updated.brush_hull
-	primitive.mesh_shape_brush_polygon = nil
-	primitive.aabb = updated.aabb
-	return true
-end
 
 collision.get_face_first_source_height = get_face_first_source_height
 collision.source_pos_to_engine = source_pos_to_engine

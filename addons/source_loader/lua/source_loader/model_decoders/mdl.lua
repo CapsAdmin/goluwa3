@@ -1,4 +1,4 @@
-local vmt_material = import("addons/source_loader/lua/source_loader/vmt_material.lua")
+local vmt_material = import("lua/source_loader/vmt_material.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
@@ -7,11 +7,11 @@ local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local units = import("goluwa/static_world/units.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local render = import("goluwa/render/render.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
-local mdl_codec = import("goluwa/codecs/mdl.lua")
+local mdl_codec = import("lua/codecs/mdl.lua")
 local blob = import("goluwa/codecs/internal/blob.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
@@ -224,7 +224,7 @@ do
 	local I32 = ffi.typeof("const int32_t*")
 	local U32 = ffi.typeof("const uint32_t*")
 	local F32 = ffi.typeof("const float*")
-	local SCALE = import("addons/source_loader/lua/source_loader/units.lua").meters
+	local SCALE = import("goluwa/static_world/units.lua").meters
 	local BONE_SIZE = 216
 	local ANIMDESC_SIZE = 100
 	local SEQDESC_SIZE = 212
@@ -1005,12 +1005,12 @@ local copy_array
 local job_source = [=[
 	local input = ...
 	local ffi = require("ffi")
-	local mdl = import("goluwa/codecs/mdl.lua")
-	local vvd = import("goluwa/codecs/vvd.lua")
-	local vtx = import("goluwa/codecs/vtx.lua")
-	local phy = import("goluwa/codecs/phy.lua")
+	local mdl = import("lua/codecs/mdl.lua")
+	local vvd = import("lua/codecs/vvd.lua")
+	local vtx = import("lua/codecs/vtx.lua")
+	local phy = import("lua/codecs/phy.lua")
 	local blob = import("goluwa/codecs/internal/blob.lua")
-	local source = import("addons/source_loader/lua/source_loader/units.lua")
+	local source = import("goluwa/static_world/units.lua")
 	local convex_hull = import("goluwa/physics/convex_hull.lua")
 	local vertex_math = import("goluwa/render3d/vertex_math.lua")
 	local Vec3 = import("goluwa/structs/vec3.lua")

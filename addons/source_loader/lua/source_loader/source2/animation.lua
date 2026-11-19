@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
-local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
-local units = import("addons/source_loader/lua/source_loader/units.lua")
+local resource = import("lua/source_loader/source2/resource.lua")
+local units = import("goluwa/static_world/units.lua")
 local animation = {}
 local u16_ptr_t = ffi.typeof("const uint16_t *")
 local i16_ptr_t = ffi.typeof("const int16_t *")

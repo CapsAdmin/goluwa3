@@ -8,7 +8,7 @@ local gltf = import("goluwa/codecs/gltf.lua")
 local animation_bank = import("goluwa/render3d/animation_bank.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
-local gltf_vertices = import("addons/gltf_loader/lua/gltf_loader/model_decoders/gltf_vertices.lua")
+local gltf_vertices = import("goluwa/render3d/gltf_vertices.lua")
 local gltf_decoder = {}
 local CLIP_FPS = 30
 

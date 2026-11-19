@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local kv3 = import("addons/source_loader/lua/source_loader/source2/kv3.lua")
+local kv3 = import("lua/source_loader/source2/kv3.lua")
 local resource = {}
 local u32_t = ffi.typeof("const uint32_t *")
 local u8_t = ffi.typeof("const uint8_t *")

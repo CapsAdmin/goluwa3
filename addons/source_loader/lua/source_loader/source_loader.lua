@@ -10,13 +10,13 @@ local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local loaders = import("goluwa/loaders.lua")
-local game = import("addons/source_loader/lua/source_loader/game.lua")
-local bsp = import("addons/source_loader/lua/source_loader/bsp.lua")
+local game = import("lua/source_loader/game.lua")
+local bsp = import("lua/source_loader/bsp.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local map_scene = import("addons/source_loader/lua/source_loader/map_scene.lua")
-local source2_world = import("addons/source_loader/lua/source_loader/source2/world.lua")
-import("addons/source_loader/lua/source_loader/lights.lua")
-import("addons/source_loader/lua/source_loader/fixture_emission.lua")
+local map_scene = import("lua/source_loader/map_scene.lua")
+local source2_world = import("lua/source_loader/source2/world.lua")
+import("lua/source_loader/lights.lua")
+import("lua/source_loader/fixture_emission.lua")
 local source_loader = {}
 
 local function wait_for_map(path, skybox)
@@ -151,7 +151,7 @@ function source_loader.FindChain(name, path)
 end
 
 function source_loader.SpawnChain(name, path)
-	local chain = game.chain_levels_pvar:Get() and
+	local chain = loaders.chain_levels_pvar:Get() and
 		source_loader.FindChain(name, path) or
 		{{name = name, path = path, offset = Vec3(0, 0, 0)}}
 

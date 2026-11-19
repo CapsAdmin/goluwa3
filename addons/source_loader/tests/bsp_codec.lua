@@ -3,7 +3,7 @@ local ffi = require("ffi")
 local buffer = require("string.buffer")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-local bsp = import("goluwa/codecs/bsp.lua")
+local bsp = import("lua/codecs/bsp.lua")
 local mounted = steam.FindSourceGame("gmod") and steam.MountSourceGame("gmod")
 
 local function from_hex(hex)
@@ -143,7 +143,7 @@ T.Test("bsp codec job gives the same result on a worker as inline", function()
 	local thread_pool = import("goluwa/thread_pool.lua")
 	local job_source = [=[
 		local input = ...
-		return assert(import("goluwa/codecs/bsp.lua").Decode(input.data, {cubemaps = true}))
+		return assert(import("lua/codecs/bsp.lua").Decode(input.data, {cubemaps = true}))
 	]=]
 	local worker = thread_pool.Run(job_source, {data = data}, 1e9):Await()
 	local inline = assert(bsp.Decode(data, {cubemaps = true}))

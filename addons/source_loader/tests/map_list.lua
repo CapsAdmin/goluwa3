@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local steam = import("goluwa/steam/steam.lua")
-local game = import("addons/source_loader/lua/source_loader/game.lua")
+local game = import("lua/source_loader/game.lua")
 local loaders = import("goluwa/loaders.lua")
 import("goluwa/render3d/model_loader.lua")
 

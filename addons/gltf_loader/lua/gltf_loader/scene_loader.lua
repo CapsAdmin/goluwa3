@@ -88,7 +88,7 @@ local function set_node_transform(transform, node)
 	end
 end
 
-local build_vertex_data = import("addons/gltf_loader/lua/gltf_loader/model_decoders/gltf_vertices.lua").Build
+local build_vertex_data = import("goluwa/render3d/gltf_vertices.lua").Build
 local MAX_SAMPLED_MIP_LOD = 4
 local KEEP_PACKED_INDEX_COUNT = 4096 * 3
 

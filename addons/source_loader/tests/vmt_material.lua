@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local Material = import("goluwa/render3d/material.lua")
-local vmt_material = import("addons/source_loader/lua/source_loader/vmt_material.lua")
+local vmt_material = import("lua/source_loader/vmt_material.lua")
 
 T.Test3D("Material texture transforms follow source's center scale rotate translate", function()
 	local material = Material.New{}

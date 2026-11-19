@@ -1,5 +1,5 @@
 local vfs = import("goluwa/vfs.lua")
-local resource = import("addons/source_loader/lua/source_loader/source2/resource.lua")
+local resource = import("lua/source_loader/source2/resource.lua")
 local surface_properties = {}
 local by_hash, default
 
