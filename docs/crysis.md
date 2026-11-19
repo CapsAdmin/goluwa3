@@ -1,6 +1,6 @@
 # Crysis levels
 
-Crysis content is loaded by `addons/crysis_loader/lua/crysis_loader/` (`level.lua`, `scene.lua`, `terrain.lua`, `water.lua`, `mtl_material.lua`, `units.lua`) with models from `goluwa/codecs`. Load levels with the `map` command (`map IA/Quarry`; prefix `cry:` if a name exists in several loaders). Where behavior must match CryEngine, read the shipped CryFX shader sources in `Game/Shaders.pak` (`Shaders/HWScripts/CryFX/*.cfx|cfi`, readable with python zipfile) before guessing; every earlier guess about encodings in this area was wrong until the shaders were read.
+Crysis content is loaded by the `addons/crysis_loader` addon (`lua/crysis_loader/`: `level.lua`, `scene.lua`, `terrain.lua`, `water.lua`, `mtl_material.lua`, `units.lua`) with models from `goluwa/codecs`. Load levels with the `map` command (`map IA/Quarry`; prefix `cry:` if a name exists in several loaders). Where behavior must match CryEngine, read the shipped CryFX shader sources in `Game/Shaders.pak` (`Shaders/HWScripts/CryFX/*.cfx|cfi`, readable with python zipfile) before guessing; every earlier guess about encodings in this area was wrong until the shaders were read.
 
 ## Games
 

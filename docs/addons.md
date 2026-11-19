@@ -19,3 +19,7 @@ All of them always load, they are not exclusive modes.
 Rules for layering: the base never imports from a gamemode. A gamemode extends the base through registries and overridable functions (`weapons.Register`, `weapons.Loadout` and `weapons.AddRootComponent` from an autorun, `camera_modes.Register` for camera modes like the battlecam, `third_person.IsDefaultHudReplaced`). When the base needs something a gamemode would also use, it belongs in the base (`lua/actors.lua`).
 
 Tests live in each addon's `tests/`. Tests do not run autorun, so a test of a gamemode imports the autoruns it needs (`addons/sandbox/lua/autorun/weapons.lua`).
+
+## Loader addons
+
+`source_loader` (Source 1 and 2 maps and games) and `crysis_loader` (Crysis levels) are independent addons that each `loaders.Register` a loader (`goluwa/loaders.lua`) and hold their content code under `lua/<name>/`. Their model decoders (`model_decoders/`: mdl, vmdl_c, vphys_c, bsp; cgf) register from `lua/autorun/render_3d/model_decoders.lua` and their components (`components/`: source_light, cry_level) from `lua/autorun/components.lua`, which `test/environment.lua` imports because tests skip autorun. Everything imports them by their real path (`addons/source_loader/lua/source_loader/...`) because worker threads, which run the decoders, do not mount addons. `gltf_loader` (the glTF scenes in its `scenes/` directory, and the `.glb`/`.gltf` model decoder) follows the same layout.
