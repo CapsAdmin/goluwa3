@@ -666,7 +666,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				surface.world_pos = world_pos;
 				surface.V = V;
 				surface.N = N;
-				surface.geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N);
+				surface.geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V);
 				decode_surface_features(surface, in_uv, size);
 				finish_surface_features(surface);
 

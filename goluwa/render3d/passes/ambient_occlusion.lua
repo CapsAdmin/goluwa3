@@ -319,7 +319,7 @@ return {
 				vec3 N = shading_normal;
 				bool thin = gbuffer_is_thin(pixel);
 
-				if (!thin) N = get_geometric_normal(pixel, world_pos, depth, normalize(lighting_data.camera_position.xyz - world_pos), N);
+				if (!thin) N = get_geometric_normal(pixel, world_pos, depth, normalize(lighting_data.camera_position.xyz - world_pos));
 
 				float ao;
 				vec3 bounce;

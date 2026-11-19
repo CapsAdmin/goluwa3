@@ -543,7 +543,7 @@ return {
 
 
 				float NdotV = max(dot(N, V), 0.001);
-				vec3 geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V, N);
+				vec3 geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V);
 
 				Surface surface;
 				surface.NdotV = NdotV;

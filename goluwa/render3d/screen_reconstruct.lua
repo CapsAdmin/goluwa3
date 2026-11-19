@@ -98,7 +98,9 @@ function screen_reconstruct.GetGeometricNormalGLSL(block_name, options)
 	local world_pos_function = options.world_pos_function or "get_world_pos_at"
 	return (
 		[[
-			vec3 %s(ivec2 p, vec3 world_pos, float depth, vec3 V, vec3 fallback) {
+			vec3 %s(ivec2 p, vec3 world_pos, float depth, vec3 V) {
+				vec3 fallback = normalize(gbuffer_geometric_normal(p));
+				fallback = dot(fallback, V) < 0.0 ? -fallback : fallback;
 				ivec2 depth_size = textureSize(TEXTURE(%s.depth_tex), 0);
 				ivec2 max_p = depth_size - 1;
 				vec2 texel = 1.0 / vec2(depth_size);

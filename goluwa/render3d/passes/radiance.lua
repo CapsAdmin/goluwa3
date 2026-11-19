@@ -368,7 +368,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	vec3 restir_ray_origin(ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
 		vec3 V = normalize(restir_data.camera_position - P);
 		float offset = 0.01 * restir_data.view_scale + 0.001 * view_depth;
-		vec3 pull = get_geometric_normal(gpos, P, depth, V, N);
+		vec3 pull = get_geometric_normal(gpos, P, depth, V);
 		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
 
 		for (int i = 0; i < 4; i++) {
@@ -822,7 +822,7 @@ local function pass_candidates()
 			radiance_specular_ray radiance_specular_setup(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
 				radiance_specular_ray ray;
 				ray.V = normalize(restir_data.camera_position - P);
-				ray.geometric_N = get_geometric_normal(gpos, P, depth, ray.V, N);
+				ray.geometric_N = get_geometric_normal(gpos, P, depth, ray.V);
 				ray.N = N;
 				ray.roughness = radiance_specular_lobe_setup(gpos, P, ray.V, ray.geometric_N, view_depth, ray.N);
 				ray.R = reflection_direction(ray.N, ray.V, ray.roughness, vec2(restir_random(pos, 50u), restir_random(pos, 51u)), ray.environment_roughness);
@@ -1392,7 +1392,7 @@ local function pass_spatial()
 				bool specular_emission_sampled = false;
 
 				if (restir_data.specular_reuse != 0 && (flags & RESTIR_FLAG_TRACED) != 0) {
-					specular_roughness = radiance_specular_lobe_setup(gpos, P, V, get_geometric_normal(gpos, P, depth, V, N), view_depth, specular_N);
+					specular_roughness = radiance_specular_lobe_setup(gpos, P, V, get_geometric_normal(gpos, P, depth, V), view_depth, specular_N);
 					specular_clipped = specular_roughness > REFLECTION_MIRROR_THRESHOLD;
 					specular_limit = radiance_specular_hit_limit();
 					specular_emission_sampled = radiance_specular_samples_emitters(pos, specular_roughness);
