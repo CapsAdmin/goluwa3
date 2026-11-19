@@ -1220,7 +1220,14 @@ do
 			mip_levels = kept.mip_count,
 		}
 		image:SetDebugName(tostring(self.config.path) .. " image")
-		local view = image:CreateView{format = self.format}
+		local view_config = self.config.view or {}
+		local view = image:CreateView{
+			format = self.format,
+			component_r = view_config.component_r,
+			component_g = view_config.component_g,
+			component_b = view_config.component_b,
+			component_a = view_config.component_a,
+		}
 		local staging = Buffer.New{
 			device = device,
 			size = kept.data_size,

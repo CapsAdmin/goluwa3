@@ -162,6 +162,10 @@ function Image:CreateView(config)
 		layer_count = config.layer_count or self.array_layers or 1,
 		base_array_layer = config.base_array_layer,
 		base_mip_level = config.base_mip_level,
+		component_r = config.component_r,
+		component_g = config.component_g,
+		component_b = config.component_b,
+		component_a = config.component_a,
 	}
 end
 
