@@ -1,6 +1,8 @@
 local mcp = import("addons/mcp/lua/mcp.lua")
 import("addons/mcp/lua/mcp_tools.lua")
 
+if RENDER_2D or RENDER_3D then import("addons/mcp/lua/mcp_record_tools.lua") end
+
 if RENDER_2D then
 	import("addons/mcp/lua/mcp_ui_tools.lua")
 	import("addons/mcp/lua/ui_steps.lua")
