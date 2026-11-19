@@ -200,6 +200,9 @@ function render.Shutdown()
 	if render.shutting_down then return end
 
 	render.shutting_down = true
+	-- a frame that is still recording is never submitted, and pending releases must run before the objects they write to are removed below
+	render.GetDevice():EndRecordingFrame()
+	render.GetDevice():WaitIdle()
 	event.RemoveListener("WindowFramebufferResized", "window_resized")
 	event.RemoveListener("Update", "save_pipeline_cache")
 	event.RemoveListener("PipelineCompiled", "save_pipeline_cache")
@@ -305,7 +308,10 @@ function render.Initialize(config)
 	local pipeline_cache_attributes = fs.get_attributes(pipeline_cache_path)
 	local pipeline_cache_data
 
-	if pipeline_cache_attributes and pipeline_cache_attributes.size > MAX_PIPELINE_CACHE_BYTES then
+	if
+		pipeline_cache_attributes and
+		pipeline_cache_attributes.size > MAX_PIPELINE_CACHE_BYTES
+	then
 		logf(
 			"[vulkan] the pipeline cache %s is %d MB, over the %d MB that can be read into memory, starting with an empty one\n",
 			pipeline_cache_path,
@@ -423,6 +429,7 @@ function render.BeginFrame()
 
 	run_flush_callbacks("begin_frame")
 	render.frame_serial = (render.frame_serial or 0) + 1
+	render.GetDevice():BeginRecordingFrame()
 	render.cmd = assert(render.target:BeginFrame())
 	return true
 end
@@ -490,6 +497,7 @@ function render.EndFrame()
 
 	run_flush_callbacks("end_frame")
 	render.target:EndFrame()
+	render.GetDevice():EndRecordingFrame()
 	render.command_buffer_stack = {}
 	render.cmd = nil
 end

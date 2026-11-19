@@ -595,6 +595,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		last_submission_serial = 0,
 		completed_submission_serial = 0,
 		deferred_releases = {},
+		frame_releases = {},
+		recording_frame = false,
 		physical_device = physical_device,
 		extensions = finalExtensions,
 		ray_tracing_supported = ray_tracing_supported,
@@ -677,6 +679,12 @@ end
 function Device:DeferRelease(callback, serial)
 	if not callback then return end
 
+	-- the frame being recorded may already use what is released, and it is submitted only at its end
+	if not serial and self.recording_frame then
+		table.insert(self.frame_releases, callback)
+		return
+	end
+
 	serial = serial or self.last_submission_serial or 0
 
 	if serial <= (self.completed_submission_serial or 0) then
@@ -729,6 +737,24 @@ function Device:FlushDeferredReleases(force)
 	end
 
 	self.deferred_releases = pending
+end
+
+function Device:BeginRecordingFrame()
+	self.recording_frame = true
+end
+
+function Device:EndRecordingFrame()
+	self.recording_frame = false
+	local releases = self.frame_releases
+
+	if not releases[1] then return end
+
+	local serial = self.last_submission_serial
+
+	for i = 1, #releases do
+		table.insert(self.deferred_releases, {serial = serial, callback = releases[i]})
+		releases[i] = nil
+	end
 end
 
 function Device:MarkSubmissionCompleted(serial)

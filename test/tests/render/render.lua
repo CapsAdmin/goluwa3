@@ -119,3 +119,19 @@ T.Test3D("Graphics render multiple outputs", function()
 	T.AssertTexturePixel{tex = tex2, pos = {width / 2, height / 2}, color = {0, 1, 0, 1}}
 	T.AssertTexturePixel{tex = tex3, pos = {width / 2, height / 2}, color = {0, 0, 1, 1}}
 end)
+
+T.Test3D("Graphics render a release requested while a frame records waits for that frame", function()
+	local device = render.GetDevice()
+	local released = false
+	render.BeginFrame()
+
+	device:DeferRelease(function()
+		released = true
+	end)
+
+	device:WaitIdle()
+	T(released)["=="](false)
+	render.EndFrame()
+	device:WaitIdle()
+	T(released)["=="](true)
+end)
