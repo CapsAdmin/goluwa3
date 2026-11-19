@@ -1032,6 +1032,8 @@ do
 		self:Map{
 			name = prefix,
 			format = "rgba32f",
+			width = channel.width,
+			height = channel.height,
 			frames = 1,
 			batch = 1,
 			p0 = window,
@@ -1072,6 +1074,8 @@ do
 		self:Map{
 			name = prefix .. "_autocorrelation",
 			format = "rgba32f",
+			width = channel.width,
+			height = channel.height,
 			frames = 1,
 			batch = 1,
 			p0 = lags[1],

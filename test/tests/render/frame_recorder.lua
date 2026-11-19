@@ -153,7 +153,7 @@ T.Test2DFrames("FrameRecorder Noise tells flicker from boiling", 48, function(w,
 	if frame == 1 then
 		noise_run.clip = nil
 
-		FrameRecorder.Record({frames = 48}, function(clip)
+		FrameRecorder.Record({frames = 48, channels = {{name = "color"}, {name = "small", scale = 0.5}}}, function(clip)
 			noise_run.clip = clip
 		end)
 	end
@@ -178,5 +178,10 @@ T.Test("FrameRecorder Noise maps", function()
 	local panel = clip:ReadFrame(result.panel, 1)
 	T(panel.width)["=="](256)
 	T(panel.height)["=="](256)
+	clip:Noise("small", {lags = {1, 2, 4, 8}})
+	local small = clip:ReadFrame("small_noise", 1)
+	T(small.width)["=="](clip:GetChannel("small").width)
+	T(select(2, small:GetPixel(32, 32)))[">"](0.1)
+	T(select(2, small:GetPixel(96, 32)))["<"](select(2, small:GetPixel(32, 32)))
 	clip:Remove()
 end)
