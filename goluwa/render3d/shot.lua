@@ -4,6 +4,10 @@ local commands = import("goluwa/cli/commands.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local scene = import("goluwa/entities/scene.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
+local scene_loading = import("goluwa/render3d/scene_loading.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
 local Shot = {}
 local defaults = {
 	settle = 2,
@@ -11,6 +15,7 @@ local defaults = {
 	converge = false,
 	converge_frames = 5,
 	max_settle = 15,
+	loaded_quiet = 1.5,
 }
 
 local function wait(frames, seconds, cb)
@@ -21,6 +26,31 @@ local function wait(frames, seconds, cb)
 		count = count + 1
 
 		if count >= frames and system.GetElapsedTime() - start >= seconds then
+			remove()
+			cb()
+		end
+	end)
+end
+
+function Shot.WaitLoaded(quiet, cb)
+	local last_version
+	local quiet_since
+	local remove
+	remove = event.AddListener("Update", {}, function()
+		local now = system.GetElapsedTime()
+
+		if
+			not scene_rt.readied or
+			scene_loading.IsLoading() or
+			scene.IsSpawning() or
+			instances.version ~= last_version
+		then
+			last_version = instances.version
+			quiet_since = now
+			return
+		end
+
+		if now - quiet_since >= quiet then
 			remove()
 			cb()
 		end
@@ -81,15 +111,19 @@ function Shot.Capture(properties, cb, opt)
 	opt = table.merge_many(defaults, opt or {})
 	local view = View.New{Priority = 100, HideHud = true}:Activate()
 
-	hold(
-		view,
-		properties,
-		opt,
-		function(texture, info)
-			view:Remove()
-			cb(texture, info)
-		end
-	)
+	local function run()
+		hold(
+			view,
+			properties,
+			opt,
+			function(texture, info)
+				view:Remove()
+				cb(texture, info)
+			end
+		)
+	end
+
+	if opt.wait_loaded then Shot.WaitLoaded(opt.loaded_quiet, run) else run() end
 end
 
 function Shot.Sequence(list_of_properties, cb, opt, done)
