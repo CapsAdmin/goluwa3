@@ -528,7 +528,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 		if mesh_row then
 			local cuts, ratios
 			local level, last, near, far = entry.lod_level, entry.lod_last, entry.lod_near, entry.lod_far
-			local extra_flags = 0
+			local extra_flags = polygon3d.cluster_geometry and instances.FLAG_APPROXIMATE or 0
 			local state = cluster_lod.GetStatus(polygon3d)
 			local rt_row = mesh_row
 			local clustered = false

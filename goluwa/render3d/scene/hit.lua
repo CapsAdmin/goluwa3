@@ -88,8 +88,12 @@ function hit.GetEscapeGLSL(tlas_name)
 			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT || !rayQueryGetIntersectionFrontFaceEXT(query, true)) return origin;
 
 			int cluster = rayQueryGetIntersectionClusterIdNV(query, true);
+			bool approximate = cluster != gl_ClusterIDNoneNV && (uint(cluster) & 0x80000000u) != 0u;
+			#ifdef SCENE_INSTANCE_DATA
+			approximate = approximate || (scene_instance_flags(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true))) & %du) != 0u;
+			#endif
 
-			if (cluster == gl_ClusterIDNoneNV || (uint(cluster) & 0x80000000u) == 0u) return origin;
+			if (!approximate) return origin;
 
 			return origin + side * (rayQueryGetIntersectionTEXT(query, true) + 0.0005);
 		}
@@ -101,7 +105,8 @@ function hit.GetEscapeGLSL(tlas_name)
 		#endif
 	]],
 		tlas_name,
-		instances.MASK_SOLID
+		instances.MASK_SOLID,
+		instances.FLAG_APPROXIMATE
 	)
 end
 
@@ -217,6 +222,7 @@ function hit.GetGLSL(binding)
 			return scene_instances[instance].material_row;
 		}
 
+		#define SCENE_INSTANCE_DATA
 		uint scene_instance_flags(uint instance) {
 			return scene_instances[instance].flags;
 		}

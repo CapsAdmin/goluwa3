@@ -56,6 +56,8 @@ instances.FLAG_BILLBOARD = 128
 instances.FLAG_BEFORE_BILLBOARD = 256
 instances.FLAG_RT_LOD = 512
 instances.FLAG_CLUSTERED = 1024
+-- traced as a coarser mesh than the gbuffer draws it (streamed clusters traced as their fallback)
+instances.FLAG_APPROXIMATE = 2048
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table, part_table, seen_table
