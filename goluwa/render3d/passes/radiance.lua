@@ -46,9 +46,9 @@ local function restir_uniform(trace, filter_iteration)
 		post_source.pre_exposure_block,
 		{"blue_noise_tex", "int"},
 		{"frame", "int"},
-		{"phase", "int"},
 		{"history_valid", "int"},
 		{"jitter_shift", "vec2"},
+		{"jitter", "vec2"},
 		{"prev_view", "mat4"},
 		{"prev_projection", "mat4"},
 		{"temporal", "int"},
@@ -137,7 +137,6 @@ local function restir_uniform(trace, filter_iteration)
 				)
 			)
 			block.frame = frame % 65536
-			block.phase = render3d.GetTemporalFrame() % 4
 			local trace_pipeline = render3d.pipelines.radiance_temporal
 			local accumulate_pipeline = render3d.pipelines.radiance_accumulate
 
@@ -159,6 +158,8 @@ local function restir_uniform(trace, filter_iteration)
 			local viewport = camera:GetViewport()
 			block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
 			block.jitter_shift[1] = (render3d.previous_jitter.y - camera:GetJitter().y) / viewport.h
+			block.jitter[0] = camera:GetJitter().x
+			block.jitter[1] = camera:GetJitter().y
 			local prev_view = render3d.GetPreviousViewMatrix() or camera:BuildViewMatrix()
 			local prev_projection = render3d.GetPreviousProjectionMatrix() or camera:BuildProjectionMatrix()
 			prev_view:CopyToFloatPointer(block.prev_view)
@@ -320,29 +321,15 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return vec3(float(instance), float(primitive), float(q.x | (q.y << 11u) | (flipped ? 1u << 22u : 0u)));
 	}
 
-	// below full resolution a gi pixel stands for one of the screen pixels under it, a different one each frame, but only among those within 2% of the nearest one's distance (the depth is reversed, so a ratio of depths is one of distances): beside thin geometry and at edges it otherwise shows the near surface one frame and the far one the next, never keeps its history and flickers, and its unsettled value bleeds into the filter
+	// below full resolution a gi pixel takes the screen pixel whose jittered sample lands nearest its centre: any other pick (rotating, or the nearest surface) shows another surface every frame under the taa jitter at edges and on thin things, never keeps its history and flickers
 	ivec2 restir_gbuffer_pos(ivec2 pos, ivec2 size, ivec2 gsize) {
-		const ivec2 offsets[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
 		ivec2 first = reflection_floor_div(pos * gsize, size);
 		ivec2 span = max(reflection_floor_div((pos + 1) * gsize, size) - first, ivec2(1));
 
 		if (span == ivec2(1)) return min(first, gsize - 1);
 
-		ivec2 center = first + max((span - 2) / 2, ivec2(0));
-		ivec2 last = min(first + span, gsize) - 1;
-		float nearest = 0.0;
-
-		for (int k = 0; k < 4; k++) {
-			nearest = max(nearest, gbuffer_depth(min(center + offsets[k], last)));
-		}
-
-		for (int k = 0; k < 4; k++) {
-			ivec2 q = min(center + offsets[(restir_data.phase + k) & 3], last);
-
-			if (gbuffer_depth(q) >= nearest * 0.98) return q;
-		}
-
-		return min(first, gsize - 1);
+		vec2 target = (vec2(pos) + 0.5) * vec2(gsize) / vec2(size);
+		return clamp(ivec2(floor(target + restir_data.jitter)), first, min(first + span, gsize) - 1);
 	}
 
 	vec3 restir_geometric_normal(ivec2 gpos, vec3 P) {
