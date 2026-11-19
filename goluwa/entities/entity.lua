@@ -50,6 +50,10 @@ function Entity.GetValidComponents()
 		valid_components.static_mesh = import("goluwa/entities/components/static_mesh.lua")
 		valid_components.decal = import("goluwa/entities/components/decal.lua")
 		valid_components.terrain = import("goluwa/entities/components/terrain.lua")
+
+		for name, module in pairs(import("goluwa/vfs.lua").GetAddonField("components")) do
+			valid_components[name] = import(module)
+		end
 	end
 
 	return valid_components

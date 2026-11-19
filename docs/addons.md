@@ -22,4 +22,15 @@ Tests live in each addon's `tests/`. Tests do not run autorun, so a test of a ga
 
 ## Loader addons
 
-`source_loader` (Source 1 and 2 maps and games) and `crysis_loader` (Crysis levels) are independent addons that each `loaders.Register` a loader (`goluwa/loaders.lua`) and hold their content code under `lua/<name>/`. Their model decoders (`model_decoders/`: mdl, vmdl_c, vphys_c, bsp; cgf) register from `lua/autorun/render_3d/model_decoders.lua` and their components (`components/`: source_light, cry_level) from `lua/autorun/components.lua`, which `test/environment.lua` imports because tests skip autorun. Everything imports them by their real path (`addons/source_loader/lua/source_loader/...`) because worker threads, which run the decoders, do not mount addons. `gltf_loader` (the glTF scenes in its `scenes/` directory, and the `.glb`/`.gltf` model decoder) follows the same layout.
+`source_loader` (Source 1 and 2), `crysis_loader` and `gltf_loader` are independent addons. Core never imports from them (`test/tests/other/core_dependencies.lua` checks); they import core. Their `config.lua` declares what they provide, and core imports it on first use through `vfs.GetAddonField(field)`:
+
+- `loaders = {name = module}`: a loader module that calls `loaders.Register(name, ...)` (`goluwa/loaders.lua`). `map`, the load window and mounting import them on demand.
+- `model_decoders = {[".ext"] = module}`: `model_loader` imports the module the first time a path with that extension has no decoder.
+- `material_loaders = {[".ext"] = module}`: `Material.GetOverrideFromPath` imports it for an unknown extension.
+- `components = {name = module}`: returned by `Entity.GetValidComponents`.
+
+Addon codecs live in `lua/codecs/` and are found by the codec registry next to `goluwa/codecs/`. Generic code that came from Source (units, brush and displacement geometry, collision builders, `static_geometry`) is in `goluwa/static_world/`; the Source material lookup and the pak mounting plug in through `static_geometry.material_source` and the `StaticWorldPak` event.
+
+Core asks addons for format specific work through events instead of importing them: `ZipDecrypt (method, data, crc32)` (the Crysis addon decrypts zip method 6) and `ParseSpriteSheet (path)` (the Source addon reads vtf sprite sheets). The `game` addon depends on `source_loader` because `pcf.lua` reads vtf.
+
+Worker threads get the addon `lua/` roots (`vfs.GetAddonLuaRoots`) when they are created, so `import("lua/...")` resolves inside a thread job the same way as on the main thread.

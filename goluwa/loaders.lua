@@ -3,22 +3,19 @@ local utility = import("goluwa/utility.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local vfs = import("goluwa/vfs.lua")
 local loaders = {}
 local registered = {}
-local LOADER_MODULES = {
-	source = "addons/source_loader/lua/source_loader/source_loader.lua",
-	cry = "addons/crysis_loader/lua/crysis_loader/crysis_loader.lua",
-}
 pvars.StartGroup("Loader", "Load window", {prefix = "load_"})
 local checked_games_pvar = pvars.Setup2{
 	key = "load_checked_games",
+	default = "",
+	help = "games ticked in the load window as loader:id, comma separated. they are mounted at startup",
+}
 loaders.chain_levels_pvar = pvars.Setup2{
 	key = "load_chain_levels",
 	default = false,
 	help = "load the neighbouring levels of a chapter together, joined at their landmarks",
-}
-	default = "",
-	help = "games ticked in the load window as loader:id, comma separated. they are mounted at startup",
 }
 pvars.EndGroup()
 
@@ -26,20 +23,38 @@ function loaders.Register(name, loader)
 	registered[name] = loader
 end
 
+local function get_loader(name)
+	local module = vfs.GetAddonField("loaders")[name]
+
+	if module then import(module) end
+
+	return registered[name]
+end
+
+local function get_registered()
+	for _, module in pairs(vfs.GetAddonField("loaders")) do
+		import(module)
+	end
+
+	return registered
+end
+
 function loaders.Find(name)
 	local loader_name, rest = name:match("^(%w+):(.+)$")
 
-	if loader_name and registered[loader_name] then
-		local id, err = registered[loader_name].Find(rest)
+	local named = loader_name and get_loader(loader_name)
+
+	if named then
+		local id, err = named.Find(rest)
 
 		if not id then error(err, 0) end
 
-		return registered[loader_name], id, loader_name
+		return named, id, loader_name
 	end
 
 	local found
 
-	for loader_name, loader in pairs(registered) do
+	for loader_name, loader in pairs(get_registered()) do
 		local id = loader.Find(name)
 
 		if id then
@@ -69,7 +84,7 @@ end
 local function get_sorted_loaders()
 	local list = {}
 
-	for loader_name, loader in pairs(registered) do
+	for loader_name, loader in pairs(get_registered()) do
 		list[#list + 1] = {name = loader_name, loader = loader}
 	end
 
@@ -107,17 +122,17 @@ function loaders.GetMaps()
 end
 
 function loaders.GetMapThumbnail(map)
-	local loader = registered[map.loader]
+	local loader = get_loader(map.loader)
 
 	if loader.GetMapThumbnail then return loader.GetMapThumbnail(map) end
 end
 
 function loaders.MountGame(loader_name, id)
-	registered[loader_name].MountGame(id)
+	get_loader(loader_name).MountGame(id)
 end
 
 function loaders.UnmountGame(loader_name, id)
-	registered[loader_name].UnmountGame(id)
+	get_loader(loader_name).UnmountGame(id)
 end
 
 local function get_game_key(loader_name, id)
@@ -157,8 +172,7 @@ function loaders.MountCheckedGames()
 	for key in checked_games_pvar:Get():gmatch("[^,]+") do
 		local loader_name, id = key:match("^(%w+):(.+)$")
 
-		if loader_name and LOADER_MODULES[loader_name] then
-			import(LOADER_MODULES[loader_name])
+		if loader_name and get_loader(loader_name) then
 			local ok, err = pcall(loaders.MountGame, loader_name, tonumber(id) or id)
 
 			if not ok then logf("could not mount %s: %s\n", key, tostring(err)) end
@@ -182,14 +196,6 @@ commands.Add("map=string_trim|nil", function(name)
 	utility.PushTimeWarning()
 	loaders.Load(name)
 	utility.PopTimeWarning("map " .. name, nil, "cmd")
-end)
-
-commands.Add("water_crysis_waves=boolean[true]", function(on)
-	if on then
-		import("addons/crysis_loader/lua/crysis_loader/water.lua").EnableCrysisWaves()
-	else
-		import("goluwa/render3d/water.lua").SetWaveBump(nil)
-	end
 end)
 
 return loaders

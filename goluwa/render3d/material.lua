@@ -954,8 +954,13 @@ do
 			local cached = override_cache[path]
 
 			if not cached then
+				local extension = path:lower():match("%.[^%.]+$") or ""
+				local provider = import("goluwa/vfs.lua").GetAddonField("material_loaders")[extension]
+
+				if provider then import(provider) end
+
 				local load = assert(
-					override_loaders[path:lower():match("%.[^%.]+$") or ""],
+					override_loaders[extension],
 					"unsupported material override format: " .. path
 				)
 				local slots, material = load(path)

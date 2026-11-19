@@ -16,11 +16,6 @@ do
 end
 
 import("goluwa/assets.lua").RegisterRenderTextures()
-import("addons/source_loader/lua/autorun/components.lua")
-import("addons/crysis_loader/lua/autorun/components.lua")
-import("addons/source_loader/lua/autorun/render_3d/model_decoders.lua")
-import("addons/crysis_loader/lua/autorun/render_3d/model_decoders.lua")
-import("addons/gltf_loader/lua/autorun/render_3d/model_decoders.lua")
 local has_rendering = false
 
 if pcall(import("goluwa/render/vulkan/loader_locator.lua").Locate) then

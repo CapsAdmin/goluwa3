@@ -44,6 +44,13 @@ function model_loader.FindModelDecoder(path)
 			return decoder.callback
 		end
 	end
+
+	for extension, module in pairs(vfs.GetAddonField("model_decoders")) do
+		if path:ends_with(extension) and not import.loaded[module] then
+			import(module)
+			return model_loader.FindModelDecoder(path)
+		end
+	end
 end
 
 model_loader.model_cache = {}
