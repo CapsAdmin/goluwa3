@@ -84,6 +84,7 @@ local function restir_uniform(trace, filter_iteration)
 		{"history_b_tex", "int"},
 		{"history_c_tex", "int"},
 		{"history_geometry_tex", "int"},
+		{"history_geometric_normal_tex", "int"},
 		{"history_receiver_tex", "int"},
 		{"receiver_tex", "int"},
 		{"screen_gi_tex", "int"},
@@ -202,6 +203,7 @@ local function restir_uniform(trace, filter_iteration)
 			block.history_b_tex = self:GetTextureIndex(attachment("radiance_spatial", 1, 3))
 			block.history_c_tex = self:GetTextureIndex(attachment("radiance_spatial", 1, 4))
 			block.history_geometry_tex = self:GetTextureIndex(attachment("radiance_temporal", previous, 4))
+			block.history_geometric_normal_tex = self:GetTextureIndex(attachment("radiance_temporal", previous, 6))
 			block.history_receiver_tex = self:GetTextureIndex(attachment("radiance_spatial", 1, 5))
 			-- last frame's raw estimate, read before the spatial pass rewrites it: feeding back the denoised output makes every bounce wait on its history
 			block.screen_gi_tex = block.history_valid == 1 and
@@ -343,6 +345,11 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return min(first, gsize - 1);
 	}
 
+	vec3 restir_geometric_normal(ivec2 gpos, vec3 P) {
+		vec3 G = normalize(gbuffer_geometric_normal(gpos));
+		return dot(G, restir_data.camera_position - P) < 0.0 ? -G : G;
+	}
+
 	bool restir_surface(ivec2 pos, ivec2 size, out ivec2 gpos, out vec3 P, out vec3 N, out float view_depth, out float depth) {
 		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
 		gpos = restir_gbuffer_pos(pos, size, gsize);
@@ -446,18 +453,43 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return float(pcg3d(uvec3(uvec2(pos), (uint(restir_data.frame) << 8u) + stream)).x >> 8u) / 16777216.0;
 	}
 
-	bool restir_history_matches(ivec2 q, ivec2 size, vec3 N, float prev_depth, float tolerance) {
+	// last frame's view space ray through an image position, scaled to a view depth of one
+	vec3 restir_previous_view_ray(vec2 uv) {
+		vec2 ndc = uv * 2.0 - 1.0;
+		return vec3((ndc.x + restir_data.prev_projection[2][0]) / restir_data.prev_projection[0][0], (ndc.y + restir_data.prev_projection[2][1]) / restir_data.prev_projection[1][1], -1.0);
+	}
+
+	// how far a history texel lies off the pixel's plane (last frame's view space normal and offset): a surface seen at a grazing angle changes its depth by far more than the tolerance between the jittered or rotated points a texel stands for, but stays on its plane
+	float restir_history_plane_distance(ivec2 q, ivec2 size, vec4 plane, out vec4 g) {
+		g = texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0);
+		return abs(dot(plane.xyz, restir_previous_view_ray((vec2(q) + 0.5) / vec2(size) - restir_data.jitter_shift) * g.w) - plane.w);
+	}
+
+	// G is the geometric normal: a normal map makes neighbouring pixels of one surface look like different ones
+	bool restir_history_matches(ivec2 q, ivec2 size, vec3 G, vec4 plane, float tolerance) {
 		if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size))) return false;
 
-		vec4 g = texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0);
-		return dot(g.xyz, g.xyz) > 0.25 && abs(g.w - prev_depth) <= tolerance && dot(g.xyz, N) >= 0.8;
+		vec4 g;
+		float distance = restir_history_plane_distance(q, size, plane, g);
+		vec3 history_G = texelFetch(TEXTURE(restir_data.history_geometric_normal_tex), q, 0).xyz;
+		return dot(history_G, history_G) > 0.25 && distance <= tolerance && dot(history_G, G) >= 0.8;
+	}
+
+	vec4 restir_history_plane(vec3 N, vec3 previous_point) {
+		vec3 normal = mat3(restir_data.prev_view) * N;
+		return vec4(normal, dot(normal, previous_point));
+	}
+
+	// the plane distance a texel may be off by: the point it stands for is known to about a texel, plus a share of the depth
+	float restir_history_tolerance(float prev_depth, ivec2 size) {
+		return prev_depth * (0.01 + 4.0 * abs(restir_data.inv_projection[1][1]) / float(size.y)) + 0.01;
 	}
 
 	// the gi pixel's centre is reprojected, not the screen pixel it samples this frame, or a still view resamples its history bilinearly every frame and smears it
-	bool restir_history_taps(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, ivec2 size, out ivec2 base, out vec4 weights, out float prev_depth, out float tolerance, out float moved, out vec2 position) {
+	bool restir_history_taps(ivec2 pos, ivec2 gpos, vec3 P, vec3 G, ivec2 size, out ivec2 base, out vec4 weights, out vec4 plane, out float tolerance, out float moved, out vec2 position) {
 		weights = vec4(0.0);
 		base = ivec2(0);
-		prev_depth = 0.0;
+		plane = vec4(0.0);
 		tolerance = 0.0;
 		moved = 0.0;
 		position = vec2(-1.0);
@@ -467,10 +499,11 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
 		vec2 uv = (vec2(gpos) + 0.5) / vec2(gsize);
 		vec2 prev_uv;
+		float prev_depth;
 
 		if (restir_data.velocity_tex != -1) {
 			vec3 motion = texture(TEXTURE(restir_data.velocity_tex), uv).rgb;
-			prev_uv = uv - motion.xy + restir_data.jitter_shift;
+			prev_uv = uv - motion.xy;
 			prev_depth = motion.z;
 		} else {
 			vec4 prev_view_pos = restir_data.prev_view * vec4(P, 1.0);
@@ -478,23 +511,25 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 			if (prev_clip.w <= 1e-5) return false;
 
-			prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5 + restir_data.jitter_shift;
+			prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
 			prev_depth = -prev_view_pos.z;
 		}
 
-		prev_uv += (vec2(pos) + 0.5) / vec2(size) - uv;
+		if (prev_depth <= 1e-5) return false;
 
-		if (prev_depth <= 1e-5 || any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)))) return false;
+		plane = restir_history_plane(G, restir_previous_view_ray(prev_uv) * prev_depth);
+		prev_uv += restir_data.jitter_shift + (vec2(pos) + 0.5) / vec2(size) - uv;
+
+		if (any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)))) return false;
 
 		position = prev_uv * vec2(size) - 0.5;
 		moved = length(position - vec2(pos));
 		base = ivec2(floor(position));
 		vec2 f = position - vec2(base);
-		vec3 V = normalize(restir_data.camera_position - P);
-		tolerance = prev_depth * 0.02 / max(abs(dot(N, V)), 0.15) + 0.01;
+		tolerance = restir_history_tolerance(prev_depth, size);
 
 		for (int i = 0; i < 4; i++) {
-			if (!restir_history_matches(base + ivec2(i & 1, i >> 1), size, N, prev_depth, tolerance)) continue;
+			if (!restir_history_matches(base + ivec2(i & 1, i >> 1), size, G, plane, tolerance)) continue;
 
 			weights[i] = ((i & 1) == 1 ? f.x : 1.0 - f.x) * ((i >> 1) == 1 ? f.y : 1.0 - f.y) + 1e-4;
 		}
@@ -503,7 +538,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	}
 
 	// a thin thing (a fence, a leaf) under the jitter: the 4 texels around last frame's position hold what is behind it half the time, the texel around them that holds this surface carries its history
-	bool restir_history_search(vec2 position, ivec2 size, vec3 N, float prev_depth, float tolerance, out ivec2 found) {
+	bool restir_history_search(vec2 position, ivec2 size, vec3 G, vec4 plane, float tolerance, out ivec2 found) {
 		found = ivec2(-1);
 
 		if (restir_data.temporal_search == 0 || position.x <= -1.0) return false;
@@ -514,9 +549,10 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		for (int i = 0; i < 9; i++) {
 			ivec2 q = nearest + ivec2(i % 3 - 1, i / 3 - 1);
 
-			if (!restir_history_matches(q, size, N, prev_depth, tolerance)) continue;
+			if (!restir_history_matches(q, size, G, plane, tolerance)) continue;
 
-			float error = abs(texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0).w - prev_depth);
+			vec4 g;
+			float error = restir_history_plane_distance(q, size, plane, g);
 
 			if (error < best) {
 				best = error;
@@ -1071,11 +1107,12 @@ local function pass_temporal()
 			{"r16g16b16a16_sfloat", {"restir_reservoir_normal", "rgb"}},
 			{"r16g16b16a16_sfloat", {"restir_geometry", "rgb"}},
 			{"r32g32b32a32_sfloat", {"restir_receiver", "rgb", 0.01}},
+			{"r16g16b16a16_sfloat", {"restir_geometric_normal", "rgb"}},
 		},
 		framebuffer_count = 2,
 		scale = radiance.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(5),
+		storage_images = storage_images(6),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
@@ -1087,6 +1124,7 @@ local function pass_temporal()
 			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_c;
 			layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_geometry;
 			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_receiver;
+			layout(set = 0, binding = 5, rgba16f) uniform writeonly image2D out_geometric_normal;
 		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = TRACE_GLSL .. [[
 
@@ -1113,6 +1151,7 @@ local function pass_temporal()
 				bool surface = is_screen_pos_in_bounds(pos, size) && restir_surface(pos, size, gpos, P, N, view_depth, depth) && scene_hits_ready();
 
 				if (surface) {
+					vec3 G = restir_geometric_normal(gpos, P);
 					uint frame = uint(restir_data.frame);
 					bool traces = restir_traces(pos);
 					bool miss = false;
@@ -1152,13 +1191,13 @@ local function pass_temporal()
 					ivec2 base;
 					vec4 weights;
 
-					float prev_depth;
+					vec4 plane;
 					float tolerance;
 
 					float moved;
 					vec2 position;
 
-					bool history = restir_data.temporal != 0 && restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved, position);
+					bool history = restir_data.temporal != 0 && restir_history_taps(pos, gpos, P, G, size, base, weights, plane, tolerance, moved, position);
 					ivec2 q = ivec2(0);
 
 					if (history) {
@@ -1181,9 +1220,9 @@ local function pass_temporal()
 						ivec2 permuted = q ^ ivec2(int(frame) & 1, (int(frame) >> 1) & 1);
 
 						// only with a new sample to weigh against: alone, a neighbour's hit point beside a crease enters with its full reconnection jacobian and sits there as a dot
-						if (traces && restir_data.permutation != 0 && restir_history_matches(permuted, size, N, prev_depth, tolerance)) q = permuted;
+						if (traces && restir_data.permutation != 0 && restir_history_matches(permuted, size, G, plane, tolerance)) q = permuted;
 					} else if (restir_data.temporal != 0) {
-						history = restir_history_search(position, size, N, prev_depth, tolerance, q);
+						history = restir_history_search(position, size, G, plane, tolerance, q);
 					}
 
 					if (history) {
@@ -1286,6 +1325,7 @@ local function pass_temporal()
 					imageStore(out_c, pos, vec4(0.0));
 					imageStore(out_geometry, pos, vec4(0.0, 0.0, 0.0, RESTIR_SKY_DEPTH));
 					imageStore(out_receiver, pos, vec4(0.0));
+					imageStore(out_geometric_normal, pos, vec4(0.0));
 					return;
 				}
 
@@ -1294,6 +1334,7 @@ local function pass_temporal()
 				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | flags)));
 				imageStore(out_geometry, pos, vec4(N, view_depth));
 				imageStore(out_receiver, pos, vec4(kept ? receiver : P, 0.0));
+				imageStore(out_geometric_normal, pos, vec4(restir_geometric_normal(gpos, P), 0.0));
 			}
 		]],
 	}
@@ -1601,7 +1642,7 @@ local function pass_accumulate()
 			}
 
 			// the reflection seen in a smooth surface moves on the screen as the reflected point does, not as the surface: its image lies behind the surface along the view ray, by the hit distance for a mirror and by less as the lobe widens and leans toward the normal (the dominant direction factor, as nrd does), so a rough lobe's image slides back onto the surface. the history is read where last frame showed that image, on texels that hold this pixel's plane, which the line from last frame's camera to the image crosses
-			bool radiance_virtual_taps(vec3 P, vec3 N, vec3 V, float hit, float dominance, vec2 position, ivec2 size, float tolerance, out ivec2 base, out vec4 weights) {
+			bool radiance_virtual_taps(vec3 P, vec3 N, vec3 V, float hit, float dominance, vec2 position, ivec2 size, vec4 plane, out ivec2 base, out vec4 weights) {
 				base = ivec2(0);
 				weights = vec4(0.0);
 
@@ -1631,7 +1672,7 @@ local function pass_accumulate()
 				vec2 f = virtual_position - vec2(base);
 
 				for (int i = 0; i < 4; i++) {
-					if (!restir_history_matches(base + ivec2(i & 1, i >> 1), size, N, expected_depth, tolerance)) continue;
+					if (!restir_history_matches(base + ivec2(i & 1, i >> 1), size, N, plane, restir_history_tolerance(expected_depth, size))) continue;
 
 					weights[i] = ((i & 1) == 1 ? f.x : 1.0 - f.x) * ((i >> 1) == 1 ? f.y : 1.0 - f.y) + 1e-4;
 				}
@@ -1660,6 +1701,7 @@ local function pass_accumulate()
 					return;
 				}
 
+				vec3 G = restir_geometric_normal(gpos, P);
 				vec4 current = texelFetch(TEXTURE(restir_data.raw_effective_tex), pos, 0);
 				float current_luminance = luminance(current.rgb);
 				vec4 history = vec4(0.0);
@@ -1670,15 +1712,15 @@ local function pass_accumulate()
 				ivec2 base;
 				vec4 weights;
 
-				float prev_depth;
+				vec4 plane;
 				float tolerance;
 
 				float moved;
 				vec2 position;
 
-				bool history_found = restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved, position);
+				bool history_found = restir_history_taps(pos, gpos, P, G, size, base, weights, plane, tolerance, moved, position);
 
-				if (!history_found && restir_history_search(position, size, N, prev_depth, tolerance, base)) {
+				if (!history_found && restir_history_search(position, size, G, plane, tolerance, base)) {
 					weights = vec4(1.0, 0.0, 0.0, 0.0);
 					history_found = true;
 				}
@@ -1753,7 +1795,7 @@ local function pass_accumulate()
 				ivec2 virtual_base;
 				vec4 virtual_weights;
 
-				if (restir_data.specular_tracking != 0 && history_found && radiance_virtual_taps(P, N, V_view, hit, dominance, position, size, tolerance, virtual_base, virtual_weights)) {
+				if (restir_data.specular_tracking != 0 && history_found && radiance_virtual_taps(P, G, V_view, hit, dominance, position, size, plane, virtual_base, virtual_weights)) {
 					vec4 virtual_specular = vec4(0.0);
 					vec4 virtual_tracking = vec4(0.0);
 					float virtual_length = 0.0;
