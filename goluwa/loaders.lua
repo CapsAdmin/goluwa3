@@ -7,7 +7,7 @@ local loaders = {}
 local registered = {}
 local LOADER_MODULES = {
 	source = "addons/source_loader/lua/source_loader/source_loader.lua",
-	cry = "goluwa/cry_engine/cry_engine.lua",
+	cry = "addons/crysis_loader/lua/crysis_loader/crysis_loader.lua",
 }
 pvars.StartGroup("Loader", "Load window", {prefix = "load_"})
 local checked_games_pvar = pvars.Setup2{
@@ -181,7 +181,7 @@ end)
 
 commands.Add("water_crysis_waves=boolean[true]", function(on)
 	if on then
-		import("goluwa/cry_engine/water.lua").EnableCrysisWaves()
+		import("addons/crysis_loader/lua/crysis_loader/water.lua").EnableCrysisWaves()
 	else
 		import("goluwa/render3d/water.lua").SetWaveBump(nil)
 	end

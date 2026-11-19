@@ -1,5 +1,5 @@
-local mtl_material = import("goluwa/cry_engine/mtl_material.lua")
-local cry_units = import("goluwa/cry_engine/units.lua")
+local mtl_material = import("addons/crysis_loader/lua/crysis_loader/mtl_material.lua")
+local cry_units = import("addons/crysis_loader/lua/crysis_loader/units.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")

@@ -901,7 +901,7 @@ assets.RegisterCategory(
 			end
 
 			import("addons/source_loader/lua/source_loader/vmt_material.lua")
-			import("goluwa/cry_engine/mtl_material.lua")
+			import("addons/crysis_loader/lua/crysis_loader/mtl_material.lua")
 			local slots, material = import("goluwa/render3d/material.lua").GetOverrideFromPath(path)
 			return material or slots[0]
 		end,

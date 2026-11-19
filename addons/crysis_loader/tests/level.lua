@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local crylevel = import("goluwa/cry_engine/level.lua")
+local crylevel = import("addons/crysis_loader/lua/crysis_loader/level.lua")
 local xml = import("goluwa/codecs/xml.lua")
 local ffi = require("ffi")
 
@@ -459,7 +459,7 @@ T.Test("Cry level parser extracts lights and skips inactive ones", function()
 end)
 
 T.Test("Cry brush list parser reads materials, models and transforms", function()
-	local brush_list = import("goluwa/cry_engine/brush_list.lua")
+	local brush_list = import("addons/crysis_loader/lua/crysis_loader/brush_list.lua")
 
 	local function padded(text, size)
 		return text .. string.rep("\0", size - #text)
@@ -498,7 +498,7 @@ T.Test("Cry brush list parser reads materials, models and transforms", function(
 end)
 
 T.Test("Cry compiled terrain rebuilds an editor layout height array from sector nodes", function()
-	local compiled_terrain = import("goluwa/cry_engine/compiled_terrain.lua")
+	local compiled_terrain = import("addons/crysis_loader/lua/crysis_loader/compiled_terrain.lua")
 
 	local function pack_i16_le(value)
 		return string.char(value % 256, math.floor(value / 256) % 256)
@@ -534,7 +534,7 @@ T.Test("Cry compiled terrain rebuilds an editor layout height array from sector 
 end)
 
 T.Test("Cry compiled vegetation reads the group table and instances inside their boxes", function()
-	local compiled_vegetation = import("goluwa/cry_engine/compiled_vegetation.lua")
+	local compiled_vegetation = import("addons/crysis_loader/lua/crysis_loader/compiled_vegetation.lua")
 	local group_size = 332
 	local name = "objects/natural/trees/palm_tree/palm.cgf"
 	local params = {}

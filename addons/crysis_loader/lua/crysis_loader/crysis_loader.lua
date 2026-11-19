@@ -3,12 +3,12 @@ local steam = import("goluwa/steam/steam.lua")
 local startup = import("goluwa/startup.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local game = import("goluwa/cry_engine/game.lua")
-local level = import("goluwa/cry_engine/level.lua")
-local cry_scene = import("goluwa/cry_engine/scene.lua")
-local cry_engine = {}
+local game = import("addons/crysis_loader/lua/crysis_loader/game.lua")
+local level = import("addons/crysis_loader/lua/crysis_loader/level.lua")
+local cry_scene = import("addons/crysis_loader/lua/crysis_loader/scene.lua")
+local crysis_loader = {}
 
-function cry_engine.Load(name, options)
+function crysis_loader.Load(name, options)
 	options = options or {}
 	local level_dir = assert(game.ResolveLevelDirectory(name))
 	local level_name = level_dir:match("/([^/]+)/$") or level_dir
@@ -53,7 +53,7 @@ loaders.Register(
 
 			return nil, "could not find Crysis level " .. name
 		end,
-		Load = cry_engine.Load,
+		Load = crysis_loader.Load,
 		GetGames = function()
 			local games = {}
 
@@ -91,4 +91,4 @@ loaders.Register(
 		end,
 	}
 )
-return cry_engine
+return crysis_loader

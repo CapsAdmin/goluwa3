@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local surface_types = import("goluwa/surface_types.lua")
 local source_surfaces = import("addons/source_loader/lua/source_loader/surface_types.lua")
-local cry_surfaces = import("goluwa/cry_engine/surface_types.lua")
+local cry_surfaces = import("addons/crysis_loader/lua/crysis_loader/surface_types.lua")
 local source1 = import("lua/sound_profiles/source1.lua")
 
 T.Test("source1 profile has impact and footstep sounds for every engine surface type", function()

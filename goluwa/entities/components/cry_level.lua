@@ -1,6 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
-local game = import("goluwa/cry_engine/game.lua")
-local level = import("goluwa/cry_engine/level.lua")
+local game = import("addons/crysis_loader/lua/crysis_loader/game.lua")
+local level = import("addons/crysis_loader/lua/crysis_loader/level.lua")
 local timer = import("goluwa/timer.lua")
 local HeightPhysics = import("goluwa/terrain/height_physics.lua")
 local META = objects.CreateTemplate("cry_level")
@@ -49,7 +49,7 @@ function META:Build(level_dir)
 
 		if existing and (existing.Path ~= "" or existing.Heights ~= "") then return end
 
-		local terrain = import("goluwa/cry_engine/terrain.lua")
+		local terrain = import("addons/crysis_loader/lua/crysis_loader/terrain.lua")
 		self.spawned_terrain = terrain.SpawnTerrain(data, self.Owner) ~= nil
 		terrain.ApplyVegetationMaterialState(data)
 		return

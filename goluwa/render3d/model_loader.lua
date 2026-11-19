@@ -248,5 +248,5 @@ import("goluwa/render3d/model_decoders/vmdl_c.lua")
 import("goluwa/render3d/model_decoders/vphys_c.lua")
 model_loader.AddThreadedDecoder("cgf", import("goluwa/render3d/model_decoders/cgf.lua").Decoder)
 import("goluwa/render3d/model_decoders/bsp.lua")
-import("goluwa/cry_engine/cry_engine.lua")
+import("addons/crysis_loader/lua/crysis_loader/crysis_loader.lua")
 return model_loader
