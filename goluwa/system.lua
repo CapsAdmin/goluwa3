@@ -79,6 +79,16 @@ do
 	local frame_time = 0.1
 	local unscaled_frame_time = 0.1
 	local time_scale = 1
+	local fixed_frame_time
+
+	function system.GetFixedFrameTime()
+		return fixed_frame_time
+	end
+
+	function system.SetFixedFrameTime(dt)
+		assert(dt == nil or dt > 0, "fixed frame time must be above zero")
+		fixed_frame_time = dt
+	end
 
 	function system.GetFrameTime()
 		return frame_time
@@ -94,8 +104,8 @@ do
 	end
 
 	function system.AdvanceFrameTime(unscaled_dt)
-		unscaled_frame_time = unscaled_dt
-		frame_time = unscaled_dt * time_scale
+		unscaled_frame_time = fixed_frame_time or unscaled_dt
+		frame_time = unscaled_frame_time * time_scale
 		return frame_time
 	end
 
