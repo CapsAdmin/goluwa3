@@ -303,7 +303,7 @@ local function run_game(startup_command)
 		startup_command[1]]
 	then
 		startup.Begin("mount checked games")
-		import("goluwa/engines.lua").MountCheckedGames()
+		import("goluwa/loaders.lua").MountCheckedGames()
 		startup.End("mount checked games")
 	end
 

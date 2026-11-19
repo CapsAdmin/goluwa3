@@ -1,8 +1,8 @@
-local engines = import("goluwa/engines.lua")
+local loaders = import("goluwa/loaders.lua")
 local gltf_scene_loader = import("lua/gltf_scene_loader.lua")
 local gltf_scenes = import("lua/gltf_scenes.lua")
 local GAME_ID = "scenes"
-engines.Register(
+loaders.Register(
 	"gltf",
 	{
 		Find = function(name)

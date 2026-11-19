@@ -6,7 +6,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local character_scale = import("lua/character_scale.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
-local engines = import("goluwa/engines.lua")
+local loaders = import("goluwa/loaders.lua")
 local event = import("goluwa/event.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 import("addons/game/lua/autorun/characters.lua")
@@ -189,12 +189,12 @@ T.TestPhysics("the scale a map asks for multiplies the player scale and a crysis
 	T(movement.Scale)["~"](base * 2, 1e-6)
 	CharacterMovement.SetLevelScale(1)
 	T(movement.Scale)["~"](base, 1e-6)
-	local previous = engines.loaded_map
-	engines.loaded_map = "cry:IA/Quarry"
+	local previous = loaders.loaded_map
+	loaders.loaded_map = "cry:IA/Quarry"
 	event.Call("SceneLoad", "cry:IA/Quarry")
 	T(movement:GetHeight())["~"](1.8 * base, 1e-4)
-	engines.loaded_map = "source:gm_construct"
+	loaders.loaded_map = "source:gm_construct"
 	event.Call("SceneLoad", "gm_construct")
 	T(movement.Scale)["~"](base, 1e-6)
-	engines.loaded_map = previous
+	loaders.loaded_map = previous
 end)

@@ -4,7 +4,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Texture = import("goluwa/render/texture.lua")
-local engines = import("goluwa/engines.lua")
+local loaders = import("goluwa/loaders.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local Window = react.Element(import("goluwa/render2d/ui/widgets/window.lua"))
@@ -21,7 +21,7 @@ local ErrorBoundary = react.ErrorBoundary
 local LABEL_HEIGHT = 40
 local ALL_GAMES = {name = "All games", all = true}
 local ALL_KEY = "all"
-pvars.StartGroup("Engine", "Load window", {prefix = "load_"})
+pvars.StartGroup("Loader", "Load window", {prefix = "load_"})
 local group_maps_pvar = pvars.Setup2{
 	key = "load_group_maps",
 	default = true,
@@ -180,7 +180,7 @@ local function draw_map(map, index, x, y, w, h, selected, hovered)
 	local px, py, pw, ph = x + inset, y + inset, w - inset * 2, h - LABEL_HEIGHT - inset
 
 	if map.thumbnail == nil then
-		local thumbnail, crop = engines.GetMapThumbnail(map)
+		local thumbnail, crop = loaders.GetMapThumbnail(map)
 		map.thumbnail = thumbnail or false
 		map.thumbnail_crop = crop
 	end
@@ -212,24 +212,24 @@ end
 local function game_key_of(game)
 	if not game or game.all then return ALL_KEY end
 
-	return game.engine .. game.id
+	return game.loader .. game.id
 end
 
 local function load_data()
-	local games = engines.GetGames()
-	local maps = engines.GetMaps()
+	local games = loaders.GetGames()
+	local maps = loaders.GetMaps()
 	local items = {ALL_GAMES}
 	local by_key = {[ALL_KEY] = ALL_GAMES}
 
 	for _, game in ipairs(games) do
-		game.checked = engines.IsGameChecked(game.engine, game.id)
+		game.checked = loaders.IsGameChecked(game.loader, game.id)
 		items[#items + 1] = game
 		by_key[game_key_of(game)] = game
 	end
 
 	for _, map in ipairs(maps) do
-		local game = by_key[map.engine .. tostring(map.game)]
-		map.game_name = game and game.name or map.engine
+		local game = by_key[map.loader .. tostring(map.game)]
+		map.game_name = game and game.name or map.loader
 		map.game_image = game and game.image
 	end
 
@@ -242,7 +242,7 @@ local function group_maps(maps)
 
 	for _, map in ipairs(maps) do
 		local prefix = map.name:match("^(.-)_?%d+%a*$")
-		map.group_key = prefix and prefix ~= "" and (map.engine .. tostring(map.game) .. prefix)
+		map.group_key = prefix and prefix ~= "" and (map.loader .. tostring(map.game) .. prefix)
 		counts[map.group_key or 0] = (counts[map.group_key or 0] or 0) + 1
 	end
 
@@ -302,7 +302,7 @@ local LoadView = react.Component(
 						(
 							selected_game.all or
 							(
-								map.engine == selected_game.engine and
+								map.loader == selected_game.loader and
 								map.game == selected_game.id
 							)
 						)
@@ -330,7 +330,7 @@ local LoadView = react.Component(
 		local function toggle_game(game)
 			if game.all or not game.mountable then return end
 
-			engines.SetGameChecked(game.engine, game.id, not game.checked)
+			loaders.SetGameChecked(game.loader, game.id, not game.checked)
 			set_data(load_data())
 		end
 
@@ -342,7 +342,7 @@ local LoadView = react.Component(
 				return
 			end
 
-			engines.LoadMap(target)
+			loaders.LoadMap(target)
 			props.OnLoad()
 		end
 

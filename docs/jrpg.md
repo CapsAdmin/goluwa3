@@ -64,7 +64,7 @@ The `Move editor` desktop program (`lua/jrpg/move_editor.lua`, `autorun/render_3
 
 ## Testing
 
-`luajit glw test entities/jrpg.lua`. In-game harnesses need gm_construct for the source models: load it with `engines.Load("gm_construct")`, wait for `static_world.GetActive()`, then `commands.RunLine("rpg")`. Simulate keys with `input.CallOnTable(input, "Key", key, press)` plus `event.Call("KeyInput", key, press)` and `player_input:SetKeyboardMovement(true)`.
+`luajit glw test entities/jrpg.lua`. In-game harnesses need gm_construct for the source models: load it with `loaders.Load("gm_construct")`, wait for `static_world.GetActive()`, then `commands.RunLine("rpg")`. Simulate keys with `input.CallOnTable(input, "Key", key, press)` plus `event.Call("KeyInput", key, press)` and `player_input:SetKeyboardMovement(true)`.
 
 - Weapon categories (label, color) are registered in `lua/weapon_categories.lua` (`Register`, `Get`); a weapon only names its `Category`, and an unregistered name falls back to `unknown`. The game addon registers its own, jrpg adds `melee`, `magic` and `defense` from an autorun. The weapon ring colors its wedges from there and separates categories with a glow line.
 - A melee hit deals its damage with `Direction = <the cut direction>` and the `Part` it struck, which the victim's flinch or stagger follows (see [characters.md](characters.md)).

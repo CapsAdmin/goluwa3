@@ -1,4 +1,4 @@
-local engines = import("goluwa/engines.lua")
+local loaders = import("goluwa/loaders.lua")
 local steam = import("goluwa/steam/steam.lua")
 local startup = import("goluwa/startup.lua")
 local scene = import("goluwa/entities/scene.lua")
@@ -40,7 +40,7 @@ function cry_engine.Load(name, options)
 	return data
 end
 
-engines.Register(
+loaders.Register(
 	"cry",
 	{
 		Find = function(name)

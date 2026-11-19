@@ -129,15 +129,15 @@ event.AddListener(
 commands.Add("copyview", function()
 	local weather = import("goluwa/render3d/weather.lua")
 	local clipboard = import("goluwa/bindings/clipboard.lua")
-	local engines = import("goluwa/engines.lua")
+	local loaders = import("goluwa/loaders.lua")
 	local raycast = import("goluwa/render3d/raycast.lua")
 	local exposure = import("goluwa/render3d/exposure.lua")
 	local post_source = import("goluwa/render3d/post_source.lua")
 	local cam = render3d.GetMainCamera()
 	local str = ""
 
-	if engines.loaded_map then
-		str = str .. "map = " .. engines.loaded_map .. "\n"
+	if loaders.loaded_map then
+		str = str .. "map = " .. loaders.loaded_map .. "\n"
 	end
 
 	str = str .. "pos = " .. tostring(cam:GetPosition()) .. "\n"

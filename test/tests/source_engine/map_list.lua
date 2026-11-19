@@ -1,12 +1,12 @@
 local T = import("test/environment.lua")
 local steam = import("goluwa/steam/steam.lua")
 local game = import("goluwa/source_engine/game.lua")
-local engines = import("goluwa/engines.lua")
+local loaders = import("goluwa/loaders.lua")
 import("goluwa/render3d/model_loader.lua")
 
 local function find_map(maps, name)
 	for _, map in ipairs(maps) do
-		if map.engine == "source" and map.name == name then return map end
+		if map.loader == "source" and map.name == name then return map end
 	end
 end
 
@@ -16,23 +16,23 @@ T.Test("source maps are listed without mounting and more once mounted", function
 	if not gmod then return end
 
 	steam.UnmountSourceGame(gmod)
-	local unmounted = engines.GetMaps()
+	local unmounted = loaders.GetMaps()
 	local map = find_map(unmounted, "gm_construct")
 	T(map ~= nil)["=="](true)
 	T(map.game)["=="](gmod.filesystem.steamappid)
 	T(map.mounted)["=="](false)
 	T(steam.IsSourceGameMounted(gmod))["=="](false)
-	T(#engines.GetMaps() >= #unmounted)["=="](true)
-	engines.MountGame("source", gmod.filesystem.steamappid)
-	map = find_map(engines.GetMaps(), "gm_construct")
+	T(#loaders.GetMaps() >= #unmounted)["=="](true)
+	loaders.MountGame("source", gmod.filesystem.steamappid)
+	map = find_map(loaders.GetMaps(), "gm_construct")
 	T(map.mounted)["=="](true)
-	T(engines.GetMapThumbnail(map))["=="]("maps/thumb/gm_construct.png")
-	engines.UnmountGame("source", gmod.filesystem.steamappid)
+	T(loaders.GetMapThumbnail(map))["=="]("maps/thumb/gm_construct.png")
+	loaders.UnmountGame("source", gmod.filesystem.steamappid)
 	T(steam.IsSourceGameMounted(gmod))["=="](false)
 end)
 
 T.Test("source games that can be mounted have art and a name", function()
-	for _, info in ipairs(engines.GetGames()) do
+	for _, info in ipairs(loaders.GetGames()) do
 		T(info.name ~= nil)["=="](true)
 		T(info.id ~= nil)["=="](true)
 	end
@@ -47,8 +47,8 @@ T.Test("source 2 maps are listed from the game's maps directory", function()
 
 	if not alyx then return T.Unavailable("half-life: alyx is not installed") end
 
-	local map = find_map(engines.GetMaps(), "a2_pistol")
+	local map = find_map(loaders.GetMaps(), "a2_pistol")
 	T(map ~= nil)["=="](true)
 	T(map.game)["=="](546560)
-	T(find_map(engines.GetMaps(), "a2_pistol_commentary") == nil)["=="](true)
+	T(find_map(loaders.GetMaps(), "a2_pistol_commentary") == nil)["=="](true)
 end)

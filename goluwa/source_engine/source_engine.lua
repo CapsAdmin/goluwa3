@@ -9,7 +9,7 @@ local scene = import("goluwa/entities/scene.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local engines = import("goluwa/engines.lua")
+local loaders = import("goluwa/loaders.lua")
 local game = import("goluwa/source_engine/game.lua")
 local bsp = import("goluwa/source_engine/bsp.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -177,7 +177,7 @@ function source_engine.SpawnChain(name, path)
 	end
 end
 
-engines.Register(
+loaders.Register(
 	"source",
 	{
 		Find = function(name)
