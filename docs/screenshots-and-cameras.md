@@ -14,7 +14,7 @@ end, {update_events = 3})
 `Screenshot` captures whatever is being rendered. To capture the 3D scene from a chosen position use `Shot` (`goluwa/render3d/shot.lua`), which holds a view until GI, TAA and auto exposure have settled, then captures.
 
 - CLI: `luajit glw --3d --background --exit-on-error shot tmp/out.png --setup tmp/scene.lua --pos 0,4,18 --ang -10,0,0 --fov 70 --ev 15 --settle 3 --converge 0.5`. Angles are degrees, `--ev` locks exposure at that EV100 (otherwise auto exposure), `--setup` runs a Lua file first to build a scene.
-- `Shot.Capture(view_properties, cb, opt)` calls `cb(texture, info)` (`info.seconds`, `info.frames`). `opt.settle` is the minimum seconds held (default 2); `opt.converge = n` keeps capturing until the mean rgb difference (0-255) between captures is at most n or `opt.max_settle` (default 15) passes (`info.converged`, `info.difference`). `Shot.Sequence(list, cb, opt, done)` captures several views in turn.
+- `Shot.Capture(view_properties, cb, opt)` calls `cb(texture, info)` (`info.seconds`, `info.frames`). `opt.settle` is the minimum seconds held (default 2); `opt.converge = n` keeps capturing until the mean rgb difference (0-255) between captures is at most n or `opt.max_settle` (default 15) passes (`info.converged`, `info.difference`). `opt.wait_loaded = true` first waits until nothing is loading or spawning and the instance set has been unchanged for `opt.loaded_quiet` seconds (1.5), then starts the settle timer; use it after loading a map, since the load returns before models and materials finish. `Shot.Sequence(list, cb, opt, done)` captures several views in turn.
 
 ```lua
 local Shot = import("goluwa/render3d/shot.lua")
@@ -31,6 +31,15 @@ The camera has a `Scale` (default 1, must be above zero; `View` carries it like 
 A camera that jumps (a cinematic cut) calls `render3d.CutCamera()` in that frame: the previous view and projection read as the current ones, so the jump makes no motion vectors or motion blur, and TAA drops its history.
 
 For A/B comparisons freeze time-driven effects and lock exposure (see performance.md "Measuring correctly"). After a camera change, let temporal history converge before capturing (a few dozen frames).
+
+## Saved views
+
+The `saved_views` addon keeps named views per scene in `addons/saved_views/lua/view_data/<scene>.lua` (luadata: `pos`, `rot`, `fov`, `time`, `latitude`, `longitude`, `ev`, `args`, `note`, and `climate` only for the fields that differ from `climate.DEFAULTS`, see `climate.Capture`). Check `views` (or read that directory; names are unique per map only) before asking for a camera, and add good ones with `saveview <name> [note]` while looking at them. `copyview` still copies the same state as text.
+
+- `view <map> <name>` (or `view <name>` for the current scene) loads the scene if it is not the current one, sets time, location and climate (always the full climate, so a view never inherits the previous weather), freezes the time scale and holds the camera with an active `View`; `viewoff` releases it. `viewshot [map] <name|all> [--out path] [--settle s] [--converge d]` captures views through `Shot.Capture` with `wait_loaded` and `converge` 0.5 (run it as `glw --3d --background --exit-on-error viewshot ...`).
+- From a script: `saved_views.Apply(map, name, cb, quiet)` (`map` is the scene key or its short name: `source:a3_hotel_street` or `a3_hotel_street`; view names are per map, so they may repeat across maps) (`import("lua/saved_views.lua")`) loads the scene and sets the world, then calls `cb(view, entry)` once the scene has stopped loading (`Shot.WaitLoaded`, unchanged for `quiet` seconds, default 1.5). `view` is the active `View` at the saved camera, so move it with `view:SetPosition(...)`, `SetRotation`, `SetFOV` between frames (temporal stability, GI settling); `view:SetExposureLock(false)` gives back auto exposure, since a view locks the saved `ev`. Call `saved_views.Release()` or `system.ShutDown(0)` when done. Without `cb` it returns at once, before the scene is ready.
+- A scene is `loaders.loaded_map` (`source:gm_construct`) or, for a procedural scene, whatever it passes to `import("lua/saved_views.lua").SetScene({MODE = "ocean"})` at the top of its script (the name is its own path under `lua/`, from `debug.getinfo`, so renaming the file never goes out of sync with the call, only with the data file; the optional table is env vars replayed with `process.setenv` before the script is imported again). `SetScene` is cleared by the next `SceneLoad`.
+- Views are good enough, not exact: scenes with randomness or animation do not reproduce pixel for pixel, and surface conditions, fluid volumes, overlays and the eye exposure mode are not part of a view.
 
 ## Motion maps
 

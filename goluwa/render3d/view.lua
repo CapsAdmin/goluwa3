@@ -3,7 +3,6 @@ local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local View = objects.CreateTemplate("render3d_view")
-local commands = import("goluwa/cli/commands.lua")
 local active = {}
 local activation_serial = 0
 local camera_setters = {}
@@ -125,57 +124,5 @@ event.AddListener(
 	end,
 	{priority = 100}
 )
-
-commands.Add("copyview", function()
-	local weather = import("goluwa/render3d/weather.lua")
-	local clipboard = import("goluwa/bindings/clipboard.lua")
-	local loaders = import("goluwa/loaders.lua")
-	local raycast = import("goluwa/render3d/raycast.lua")
-	local exposure = import("goluwa/render3d/exposure.lua")
-	local post_source = import("goluwa/render3d/post_source.lua")
-	local cam = render3d.GetMainCamera()
-	local str = ""
-
-	if loaders.loaded_map then
-		str = str .. "map = " .. loaders.loaded_map .. "\n"
-	end
-
-	str = str .. "pos = " .. tostring(cam:GetPosition()) .. "\n"
-	str = str .. "rot = " .. tostring(cam:GetRotation()) .. "\n"
-	str = str .. "fov = " .. tostring(cam:GetFOV()) .. "\n"
-	str = str .. string.format("time = %.4f\n", weather.GetTime())
-	local latitude, longitude = weather.GetLocation()
-	str = str .. string.format("latitude = %.6f\nlongitude = %.6f\n", latitude, longitude)
-	local exposure_texture = post_source.GetExposureTexture(true)
-
-	if exposure_texture then
-		local view = active[1]
-		local current, metered_ev = exposure_texture:Download():GetPixelFloat(0, 0)
-		local compensation = view and view.ExposureCompensation or exposure.GetCompensation()
-		str = str .. string.format(
-				"ev = %.3f\nmetered_ev = %.3f\neye = %s\n",
-				exposure.LOG_EXPOSURE_AT_EV0 - math.log(current, 2) + compensation,
-				metered_ev,
-				tostring(exposure.IsEye())
-			)
-	end
-
-	local hit = raycast.CastClosestFromCamera(render3d.GetCamera())
-
-	if hit and hit.primitive then
-		local visual = hit.primitive.entity.VisualOwner
-
-		if visual then
-			local material = visual.MaterialOverride or
-				hit.primitive.material or
-				render3d.GetDefaultMaterial()
-			str = str .. "entity = " .. tostring(visual.Owner) .. "\n"
-			str = str .. "model = " .. visual:GetModelPath() .. "\n"
-			str = str .. "material = " .. material:GetName() .. "\n"
-		end
-	end
-
-	clipboard.Set(str)
-end)
 
 return View:Register()
