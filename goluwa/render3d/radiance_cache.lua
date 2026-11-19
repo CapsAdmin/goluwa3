@@ -975,9 +975,16 @@ function radiance_cache.GetCommonGLSL()
 		]] .. scene_hit.GetEscapeGLSL("scene_tlas") .. [[
 		#endif
 
-		float radiance_cache_probe_hit_fraction(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
+		vec3 radiance_cache_probe_ray_origin(vec3 P, vec3 N, float spacing) {
 			#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
-			vec3 origin = scene_escape_tessellation(P + N * (0.02 * spacing), N, 0.1);
+			return scene_escape_tessellation(P + N * (0.02 * spacing), N, 0.1);
+			#else
+			return P;
+			#endif
+		}
+
+		float radiance_cache_probe_hit_fraction(vec3 origin, vec3 probe_pos) {
+			#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
 			vec3 to_probe_ray = probe_pos - origin;
 			float len = length(to_probe_ray);
 
@@ -997,8 +1004,8 @@ function radiance_cache.GetCommonGLSL()
 			#endif
 		}
 
-		bool radiance_cache_probe_hidden(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
-			return radiance_cache_probe_hit_fraction(P, N, probe_pos, spacing) <= 1.0;
+		bool radiance_cache_probe_hidden(vec3 origin, vec3 probe_pos) {
+			return radiance_cache_probe_hit_fraction(origin, probe_pos) <= 1.0;
 		}
 
 		bool radiance_cache_probe_can_be_traced(vec3 probe_position, ivec3 world) {
@@ -1086,6 +1093,8 @@ function radiance_cache.GetCommonGLSL()
 			float hidden_weight = 0.0;
 			float hidden_luma = 1e30;
 			float hidden_second_luma = 1e30;
+			vec3 ray_origin = P;
+			bool have_ray_origin = false;
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1104,7 +1113,17 @@ function radiance_cache.GetCommonGLSL()
 				vec4 irradiance2 = textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, L2, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0);
 				bool trace = radiance_cache_probe_needs_trace(w, luminance(irradiance.rgb), sum, visibility_min_weight) || radiance_cache_probe_needs_trace(w, luminance(irradiance2.rgb), sum, visibility_min_weight);
 
-				float hit_fraction = trace && radiance_cache_probe_can_be_traced(probe_position, world) ? radiance_cache_probe_hit_fraction(P, N, probe_position * spacing, spacing) : 2.0;
+				float hit_fraction = 2.0;
+
+				if (trace && radiance_cache_probe_can_be_traced(probe_position, world)) {
+					if (!have_ray_origin) {
+						ray_origin = radiance_cache_probe_ray_origin(P, N, spacing);
+						have_ray_origin = true;
+					}
+
+					hit_fraction = radiance_cache_probe_hit_fraction(ray_origin, probe_position * spacing);
+				}
+
 				bool hidden = hit_fraction <= 1.0;
 
 				#ifdef RADIANCE_CACHE_VISIBILITY_STATS
@@ -1323,7 +1342,7 @@ function radiance_cache.GetMediumGLSL()
 				);
 				bool trace = w >= RADIANCE_CACHE_VISIBILITY_MIN_WEIGHT || w * luminance(lit.rgb) > RADIANCE_CACHE_VISIBILITY_MIN_SHARE * luminance(sum.rgb);
 
-				if (trace && radiance_cache_probe_can_be_traced(data.xyz, world) && radiance_cache_probe_hidden(P, vec3(0.0), probe_pos, spacing)) continue;
+				if (trace && radiance_cache_probe_can_be_traced(data.xyz, world) && radiance_cache_probe_hidden(P, probe_pos)) continue;
 
 				sum += lit * w;
 				weight += w;
