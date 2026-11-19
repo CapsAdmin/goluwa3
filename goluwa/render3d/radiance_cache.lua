@@ -971,9 +971,13 @@ function radiance_cache.GetCommonGLSL()
 		#define RADIANCE_CACHE_LOW_WEIGHT_FLOOR 0.4
 		float radiance_cache_contrast_reference = 0.0;
 
+		#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
+		]] .. scene_hit.GetEscapeGLSL("scene_tlas") .. [[
+		#endif
+
 		float radiance_cache_probe_hit_fraction(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
 			#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
-			vec3 origin = P + N * (0.02 * spacing);
+			vec3 origin = scene_escape_tessellation(P + N * (0.02 * spacing), N, 0.1);
 			vec3 to_probe_ray = probe_pos - origin;
 			float len = length(to_probe_ray);
 

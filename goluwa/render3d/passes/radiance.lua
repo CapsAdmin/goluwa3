@@ -11,6 +11,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
+local scene_hit = import("goluwa/render3d/scene/hit.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
@@ -358,6 +359,11 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return true;
 	}
 
+	#ifdef SCENE_HITS
+	]] .. scene_hit.GetEscapeGLSL("scene_tlas") .. [[
+	#endif
+	]] .. scene_hit.GetEscapeStubGLSL() .. [[
+
 	// a pixel at a crease reconstructs a hair behind one of its two planes, lift it off every neighbouring pixel's plane it lies on
 	vec3 restir_ray_origin(ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
 		vec3 V = normalize(restir_data.camera_position - P);
@@ -376,7 +382,8 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 			if (dot(q_N, pull) < 0.99 && abs(dot(P - get_world_pos((vec2(q) + 0.5) / vec2(gsize), q_depth), q_N)) < offset) pull += q_N;
 		}
 
-		return P + normalize(pull) * offset;
+		pull = normalize(pull);
+		return scene_escape_tessellation(P + pull * offset, pull, 0.1 * restir_data.view_scale);
 	}
 
 	restir_sample restir_load(int a_tex, int b_tex, int c_tex, ivec2 pos, out float W, out float M, out int flags) {
@@ -823,7 +830,7 @@ local function pass_candidates()
 				ray.R = reflection_above(ray.geometric_N, reflection_above(ray.N, ray.R, 0.001), 0.01);
 				// an emitter sample reads low across a broad lobe (half of the light a furnace gives a rough metal at roughness 1), where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
 				ray.sample_emitters = radiance_specular_samples_emitters(pos, ray.roughness);
-				ray.origin = P + ray.geometric_N * (0.0002 + 0.0001 * view_depth);
+				ray.origin = scene_escape_tessellation(P + ray.geometric_N * (0.0002 + 0.0001 * view_depth), ray.geometric_N, 0.1 * restir_data.view_scale);
 				return ray;
 			}
 

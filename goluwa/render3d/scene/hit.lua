@@ -70,6 +70,53 @@ function hit.GetQueryGLSL()
 	]]
 end
 
+-- tessellated relief is rasterized at finer rates than it is traced, so a gbuffer point can lie just under the
+-- traced patch: rays leaving it start from the top of the patch they are under instead of hitting it at once
+function hit.GetEscapeGLSL(tlas_name)
+	return string.format(
+		[[
+		#ifndef SCENE_ESCAPE_TESSELLATION
+		#define SCENE_ESCAPE_TESSELLATION
+		#ifdef DEVICE_CLUSTER_ACCELERATION_STRUCTURE
+		#extension GL_EXT_ray_query : enable
+		#extension GL_NV_cluster_acceleration_structure : require
+		vec3 scene_escape_tessellation(vec3 origin, vec3 side, float reach) {
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, %s, gl_RayFlagsOpaqueEXT, 0x%02X, origin, 0.0, side, reach);
+			while (rayQueryProceedEXT(query)) {}
+
+			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT || !rayQueryGetIntersectionFrontFaceEXT(query, true)) return origin;
+
+			int cluster = rayQueryGetIntersectionClusterIdNV(query, true);
+
+			if (cluster == gl_ClusterIDNoneNV || (uint(cluster) & 0x80000000u) == 0u) return origin;
+
+			return origin + side * (rayQueryGetIntersectionTEXT(query, true) + 0.0005);
+		}
+		#else
+		vec3 scene_escape_tessellation(vec3 origin, vec3 side, float reach) {
+			return origin;
+		}
+		#endif
+		#endif
+	]],
+		tlas_name,
+		instances.MASK_SOLID
+	)
+end
+
+-- the same function for shaders without a scene to trace
+function hit.GetEscapeStubGLSL()
+	return [[
+		#ifndef SCENE_ESCAPE_TESSELLATION
+		#define SCENE_ESCAPE_TESSELLATION
+		vec3 scene_escape_tessellation(vec3 origin, vec3 side, float reach) {
+			return origin;
+		}
+		#endif
+	]]
+end
+
 function hit.GetCoreGLSL()
 	return [[
 		#extension GL_EXT_buffer_reference : require

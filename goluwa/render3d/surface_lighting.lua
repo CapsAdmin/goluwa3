@@ -13,6 +13,8 @@ local gi = import("goluwa/render3d/gi.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
+local scene_hit = import("goluwa/render3d/scene/hit.lua")
+local RAY_ESCAPE = 0.1
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -211,6 +213,12 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 		]] .. caustics.GetCoverageGLSL(block_name) .. [[
 
+		]] .. (
+			ray_queries and
+			scene_hit.GetEscapeGLSL("scene_tlas") or
+			scene_hit.GetEscapeStubGLSL()
+		) .. [[
+
 		float get_sun_contact_visibility(vec3 origin, vec3 dir, float distance) {
 			]] .. (
 			ray_queries and
@@ -234,7 +242,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				uvec3 tile_hash = pcg3d(uvec3(uvec2(pixel / noise_size), 0x9E3779B9u));
 				vec2 noise = blue_noise_r2(blue_noise_texel(TEXTURE(]] .. block_name .. [[.ray_shadow_noise_tex), pixel).rg + vec2(pcg_unorm(tile_hash.x), pcg_unorm(tile_hash.y)), float(]] .. block_name .. [[.ray_shadow_frame % 64));
 				vec3 side = dot(N, L) < 0.0 ? -N : N;
-				vec3 origin = P + side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(P, ]] .. block_name .. [[.camera_position));
+				vec3 origin = scene_escape_tessellation(P + side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(P, ]] .. block_name .. [[.camera_position)), side, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale);
 				vec3 axis = L;
 				float one_minus_cos = 0.0;
 				float center_distance = 0.0;
@@ -529,7 +537,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 					// the map cannot see occluders closer than a few texels (single sided walls meeting at a corner), inside the soft filter's receiver plane tolerance, or with a penumbra under a texel
 					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
-						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
+						shadow_factor *= get_sun_contact_visibility(scene_escape_tessellation(s.world_pos + shadow_N * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), shadow_N, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
 					}
 				}
 
