@@ -53,7 +53,7 @@ for _, feature in ipairs{
 	{
 		"shore_foam",
 		"r_water_shore_foam",
-		"the depth and slope samples that place foam along shores and around things",
+		"the depth and slope samples that place foam along shores and around things, and the wet band above the water",
 	},
 	{
 		"inscatter",
@@ -967,6 +967,28 @@ list.insert(
 				return vec3(density, bubbles, raft);
 			}
 
+			vec2 foam_lace(vec2 p, float density, float footprint, float time) {
+				vec2 warp = vec2(value_noise2(p * 0.45 + vec2(time * 0.03, 0.0)), value_noise2(p * 0.45 + vec2(5.2, -time * 0.025))) - 0.5;
+				vec2 bend = vec2(value_noise2(p * 1.7 + 2.1), value_noise2(p * 1.7 + 8.4)) - 0.5;
+				vec2 q = p + warp * 1.4 + bend * 0.7;
+				vec2 big = foam_cells(q);
+				vec2 small = foam_cells(q * 2.6 + 11.3);
+				vec2 tiny = foam_cells(q * 6.5 + 23.7);
+				float big_width = mix(0.02, 0.3, density) * mix(0.6, 1.3, value_noise2(q * 2.2 + 3.0));
+				float small_width = mix(0.01, 0.2, density);
+				float big_soft = 0.03 + footprint * 0.6;
+				float small_soft = 0.03 + footprint * 1.6;
+				float strands = 1.0 - smoothstep(big_width - big_soft, big_width + big_soft, big.y - big.x);
+				float bubbles = 1.0 - smoothstep(small_width - small_soft, small_width + small_soft, small.y - small.x);
+				float breakup = value_noise2(q * 1.3 + 17.0) * 0.7 + value_noise2(q * 3.1 + 4.0) * 0.3;
+				float lace = max(strands, bubbles * (1.0 - smoothstep(0.1, 0.45, footprint)) * 0.9) * smoothstep(0.75 - density, 0.95 - density, breakup);
+				float walls = mix(0.5, 1.0 - smoothstep(0.0, 0.18, tiny.y - tiny.x), 1.0 - smoothstep(0.03, 0.15, footprint));
+				float thickness = clamp(1.0 - (big.y - big.x) / max(big_width, 0.05), 0.0, 1.0);
+				float resolved = 1.0 - smoothstep(0.3, 1.0, footprint);
+				float alpha = mix(density * 0.8, lace * mix(0.6, 1.0, walls), resolved) * smoothstep(0.0, 0.12, density);
+				return vec2(alpha, mix(0.75, mix(0.5, 1.0, max(thickness * 0.5, walls)), resolved));
+			}
+
 			float get_pixel_footprint(float t, float cos_incidence) {
 				float pixel_angle = 2.0 / (abs(water_data.projection[1][1]) * water_data.render_size.y);
 				return t * pixel_angle / sqrt(max(abs(cos_incidence), 0.03));
@@ -1293,6 +1315,7 @@ list.insert(
 				float caustics;
 				float roughness;
 				float closed;
+				vec2 flow;
 			};
 
 			Water get_ocean_water() {
@@ -1309,6 +1332,7 @@ list.insert(
 				w.caustics = water_data.ocean_wave_info.y;
 				w.roughness = 0.0;
 				w.closed = 0.0;
+				w.flow = vec2(0.0);
 				return w;
 			}
 
@@ -1326,6 +1350,7 @@ list.insert(
 				w.caustics = water_volume_flow(i).z;
 				w.roughness = water_volume_scattering(i).w;
 				w.closed = water_volume_misc(i).x;
+				w.flow = water_volume_flow(i).xy;
 				return w;
 			}
 
@@ -1343,6 +1368,7 @@ list.insert(
 				w.caustics = mix(a.caustics, b.caustics, t);
 				w.roughness = mix(a.roughness, b.roughness, t);
 				w.closed = mix(a.closed, b.closed, t);
+				w.flow = mix(a.flow, b.flow, t);
 				return w;
 			}
 
@@ -1483,6 +1509,8 @@ list.insert(
 
 			]] .. caustics.GetCoverageGLSL("water_data") .. [[
 
+			const float WET_DARKENING = 0.65;
+
 			vec3 relight_submerged(Water w, vec2 uv, vec3 scene_color, vec3 world_pos, vec3 caustic) {
 				float depth = w.surface_y - world_pos.y;
 				if (depth <= 0.0 || (w.volume >= 0 && water_data.photon_caustics != 0 && caustic_covered(int(water_data.caustic_sun.w), vec3(0.0), world_pos))) return scene_color;
@@ -1490,7 +1518,8 @@ list.insert(
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				vec3 normal = gbuffer_normal(uv);
-				vec3 albedo = gbuffer_albedo(uv) * (1.0 - gbuffer_metallic(uv));
+				float porous = 1.0 - gbuffer_metallic(uv);
+				vec3 albedo = gbuffer_albedo(uv) * porous;
 				float no_l = max(dot(normal, normalize(water_data.sun_direction)), 0.0);
 				float shadow = get_water_sun_visibility(world_pos + normal * 0.1, water_data.sun_direction);
 				vec3 sun_path = exp(-sigma * (depth / max(-sun_dir.y, 0.05)));
@@ -1498,7 +1527,42 @@ list.insert(
 				vec3 sun_in_scene = water_data.sun_tinted != 0 ? sun_path : vec3(1.0);
 				vec3 direct = min(albedo / PI * get_sun_illuminance() * (no_l * shadow) * sun_in_scene, scene_color);
 				vec3 rest = scene_color - direct;
-				return direct * (water_data.sun_tinted != 0 ? vec3(1.0) : sun_path) * (sun_transmission * caustic) + rest * (water_data.gi_tinted != 0 ? vec3(1.0) : sky_path);
+				return (direct * (water_data.sun_tinted != 0 ? vec3(1.0) : sun_path) * (sun_transmission * caustic) + rest * (water_data.gi_tinted != 0 ? vec3(1.0) : sky_path)) * mix(1.0, WET_DARKENING, porous);
+			}
+
+			const float WET_REACH = 0.3;
+
+			float get_height_above_water(vec3 world_pos) {
+				float above = water_data.ocean_enabled != 0 ? world_pos.y - water_data.ocean_level : 1e30;
+
+				for (int i = 0; i < optical_ranges.y; i++) {
+					vec3 local = (water_volume_to_local(i) * vec4(world_pos, 1.0)).xyz;
+					vec4 shape = water_volume_shape(i);
+
+					if (abs(local.x) < shape.x && abs(local.z) < shape.z && world_pos.y > shape.w - 1.0) above = min(above, world_pos.y - shape.w);
+				}
+
+				return above;
+			}
+
+			float get_wetness(vec3 world_pos, float above) {
+				float reach = (WET_REACH + water_data.ocean_wave_info.x * 0.3) * mix(0.75, 1.25, value_noise2(world_pos.xz * 0.5) * 0.6 + value_noise2(world_pos.xz * 1.1 + 5.3) * 0.4);
+				return 1.0 - smoothstep(reach * 0.35, reach, above);
+			}
+
+			vec3 apply_wetness(vec2 uv, vec3 color, vec3 world_pos, vec3 view_dir, float wetness, float film) {
+				if (wetness <= 0.0) return color;
+				vec3 normal = gbuffer_normal(uv);
+				color *= mix(1.0, WET_DARKENING, wetness * (1.0 - gbuffer_metallic(uv)));
+				float perceptual = mix(0.45, 0.25, film);
+				float alpha = perceptual * perceptual;
+				float no_v = max(dot(normal, view_dir), 1e-3);
+				vec3 sun = normalize(water_data.sun_direction);
+				float no_l = max(dot(normal, sun), 0.0);
+				vec3 half_dir = normalize(view_dir + sun);
+				float sun_specular = no_l > 0.0 ? D_GGXAlpha(alpha, max(dot(normal, half_dir), 0.0)) * V_SmithGGXCorrelated(alpha, no_v, no_l) * fresnel_dielectric(max(dot(view_dir, half_dir), 0.0), 1.0 / 1.33) * no_l * get_water_sun_visibility(world_pos + normal * 0.05, sun) : 0.0;
+				vec3 sky = sample_environment_specular(water_data.env_tex, reflect(-view_dir, normal), normal, perceptual) * fresnel_dielectric(no_v, 1.0 / 1.33);
+				return color + (sky + get_sun_illuminance() * sun_specular) * wetness * mix(0.4, 1.0, film);
 			}
 
 			]] .. medium_surface.GetCausticGLSL(
@@ -1794,6 +1858,8 @@ if (w.volume >= 0) {
 				return rays;
 			}
 
+			float above_unfiltered = 0.0;
+
 			vec3 finish_above(Water w, vec3 surface_pos, vec3 normal, float alpha, float fold, vec3 transmittance, vec3 inscatter) {
 				vec3 reflection = resolve_reflection() * mix(0.3, 1.0, above_sky_visibility);
 				vec3 transmitted = above_behind * transmittance + inscatter;
@@ -1865,77 +1931,79 @@ if (w.volume >= 0) {
 
 				const float SHORE_CAST = 1.5;
 				const float MAX_SHORE_SLOPE = 4.0;
+				const float SHORE_FOAM_WIDTH = 3.0;
 				float shore_distance = 1e3;
+				float shore_depth = 1e3;
 				float shore_fade = 1.0;
 				float shore_blend = 1.0;
+				vec3 shore_floor = surface_pos;
 
 				if (above_scene_distance < 1e29 && w.foam > 0.0 && water_feature(WATER_SHORE_FOAM)) {
-					vec3 floor_point = surface_pos - above_view_dir * above_scene_distance;
-					float vertical = w.surface_y - floor_point.y;
+					shore_floor = surface_pos - above_view_dir * above_scene_distance;
+					float vertical = w.surface_y - shore_floor.y;
 
 					if (vertical < SHORE_CAST) {
 						vec2 texel = 14.0 / water_data.render_size;
+						vec2 inside = 0.5 / water_data.render_size;
 						float slope = 0.0;
 						float height_sum = vertical;
 
 						for (int i = 0; i < 8; i++) {
 							float angle = float(i) * 0.7853982;
-							vec2 uv = in_uv + vec2(cos(angle), sin(angle)) * texel;
+							vec2 uv = clamp(in_uv + vec2(cos(angle), sin(angle)) * texel, inside, 1.0 - inside);
 							float depth = scene_depth_at(uv);
-							vec3 neighbor = depth > 0.0 ? get_world_pos(uv, depth) : floor_point;
-							slope += min(abs(neighbor.y - floor_point.y) / max(length(neighbor.xz - floor_point.xz), 1e-3), MAX_SHORE_SLOPE) * 0.125;
-							height_sum += w.surface_y - neighbor.y;
+							vec3 neighbor = depth > 0.0 ? get_world_pos(uv, depth) : shore_floor;
+							slope += min(abs(neighbor.y - shore_floor.y) / max(length(neighbor.xz - shore_floor.xz), 1e-3), MAX_SHORE_SLOPE) * 0.125;
+							height_sum += max(w.surface_y - neighbor.y, -0.05);
 						}
 
-						vertical = height_sum / 9.0;
-						shore_distance = max(vertical, 0.0) / max(slope, 0.05);
-						shore_blend = pow(smoothstep(0.0, 2.5, vertical / max(slope, 0.05)), 1.5);
+						shore_depth = height_sum / 9.0;
+						shore_distance = max(shore_depth, 0.0) / max(slope, 0.05);
+						shore_blend = max(pow(smoothstep(0.0, 2.0, shore_distance), 1.5), smoothstep(0.05, 0.2, shore_depth));
 					}
 
 					shore_fade = 1.0 - smoothstep(SHORE_CAST * 0.5, SHORE_CAST, max(vertical, 0.0));
 				}
 
 				const float FOAM_SCALE = 3.0;
-				vec3 pattern = foam_pattern(surface_pos.xz * FOAM_SCALE, water_data.time, above_footprint * FOAM_SCALE);
-				float whitecap = fold * mix(0.5, 1.5, sea_state.y);
-				float coverage = clamp(whitecap * w.foam, 0.0, 1.0);
+				float foam_footprint = above_footprint * FOAM_SCALE;
+				vec2 foam_xz = surface_pos.xz - w.flow * water_data.time;
+				vec2 foam_p = foam_xz * FOAM_SCALE;
+				vec3 pattern = foam_pattern(foam_p, water_data.time, foam_footprint);
+				float coverage = clamp(fold * mix(0.5, 1.5, sea_state.y) * w.foam, 0.0, 1.0);
 				float threshold = 1.05 - coverage * 1.1;
-				float soft = 0.2 + above_footprint * 0.1;
-				float thickness = smoothstep(threshold - soft, threshold + soft * 3.0, pattern.x);
-				float foam = thickness * (pattern.y * 0.25 + 0.8) * smoothstep(0.0, 0.08, coverage);
-				foam = mix(foam, coverage * coverage * 0.5, smoothstep(0.15, 1.2, above_footprint)) * 0.95;
-				float foam_distance = max(shore_distance - 0.3, 0.0);
-				float wash_width = 2.5 * mix(0.6, 1.4, value_noise2(surface_pos.xz * 0.12 + vec2(water_data.time * 0.15, 0.0)));
-				float reach = clamp(foam_distance / wash_width, 0.0, 1.0);
+				float cap_density = smoothstep(threshold - 0.25, threshold + 0.35, pattern.x) * smoothstep(0.0, 0.08, coverage);
+				float shore_amount = clamp(w.foam * 2.5, 0.0, 1.0);
 				vec2 drift = vec2(water_data.time * 0.05, -water_data.time * 0.03);
-				float broad = value_noise2(surface_pos.xz * 1.1 + drift) * 0.55 + value_noise2(surface_pos.xz * 2.7 - drift) * 0.3 + value_noise2(surface_pos.xz * 6.0) * 0.15;
-				float gate = smoothstep(reach * 0.85, reach * 0.85 + 0.1, broad) * (1.0 - smoothstep(0.85, 1.0, reach));
-				vec2 lace_p = surface_pos.xz * FOAM_SCALE;
-				vec2 lace_warp = vec2(value_noise2(lace_p * 0.8 + drift * 3.0), value_noise2(lace_p * 0.8 + 7.0)) - 0.5;
-				vec2 lace_q = lace_p + lace_warp * 2.5;
-				float lace_ridge = (1.0 - abs(2.0 * value_noise2(lace_q * 3.0) - 1.0)) * 0.6 + (1.0 - abs(2.0 * value_noise2(lace_q * 7.0 + 3.0) - 1.0)) * 0.4;
-				float fine = mix(0.2, 1.0, smoothstep(0.55, 0.95, lace_ridge)) * (0.6 + 0.4 * value_noise2(lace_q * 1.7));
-				float speckle = fine;
-				float shore_density = gate * fine * mix(0.7, 0.3, reach);
-				float edge_fade = pow(smoothstep(0.0, 1.5, shore_distance), 1.5);
-				foam *= edge_fade;
-				float shore_opacity = shore_density * w.foam * shore_fade * edge_fade;
+				float swash = sin(water_data.time * 0.6 + value_noise2(surface_pos.xz * 0.04) * 12.0);
+				float wash_width = SHORE_FOAM_WIDTH * mix(0.5, 1.5, value_noise2(surface_pos.xz * 0.09 + 3.1)) * (1.0 + 0.2 * swash);
+				float reach = shore_distance / wash_width;
+				float patches = value_noise2(foam_xz * 0.55 + drift) * 0.6 + value_noise2(foam_xz * 1.6 - drift) * 0.4;
+				float shore_density = smoothstep(reach + 0.05, reach + 0.45, patches * 1.3 - 0.15) * (1.0 - smoothstep(0.9, 1.4, reach)) * (1.0 - 0.7 * clamp(reach, 0.0, 1.0)) * mix(0.3, 0.6, value_noise2(foam_xz * 3.1 + drift * 2.0)) * shore_fade * shore_amount;
+				float flow_density = 0.0;
+				float speed = length(w.flow);
 
-				if (foam > 0.0 || shore_opacity > 0.0) {
-					float relief = 1.0 - smoothstep(0.3, 1.0, above_footprint * 2.6);
-					float eps = max(0.06, above_footprint * 1.5) * FOAM_SCALE;
-					vec2 height_step = vec2(
-						foam_pattern(surface_pos.xz * FOAM_SCALE + vec2(eps, 0.0), water_data.time, above_footprint * FOAM_SCALE).x,
-						foam_pattern(surface_pos.xz * FOAM_SCALE + vec2(0.0, eps), water_data.time, above_footprint * FOAM_SCALE).x
-					) - pattern.x;
-					vec3 foam_normal = normalize(vec3(-height_step * (0.2 * relief / eps), 1.0));
-					float wrap = clamp((dot(foam_normal, sun) + 0.5) / 1.5, 0.0, 1.0);
-					float cavity = mix(0.45, 1.0, max(thickness, speckle)) * (0.6 + 0.4 * pattern.y);
-					vec3 foam_light = sun_light * (wrap / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), RADIANCE_CACHE_NO_VISIBILITY_RAYS, true) * cavity;
-					color = mix(color, vec3(0.95) * foam_light, max(foam * (0.2 + 0.75 * thickness), shore_opacity));
+				if (speed > 0.05) {
+					vec2 along = w.flow / speed;
+					vec2 q = vec2(dot(foam_xz, along), dot(foam_xz, vec2(-along.y, along.x)));
+					float streak = value_noise2(vec2(q.x * 0.15, q.y * 0.9)) * 0.6 + value_noise2(vec2(q.x * 0.4, q.y * 2.5) + 4.7) * 0.4;
+					flow_density = smoothstep(0.5, 0.85, streak) * 0.45 * clamp(speed * 0.5, 0.0, 1.0) * shore_amount;
 				}
 
-				if (above_scene_distance < 1e29) color = mix(get_scene_color(in_uv), color, shore_blend);
+				float density = max(max(cap_density, shore_density), flow_density) * max(smoothstep(0.0, 0.6, shore_distance), smoothstep(0.03, 0.12, shore_depth));
+
+				if (shore_blend < 1.0) color = mix(apply_wetness(in_uv, get_scene_color(in_uv), shore_floor, above_view_dir, 1.0, 1.0), color, shore_blend);
+
+				above_unfiltered = 1.0 - shore_blend;
+
+				if (density > 0.0) {
+					vec2 lace = foam_lace(foam_p, density, foam_footprint, water_data.time);
+					float opacity = mix(lace.x * mix(0.35, 0.85, density), density * 0.4, smoothstep(0.15, 1.2, above_footprint));
+					vec3 foam_light = sun_light * (clamp((sun.y + 0.4) / 1.4, 0.0, 1.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), RADIANCE_CACHE_NO_VISIBILITY_RAYS, true);
+					color = mix(color, foam_light * 0.8 * exp(-get_extinction(w) * 0.4), smoothstep(0.0, 1.0, max(cap_density, shore_density)) * 0.25 * shore_blend);
+					color = mix(color, foam_light * 0.75 * lace.y, opacity);
+					above_unfiltered = max(above_unfiltered, smoothstep(0.0, 0.1, density));
+				}
 
 				return color;
 			}
@@ -2270,6 +2338,11 @@ if (w.volume >= 0) {
 					}
 				} else {
 					if (!ocean_first) {
+						if (scene_depth > 0.0 && water_feature(WATER_SHORE_FOAM)) {
+							float above = get_height_above_water(scene_pos);
+							if (above < 2.0) scene_color = apply_wetness(in_uv, scene_color, scene_pos, -ray_dir, get_wetness(scene_pos, above), 1.0 - smoothstep(0.0, 0.1, above));
+						}
+
 						write_passthrough(scene_color);
 						return;
 					}
@@ -2388,7 +2461,7 @@ if (w.volume >= 0) {
 				}
 
 				set_scene_color(finish_above(w, surface_pos, normal, alpha, fold, view_transmittance, view_inscatter), 1.0);
-				set_water_distance(vec4(entry_t, sqrt(alpha) * water_rt_share, entry_t, 0.0));
+				set_water_distance(vec4(entry_t, sqrt(alpha) * water_rt_share * (1.0 - above_unfiltered), entry_t, 0.0));
 			}
 
 			void main() {
