@@ -967,7 +967,7 @@ list.insert(
 			}
 
 			float get_pixel_footprint(float t, float cos_incidence) {
-				float pixel_angle = 2.0 / (water_data.projection[1][1] * water_data.render_size.y);
+				float pixel_angle = 2.0 / (abs(water_data.projection[1][1]) * water_data.render_size.y);
 				return t * pixel_angle / sqrt(max(abs(cos_incidence), 0.03));
 			}
 
