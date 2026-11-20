@@ -759,8 +759,9 @@ local function simplify(mesh, tris, isl, nt, target, stats, mode)
 					local worst_uv, worst_n, worst_b = 0, 0, 0
 
 					for j = 0, vic[from] - 1 do
-						if bok[j] == 1 then
-							local w = vw[from * 4 + j]
+						local w = vw[from * 4 + j]
+
+						if bok[j] == 1 and w >= 0 then
 							local du, dv = wu[w] - bu[j], wv[w] - bv[j]
 							local nx, ny, nz = bnx[j], bny[j], bnz[j]
 							local nl = sqrt(nx * nx + ny * ny + nz * nz)
