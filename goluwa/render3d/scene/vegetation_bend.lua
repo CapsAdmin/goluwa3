@@ -437,6 +437,14 @@ function vegetation_bend.GetPool(mesh_row, material, polygon, max_copies)
 		used = 0,
 		refs = 0,
 	}
+	-- a copy is built before any instance is assigned its slot, and a zero matrix bends it into NaN triangles that stay inactive through every later refit
+	local slot_rows = slots:Get()
+
+	for i = pool.first, pool.first + copies - 1 do
+		ffi.fill(slot_rows[i].m, ffi.sizeof(slot_rows[i].m))
+		slot_rows[i].m[0], slot_rows[i].m[5], slot_rows[i].m[10] = 1, 1, 1
+	end
+
 	pool_keys[mesh_row] = by_material or {}
 	pool_keys[mesh_row][material] = by_polygon or {}
 	pool_keys[mesh_row][material][polygon] = pool
