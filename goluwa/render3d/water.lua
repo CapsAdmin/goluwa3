@@ -437,7 +437,17 @@ function water.GetWhitecapFactor(wind_speed)
 end
 
 function water.GetWaveTime()
-	return system.GetGameTime() % water.WAVE_PERIOD
+function water.SetFrozenTime(time)
+	water.frozen_time = time
+end
+
+	return water.frozen_time or system.GetGameTime() % water.WAVE_PERIOD
+end
+
+function water.GetStepTime()
+	if water.frozen_time then return 0 end
+
+	return math.min(system.GetFrameTime(), 0.1)
 end
 
 do

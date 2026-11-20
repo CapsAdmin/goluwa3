@@ -462,7 +462,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 							local pipeline = render3d.pipelines[get_foam_pipeline_name(cascade)]
 							block.history_tex = self:GetTextureIndex(pipeline:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(1))
 							block.history_valid = previous and 1 or 0
-							block.dt = math.min(system.GetFrameTime(), 0.1)
+							block.dt = water.GetStepTime()
 							return block
 						end,
 					},
@@ -622,10 +622,10 @@ local function write_ocean(self, block)
 	local frame = system.GetFrameNumber()
 
 	if frame ~= sea_offset.frame then
-		local drift = params.WindSpeed * SEA_DRIFT * math.min(system.GetFrameTime(), 0.1)
+		local drift = params.WindSpeed * SEA_DRIFT * water.GetStepTime()
 		sea_offset.x = sea_offset.x + math.cos(waves.wind_angle) * drift
 		sea_offset.z = sea_offset.z + math.sin(waves.wind_angle) * drift
-		sea_offset.time = sea_offset.time + math.min(system.GetFrameTime(), 0.1)
+		sea_offset.time = sea_offset.time + water.GetStepTime()
 		sea_offset.frame = frame
 	end
 
