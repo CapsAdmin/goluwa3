@@ -12,7 +12,8 @@ local FOLIAGE_WIND_EMISSION = Vec3(0.3, 0.6, 0.8)
 local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local mtl_material = {}
-mtl_material.DIFFUSE_COLOR_SCALE = 2
+-- CryEngine colors are gamma space values lit at about twice their value (a grey material renders at 216/128 under the sky)
+mtl_material.GAMMA_ALBEDO_SCALE = 2
 local cry_mtl_document_cache = {}
 local cry_mtl_material_cache = {}
 local cry_texture_path_cache = {}
@@ -328,8 +329,8 @@ local function apply_cry_material_node(self, material_node, material_path)
 		local r, g, b = unpack_csv_numbers(attrs.Diffuse)
 
 		if not is_terrain_layer_shader(shader) then
-			local scale = mtl_material.DIFFUSE_COLOR_SCALE
-			r, g, b = (r or 1) * scale, (g or 1) * scale, (b or 1) * scale
+			local scale = mtl_material.GAMMA_ALBEDO_SCALE
+			r, g, b = ((r or 1) * scale) ^ 2.2, ((g or 1) * scale) ^ 2.2, ((b or 1) * scale) ^ 2.2
 		end
 
 		if self.cry_medium_mesh then

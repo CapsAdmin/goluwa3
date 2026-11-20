@@ -16,6 +16,7 @@ do
 		} atlas_node;
 	]]
 	local ATLAS_NODE_GLSL = [[
+		const float GAMMA_ALBEDO_SCALE = ]] .. string.format("%.4f", mtl_material.GAMMA_ALBEDO_SCALE) .. [[;
 		vec2 cell = uv * float(atlas_node.span) - vec2(atlas_node.x, atlas_node.y);
 
 		if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(1.0)))) discard;
@@ -23,7 +24,7 @@ do
 		vec4 texel = texture(TEXTURE(atlas_node.source), cell);
 		float red = (texel.r + 0.001012) * (31.0 / 30.0);
 		vec3 color = vec3(red, texel.g, 1.0 - red - texel.g) * 3.0 * texel.b;
-		color = pow(color, vec3(1.5)) * 0.5;
+		color = pow(clamp(color * GAMMA_ALBEDO_SCALE, 0.0, 1.0), vec3(2.2));
 		return vec4(color, 1.0);
 	]]
 	local ATLAS_NODE_PLAIN_GLSL = [[
