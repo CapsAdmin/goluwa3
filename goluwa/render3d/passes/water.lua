@@ -753,6 +753,7 @@ list.insert(
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteCommonBlock(self, block)
+					block.time = water.GetSurfaceTime()
 					gbuffer_layout.WriteBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
 					local current_idx = system.GetFrameNumber() % 2 + 1

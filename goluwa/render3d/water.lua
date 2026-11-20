@@ -445,6 +445,10 @@ function water.GetWaveTime()
 	return water.frozen_time or system.GetGameTime() % water.WAVE_PERIOD
 end
 
+function water.GetSurfaceTime()
+	return water.frozen_time or system.GetElapsedTime()
+end
+
 function water.GetStepTime()
 	if water.frozen_time then return 0 end
 
