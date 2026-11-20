@@ -1,0 +1,61 @@
+return {
+	scene = "cry:Multiplayer/IA/Battleground",
+	views = {
+		reference_grass = {
+			climate = {
+				aerosol_visibility = 1000000000,
+				clouds = {
+					{
+						bottom = 600,
+						coverage = 1,
+						density = 0.03,
+						detail_scale = 300,
+						name = "low",
+						shape_scale = 4000,
+						thickness = 900,
+						type = 0.15,
+						variation = 0.3,
+					},
+				},
+				ground_fog_visibility = 1000000000,
+				wind = Vec3(0, 0, -2.3),
+			},
+			ev = 13.288,
+			fov = 1.0471975511965976,
+			latitude = 28.671321,
+			longitude = 106.070245,
+			note = "crysis wars reference 3: exact CamPos 894.7807 2593.8374 250.6003 and fov 1.0472 read from the game, yaw 154.5 is a guess from the truncated 154",
+			pos = Vec3(894.7807, 250.6003, -2593.8374),
+			rot = Quat(-0.001925924, 0.9753052, 0.00851136, 0.22068903),
+			time = 1795145358.2283,
+		},
+		road_decals = {
+			climate = {
+				aerosol_visibility = 1000000000,
+				clouds = {
+					{
+						bottom = 600,
+						coverage = 1,
+						density = 0.03,
+						detail_scale = 300,
+						name = "low",
+						shape_scale = 4000,
+						thickness = 900,
+						type = 0.15,
+						variation = 0.3,
+					},
+				},
+				ground_fog_visibility = 1000000000,
+				wind = Vec3(0, 0, -2.3),
+			},
+			ev = 13.288,
+			fov = 1.0471975511965976,
+			latitude = 28.671321,
+			longitude = 106.070245,
+			note = "crysis wars reference 4: road and gravel decals, exact CamPos 861.6248 2437.8906 239.1230, dir 0.2355 0.8006 -0.5510, fov 60",
+			pos = Vec3(861.6248, 239.123, -2437.8906),
+			rot = Quat(-0.2844226, -0.1366132, -0.040985925, 0.94802994),
+			time = 1795145358.2283,
+		},
+	},
+}
