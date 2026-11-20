@@ -38,7 +38,6 @@ local BUILD_MODE_UPDATE = 1
 local BLAS_ALIGN = 256
 local BLAS_POOL_BYTES = 64 * 1024 * 1024
 local SCRATCH_BUDGET = 256 * 1024 * 1024
-local TLAS_SLOT_COUNT = 4
 accel.INSTANCE_BYTE_SIZE = ffi.sizeof(vk.VkAccelerationStructureInstanceKHR)
 accel.INSTANCE_FACING_CULL_DISABLE = 0x01000000
 accel.INSTANCE_FORCE_OPAQUE = 0x04000000
@@ -499,7 +498,7 @@ end
 local function get_free_tlas_slot(frame, count)
 	local delay = render.GetSwapchainImageCount() + 1
 
-	for i = 1, TLAS_SLOT_COUNT do
+	for i = 1, #tlas_slots + 1 do
 		local slot = tlas_slots[i]
 
 		if not slot or (slot ~= current_slot and slot.last_used <= frame - delay) then
@@ -570,9 +569,6 @@ end
 function accel.BuildTLAS(cmd, instance_buffer, count)
 	local frame = system.GetFrameNumber()
 	local slot = get_free_tlas_slot(frame, count)
-
-	if not slot then return current_slot and current_slot.tlas end
-
 	slot.geometry.geometry.instances.data = instance_buffer:GetDeviceAddress()
 	local ranges = VkRangeInfoArray(1)
 	ranges[0].primitiveCount = count
