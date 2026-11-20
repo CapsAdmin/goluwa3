@@ -6,7 +6,17 @@ local accel = import("goluwa/render3d/scene/accel.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local rt = {}
-local frame_state = {frame = -1}
+local frame_state = {frame = -1, prepared = -1}
+
+-- producers write their rows on PreSceneBuild, before the scene is built and before any pass of the frame traces it
+function rt.PrepareScene(cmd)
+	local frame = system.GetFrameNumber()
+
+	if frame_state.prepared == frame then return end
+
+	frame_state.prepared = frame
+	event.Call("PreSceneBuild", cmd)
+end
 
 function rt.GetTLAS(cmd)
 	local frame = system.GetFrameNumber()
@@ -14,6 +24,7 @@ function rt.GetTLAS(cmd)
 	if frame_state.frame == frame then return frame_state.tlas end
 
 	frame_state.frame = frame
+	rt.PrepareScene(cmd)
 	store.Update()
 	accel.Update()
 	meshes.Update()
@@ -27,6 +38,14 @@ function rt.GetTLAS(cmd)
 		event.Call("RTSceneReady")
 	end
 
+	return frame_state.tlas
+end
+
+-- the last scene built, for producers tracing static surfaces before this frame's build
+function rt.GetBuiltTLAS(cmd)
+	if not frame_state.tlas then return accel.GetPlaceholderTLAS(cmd) end
+
+	accel.MarkTLASUsed()
 	return frame_state.tlas
 end
 

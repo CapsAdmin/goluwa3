@@ -1121,6 +1121,8 @@ function render3d.Initialize(config)
 
 		if render.GetDevice().ray_tracing_supported then
 			scene_rt.GetTLAS(render.GetCommandBuffer())
+		else
+			scene_rt.PrepareScene(render.GetCommandBuffer())
 		end
 
 		if not (render3d.camera_stack and #render3d.camera_stack > 1) then

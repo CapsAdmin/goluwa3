@@ -46,7 +46,9 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		name = "gbuffer",
 		on_pre_draw = function(self, cmd)
 			for _, extra in ipairs(gbuffer_extras) do
-				if render3d.HasPipelineVariants(extra.name) then extra.PreDraw(cmd) end
+				if extra.PreDraw and render3d.HasPipelineVariants(extra.name) then
+					extra.PreDraw(cmd)
+				end
 			end
 		end,
 		on_draw = function(self, cmd)

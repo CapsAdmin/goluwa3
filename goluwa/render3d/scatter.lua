@@ -2666,7 +2666,7 @@ local function update_placed(cmd, b, passes, frame, camera)
 							render.GetCurrentFrame(),
 							BINDING_SCENE,
 							0,
-							scene_rt.GetTLAS(cmd)
+							scene_rt.GetBuiltTLAS(cmd)
 						)
 					end
 
@@ -2787,7 +2787,7 @@ local function write_cull_tables(b, ring, frame)
 	return unit_base, block_base, block_count
 end
 
-function scatter.PreDraw(cmd)
+local function pre_draw(cmd)
 	surface_count = 0
 
 	if not enabled:Get() then return end
@@ -2918,7 +2918,7 @@ function scatter.PreDraw(cmd)
 				render.GetCurrentFrame(),
 				BINDING_SCENE,
 				0,
-				scene_rt.GetTLAS(cmd)
+				scene_rt.GetBuiltTLAS(cmd)
 			)
 		end
 
@@ -3043,6 +3043,10 @@ function scatter.PreDraw(cmd)
 	unit_readback_frames[ring] = frame
 	barrier(cmd, b.instances, "compute", "vertex", "shader_write", "shader_read")
 end
+
+event.AddListener("PreSceneBuild", "scatter", function(cmd)
+	if render3d.HasPipelineVariants(scatter.name) then pre_draw(cmd) end
+end)
 
 function scatter.GetSurfaceParamBits()
 	local bits = 0

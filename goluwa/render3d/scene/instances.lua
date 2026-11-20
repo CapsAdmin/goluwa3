@@ -327,7 +327,7 @@ function instances.IsLevelShown(id, camera_position)
 	return (level == 0 or ratio >= data.lod_near) and (level == last or ratio < data.lod_far)
 end
 
--- device addresses of the rows a gpu pass writes produced instances into (the tlas row, the data row and the part of each instance); a produced instance is shown for the frame it was written in and the next
+-- device addresses of the rows a gpu pass writes produced instances into (the tlas row, the data row and the part of each instance); a produced instance is shown only in the frame it was written in, which the producer must do before the scene build
 function instances.GetProducedAddresses()
 	instances.GetTables()
 	part_table:Reserve(tlas_table.capacity)
@@ -635,7 +635,7 @@ do
 						bool shown;
 
 						if (produced) {
-							shown = update_data.frame - int(floatBitsToUint(inst.lod.x)) <= 1;
+							shown = update_data.frame == int(floatBitsToUint(inst.lod.x));
 							bend_distance = distance(update_data.camera.xyz, vec3(tlas[id].m[3], tlas[id].m[7], tlas[id].m[11]));
 						} else {
 							float distance_to = distance(update_data.camera.xyz, inst.bounds.xyz);

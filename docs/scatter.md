@@ -34,7 +34,7 @@ Prototypes with `placed = true` have no placement rules; they are instances that
 - Tests need unique set names and mesh sizes (meshes with identical vertices are shared and may be on their way out).
 
 - Data the gpu passes read that the cpu rewrites each frame (the prototype buffer, the shadow block table) is recorded into the command buffer with `cmd:UpdateBuffer` (`upload`), never written to a host visible buffer: a frame still running reads the next frame's bases and rooms with the previous frame's buffers and indexes past their end.
-- Ray traced rows are written by the cull pass beside the shadow lists and shown for the frame they were written in and the next (`scatter_rt.lua`); a range is replaced by a new one before the old is freed. Never free a range and write rows into it in the same frame, the flush that clears the old rows lands on the new ones.
+- Ray traced rows are written by the cull pass beside the shadow lists and shown only in the frame they were written in, so the cull runs before the scene build (`PreSceneBuild`, `scatter_rt.lua`); a range is replaced by a new one before the old is freed. Never free a range and write rows into it in the same frame, the flush that clears the old rows lands on the new ones.
 - Profile a flight before blaming the gpu: compare `gpu_frame` with the frame time (a CPU profile with `PROF` found the ray material table rewritten per consumer, scatter's unit visit and terrain tile heights). `island.Fly` follows the ground, so its altitude changes bake the atmosphere LUT; hold a constant altitude when measuring scatter.
 
 ## Verifying
