@@ -122,7 +122,10 @@ radiance_cache.EMITTER_SAMPLES = pvars.Setup2{
 	integer = true,
 	help = "emitter samples each probe takes when its cascade updates, each walks the emitter light tree and traces a shadow ray, on maps with many emitters the walk is most of the probe trace. built into the shaders, read at startup",
 }:Get()
-assert(radiance_cache.EMITTER_SAMPLES > 0, "radiance_cache_emitter_samples must be above 0")
+assert(
+	radiance_cache.EMITTER_SAMPLES > 0,
+	"radiance_cache_emitter_samples must be above 0"
+)
 radiance_cache.LIGHT_SAMPLES = 2
 radiance_cache.IRRADIANCE_TEXELS = 8
 radiance_cache.GUIDE_TEXELS = 8
@@ -235,12 +238,12 @@ local debug_probes = pvars.Setup2{
 	enums = {"off", "irradiance", "hit_distance"},
 	help = "what the probe debug markers show: the probe irradiance or its mean hit distance",
 }
-local DEBUG_SCENE = {off = 0, albedo = 1, normals = 2, hit_distance = 3}
+local DEBUG_SCENE = {off = 0, albedo = 1, normals = 2, hit_distance = 3, instance = 4}
 local debug_scene = pvars.Setup2{
 	key = "radiance_cache_debug_scene",
 	default = "off",
-	enums = {"off", "albedo", "normals", "hit_distance"},
-	help = "show the scene the probe rays trace as its albedo, normals or hit distance",
+	enums = {"off", "albedo", "normals", "hit_distance", "instance"},
+	help = "show the scene the probe rays trace as its albedo, normals or hit distance, or each instance as a flat color from where it stands",
 }
 local debug_scale = pvars.Setup2{
 	key = "radiance_cache_debug_scale",
@@ -546,7 +549,9 @@ do
 				need.z = fit_need(region.max_z - region.min_z, spacing, need.z)
 				distribute(cascade)
 			else
-				size.x, size.y, size.z = radiance_cache.PROBES_PER_AXIS, radiance_cache.PROBES_PER_AXIS, radiance_cache.PROBES_PER_AXIS
+				size.x, size.y, size.z = radiance_cache.PROBES_PER_AXIS,
+				radiance_cache.PROBES_PER_AXIS,
+				radiance_cache.PROBES_PER_AXIS
 			end
 
 			if

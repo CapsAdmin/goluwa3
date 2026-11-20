@@ -468,6 +468,12 @@ local LIGHTING_MODES = {
 		value = "hit_distance",
 		description = "the hit distance of the scene the radiance_cache probe rays trace",
 	},
+	{
+		name = "radiance_cache scene instances",
+		key = "radiance_cache_debug_scene",
+		value = "instance",
+		description = "each instance the radiance_cache probe rays trace as a flat color from where it stands, so an instance missing for a frame shows",
+	},
 }
 
 local function is_lighting_mode_on(mode)

@@ -1156,6 +1156,7 @@ local function pass_scene_debug()
 				hit.position = O + D * hit.distance;
 				hit.instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
 				hit.primitive = scene_query_primitive(query, true);
+				hit.origin = rayQueryGetIntersectionObjectToWorldEXT(query, true)[3];
 				return true;
 			}
 		]]
@@ -1216,6 +1217,7 @@ local function pass_scene_debug()
 				float distance;
 				uint instance;
 				uint primitive;
+				vec3 origin;
 			};
 		]] .. ray_materials.GetMaterialGLSL() .. ray_materials.GetHitAlbedoGLSL() .. trace_glsl .. screen_reconstruct.GetWorldPosFromUVGLSL("radiance_cache_data") .. [[
 			vec2 in_uv;
@@ -1248,6 +1250,11 @@ local function pass_scene_debug()
 						color = (N * 0.5 + 0.5) * facing;
 					} else if (radiance_cache_data.radiance_cache_debug_scene == 3) {
 						color = vec3(1.0 / (1.0 + hit.distance / (radiance_cache_spacing(0) * 4.0)));
+					} else if (radiance_cache_data.radiance_cache_debug_scene == 4) {
+						uvec3 cell = uvec3(ivec3(floor(hit.origin * 16.0)));
+						uint id = cell.x * 73856093u ^ cell.y * 19349663u ^ cell.z * 83492791u;
+						id = (id ^ (id >> 16u)) * 0x45d9f3bu;
+						color = vec3(uvec3(id, id >> 8u, id >> 16u) & 0xFFu) / 255.0;
 					} else {
 						color = ray_hit_albedo(material, hit.position, hit.instance, hit.primitive) * facing;
 					}
