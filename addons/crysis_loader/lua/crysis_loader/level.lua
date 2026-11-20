@@ -843,6 +843,7 @@ function level.ParseMissionEnvironment(mission)
 			fog_density = tonumber(ocean_node.attrs.FogDensity) or 0.1,
 			wind_direction = tonumber(animation_attrs.WindDirection) or 1,
 			wind_speed = tonumber(animation_attrs.WindSpeed) or 4,
+			waves_amount = tonumber(animation_attrs.WavesAmount) or 1.5,
 			waves_size = tonumber(animation_attrs.WavesSize) or 0.75,
 		}
 	end

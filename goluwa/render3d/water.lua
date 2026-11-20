@@ -23,6 +23,7 @@ water.ocean = {
 	SwellHeight = 0.35,
 	SwellWavelength = 140,
 	SwellDirection = 50,
+	Directionality = 1,
 	Medium = "ocean",
 	Foam = 1,
 	GustAmount = 1,
@@ -254,6 +255,14 @@ do
 		local swell_spread = math.rad(8)
 		local swell_width = swell_k * 0.25
 		local band_edges = {}
+		local directionality = params.Directionality
+		assert(directionality >= 0, "ocean Directionality must not be negative")
+		local swell_isotropy = (1 - directionality) * swell_spread * math.sqrt(2 * PI) / (2 * PI)
+
+		local function swell_angular(angle)
+			return directionality * math.exp(-0.5 * (angle / swell_spread) ^ 2) + swell_isotropy
+		end
+
 
 		for i, wavelength in ipairs(water.FFT_BAND_WAVELENGTHS) do
 			band_edges[i] = 2 * PI / wavelength
@@ -272,7 +281,7 @@ do
 					local k = math.sqrt(kx * kx + kz * kz)
 
 					if k > 0 and k <= band_edges[1] then
-						local weight = math.exp(-0.5 * ((k - swell_k) / swell_width) ^ 2) * math.exp(-0.5 * (wrap_angle(math.atan2(kz, kx) - swell_angle) / swell_spread) ^ 2)
+						local weight = math.exp(-0.5 * ((k - swell_k) / swell_width) ^ 2) * swell_angular(wrap_angle(math.atan2(kz, kx) - swell_angle))
 						swell_raw = swell_raw + weight
 					end
 				end
@@ -304,12 +313,18 @@ do
 				local omega = math.sqrt(g * k)
 				local angle = wrap_angle(math.atan2(kz, kx) - wind_angle)
 				local sigma = math.rad(math.clamp(20 + 45 * math.log(omega / peak_omega) / math.log(4), 20, 75)) * 0.5
-				local spectrum = waves.wind_spectrum(k) / k * math.exp(-0.5 * (angle / sigma) ^ 2) / (
-						sigma * math.sqrt(2 * PI)
+				local spectrum = waves.wind_spectrum(k) / k * (
+						directionality * math.exp(-0.5 * (angle / sigma) ^ 2) / (
+							sigma * math.sqrt(2 * PI)
+						) + (
+							1 - directionality
+						) / (
+							2 * PI
+						)
 					)
 
 				if swell_scale > 0 then
-					local weight = math.exp(-0.5 * ((k - swell_k) / swell_width) ^ 2) * math.exp(-0.5 * (wrap_angle(math.atan2(kz, kx) - swell_angle) / swell_spread) ^ 2)
+					local weight = math.exp(-0.5 * ((k - swell_k) / swell_width) ^ 2) * swell_angular(wrap_angle(math.atan2(kz, kx) - swell_angle))
 					spectrum = spectrum + weight * swell_scale / (dk * dk)
 				end
 

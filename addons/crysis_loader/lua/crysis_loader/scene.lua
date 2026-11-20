@@ -79,6 +79,7 @@ local function build_atmosphere_record(data)
 			WindSpeed = math.sqrt(2 * ocean.waves_size * water.GRAVITY / 0.21),
 			WindDirection = wind_direction,
 			SwellHeight = ocean.waves_size * 0.5,
+			Directionality = 0,
 			SwellDirection = wind_direction + 20,
 			Medium = medium,
 		}
@@ -485,7 +486,11 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 		list.insert(
 			leaves,
-			{folder = add_folder(level_guid, "Decals"), items = data.decals, add = add_decal}
+			{
+				folder = add_folder(level_guid, "Decals"),
+				items = data.decals,
+				add = add_decal,
+			}
 		)
 	end
 
