@@ -1155,6 +1155,8 @@ local function upload(cmd, buffer, source, bytes, destination)
 end
 
 local function get_pipeline()
+	if not render3d.HasPipelineVariants(tessellation.name) then return end
+
 	local plain = draw.GetVariant(draw.SHAPE_PLAIN, bit.bor(draw.GetGlobalBits(0), shader_features.PARAMS))
 	local pipeline = render3d.GetPipelineVariant(tessellation.name, plain)
 
