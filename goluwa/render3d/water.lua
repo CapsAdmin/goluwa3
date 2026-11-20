@@ -24,6 +24,7 @@ water.ocean = {
 	SwellWavelength = 140,
 	SwellDirection = 50,
 	Directionality = 1,
+	ShoalDepth = 0.4,
 	Medium = "ocean",
 	Foam = 1,
 	GustAmount = 1,
@@ -254,7 +255,6 @@ do
 		local swell_angle = math.rad(params.SwellDirection)
 		local swell_spread = math.rad(8)
 		local swell_width = swell_k * 0.25
-		local band_edges = {}
 		local directionality = params.Directionality
 		assert(directionality >= 0, "ocean Directionality must not be negative")
 		local swell_isotropy = (1 - directionality) * swell_spread * math.sqrt(2 * PI) / (2 * PI)
@@ -263,6 +263,7 @@ do
 			return directionality * math.exp(-0.5 * (angle / swell_spread) ^ 2) + swell_isotropy
 		end
 
+		local band_edges = {}
 
 		for i, wavelength in ipairs(water.FFT_BAND_WAVELENGTHS) do
 			band_edges[i] = 2 * PI / wavelength
@@ -436,11 +437,11 @@ function water.GetWhitecapFactor(wind_speed)
 	return math.clamp((wind_speed - 3) / 11, 0, 1) ^ 1.5
 end
 
-function water.GetWaveTime()
 function water.SetFrozenTime(time)
 	water.frozen_time = time
 end
 
+function water.GetWaveTime()
 	return water.frozen_time or system.GetGameTime() % water.WAVE_PERIOD
 end
 

@@ -19,6 +19,7 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
+local water_field = import("goluwa/render3d/water_field.lua")
 local render = import("goluwa/render/render.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local path_trace = import("goluwa/render3d/path_trace.lua")
@@ -413,6 +414,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		write_cascade_origin(block.wave_origin, cascade)
 		local params = water.GetOcean()
 		block.foam_amount = water.GetWhitecapFactor(params.WindSpeed) * params.Foam
+		water_field.WriteBlock(self, block, params.ShoalDepth)
 		local fft_textures = ocean_fft.Update()
 
 		for i = 1, #water.FFT_CASCADES do
@@ -425,6 +427,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		{"fft_tex", "int", #water.FFT_CASCADES * 2},
 		{"wave_choppiness", "float"},
 		{"foam_amount", "float"},
+		unpack(water_field.GetFields()),
 	}
 	list.insert(
 		passes,
@@ -450,6 +453,11 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 							fft_fields[1],
 							fft_fields[2],
 							fft_fields[3],
+							fft_fields[4],
+							fft_fields[5],
+							fft_fields[6],
+							fft_fields[7],
+							fft_fields[8],
 						},
 						write = function(self, block)
 							write_wave_block(self, block)
@@ -475,6 +483,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 				const float FOAM_DECAY = ]] .. FOAM_DECAY .. [[;
 				const float FOAM_ADD = ]] .. FOAM_ADD .. [[;
 				const float FOAM_SPREAD = ]] .. FOAM_SPREAD .. [[;
+				]] .. water_field.GetGLSL("wave_block") .. [[
 
 				void main() {
 					vec2 world_xz = wave_block.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
@@ -483,6 +492,8 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 					float jacobian;
 					vec2 p = fft_undisplace(world_xz, wave_block.wave_choppiness);
 					fft_surface(p, wave_block.wave_choppiness, height, normal, jacobian);
+					float depth = water_field_depth(world_xz);
+					float breaking = water_field_breaking(height, depth) * FOAM_WEIGHT;
 					float previous = 0.0;
 					vec2 history_uv = in_uv + wave_block.origin_shift;
 
@@ -498,7 +509,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 					}
 
 					float made = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT;
-					float foam = previous * exp(-FOAM_DECAY * wave_block.dt) + made * FOAM_ADD * wave_block.dt;
+					float foam = previous * exp(-FOAM_DECAY * wave_block.dt) + (made + breaking) * FOAM_ADD * wave_block.dt;
 					set_foam(vec4(foam, 0.0, 0.0, 1.0));
 				}
 				]],
@@ -528,6 +539,11 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 							fft_fields[1],
 							fft_fields[2],
 							fft_fields[3],
+							fft_fields[4],
+							fft_fields[5],
+							fft_fields[6],
+							fft_fields[7],
+							fft_fields[8],
 						},
 						write = function(self, block)
 							write_wave_block(self, block)
@@ -542,6 +558,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 				const float FOAM_BIAS = ]] .. FOAM_BIAS .. [[;
 				const float FOAM_WEIGHT = ]] .. cascade.foam_weight .. [[;
 				const float FOAM_GAIN = ]] .. FOAM_GAIN .. [[;
+				]] .. water_field.GetGLSL("wave_block") .. [[
 
 				void main() {
 					vec2 world_xz = wave_block.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
@@ -553,7 +570,10 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 					fft_surface(p, choppiness, height, normal, jacobian);
 					float left_behind = textureLod(TEXTURE(wave_block.foam_tex), in_uv, 0.0).r;
 					float fresh = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT;
-					set_wave_data(vec4(height, -normal.x / normal.y, -normal.z / normal.y, left_behind + fresh));
+					float depth = water_field_depth(world_xz);
+					float damping = water_field_damping(depth) * water_field_height_scale(height, depth);
+					fresh += water_field_breaking(height, depth) * FOAM_WEIGHT;
+					set_wave_data(vec4(height * damping, -normal.x / normal.y * damping, -normal.z / normal.y * damping, left_behind + fresh));
 				}
 				]],
 			},
