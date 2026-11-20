@@ -26,6 +26,8 @@ function cry_water.EnableCrysisWaves()
 end
 
 local WATER_ALBEDO_SCALE = 4
+local OCEAN_ALBEDO_SCALE = 30
+local OCEAN_EXTINCTION_SCALE = 10
 local RIVER_PIECE_LENGTH = 16
 
 function cry_water.GetMedium(fog_color, fog_color_multiplier, fog_density)
@@ -36,6 +38,16 @@ function cry_water.GetMedium(fog_color, fog_color_multiplier, fog_density)
 			Vec3(fog_color.x ^ 2.2, fog_color.y ^ 2.2, fog_color.z ^ 2.2) * fog_color_multiplier,
 			math.max(fog_density, 0.02),
 			WATER_ALBEDO_SCALE
+		)
+	)
+end
+
+function cry_water.GetOceanMedium(fog_color, fog_color_multiplier, fog_density)
+	return media.Define(
+		media.MediumFromColor(
+			Vec3(fog_color.x ^ 2.2, fog_color.y ^ 2.2, fog_color.z ^ 2.2) * fog_color_multiplier,
+			math.max(fog_density, 0.02) * OCEAN_EXTINCTION_SCALE,
+			OCEAN_ALBEDO_SCALE
 		)
 	)
 end

@@ -402,4 +402,17 @@ function media.MediumFromFog(color, extinction, albedo_scale)
 	return absorption, scattering
 end
 
+function media.MediumFromColor(color, extinction, albedo_scale)
+	assert(extinction > 0, "medium extinction must be above zero")
+	local absorption = Vec3()
+	local scattering = Vec3()
+
+	for _, c in ipairs({"x", "y", "z"}) do
+		scattering[c] = extinction * math.min(color[c] * albedo_scale, 0.9)
+		absorption[c] = extinction - scattering[c]
+	end
+
+	return absorption, scattering
+end
+
 return media
