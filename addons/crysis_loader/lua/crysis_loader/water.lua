@@ -26,7 +26,7 @@ function cry_water.EnableCrysisWaves()
 end
 
 local WATER_ALBEDO_SCALE = 4
-local OCEAN_ALBEDO_SCALE = 24.5
+local OCEAN_ALBEDO_SCALE = 12.25
 local OCEAN_MAX_ALBEDO = 0.9
 local OCEAN_HUE_BALANCE = Vec3(1, 1.45, 1)
 local RIVER_PIECE_LENGTH = 16
@@ -44,8 +44,13 @@ function cry_water.GetMedium(fog_color, fog_color_multiplier, fog_density)
 end
 
 function cry_water.GetOceanMedium(fog_color, fog_color_multiplier, fog_density)
-	local albedo = math.min(math.max(fog_color.x, fog_color.y, fog_color.z) * fog_color_multiplier * OCEAN_ALBEDO_SCALE, OCEAN_MAX_ALBEDO)
-	return media.Define(media.MediumFromColor(fog_color * OCEAN_HUE_BALANCE, math.max(fog_density, 0.02), albedo))
+	local albedo = math.min(
+		math.max(fog_color.x, fog_color.y, fog_color.z) * fog_color_multiplier * OCEAN_ALBEDO_SCALE,
+		OCEAN_MAX_ALBEDO
+	)
+	return media.Define(
+		media.MediumFromColor(fog_color * OCEAN_HUE_BALANCE, math.max(fog_density, 0.02), albedo)
+	)
 end
 
 local function yaw_towards(dir)
