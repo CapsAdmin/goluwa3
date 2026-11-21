@@ -15,7 +15,7 @@ local cry_scene = {}
 local LEAF_CELL_TARGET = 64
 local LEAF_CHUNK_THRESHOLD = 256
 local DECAL_PROJECTIONS = {[0] = "planar", "objects", "terrain", "terrain_objects"}
-local CRY_LIGHT_LUX_PER_UNIT = 127000 / 3
+local CRY_LIGHT_LUX_PER_UNIT = 500
 local CRY_LIGHT_INDIRECT_SOURCE_RADIUS = 0.5
 local CRY_LIGHT_SOURCE_RADIUS = 0.25
 local NO_OCEAN_WATER_LEVEL = -100000
@@ -534,12 +534,13 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					CRY_LIGHT_SOURCE_RADIUS
 				)
 			local color = Color(light.color.x, light.color.y, light.color.z, 1)
-			local lumen = 4 * math.pi * light.multiplier * CRY_LIGHT_LUX_PER_UNIT * (
+			local lumen = math.pi * light.radius ^ 2 * light.multiplier * CRY_LIGHT_LUX_PER_UNIT * (
 					1 + source_radius ^ 2
 				) * color:GetLuminance()
 			local component = {
 				Color = color,
 				Lumen = lumen,
+				Range = light.radius,
 				SourceRadius = source_radius,
 			}
 			local components = {
