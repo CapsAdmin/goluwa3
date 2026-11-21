@@ -250,10 +250,10 @@ function Terrain:BuildTileRequest(level, chunk_x, chunk_z)
 		size = chunk_size,
 		generation = self.Generation,
 		samples = self.Samples,
-		detail_size = math.max(math.floor(self.DetailSize / detail_divisor), 32),
-		splat_size = math.max(math.floor(self.SplatSize / detail_divisor), 16),
+		detail_size = math.max(math.floor(self.DetailSize / detail_divisor), self.Samples - 1),
+		splat_size = math.max(math.floor(self.SplatSize / detail_divisor), self.Samples - 1),
 		color_size = self.ColorSize and
-			math.max(math.floor(self.ColorSize / detail_divisor), 16) or
+			math.max(math.floor(self.ColorSize / detail_divisor), self.Samples - 1) or
 			nil,
 	}
 end
