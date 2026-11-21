@@ -457,15 +457,17 @@ do
 		local right = dir:GetCross(ref):GetNormalized()
 		local up = right:GetCross(dir):GetNormalized()
 		local texel = clouds.SHADOW_EXTENT / clouds.SHADOW_SIZE
-		local x = math.floor(camera_position:GetDot(right) / texel + 0.5) * texel
-		local y = math.floor(camera_position:GetDot(up) / texel + 0.5) * texel
-		local z = camera_position:GetDot(dir)
 		local top = 0
 
 		for _, layer in ipairs(clouds.layers) do
 			top = math.max(top, layer.bottom + layer.thickness + layer.base_variation)
 		end
 
+		-- a camera above the clouds looks at the ground below it, which the sun's ray through the camera misses by its height times the sun's slant
+		local center = Vec3(camera_position.x, math.min(camera_position.y, top), camera_position.z)
+		local x = math.floor(center:GetDot(right) / texel + 0.5) * texel
+		local y = math.floor(center:GetDot(up) / texel + 0.5) * texel
+		local z = center:GetDot(dir)
 		shadow_frame.right = right
 		shadow_frame.up = up
 		shadow_frame.dir = dir
