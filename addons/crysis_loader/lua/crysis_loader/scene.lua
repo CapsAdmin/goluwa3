@@ -57,6 +57,8 @@ local function build_rigid_body(entry)
 	return body
 end
 
+local OCEAN_DIRECTIONALITY = 0.5
+
 local function build_atmosphere_record(data)
 	local terrain = data.terrain
 	local editor_level = terrain and terrain.editor_level
@@ -75,11 +77,16 @@ local function build_atmosphere_record(data)
 		local medium = cry_water.GetOceanMedium(ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density)
 		local wind = units.ToEngine(Vec3(-math.cos(ocean.wind_direction), -math.sin(ocean.wind_direction), 0))
 		local wind_direction = math.deg(math.atan2(wind.z, wind.x))
+		local wind_speed = math.sqrt(2 * ocean.waves_size * water.GRAVITY / 0.21)
+		local level_wind = editor_level.wind and editor_level.wind:GetLength() or 0
 		properties.OceanSettings = {
-			WindSpeed = math.sqrt(2 * ocean.waves_size * water.GRAVITY / 0.21),
+			WindSpeed = wind_speed,
 			WindDirection = wind_direction,
+			WindFromClimate = editor_level.wind ~= nil,
+			WindOffset = wind_speed - level_wind,
 			SwellHeight = ocean.waves_size * 0.5,
 			SwellDirection = wind_direction + 20,
+			Directionality = OCEAN_DIRECTIONALITY,
 			Medium = medium,
 		}
 	end

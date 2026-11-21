@@ -4,6 +4,8 @@ local water = import("goluwa/render3d/water.lua")
 local WAVE_KEYS = {
 	"WindSpeed",
 	"WindDirection",
+	"WindFromClimate",
+	"WindOffset",
 	"Choppiness",
 	"Development",
 	"SwellHeight",

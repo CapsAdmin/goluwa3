@@ -15,6 +15,8 @@ water.WAVE_PERIOD = 1024
 water.ocean = {
 	WindSpeed = 7,
 	WindDirection = 30,
+	WindFromClimate = false,
+	WindOffset = 0,
 	Choppiness = 1.1,
 	RippleStrength = 0.5,
 	RippleScale = 10,
@@ -432,8 +434,48 @@ do
 	end
 end
 
-function water.GetOceanWaves()
-	return water.ocean_waves or water.BuildOceanWaves()
+do
+	local FOLLOW_SPEED_STEP = 0.5
+	local FOLLOW_ANGLE_STEP = 5
+	local FOLLOW_INTERVAL = 0.5
+	local climate_wind
+	local followed_at = -math.huge
+
+	function water.SetClimateWind(velocity)
+		climate_wind = velocity
+	end
+
+	local function follow_climate_wind()
+		local params = water.ocean
+
+		if not params.WindFromClimate or not climate_wind then return end
+
+		local now = system.GetElapsedTime()
+
+		if now - followed_at < FOLLOW_INTERVAL then return end
+
+		local speed = math.max(
+			math.sqrt(climate_wind.x * climate_wind.x + climate_wind.z * climate_wind.z) + params.WindOffset,
+			0
+		)
+		local direction = math.deg(math.atan2(climate_wind.z, climate_wind.x))
+		local turned = (direction - params.WindDirection + 180) % 360 - 180
+
+		if
+			math.abs(speed - params.WindSpeed) < FOLLOW_SPEED_STEP and
+			math.abs(turned) < FOLLOW_ANGLE_STEP
+		then
+			return
+		end
+
+		followed_at = now
+		water.SetOcean{WindSpeed = speed, WindDirection = direction}
+	end
+
+	function water.GetOceanWaves()
+		follow_climate_wind()
+		return water.ocean_waves or water.BuildOceanWaves()
+	end
 end
 
 function water.GetWhitecapFactor(wind_speed)

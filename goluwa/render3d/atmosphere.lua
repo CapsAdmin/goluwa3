@@ -6,6 +6,7 @@ local Texture = import("goluwa/render/texture.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local scattering = import("goluwa/render3d/atmosphere_scattering.lua")
 local media = import("goluwa/render3d/media.lua")
+local water = import("goluwa/render3d/water.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
@@ -1356,6 +1357,7 @@ do
 		end
 
 		atmosphere.wind = velocity
+		water.SetClimateWind(velocity)
 	end
 
 	function atmosphere.GetWindVersion()
