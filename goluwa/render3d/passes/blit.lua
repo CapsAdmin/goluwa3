@@ -543,7 +543,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 8) uniform sampler2D afterimage_tex;
 	layout(set = 0, binding = 9) uniform sampler2D afterimage_bleach_tex;
 	layout(set = 0, binding = 10) uniform sampler2D afterimage_source_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12) .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
 
 	float effective_paper_white;
 
@@ -856,6 +856,8 @@ for _, pass in ipairs{
 					return afterimage.GetTexture(3)
 				end,
 			},
+			{binding_index = 11, get_texture = grade.GetLutTexture3D},
+			{binding_index = 12, get_texture = grade.GetLutTexture1D},
 		},
 		block = {
 			{"has_source_tex", "int"},
@@ -932,6 +934,7 @@ for _, pass in ipairs{
 				block.night_vision = 0
 				block.white_balance_on = 0
 				block.grade_on = 0
+				block.lut_mode = 0
 			end
 
 			return block

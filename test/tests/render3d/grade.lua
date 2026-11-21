@@ -4,6 +4,7 @@ local grade = import("goluwa/render3d/grade.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local exposure = import("goluwa/render3d/exposure.lua")
+local fs = import("goluwa/filesystem/fs.lua")
 import("goluwa/render3d/passes/bloom.lua")
 import("goluwa/render3d/passes/blit.lua")
 
@@ -294,6 +295,253 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 		T(texels[2][1] > inputs[3][1] * 1.5)["=="](true)
 	end)
 	reset()
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
+	if not ok then error(err, 0) end
+end)
+
+local MATRIX = {{0.6, 0.3, 0.1}, {0.1, 0.8, 0.1}, {0.2, 0.2, 0.6}}
+local OFFSET = {0, 0.02, 0}
+
+local function mix_channels(v)
+	local out = {}
+
+	for i = 1, 3 do
+		out[i] = MATRIX[i][1] * v[1] + MATRIX[i][2] * v[2] + MATRIX[i][3] * v[3] + OFFSET[i]
+	end
+
+	return out
+end
+
+local function sample_samples(samples, t)
+	local f = clamp(t, 0, 1) * (#samples - 1)
+	local i0 = math.floor(f)
+	local i1 = math.min(i0 + 1, #samples - 1)
+	return samples[i0 + 1] + (samples[i1 + 1] - samples[i0 + 1]) * (f - i0)
+end
+
+local function lut_reference(c, p)
+	local encoded, v = {}, {}
+
+	for i = 1, 3 do
+		local x = linear_to_srgb(clamp(c[i], 0, 1))
+		encoded[i] = x
+
+		if p.space == "gamma24" then
+			x = srgb_to_linear(x) ^ (1 / 2.4)
+		elseif p.space == "linear" then
+			x = srgb_to_linear(x)
+		end
+
+		v[i] = x
+	end
+
+	local out = p.map(v)
+	local result = {}
+
+	for i = 1, 3 do
+		local y = clamp(out[i], 0, 1)
+
+		if p.space == "gamma24" then
+			y = linear_to_srgb(y ^ 2.4)
+		elseif p.space == "linear" then
+			y = linear_to_srgb(y)
+		end
+
+		result[i] = srgb_to_linear(clamp(encoded[i] + (y - encoded[i]) * (p.strength or 1), 0, 1))
+	end
+
+	return result
+end
+
+local function lut_stage(c, p, hdr)
+	local sdr = hdr and {math.min(c[1], 1), math.min(c[2], 1), math.min(c[3], 1)} or c
+	local out
+
+	if p.order == "before" then
+		out = reference(lut_reference(sdr, p), p.grade or {})
+	else
+		out = lut_reference(reference(sdr, p.grade or {}), p)
+	end
+
+	if hdr then for i = 1, 3 do
+		out[i] = out[i] + c[i] - sdr[i]
+	end end
+
+	return out
+end
+
+local lut_pass = table.copy(grade_pass)
+lut_pass.name = "grade_lut_test"
+lut_pass.sampled_images = {
+	{binding_index = 2, get_texture = grade.GetLutTexture3D},
+	{binding_index = 3, get_texture = grade.GetLutTexture1D},
+}
+lut_pass.shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data", 2, 3) .. [[
+	void main() {
+		int x = int(gl_GlobalInvocationID.x);
+		]] .. INPUTS .. [[
+
+		if (x < 4) imageStore(out_graded, ivec2(x, 0), vec4(grade_display(inputs[x]), 1.0));
+		if (x == 4) imageStore(out_graded, ivec2(x, 0), vec4(grade_display_hdr(inputs[x]), 1.0));
+	}
+]]
+
+local function cube_text(header, size, map)
+	local rows = {}
+
+	for blue = 0, size - 1 do
+		for green = 0, size - 1 do
+			for red = 0, size - 1 do
+				local out = map{red / (size - 1), green / (size - 1), blue / (size - 1)}
+				rows[#rows + 1] = string.format("%.9f %.9f %.9f", out[1], out[2], out[3])
+			end
+		end
+	end
+
+	return header .. table.concat(rows, "\n") .. "\n"
+end
+
+local function write_temp(text)
+	local path = os.tmpname() .. ".cube"
+	assert(fs.write_file(path, text))
+	return path
+end
+
+local function set_lut(path, strength, space, order)
+	pvars.SetSession("r_grade_lut", path)
+	pvars.SetSession("r_grade_lut_strength", strength or 100)
+	pvars.SetSession("r_grade_lut_space", space or "srgb")
+	pvars.SetSession("r_grade_lut_order", order or "after")
+end
+
+local function reset_lut()
+	set_lut("", 100, "srgb", "after")
+end
+
+local function run_lut(draw)
+	draw()
+	local downloaded = render3d.pipelines.grade_lut_test:GetFramebuffer(1):GetAttachment(1):Download()
+	local texels = {}
+
+	for x = 0, 4 do
+		texels[x] = {downloaded:GetPixelFloat(x, 0)}
+	end
+
+	return texels
+end
+
+T.Test("Graphics render3d grade a look up table switches the block on only when it is loaded and not zero", function()
+	local block = {}
+	reset_lut()
+	T(grade.WriteBlock(block).lut_mode)["=="](0)
+	local path = write_temp(cube_text("LUT_3D_SIZE 2\n", 2, mix_channels))
+	set_lut(path, 100, "srgb", "after")
+	T(bit.band(grade.WriteBlock(block).lut_mode, 1))["=="](1)
+	T(block.lut_size_3d)["=="](2)
+	T(block.lut_size_1d)["=="](0)
+	set_lut(path, 100, "linear", "before")
+	grade.WriteBlock(block)
+	T(block.lut_mode)["=="](1 + 2 + 2 * 4)
+	set_lut(path, 0, "srgb", "after")
+	T(grade.WriteBlock(block).lut_mode)["=="](0)
+	set_lut("/no/such/lut.cube", 100, "srgb", "after")
+	T(grade.WriteBlock(block).lut_mode)["=="](0)
+	reset_lut()
+	os.remove(path)
+end)
+
+T.Test3D("Graphics render3d grade shader applies a look up table like the reference", function(draw)
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			lut_pass,
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+	reset()
+	reset_lut()
+	local paths = {}
+	local ok, err = pcall(function()
+		local function check(name, p, expected_text)
+			reset()
+			reset_lut()
+
+			if p.grade then set(p.grade) end
+
+			local path = write_temp(expected_text)
+			paths[#paths + 1] = path
+			set_lut(path, p.strength and p.strength * 100 or 100, p.space, p.order)
+			local texels = run_lut(draw)
+
+			for x = 0, 4 do
+				local expected = lut_stage(inputs[x + 1], p, x == 4)
+
+				for i = 1, 3 do
+					T(texels[x][i], name .. " input " .. x .. " channel " .. i)["~"](expected[i], 5e-4)
+				end
+			end
+		end
+
+		local text3d = cube_text("LUT_3D_SIZE 2\n", 2, mix_channels)
+		check("3d table", {map = mix_channels}, text3d)
+		check("strength", {map = mix_channels, strength = 0.4}, text3d)
+		check("gamma 2.4", {map = mix_channels, space = "gamma24"}, text3d)
+		check("linear", {map = mix_channels, space = "linear"}, text3d)
+		check(
+			"after the grade",
+			{map = mix_channels, grade = {contrast = 40, saturation = -30}},
+			text3d
+		)
+		check(
+			"before the grade",
+			{map = mix_channels, order = "before", grade = {contrast = 40, saturation = -30}},
+			text3d
+		)
+		local squares = {0, 0.25, 1}
+		local rows_1d = {}
+
+		for _, value in ipairs(squares) do
+			rows_1d[#rows_1d + 1] = string.format("%.9f %.9f %.9f", value, value, value)
+		end
+
+		check(
+			"1d table",
+			{
+				map = function(v)
+					return {
+						sample_samples(squares, v[1]),
+						sample_samples(squares, v[2]),
+						sample_samples(squares, v[3]),
+					}
+				end,
+			},
+			"LUT_1D_SIZE 3\nLUT_1D_INPUT_RANGE 0.0 1.0\n" .. table.concat(rows_1d, "\n") .. "\n"
+		)
+		check(
+			"1d table in front of a 3d table",
+			{
+				map = function(v)
+					return {v[1] / 2, v[2] / 2, v[3] / 2}
+				end,
+			},
+			"LUT_1D_SIZE 2\nLUT_1D_INPUT_RANGE 0.0 2.0\nLUT_3D_SIZE 2\n0 0 0\n1 1 1\n" .. cube_text("", 2, function(v)
+					return v
+				end)
+		)
+	end)
+	reset()
+	reset_lut()
+
+	for _, path in ipairs(paths) do
+		os.remove(path)
+	end
+
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),

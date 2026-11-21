@@ -1,7 +1,10 @@
+local ffi = require("ffi")
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
+local vfs = import("goluwa/vfs.lua")
+local lut_codec = import("goluwa/codecs/lut.lua")
 local grade = {}
 grade.BLEND_TIME = 2
 pvars.StartGroup("Post", "Grade", {store = false, prefix = "grade_"})
@@ -78,6 +81,31 @@ local gain_b = pvars.Setup2{
 	help = "scales the blue of the tonemapped image, mostly seen in the highlights",
 }
 pvars.EndGroup()
+pvars.StartGroup("Post", "Look LUT", {store = false, prefix = "grade_"})
+local lut_path = pvars.Setup2{
+	key = "r_grade_lut",
+	default = "",
+	help = "vfs or absolute path of a .cube, .dat (with a 3DLUTSIZE header) or strip .png look up table applied to the tonemapped image, empty for none. Every luts/ folder of an addon is searched by the Look window",
+}
+local lut_strength = pvars.Setup2{
+	key = "r_grade_lut_strength",
+	default = 100,
+	help = "how much of the look up table is applied, 0 is the plain image and 100 the table as it is",
+}
+local lut_spaces = {srgb = 0, gamma24 = 1, linear = 2}
+local lut_space = pvars.Setup2{
+	key = "r_grade_lut_space",
+	default = "srgb",
+	enums = {"srgb", "gamma24", "linear"},
+	help = "the encoding the table reads and writes: srgb, a plain 2.4 gamma (what Resolve film looks output) or linear light",
+}
+local lut_order = pvars.Setup2{
+	key = "r_grade_lut_order",
+	default = "after",
+	enums = {"after", "before"},
+	help = "whether the table runs after the grade controls (they adjust what goes in) or before them (they trim the finished look)",
+}
+pvars.EndGroup()
 grade.block = {
 	{"grade_on", "int"},
 	{"grade_brightness", "float"},
@@ -90,9 +118,140 @@ grade.block = {
 	{"grade_gain_r", "float"},
 	{"grade_gain_g", "float"},
 	{"grade_gain_b", "float"},
+	{"lut_mode", "int"},
+	{"lut_strength", "float"},
+	{"lut_size_3d", "int"},
+	{"lut_size_1d", "int"},
+	{"lut_domain_min", "float"},
+	{"lut_domain_max", "float"},
+	{"lut_shaper_min", "float"},
+	{"lut_shaper_max", "float"},
+}
+local lut_state = {path = ""}
+
+function grade.LoadLut(path)
+	return lut_codec.Decode(path, assert(vfs.Read(path)))
+end
+
+local LUT_DIRECTORY = "luts/"
+
+function grade.FindLuts()
+	local paths = {}
+	local seen = {}
+
+	vfs.FindRecursive(
+		LUT_DIRECTORY,
+		function(path)
+			if not seen[path] then
+				seen[path] = true
+				paths[#paths + 1] = path
+			end
+		end,
+		{"cube", "dat", "png"}
+	)
+
+	table.sort(paths, function(a, b)
+		return a:lower() < b:lower()
+	end)
+
+	return paths
+end
+
+local function update_lut()
+	local path = lut_path:Get()
+
+	if path == lut_state.path then return end
+
+	if lut_state.texture_3d then lut_state.texture_3d:Remove() end
+
+	if lut_state.texture_1d then lut_state.texture_1d:Remove() end
+
+	lut_state = {path = path}
+
+	if path == "" then return end
+
+	local ok, lut = pcall(grade.LoadLut, path)
+
+	if ok then lut_state.lut = lut else wlog("grade lut %s: %s", path, lut) end
+end
+
+local LUT_SAMPLER = {
+	min_filter = "nearest",
+	mag_filter = "nearest",
+	wrap_s = "clamp_to_edge",
+	wrap_t = "clamp_to_edge",
 }
 
+-- the 3d table as a strip of slices (x = blue * size + red, y = green) and the shaper as a row, both read with texelFetch
+function grade.GetLutTexture3D()
+	update_lut()
+	local lut = lut_state.lut
+
+	if not lut or not lut.size then return nil end
+
+	if not lut_state.texture_3d then
+		local Texture = import("goluwa/render/texture.lua")
+		local size = lut.size
+		local width = size * size
+		local pixels = ffi.new("float[?]", width * size * 4)
+
+		for blue = 0, size - 1 do
+			for green = 0, size - 1 do
+				for red = 0, size - 1 do
+					local from = (red + green * size + blue * size * size) * 3
+					local to = (green * width + blue * size + red) * 4
+					pixels[to] = lut.data[from]
+					pixels[to + 1] = lut.data[from + 1]
+					pixels[to + 2] = lut.data[from + 2]
+					pixels[to + 3] = 1
+				end
+			end
+		end
+
+		lut_state.texture_3d = Texture.New{
+			buffer = pixels,
+			width = width,
+			height = size,
+			format = "r32g32b32a32_sfloat",
+			sampler = LUT_SAMPLER,
+		}
+	end
+
+	return lut_state.texture_3d
+end
+
+function grade.GetLutTexture1D()
+	update_lut()
+	local lut = lut_state.lut
+
+	if not lut or not lut.shaper_size then return nil end
+
+	if not lut_state.texture_1d then
+		local Texture = import("goluwa/render/texture.lua")
+		local size = lut.shaper_size
+		local pixels = ffi.new("float[?]", size * 4)
+
+		for i = 0, size - 1 do
+			pixels[i * 4] = lut.shaper[i * 3]
+			pixels[i * 4 + 1] = lut.shaper[i * 3 + 1]
+			pixels[i * 4 + 2] = lut.shaper[i * 3 + 2]
+			pixels[i * 4 + 3] = 1
+		end
+
+		lut_state.texture_1d = Texture.New{
+			buffer = pixels,
+			width = size,
+			height = 1,
+			format = "r32g32b32a32_sfloat",
+			sampler = LUT_SAMPLER,
+		}
+	end
+
+	return lut_state.texture_1d
+end
+
 function grade.WriteBlock(block)
+	update_lut()
 	block.grade_brightness = brightness:Get() / 100
 	block.grade_contrast = contrast:Get() / 100
 	block.grade_saturation = saturation:Get() / 100
@@ -118,31 +277,122 @@ function grade.WriteBlock(block)
 		and
 		1 or
 		0
+	local lut = lut_state.lut
+	local strength = lut_strength:Get() / 100
+	block.lut_strength = strength
+	block.lut_mode = lut and
+		strength ~= 0 and
+		bit.bor(
+			1,
+			lut_order:Get() == "before" and 2 or 0,
+			bit.lshift(lut_spaces[lut_space:Get()], 2)
+		) or
+		0
+	block.lut_size_3d = lut and lut.size or 0
+	block.lut_size_1d = lut and lut.shaper_size or 0
+
+	if lut then
+		block.lut_domain_min = lut.domain_min
+		block.lut_domain_max = lut.domain_max
+		block.lut_shaper_min = lut.shaper_min
+		block.lut_shaper_max = lut.shaper_max
+	end
+
 	return block
 end
 
-function grade.GetGLSL(block_name)
+local LUT_GLSL = [[
+	layout(set = 0, binding = %d) uniform sampler2D grade_lut_3d_tex;
+	layout(set = 0, binding = %d) uniform sampler2D grade_lut_1d_tex;
+
+	vec3 grade_lut_shaper(vec3 v) {
+		int last = BLOCK.lut_size_1d - 1;
+		vec3 f = clamp((v - BLOCK.lut_shaper_min) / (BLOCK.lut_shaper_max - BLOCK.lut_shaper_min), 0.0, 1.0) * float(last);
+		ivec3 i0 = ivec3(floor(f));
+		ivec3 i1 = min(i0 + 1, ivec3(last));
+		vec3 w = f - vec3(i0);
+		return vec3(
+			mix(texelFetch(grade_lut_1d_tex, ivec2(i0.x, 0), 0).r, texelFetch(grade_lut_1d_tex, ivec2(i1.x, 0), 0).r, w.x),
+			mix(texelFetch(grade_lut_1d_tex, ivec2(i0.y, 0), 0).g, texelFetch(grade_lut_1d_tex, ivec2(i1.y, 0), 0).g, w.y),
+			mix(texelFetch(grade_lut_1d_tex, ivec2(i0.z, 0), 0).b, texelFetch(grade_lut_1d_tex, ivec2(i1.z, 0), 0).b, w.z)
+		);
+	}
+
+	vec3 grade_lut_cube(vec3 v) {
+		int size = BLOCK.lut_size_3d;
+		vec3 f = clamp((v - BLOCK.lut_domain_min) / (BLOCK.lut_domain_max - BLOCK.lut_domain_min), 0.0, 1.0) * float(size - 1);
+		ivec3 i0 = ivec3(floor(f));
+		ivec3 i1 = min(i0 + 1, ivec3(size - 1));
+		vec3 w = f - vec3(i0);
+		vec3 c000 = texelFetch(grade_lut_3d_tex, ivec2(i0.b * size + i0.r, i0.g), 0).rgb;
+		vec3 c100 = texelFetch(grade_lut_3d_tex, ivec2(i0.b * size + i1.r, i0.g), 0).rgb;
+		vec3 c010 = texelFetch(grade_lut_3d_tex, ivec2(i0.b * size + i0.r, i1.g), 0).rgb;
+		vec3 c110 = texelFetch(grade_lut_3d_tex, ivec2(i0.b * size + i1.r, i1.g), 0).rgb;
+		vec3 c001 = texelFetch(grade_lut_3d_tex, ivec2(i1.b * size + i0.r, i0.g), 0).rgb;
+		vec3 c101 = texelFetch(grade_lut_3d_tex, ivec2(i1.b * size + i1.r, i0.g), 0).rgb;
+		vec3 c011 = texelFetch(grade_lut_3d_tex, ivec2(i1.b * size + i0.r, i1.g), 0).rgb;
+		vec3 c111 = texelFetch(grade_lut_3d_tex, ivec2(i1.b * size + i1.r, i1.g), 0).rgb;
+		return mix(mix(mix(c000, c100, w.r), mix(c010, c110, w.r), w.g), mix(mix(c001, c101, w.r), mix(c011, c111, w.r), w.g), w.b);
+	}
+
+	vec3 grade_lut(vec3 x) {
+		vec3 v = x;
+
+		int space = (BLOCK.lut_mode >> 2) & 3;
+
+		if (space == 1) v = pow(SRGBToLinear(x), vec3(1.0 / 2.4));
+		else if (space == 2) v = SRGBToLinear(x);
+
+		if (BLOCK.lut_size_1d > 0) v = grade_lut_shaper(v);
+
+		if (BLOCK.lut_size_3d > 0) v = grade_lut_cube(v);
+
+		v = clamp(v, 0.0, 1.0);
+		vec3 y = v;
+
+		if (space == 1) y = LinearToSRGB(pow(v, vec3(2.4)));
+		else if (space == 2) y = LinearToSRGB(v);
+
+		return mix(x, y, BLOCK.lut_strength);
+	}
+]]
+local LUT_STUB = [[
+	vec3 grade_lut(vec3 x) {
+		return x;
+	}
+]]
+
+-- binding_3d and binding_1d are the bindings of the table samplers, a shader that gives none has no table
+function grade.GetGLSL(block_name, binding_3d, binding_1d)
+	local lut = binding_3d and LUT_GLSL:format(binding_3d, binding_1d) or LUT_STUB
 	return (
 		(
-			[[
+			lut .. [[
 		vec3 grade_display(vec3 c) {
-			if (BLOCK.grade_on == 0) return c;
+			if (BLOCK.grade_on == 0 && (BLOCK.lut_mode & 1) == 0) return c;
 
 			vec3 x = LinearToSRGB(clamp(c, 0.0, 1.0));
 
-			if (BLOCK.grade_brightness != 0.0) x = pow(max(x, vec3(0.0)), vec3(exp2(-0.8 * BLOCK.grade_brightness)));
+			if ((BLOCK.lut_mode & 3) == 3) x = grade_lut(x);
 
-			if (BLOCK.grade_contrast != 0.0) {
-				float p = exp2(0.75 * BLOCK.grade_contrast);
-				vec3 a = pow(x, vec3(p));
-				vec3 b = pow(1.0 - x, vec3(p));
-				x = a / (a + b);
+			if (BLOCK.grade_on != 0) {
+				if (BLOCK.grade_brightness != 0.0) x = pow(max(x, vec3(0.0)), vec3(exp2(-0.8 * BLOCK.grade_brightness)));
+
+				if (BLOCK.grade_contrast != 0.0) {
+					float p = exp2(0.75 * BLOCK.grade_contrast);
+					vec3 a = pow(x, vec3(p));
+					vec3 b = pow(1.0 - x, vec3(p));
+					x = a / (a + b);
+				}
+
+				float saturation = max(1.0 + BLOCK.grade_saturation, 0.0);
+				x = mix(vec3(dot(x, vec3(0.2126, 0.7152, 0.0722))), x, saturation);
+				x *= vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
+				x = x * vec3(BLOCK.grade_gain_r, BLOCK.grade_gain_g, BLOCK.grade_gain_b) + vec3(BLOCK.grade_lift_r, BLOCK.grade_lift_g, BLOCK.grade_lift_b);
 			}
 
-			float saturation = max(1.0 + BLOCK.grade_saturation, 0.0);
-			x = mix(vec3(dot(x, vec3(0.2126, 0.7152, 0.0722))), x, saturation);
-			x *= vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
-			x = x * vec3(BLOCK.grade_gain_r, BLOCK.grade_gain_g, BLOCK.grade_gain_b) + vec3(BLOCK.grade_lift_r, BLOCK.grade_lift_g, BLOCK.grade_lift_b);
+			if ((BLOCK.lut_mode & 3) == 1) x = grade_lut(x);
+
 			return SRGBToLinear(clamp(x, 0.0, 1.0));
 		}
 
