@@ -219,14 +219,27 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			scene_hit.GetEscapeStubGLSL()
 		) .. [[
 
-		float get_sun_contact_visibility(vec3 origin, vec3 dir, float distance) {
+		float get_sun_contact_visibility(vec3 origin, vec3 dir, float distance, bool leave_body) {
 			]] .. (
 			ray_queries and
 			[[
-			rayQueryEXT query;
-			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, distance);
-			while (rayQueryProceedEXT(query)) {}
-			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+			float start = 0.0;
+
+			for (int attempt = 0; attempt < 2; attempt++) {
+				rayQueryEXT query;
+				rayQueryInitializeEXT(query, scene_tlas, leave_body ? gl_RayFlagsOpaqueEXT : gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, start, dir, distance);
+				while (rayQueryProceedEXT(query)) {}
+
+				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return 1.0;
+
+				// see ray_shadow_visible: a ray that starts inside the body it leaves first meets that body's far side from within
+				if (!leave_body || !rayQueryGetIntersectionFrontFaceEXT(query, true)) return 0.0;
+
+				leave_body = false;
+				start = rayQueryGetIntersectionTEXT(query, true) + 0.002;
+			}
+
+			return 0.0;
 			]] or
 			"return 1.0;"
 		) .. [[
@@ -522,8 +535,9 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				float shadow_factor = 1.0;
 				bool screen_marchable = true;
 
-				#if SURFACE_RAY_SHADOWS
 				bool leave_body = dot(s.N, L) > 0.0 && dot(s.geometric_N, L) < 0.0;
+
+				#if SURFACE_RAY_SHADOWS
 				shadow_factor = get_ray_shadow_factor(i, type, light, s.world_pos, leave_body ? s.geometric_N : shadow_N, L, leave_body);
 				screen_marchable = false;
 
@@ -538,7 +552,8 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 					// the map cannot see occluders closer than a few texels (single sided walls meeting at a corner), inside the soft filter's receiver plane tolerance, or with a penumbra under a texel
 					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
-						shadow_factor *= get_sun_contact_visibility(scene_escape_tessellation(s.world_pos + shadow_N * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), shadow_N, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
+						vec3 contact_side = leave_body ? -s.geometric_N : shadow_N;
+						shadow_factor *= get_sun_contact_visibility(scene_escape_tessellation(s.world_pos + contact_side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), contact_side, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach), leave_body);
 					}
 				}
 
