@@ -238,7 +238,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 						vec3 contribution = f * dot(v.N, L) * pt_sun_irradiance(light, v.P);
 
-						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !ray_shadow_visible(origin, L, lighting_data.hit_max_distance, 0u)) continue;
+						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !ray_shadow_visible(origin, L, lighting_data.hit_max_distance, 0u, false)) continue;
 
 						if (lighting_data.light_transmittance != 0) contribution *= lighting_data.pt_caustics != 0 ? get_light_transmittance_caustic(origin, L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(origin, L, OPTICAL_SUN_DISTANCE, 0.0);
 
@@ -293,7 +293,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 					dist = dot(light.position.xyz - origin, L) - 0.05 * lighting_data.view_scale;
 				}
 
-				if (dist <= 0.0 || !ray_shadow_visible(origin, L, dist, ]] .. string.format("0x%02Xu", scene_instances.MASK_LIGHT_BODY) .. [[)) return radiance;
+				if (dist <= 0.0 || !ray_shadow_visible(origin, L, dist, ]] .. string.format("0x%02Xu", scene_instances.MASK_LIGHT_BODY) .. [[, false)) return radiance;
 
 				if (lighting_data.light_transmittance != 0) contribution *= lighting_data.pt_caustics != 0 ? get_light_transmittance_local_caustic(origin, L, dist, 0.0) : get_light_transmittance_local(origin, L, dist, 0.0);
 

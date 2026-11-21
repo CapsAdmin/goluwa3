@@ -141,7 +141,6 @@ return {
 
 		if (s.transmission > 0.0) {
 			shadow_N = normalize((dot(s.geometric_N, L) < 0.0 ? -s.geometric_N : s.geometric_N) + L);
-			shadow_facing = 1.0;
 		}
 	]],
 	direct_layer = [[

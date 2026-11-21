@@ -269,10 +269,6 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 end
 
 local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
-			float get_shadow_facing(vec3 normal, vec3 light_dir) {
-				return smoothstep(0.0, 0.1, dot(normal, light_dir));
-			}
-
 			float shadow_ray_reach = 0.0;
 
 			const float SOFT_SHADOW_MAX_BLOCKER_DISTANCE = 30.0;

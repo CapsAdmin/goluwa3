@@ -235,13 +235,13 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 		]] .. (
 			ray_queries and
 			ray_materials.GetShadowRayGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetBlueNoiseGLSL() .. [[
-			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
+			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L, bool leave_body) {
 				vec4 clip = ]] .. block_name .. [[.projection * (]] .. block_name .. [[.view * vec4(P, 1.0));
 				ivec2 pixel = ivec2(floor((clip.xy / clip.w * 0.5 + 0.5) * ]] .. block_name .. [[.render_size));
 				ivec2 noise_size = textureSize(TEXTURE(]] .. block_name .. [[.ray_shadow_noise_tex), 0);
 				uvec3 tile_hash = pcg3d(uvec3(uvec2(pixel / noise_size), 0x9E3779B9u));
 				vec2 noise = blue_noise_r2(blue_noise_texel(TEXTURE(]] .. block_name .. [[.ray_shadow_noise_tex), pixel).rg + vec2(pcg_unorm(tile_hash.x), pcg_unorm(tile_hash.y)), float(]] .. block_name .. [[.ray_shadow_frame % 64));
-				vec3 side = dot(N, L) < 0.0 ? -N : N;
+				vec3 side = dot(N, L) < 0.0 || leave_body ? -N : N;
 				vec3 origin = scene_escape_tessellation(P + side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(P, ]] .. block_name .. [[.camera_position)), side, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale);
 				vec3 axis = L;
 				float one_minus_cos = 0.0;
@@ -289,7 +289,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 						dist = center_distance - 0.05 * ]] .. block_name .. [[.view_scale;
 					}
 
-					if (dist <= 0.0 || ray_shadow_visible(origin, dir, dist, type == 0 ? 0u : ]] .. string.format("0x%02Xu", scene_instances.MASK_LIGHT_BODY) .. [[)) visible += 1.0;
+					if (dist <= 0.0 || ray_shadow_visible(origin, dir, dist, type == 0 ? 0u : ]] .. string.format("0x%02Xu", scene_instances.MASK_LIGHT_BODY) .. [[, leave_body)) visible += 1.0;
 				}
 
 				return visible / float(samples);
@@ -297,19 +297,19 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 			ivec2 ray_shadow_pixel = ivec2(-1);
 
-			float get_ray_shadow_factor(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
-				if (ray_shadow_pixel.x < 0 || ]] .. block_name .. [[.ray_shadow_tex < 0) return get_ray_shadow_visibility(i, type, light, P, N, L);
+			float get_ray_shadow_factor(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L, bool leave_body) {
+				if (ray_shadow_pixel.x < 0 || ]] .. block_name .. [[.ray_shadow_tex < 0) return get_ray_shadow_visibility(i, type, light, P, N, L, leave_body);
 
 				vec4 filtered = texelFetch(TEXTURE(]] .. block_name .. [[.ray_shadow_tex), ray_shadow_pixel, 0);
 				return type == 0 ? filtered.r : filtered.g;
 			}
 			]] or
 			[[
-			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
+			float get_ray_shadow_visibility(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L, bool leave_body) {
 				return 1.0;
 			}
 
-			float get_ray_shadow_factor(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L) {
+			float get_ray_shadow_factor(int i, int type, lights_t light, vec3 P, vec3 N, vec3 L, bool leave_body) {
 				return 1.0;
 			}
 			]]
@@ -459,7 +459,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 					if (weight * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 
-					float visible = get_ray_shadow_visibility(i, type, light, P, geometric_N, L) * weight;
+					float visible = get_ray_shadow_visibility(i, type, light, P, geometric_N, L, NoL > 0.0 && dot(geometric_N, L) < 0.0) * weight;
 
 					if (type == 0) {
 						sums.xz += vec2(visible, weight);
@@ -511,8 +511,8 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				if (dot(s.N, L) <= 0.0 && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
 				float scatter_floor = 0.0;
 				]] .. surface_features.GetDirectFloorGLSL() .. [[
-				vec3 shadow_N = s.geometric_N;
-				float shadow_facing = get_shadow_facing(s.N, L);
+				// a facet that faces away from the light while its smooth shading normal does not would shadow itself in a hard step along the facets, so its test starts toward the light and the shading ends the light at the terminator
+				vec3 shadow_N = dot(s.geometric_N, L) > 0.0 ? s.geometric_N : normalize(s.geometric_N + L);
 				]] .. surface_features.GetDirectShadowGLSL() .. [[
 				vec3 H = normalize(s.V + L);
 				float NoL = saturate(dot(s.N, L));
@@ -523,7 +523,8 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				bool screen_marchable = true;
 
 				#if SURFACE_RAY_SHADOWS
-				shadow_factor = get_ray_shadow_factor(i, type, light, s.world_pos, shadow_N, L) * (type == 0 || type == 2 ? shadow_facing : 1.0);
+				bool leave_body = dot(s.N, L) > 0.0 && dot(s.geometric_N, L) < 0.0;
+				shadow_factor = get_ray_shadow_factor(i, type, light, s.world_pos, leave_body ? s.geometric_N : shadow_N, L, leave_body);
 				screen_marchable = false;
 
 				if (type == 0 && shadow_factor > 0.0) shadow_factor *= get_cloud_shadow(s.world_pos);
@@ -533,7 +534,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 					]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0 &&
 					type == 0
 				) {
-					shadow_factor = calculateShadow(s.world_pos, shadow_N, L) * shadow_facing;
+					shadow_factor = calculateShadow(s.world_pos, shadow_N, L);
 
 					// the map cannot see occluders closer than a few texels (single sided walls meeting at a corner), inside the soft filter's receiver plane tolerance, or with a penumbra under a texel
 					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
@@ -548,7 +549,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 					]] .. block_name .. [[.shadows.local_directional_shadow_map_index >= 0 &&
 					type == 2
 				) {
-					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L) * shadow_facing;
+					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L);
 					screen_marchable = false;
 				} else if (type == 1 || type == 3) {
 					shadow_factor = light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos, light.direction.w, shadow_N);

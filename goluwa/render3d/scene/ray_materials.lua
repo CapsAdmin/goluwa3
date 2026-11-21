@@ -583,12 +583,12 @@ function ray_materials.GetShadowRayGLSL()
 	return [[
 		bool ray_alpha_passes(uint instance, uint primitive, vec2 barycentrics);
 
-		bool ray_shadow_visible(vec3 origin, vec3 dir, float dist, uint skip_mask) {
+		bool ray_shadow_visible(vec3 origin, vec3 dir, float dist, uint skip_mask, bool leave_body) {
 			float start = 0.0;
 
 			for (int attempt = 0; attempt < 8; attempt++) {
 				rayQueryEXT query;
-				rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SURFACES) .. [[, origin, start, dir, dist);
+				rayQueryInitializeEXT(query, scene_tlas, leave_body ? gl_RayFlagsNoneEXT : gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SURFACES) .. [[, origin, start, dir, dist);
 
 				while (rayQueryProceedEXT(query)) {
 					uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
@@ -597,6 +597,15 @@ function ray_materials.GetShadowRayGLSL()
 				}
 
 				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return true;
+
+				// a ray that starts inside the body it leaves (the facet faces away from the light, the shading normal does not) first meets that body's far side from within
+				if (leave_body && rayQueryGetIntersectionFrontFaceEXT(query, true)) {
+					leave_body = false;
+					start = rayQueryGetIntersectionTEXT(query, true) + 0.002;
+					continue;
+				}
+
+				leave_body = false;
 
 				if ((scene_instances[uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true))].mask_lod & skip_mask) == 0u) return false;
 
