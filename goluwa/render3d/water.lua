@@ -43,15 +43,33 @@ function water.SetWaveBump(texture, slope_variance)
 	water.wave_bump = texture and {texture = texture, slope_variance = slope_variance} or nil
 end
 
-function water.SetOcean(params)
+local building_thread
+local BUILD_ROWS_PER_STEP = 32
+
+local function apply_ocean_params(params)
 	for key, value in pairs(params) do
-		if water.ocean[key] == nil then error("unknown ocean parameter " .. key, 2) end
+		if water.ocean[key] == nil then error("unknown ocean parameter " .. key, 3) end
 
 		water.ocean[key] = value
 	end
+end
 
+function water.SetOcean(params)
+	apply_ocean_params(params)
+	building_thread = nil
 	water.ocean_waves = nil
 	event.Call("OceanChanged")
+end
+
+function water.SetOceanGradually(params)
+	apply_ocean_params(params)
+	event.Call("OceanChanged")
+
+	if not water.ocean_waves then return end
+
+	building_thread = coroutine.create(function()
+		water.BuildOceanWaves()
+	end)
 end
 
 function water.GetOcean()
@@ -277,6 +295,8 @@ do
 
 		if swell_sigma > 0 then
 			for r = 0, N - 1 do
+				if r % BUILD_ROWS_PER_STEP == BUILD_ROWS_PER_STEP - 1 and building_thread and coroutine.running() == building_thread then coroutine.yield() end
+
 				local m = r < N / 2 and r or r - N
 
 				for u = 0, N - 1 do
@@ -338,6 +358,8 @@ do
 			end
 
 			for r = 0, N - 1 do
+				if r % BUILD_ROWS_PER_STEP == BUILD_ROWS_PER_STEP - 1 and building_thread and coroutine.running() == building_thread then coroutine.yield() end
+
 				for u = 0, N - 1 do
 					local re, im, kx, kz, k = mode(u, r)
 					mode_re[r * N + u] = re
@@ -376,6 +398,8 @@ do
 			end
 
 			for r = 0, N - 1 do
+				if r % BUILD_ROWS_PER_STEP == BUILD_ROWS_PER_STEP - 1 and building_thread and coroutine.running() == building_thread then coroutine.yield() end
+
 				for u = 0, N - 1 do
 					local index = (r * N + u) * 4
 					local partner = ((N - r) % N) * N + (N - u) % N
@@ -470,11 +494,29 @@ do
 		end
 
 		followed_at = now
-		water.SetOcean{WindSpeed = speed, WindDirection = direction}
+		water.SetOceanGradually{WindSpeed = speed, WindDirection = direction}
 	end
+
+	local resumed_frame = -1
 
 	function water.GetOceanWaves()
 		follow_climate_wind()
+
+		if building_thread and coroutine.running() ~= building_thread and resumed_frame ~= system.GetFrameNumber() then
+			resumed_frame = system.GetFrameNumber()
+			local thread = building_thread
+			local ok, err = coroutine.resume(thread)
+
+			if not ok then
+				building_thread = nil
+				error(err, 0)
+			end
+
+			if coroutine.status(thread) == "dead" and building_thread == thread then
+				building_thread = nil
+			end
+		end
+
 		return water.ocean_waves or water.BuildOceanWaves()
 	end
 end

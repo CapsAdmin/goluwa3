@@ -39,15 +39,23 @@ function ocean_fft.Update()
 			cascade.derivatives = create_texture("r16g16b16a16_sfloat", "derivatives " .. i)
 		end
 
-		if cascade.version ~= water.spectrum_version then
-			if cascade.h0 then
-				cascade.h0:Remove()
-				cascade.omega:Remove()
-			end
-
+		if not cascade.h0 then
 			cascade.h0 = create_texture("r32g32b32a32_sfloat", "h0 " .. i, waves.cascades[i].h0)
 			cascade.omega = create_texture("r32_sfloat", "omega " .. i, waves.cascades[i].omega_index)
+			cascade.back_h0 = create_texture("r32g32b32a32_sfloat", "h0 back " .. i)
+			cascade.back_omega = create_texture("r32_sfloat", "omega back " .. i)
 			cascade.version = water.spectrum_version
+		elseif cascade.uploading then
+			if cascade.back_h0:IsUploadDone() and cascade.back_omega:IsUploadDone() then
+				cascade.h0, cascade.back_h0 = cascade.back_h0, cascade.h0
+				cascade.omega, cascade.back_omega = cascade.back_omega, cascade.omega
+				cascade.version = cascade.uploading
+				cascade.uploading = nil
+			end
+		elseif cascade.version ~= water.spectrum_version then
+			cascade.back_h0:UploadAsync(waves.cascades[i].h0)
+			cascade.back_omega:UploadAsync(waves.cascades[i].omega_index)
+			cascade.uploading = water.spectrum_version
 		end
 	end
 
