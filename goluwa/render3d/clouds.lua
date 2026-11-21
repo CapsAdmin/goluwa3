@@ -165,6 +165,27 @@ function clouds.GetMeanTransmittance(dir)
 	return t
 end
 
+-- the depth of the unresolved cloud medium as a share of -ln(1 - coverage), see CLOUD_UNRESOLVED_DEPTH in the glsl
+clouds.UNRESOLVED_DEPTH = 0.084
+
+-- the mean transmittance of the layers along dir as far clouds are drawn, the same model as the unresolved medium in the glsl
+function clouds.GetUnresolvedTransmittance(dir)
+	local mu = math.max(dir.y, 0.05)
+	local t = 1
+
+	for _, layer in ipairs(clouds.layers) do
+		local coverage = math.min(layer.coverage, 0.99)
+
+		if layer.flat then
+			t = t * (1 - coverage * (1 - math.exp(-layer.density))) ^ (1 / mu)
+		else
+			t = t * (1 - coverage) ^ (clouds.UNRESOLVED_DEPTH / mu)
+		end
+	end
+
+	return t
+end
+
 function clouds.GetMaxTransmittance(dir)
 	local mu = math.max(dir.y, 0.05)
 	local t = 1
@@ -493,7 +514,7 @@ function clouds.WriteShadowBlock(self, block)
 	axes[2][2] = -frame.dir.z * 0.001
 	axes[2][3] = (frame.distance + frame.center:GetDot(frame.dir)) * 0.001
 	block.cloud_shadow_tex = self:GetTextureIndex(tex)
-	block.cloud_shadow_fallback = clouds.GetMeanTransmittance(frame.dir)
+	block.cloud_shadow_fallback = clouds.GetUnresolvedTransmittance(frame.dir)
 end
 
 function clouds.GetShadowGLSL(prefix)
@@ -706,6 +727,8 @@ function clouds.GetGLSL(block)
 		const float CLOUD_BODY_LUMP_LOW = 0.35;
 		const float CLOUD_BODY_LUMP_HIGH = 0.6;
 		const float CLOUD_TOP_CELL_LOD = 3.0;
+		// measured: a fair weather layer seen from 60 km straight down, the mean brightness over clear sea of the resolved clouds against the unresolved medium; the coverage threshold leaves most columns clear, and the cloud lighting is tuned for dense cloud
+		const float CLOUD_UNRESOLVED_DEPTH = ]] .. clouds.UNRESOLVED_DEPTH .. [[;
 
 		struct cloud_ray_t {
 			vec3 origin;
@@ -805,6 +828,14 @@ function clouds.GetGLSL(block)
 			return saturate(coverage);
 		}
 
+		// a resolved cloud is about a hundred times denser than the unresolved average, so blending the two densities keeps the resolved speckle until the weight is 1; a march picks one of them for its whole ray instead, with the weight as the chance, so the frames average their transmittances
+		float cloud_unresolved_pick = 0.5;
+
+		// 1 where a footprint is past the noise mips that hold the cloud shapes (for this march's pick), else 0
+		float cloud_unresolved(int i, float footprint) {
+			return step(cloud_unresolved_pick, smoothstep(2.5, 3.5, log2(max(footprint * ]] .. clouds.BASE_NOISE_SIZE .. [[.0 / CLOUD_BLOCK.cloud_layer_scale[i].y, 1.0))));
+		}
+
 		float cloud_density_shaded(int i, vec3 p, float alt, bool detail, float footprint, out float shade) {
 			shade = 0.0;
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
@@ -826,9 +857,19 @@ function clouds.GetGLSL(block)
 
 			if (coverage <= 0.0) return 0.0;
 
+			// coarse mips average the noise toward its middle, which the coverage threshold then removes, so far clouds would thin out and vanish; past the mips that hold the shapes a pixel sees a fraction of cloudy columns, so the density becomes a homogeneous one spread evenly over the layer (a thin band would be hit or missed by the march steps), scaled from -ln(1 - coverage) by CLOUD_UNRESOLVED_DEPTH so its mean brightness matches the resolved field's
+			float far = cloud_unresolved(i, footprint);
+			float unresolved = CLOUD_UNRESOLVED_DEPTH * -log(1.0 - min(coverage, 0.99)) / shape.y;
+
+			if (far >= 1.0) {
+				shade = hf;
+				return unresolved;
+			}
+
+			float far_density = far * unresolved;
 			vec3 uvw = (vec3(p.x + offset.z, alt + offset2.x, p.z + offset.w)) / scale.y;
 			float lod = log2(max(footprint * ]] .. clouds.BASE_NOISE_SIZE .. [[.0 / scale.y, 1.0));
-			float warp = max(smoothstep(CLOUD_WARP_NEAR, CLOUD_WARP_FAR, distance(p.xz, CLOUD_BLOCK.camera_position.xz) / scale.y), vary.x);
+			float warp = max(smoothstep(CLOUD_WARP_NEAR, CLOUD_WARP_FAR, distance(p, CLOUD_BLOCK.camera_position.xyz) / scale.y), vary.x);
 
 			if (warp > 0.0) {
 				vec3 turned = vec3(uvw.x * 0.6663 - uvw.z * 0.5891, uvw.y * 0.8889 + 0.37, uvw.x * 0.5891 + uvw.z * 0.6663 + 0.53) * CLOUD_WARP_FREQUENCY;
@@ -845,7 +886,7 @@ function clouds.GetGLSL(block)
 
 			float h = hf / top;
 
-			if (h >= 1.0) return 0.0;
+			if (h >= 1.0) return far_density;
 
 			shade = h;
 
@@ -859,7 +900,7 @@ function clouds.GetGLSL(block)
 			d *= mix(1.0, mix(0.6, 1.0, smoothstep(0.0, 0.5, hf)), style.x);
 			d = mix(d, profile * (0.55 + 0.45 * base), smoothstep(0.9, 1.0, coverage));
 
-			if (d <= 0.0) return 0.0;
+			if (d <= 0.0) return far_density;
 
 			float inside = d;
 
@@ -902,7 +943,7 @@ function clouds.GetGLSL(block)
 				d *= 1.0 - CLOUD_BODY_DEPTH * dent * (1.0 - smoothstep(CLOUD_BODY_SHELL, 1.0, inside)) * (1.0 - smoothstep(2.0, 5.0, body_lod));
 			}
 
-			return d * shape.w;
+			return mix(d * shape.w, unresolved, far);
 		}
 
 		float cloud_density(int i, vec3 p, float alt, bool detail, float footprint) {
@@ -922,10 +963,15 @@ function clouds.GetGLSL(block)
 			float field = streaks * mix(0.55, 1.0, dot(n, vec3(0.5, 0.3, 0.2)));
 			field = saturate(remap(field, 1.0 - coverage, 1.0, 0.0, 1.0));
 			field = mix(field, 0.6 + 0.4 * field, smoothstep(0.9, 1.0, coverage));
-			return field * shape.w;
+			// unresolved from far away: the optical depth with the mean transmittance of the cloudy fraction, as for the volumetric layers
+			float footprint = distance(p, CLOUD_BLOCK.camera_position.xyz) * 2.0 / (abs(CLOUD_BLOCK.projection[1][1]) * CLOUD_BLOCK.render_size.y);
+			float lod = log2(max(footprint * ]] .. clouds.BASE_NOISE_SIZE .. [[.0 / scale.y, 1.0));
+			float cloudy = saturate(1.0 - (1.0 - coverage) / max(streaks, 1e-3));
+			float unresolved = -log(1.0 - cloudy * (1.0 - exp(-shape.w)));
+			return mix(field * shape.w, unresolved, smoothstep(2.5, 3.5, lod));
 		}
 
-		float cloud_light_optical_depth(int i, vec3 p, float alt, vec3 L, float L_up, int steps, float jitter) {
+		float cloud_light_optical_depth(int i, vec3 p, float alt, vec3 L, float L_up, int steps, float jitter, float footprint) {
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 			float step_size = shape.y * 0.025;
 			float t = 0.0;
@@ -938,7 +984,7 @@ function clouds.GetGLSL(block)
 
 				if (a > shape.x + shape.y + CLOUD_BLOCK.cloud_layer_vary[i].y) break;
 
-				od += cloud_density(i, p + L * s, a, k < 2, ds) * ds;
+				od += cloud_density(i, p + L * s, a, k < 2, max(ds, footprint)) * ds;
 				t += ds;
 			}
 
@@ -970,6 +1016,7 @@ function clouds.GetGLSL(block)
 		}
 
 		vec4 cloud_march(vec3 origin, vec3 dir, float t_max, float jitter, float quality, out float depth) {
+			cloud_unresolved_pick = fract(jitter * 13.71 + 0.21);
 			cloud_ray_t r = cloud_ray(origin, dir);
 			vec2 ground = cloud_sphere(r, 0.0);
 
@@ -1057,13 +1104,15 @@ function clouds.GetGLSL(block)
 				float light_od = 0.0;
 
 				for (int k = 0; k < budget && t < t1; k++) {
-					float dt = max(fine_size, t * 0.002 / quality);
+					// from far above a layer is crossed in a few km, so steps that grow with distance would test it at one height and skip it where that height is empty; the footprint stays the uncapped step
+					float footprint_dt = max(fine_size, t * 0.002 / quality);
+					float dt = min(footprint_dt, length_ * 0.125);
 
 					if (empty >= CLOUD_EMPTY_STEPS) {
-						dt *= CLOUD_COARSE_STEPS;
+						dt = min(dt * CLOUD_COARSE_STEPS, min(length_ * 0.25, t1 - t));
 						float tc = t + dt * 0.5;
 
-						if (cloud_density(i, origin + dir * tc, cloud_altitude(r, tc), false, dt) <= 0.0) {
+						if (cloud_density(i, origin + dir * tc, cloud_altitude(r, tc), false, footprint_dt * CLOUD_COARSE_STEPS) <= 0.0) {
 							t += dt;
 							continue;
 						}
@@ -1079,7 +1128,8 @@ function clouds.GetGLSL(block)
 					vec3 p = origin + dir * ts;
 					float alt = cloud_altitude(r, ts);
 					float shade;
-					float density = cloud_density_shaded(i, p, alt, true, quality >= 1.0 ? min(dt, max(ts * pixel_angle, 0.5)) : dt, shade);
+					float view_footprint = quality >= 1.0 ? min(footprint_dt, max(ts * pixel_angle, 0.5)) : footprint_dt;
+					float density = cloud_density_shaded(i, p, alt, true, view_footprint, shade);
 
 					if (density <= 0.0) {
 						empty++;
@@ -1099,7 +1149,7 @@ function clouds.GetGLSL(block)
 					vec3 up = cloud_up(p);
 					float L_up = dot(up, L);
 					if (light_reuse <= 0) {
-						light_od = cloud_light_optical_depth(i, p, alt, L, max(L_up, 0.02), light_steps, fract(jitter * 7.31 + 0.37));
+						light_od = cloud_light_optical_depth(i, p, alt, L, max(L_up, 0.02), light_steps, fract(jitter * 7.31 + 0.37), view_footprint);
 						light_reuse = CLOUD_LIGHT_REUSE;
 					}
 
@@ -1108,13 +1158,15 @@ function clouds.GetGLSL(block)
 					float hf = saturate((alt - shape.x) / shape.y);
 					float depth_powder = pow(density / shape.w, mix(0.5, 1.6, shade)) * 0.95 + 0.05;
 					float height_powder = pow(smoothstep(0.02, 0.2, shade), 0.8) * 0.85 + 0.15;
-					float powder = mix(1.0, depth_powder * height_powder, saturate(mu * -0.5 + 0.6));
-					float base_shadow = mix(0.55, 1.0, smoothstep(-0.1, 0.45, shade));
+					// unresolved clouds are a thin average medium, but they are lit as the cloud tops they stand for, not as a thin wisp's edge
+					float unresolved = cloud_unresolved(i, view_footprint);
+					float powder = mix(mix(1.0, depth_powder * height_powder, saturate(mu * -0.5 + 0.6)), 1.0, unresolved);
+					float base_shadow = mix(mix(0.55, 1.0, smoothstep(-0.1, 0.45, shade)), 1.0, unresolved);
 					float diffusion = CLOUD_DIFFUSION * exp(-light_od * 0.03) * mix(0.35, 1.0, smoothstep(0.0, 0.45, shade));
 					vec3 sun = light * CLOUD_SUN_SCALE * ((medium_multiple_scattering(vec3(light_od), mu, CLOUD_FORWARD_G, CLOUD_BACK_G, CLOUD_BACK_SHARE, 1.0).x + diffusion) * upper * powder * base_shadow * smoothstep(-0.1, 0.02, L_up));
 					float column = shape.w * shape.y * ]] .. string.format("%.3f", MEAN_SHAPE_DENSITY * 0.05) .. [[;
-					float sky_od = cloud_density(i, p + up * CLOUD_SKY_PROBE_NEAR, alt + CLOUD_SKY_PROBE_NEAR, false, CLOUD_SKY_PROBE_NEAR) * (CLOUD_SKY_PROBE_NEAR * 2.0)
-						+ cloud_density(i, p + up * CLOUD_SKY_PROBE_FAR, alt + CLOUD_SKY_PROBE_FAR, false, CLOUD_SKY_PROBE_FAR) * (CLOUD_SKY_PROBE_FAR * 1.17)
+					float sky_od = cloud_density(i, p + up * CLOUD_SKY_PROBE_NEAR, alt + CLOUD_SKY_PROBE_NEAR, false, max(CLOUD_SKY_PROBE_NEAR, view_footprint)) * (CLOUD_SKY_PROBE_NEAR * 2.0)
+						+ cloud_density(i, p + up * CLOUD_SKY_PROBE_FAR, alt + CLOUD_SKY_PROBE_FAR, false, max(CLOUD_SKY_PROBE_FAR, view_footprint)) * (CLOUD_SKY_PROBE_FAR * 1.17)
 						+ density * 25.0;
 					float sky_visibility = 0.3 + 0.7 / (sky_od * 0.35 + 1.0);
 					vec3 ambient = (ambient_top * exp(-column * (1.0 - hf)) + ambient_bottom * exp(-column * hf)) * sky_visibility * CLOUD_AMBIENT_SCALE;

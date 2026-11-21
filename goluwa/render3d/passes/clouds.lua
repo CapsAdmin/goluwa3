@@ -12,7 +12,7 @@ local BINDING_OUT3 = 2
 local BINDING_DATA = 3
 local BINDING_BASE_NOISE = 4
 local BINDING_DETAIL_NOISE = 5
-local VIEW_DISTANCE = 300000
+local VIEW_DISTANCE = 10000000
 local TRACE_BLEND = 0.5
 
 local function dummy_color_format()
