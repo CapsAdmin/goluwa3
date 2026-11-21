@@ -230,8 +230,8 @@ function level.ConvertCryDecalMatrixToEngineTransform(world_matrix)
 	local cry_y = world_matrix:TransformVector(Vec3(0, 1, 0)) - origin
 	local cry_z = world_matrix:TransformVector(Vec3(0, 0, 1)) - origin
 	local scale_x, scale_y, scale_z = cry_x:GetLength(), cry_y:GetLength(), cry_z:GetLength()
-	local right = units.ToEngine(-cry_y / scale_y)
-	local up = units.ToEngine(cry_x / scale_x)
+	local right = units.ToEngine(cry_x / scale_x)
+	local up = units.ToEngine(cry_y / scale_y)
 	local back = units.ToEngine(cry_z / scale_z)
 	local rotation_matrix = Matrix44()
 	rotation_matrix:Identity()
@@ -241,7 +241,7 @@ function level.ConvertCryDecalMatrixToEngineTransform(world_matrix)
 	return {
 		position = units.ToEngine(origin),
 		rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
-		scale = Vec3(scale_y, scale_x, scale_z),
+		scale = Vec3(scale_x, scale_y, scale_z),
 	}
 end
 
