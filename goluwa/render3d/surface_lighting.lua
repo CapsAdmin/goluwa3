@@ -60,6 +60,7 @@ surface_lighting.block = {
 	{"primary_sun_direction", "vec4"},
 	atmosphere.GetBlockLayout(),
 	{"env_irradiance_tex", "int"},
+	{"env_position", "vec4"},
 	envprobe.GetProbeBlockLayout(),
 	{"gi_screen_tex", "int"},
 	{"gi_screen_geometry_tex", "int"},
@@ -118,6 +119,13 @@ function surface_lighting.WriteBlock(self, block)
 	end
 
 	block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+	local environment_probe = envprobe.environment_probe
+	local env_position = environment_probe and
+		environment_probe.position or
+		render3d.GetCamera():GetPosition()
+	block.env_position[0] = env_position.x
+	block.env_position[1] = env_position.y
+	block.env_position[2] = env_position.z
 	envprobe.WriteProbeBlock(self, block)
 	local gi_texture = gi.GetScreenTexture()
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1

@@ -987,7 +987,7 @@ function clouds.GetGLSL(block)
 			float mu = dot(dir, L);
 			vec3 first_point = origin + dir * segs[0].x;
 			vec3 light = CLOUD_BLOCK.cloud_light_illuminance.rgb * sample_transmittance_lut(get_atmosphere_camera_origin(first_point), L);
-			vec3 sky_origin = get_atmosphere_camera_origin(origin);
+			vec3 sky_origin = get_atmosphere_camera_origin(first_point);
 			vec3 sky_irradiance = get_sky_irradiance_clear(sky_origin);
 			vec3 ambient_top = sky_irradiance / PI;
 			float light_up = max(dot(normalize(sky_origin), L), 0.0);

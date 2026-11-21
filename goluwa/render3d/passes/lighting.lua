@@ -462,6 +462,9 @@ return {
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
 				float ambient_occlusion = screen_gi.a;
 				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
+				vec3 sky_light = get_sky_light_from(s.world_pos, lighting_data.env_position.xyz);
+				irradiance *= sky_light;
+				reflection *= sky_light;
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
 				vec4 brdf_lut = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness));

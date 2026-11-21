@@ -1006,6 +1006,18 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return sample_transmittance_lut(get_atmosphere_camera_origin(world_pos), sun_dir) / max(reference, vec3(1e-6));
 	}
 
+	// the environment probe holds the sky light where it was captured; this turns it into the sky light at a world position, so far points on the planet get their own sun elevation and the night side its darkness
+	vec3 get_sky_light_from(vec3 world_pos, vec3 captured_pos) {
+		if (ATMOSPHERE_ENABLED == 0 || ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX == -1) return vec3(1.0);
+
+		vec3 mean_radiance;
+		vec3 at_point;
+		vec3 at_capture;
+		get_sky_hemisphere_integrals(get_atmosphere_camera_origin(world_pos), false, mean_radiance, at_point);
+		get_sky_hemisphere_integrals(get_atmosphere_camera_origin(captured_pos), false, mean_radiance, at_capture);
+		return at_point / max(at_capture, vec3(1e-9));
+	}
+
 	vec3 get_ground_fog_sun_transmittance(vec3 point, vec3 sun_dir) {
 		return ground_fog_sun_transmittance(length(point) - PLANET_RADIUS, dot(normalize(point), sun_dir), ATMOSPHERE_GROUND_FOG_EXTINCTION, ATMOSPHERE_PRECIPITATION_EXTINCTION);
 	}
