@@ -213,12 +213,42 @@ function ibl.GetEnvironmentGLSLCode()
 				return normalize(mix(normal, reflection_dir, lerp_factor));
 			}
 
+			// cubic b-spline in four bilinear taps: the coarse mips span degrees per texel, and bilinear creases between them show as rings on large smooth reflectors
+			vec4 sample_environment_bspline(int env_tex, vec2 uv, int lod) {
+				vec2 size = vec2(textureSize(TEXTURE(env_tex), lod));
+				vec2 t = uv * size - 0.5;
+				vec2 i = floor(t);
+				vec2 f = t - i;
+				vec2 f2 = f * f;
+				vec2 f3 = f2 * f;
+				vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+				vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+				vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+				vec2 w3 = f3 / 6.0;
+				vec2 g0 = w0 + w1;
+				vec2 g1 = w2 + w3;
+				vec2 h0 = (i - 0.5 + w1 / g0) / size;
+				vec2 h1 = (i + 1.5 + w3 / g1) / size;
+				float l = float(lod);
+				return g0.y * (g0.x * textureLod(TEXTURE(env_tex), h0, l) + g1.x * textureLod(TEXTURE(env_tex), vec2(h1.x, h0.y), l)) + g1.y * (g0.x * textureLod(TEXTURE(env_tex), vec2(h0.x, h1.y), l) + g1.x * textureLod(TEXTURE(env_tex), h1, l));
+			}
+
 			vec3 sample_environment_specular_lod(int env_tex, vec3 reflection_dir, vec3 normal, float perceptual_roughness, float min_lod) {
 				if (env_tex == -1) return vec3(0.0);
 				float max_mip = get_environment_max_mip(env_tex);
 				vec3 sample_dir = correct_environment_lookup_dir(get_specular_dominant_direction(reflection_dir, normal, perceptual_roughness));
 				float horizon = saturate(1.0 + dot(reflection_dir, normal));
-				vec4 stored = textureLod(TEXTURE(env_tex), dir_to_equirect_uv(sample_dir), max(perceptual_roughness * max_mip, min_lod));
+				vec2 uv = dir_to_equirect_uv(sample_dir);
+				float lod = max(perceptual_roughness * max_mip, min_lod);
+				vec4 stored = textureLod(TEXTURE(env_tex), uv, lod);
+				float smooth_weight = smoothstep(0.5, 1.5, lod);
+
+				if (smooth_weight > 0.0) {
+					int lower = int(floor(lod));
+					vec4 smoothed = mix(sample_environment_bspline(env_tex, uv, lower), sample_environment_bspline(env_tex, uv, lower + 1), lod - float(lower));
+					stored = mix(stored, smoothed, smooth_weight);
+				}
+
 				return stored.rgb * stored.a * horizon * horizon;
 			}
 
