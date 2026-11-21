@@ -124,6 +124,7 @@ Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCoverage", false, {callback = "InvalidateFlags", requires = "AlphaTest"})
 Material:GetSet("Decal", false, {callback = "InvalidateFlags"})
 Material:GetSet("DecalFade", false, {callback = "InvalidateFlags"})
+Material:GetSet("DecalBorder", false, {callback = "InvalidateFlags"})
 Material:GetSet("SnowBackdrop", false, {callback = "InvalidateFlags"})
 Material:GetSet("Dithered", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor", requires = "AlphaTest"})
@@ -606,6 +607,7 @@ local FLAGS = {
 	"Decal",
 	"AlphaCoverage",
 	"DecalFade",
+	"DecalBorder",
 	"SnowBackdrop",
 	"BentNormals",
 	"MetallicRoughnessIsMR",

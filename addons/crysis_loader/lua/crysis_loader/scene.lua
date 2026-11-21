@@ -184,6 +184,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					SortPriority = entry.sort_priority,
 					URange = Vec2(diffuse.offset_u, diffuse.offset_u + diffuse.tile_u),
 					VRange = Vec2(diffuse.offset_v + diffuse.tile_v, diffuse.offset_v),
+					UVBorder = true,
 					HeightMidlevel = level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE and 1 or 0.5,
 				},
 			},
