@@ -24,6 +24,10 @@ A `terrain` component with an empty `Path` owns its data as properties: `Size`, 
 - Per-frame scans over all tiles must use cached tile bounds and per-level grids (`GatherOverlappingDesired`), not recompute levels or compare every retiring tile with every desired one.
 - Debug: the `terrain_tiles` command (`Terrain:GetDebugReport()`) lists counts and tiles that should be drawn but are hidden; the TERRAIN tab of the PERF window (`terrain_stats`). `addons/examples/lua/examples/render3d/terrain_debug.lua` is a bare rolling terrain with a hue per level; oblique views only (top-down from high looks grey).
 
+## Height functions of a shader source
+
+`terrain_bake_step()` is the sample spacing of the texture being baked, which differs between the mesh heights and the finer field, normal, splat and color bakes of the same tile; anything that changes the height itself with level (octave dropping aside) must use `terrain_tile_step()` (the mesh spacing of the tile, the same in every bake of it), or the mesh and its splat and normals disagree. A pattern finer than a few mesh samples aliases, so a procedural pattern should coarsen with `terrain_tile_step()` (a checkerboard can double its cell size per ring so it stays readable from far above).
+
 ## Layers
 
 The weight texture of a tile (`SplatSize` texels, baked by the source's `terrain_splat`) says where a layer is allowed; a texel covers more ground on coarser tiles, so slopes taken from it differ between levels. Per layer values (`tiles.CreateMaterial`, `layer.<key>`, vec4 per four layers) decide the rest at the pixel:

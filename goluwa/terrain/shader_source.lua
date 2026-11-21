@@ -14,6 +14,7 @@ local BakeConstants = ffi.typeof([[
 		float step_x;
 		float step_z;
 		float sample_step;
+		float tile_step;
 		int texture0;
 		int texture1;
 		int texture2;
@@ -40,6 +41,7 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	float step_x;
 	float step_z;
 	float sample_step;
+	float tile_step;
 	int texture0;
 	int texture1;
 	int texture2;
@@ -62,6 +64,10 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 local BAKE_STEP_HELPER = [[
 float terrain_bake_step() {
 	return terrain_bake.sample_step;
+}
+
+float terrain_tile_step() {
+	return terrain_bake.tile_step;
 }
 ]]
 local BAKE_HELPERS = [[
@@ -182,7 +188,13 @@ function ShaderSource:GetShaderHeader()
 end
 
 do
-	local bake = {field_origin_x = 0, field_origin_z = 0, field_step = 1, field_size = 0}
+	local bake = {
+		tile_step = 1,
+		field_origin_x = 0,
+		field_origin_z = 0,
+		field_step = 1,
+		field_size = 0,
+	}
 	local shade_textures = {}
 
 	local function get_bake_constants(_, _, pipeline)
@@ -195,6 +207,7 @@ do
 			bake.step,
 			bake.step,
 			bake.step,
+			bake.tile_step,
 			textures[1] and pipeline:GetTextureIndex(textures[1]) or -1,
 			textures[2] and pipeline:GetTextureIndex(textures[2]) or -1,
 			textures[3] and pipeline:GetTextureIndex(textures[3]) or -1,
@@ -285,6 +298,7 @@ do
 
 		local chunk = {request = request}
 		local min_x, min_z, size = request.min_x, request.min_z, request.size
+		bake.tile_step = size / ((request.samples or 2) - 1)
 
 		if request.samples then
 			local step = size / (request.samples - 1)
