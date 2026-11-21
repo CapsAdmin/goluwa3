@@ -72,7 +72,7 @@ local function build_atmosphere_record(data)
 
 		if RENDER_3D then cry_water.EnableCrysisWaves() end
 
-		local medium = cry_water.GetOceanMedium(ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density / 5)
+		local medium = cry_water.GetOceanMedium(ocean.fog_color, ocean.fog_color_multiplier, ocean.fog_density)
 		local wind = units.ToEngine(Vec3(math.cos(ocean.wind_direction), math.sin(ocean.wind_direction), 0))
 		local wind_direction = math.deg(math.atan2(wind.z, wind.x))
 		properties.OceanSettings = {
