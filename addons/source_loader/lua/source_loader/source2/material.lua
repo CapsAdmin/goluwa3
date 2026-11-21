@@ -41,7 +41,7 @@ function material.GetInfo(path)
 		return info
 	end
 
-	if path:starts_with("materials/tools/") then
+	if path:starts_with("materials/tools/") or path:find("^materials/dev/reflectivity_") then
 		info.no_draw = true
 		return info
 	end
