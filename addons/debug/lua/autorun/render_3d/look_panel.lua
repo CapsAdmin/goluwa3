@@ -156,6 +156,44 @@ local function build_items()
 		add_node(group, node)
 	end
 
+	local lut_group = add_group(items, grade_groups, "grade/group/", "Look LUT", "Grade")
+	local lut_options = {{Text = "none", Value = ""}}
+
+	for _, path in ipairs(grade.FindLuts()) do
+		lut_options[#lut_options + 1] = {Text = (path:gsub("^luts/", "")), Value = path}
+	end
+
+	local function get_lut()
+		return pvars.Get("r_grade_lut")
+	end
+
+	add_node(
+		lut_group,
+		{
+			Key = "r_grade_lut",
+			Text = "file",
+			Description = "r_grade_lut: a look up table from any luts/ folder, type to search",
+			Search = "r_grade_lut",
+			Type = "enum",
+			Options = lut_options,
+			Value = get_lut(),
+			GetValue = get_lut,
+			OnChange = function(_, value)
+				pvars.SetSession("r_grade_lut", value)
+			end,
+		}
+	)
+
+	for _, key in ipairs{"r_grade_lut_strength", "r_grade_lut_space", "r_grade_lut_order"} do
+		local node = pvar_node.Build(pvars.GetObject(key):GetInfo(), function(value)
+			pvars.SetSession(key, value)
+		end)
+		node.GetValue = function()
+			return pvars.Get(key)
+		end
+		add_node(lut_group, node)
+	end
+
 	for _, item in ipairs(eye_items) do
 		items[#items + 1] = item
 	end
