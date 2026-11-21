@@ -123,6 +123,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 			end
 
 			local diffuse = material.cry_texture_maps and material.cry_texture_maps.Diffuse
+			local detail_bump = material:GetDetailTexture()
 			local slots = mtl_material.FromCryMTLSlots(surface_type.detail_material_path)
 			local side = slots and slots.x
 
@@ -134,6 +135,9 @@ local function get_or_create_cry_terrain_layers(terrain)
 					normal = material:GetNormalTexture(),
 					height = material:HasHeightMap() and material:GetHeightTexture() or nil,
 					height_scale = material:GetHeightScale(),
+					detail_bump = detail_bump,
+					detail_bump_tiling = detail_bump and material:GetDetailTiling().x or nil,
+					detail_bump_scale = detail_bump and material:GetDetailBumpScale() or nil,
 					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
 					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),

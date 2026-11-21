@@ -70,6 +70,8 @@ local function layer_values(suffix, requires)
 	values("CoverBlend", Color(0.05, 0.05, 0.05, 0.05))
 	values("CoverDepth", Color(0.0, 0.0, 0.0, 0.0))
 	values("Medium", Color(0.0, 0.0, 0.0, 0.0))
+	values("DetailBumpTiling", Color(0.0, 0.0, 0.0, 0.0))
+	values("DetailBumpScale", Color(0.0, 0.0, 0.0, 0.0))
 end
 
 texture("TerrainMaterialTexture", nil, ray)
@@ -101,12 +103,17 @@ for layer = 1, 4 do
 	texture("TerrainLayer" .. layer .. "HeightTexture", "TerrainMaterialTexture")
 end
 
+for layer = 1, 4 do
+	texture("TerrainLayer" .. layer .. "DetailTexture", "TerrainMaterialTexture")
+end
+
 texture("TerrainMaterial2Texture", "TerrainMaterialTexture", ray)
 
 for layer = 5, 8 do
 	texture("TerrainLayer" .. layer .. "Texture", "TerrainMaterial2Texture", ray)
 	texture("TerrainLayer" .. layer .. "NormalTexture", "TerrainMaterial2Texture", ray)
 	texture("TerrainLayer" .. layer .. "HeightTexture", "TerrainMaterial2Texture")
+	texture("TerrainLayer" .. layer .. "DetailTexture", "TerrainMaterial2Texture")
 end
 
 layer_values("", "TerrainMaterialTexture")

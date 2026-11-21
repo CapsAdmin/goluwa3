@@ -2029,14 +2029,21 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				return result;
 			}
 
-			vec3 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N, float anti_tiling) {
+			vec3 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N, float anti_tiling, int detail_tex, float detail_tiling, float detail_scale) {
 				vec3 n = vec3(0.0);
 
 				for (int a = 0; a < 3; a++) {
 					float w = a == 0 ? blend.y : (a == 1 ? blend.x : blend.z);
 
 					if (w > 0.001) {
-						vec3 t = sample_terrain_layer_normal_texel(tex, a == 0 ? uv.y : (a == 1 ? uv.x : uv.z), anti_tiling);
+						vec2 axis_uv = a == 0 ? uv.y : (a == 1 ? uv.x : uv.z);
+						vec3 t = sample_terrain_layer_normal_texel(tex, axis_uv, anti_tiling);
+
+						if (detail_tex != -1) {
+							vec2 detail_uv = axis_uv * detail_tiling;
+							t.xy += (texture(TEXTURE(detail_tex), detail_uv).xy + texture(TEXTURE(detail_tex), detail_uv * 2.0).xy - 1.0) * detail_scale;
+						}
+
 						vec3 tn = vec3(t.xy + (a == 0 ? N.xz : (a == 1 ? N.zy : N.xy)), abs(t.z) * (a == 0 ? N.y : (a == 1 ? N.x : N.z)));
 						n += (a == 0 ? tn.xzy : (a == 1 ? tn.zyx : tn.xyz)) * w;
 					}
@@ -2110,7 +2117,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 
 			TerrainLayerSample terrain_layer_cache;
 
-			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float distance_to_camera, float weight, float scale, float detail_strength, float additive_detail, float displacement, vec4 far, float fade_distance, float fade_distance_xy, float anti_tiling) {
+			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float distance_to_camera, float weight, float scale, float detail_strength, float additive_detail, float displacement, vec4 far, float fade_distance, float fade_distance_xy, float anti_tiling, int detail_tex, float detail_tiling, float detail_scale) {
 				if (weight <= 0.001) {
 					return;
 				}
@@ -2142,7 +2149,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 					}
 
 					if (normal_tex != -1) {
-						n += sample_terrain_layer_normal_triplanar(normal_tex, uv, blend, N, anti_tiling) * w;
+						n += sample_terrain_layer_normal_triplanar(normal_tex, uv, blend, N, anti_tiling, i == 0 ? detail_tex : -1, detail_tiling, detail_scale) * w;
 					}
 				}
 
@@ -2209,6 +2216,21 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 					case 5: return terrain_model.TerrainLayer6NormalTexture;
 					case 6: return terrain_model.TerrainLayer7NormalTexture;
 					case 7: return terrain_model.TerrainLayer8NormalTexture;
+				}
+
+				return -1;
+			}
+
+			int terrain_layer_detail_texture(int k) {
+				switch (k) {
+					case 0: return terrain_model.TerrainLayer1DetailTexture;
+					case 1: return terrain_model.TerrainLayer2DetailTexture;
+					case 2: return terrain_model.TerrainLayer3DetailTexture;
+					case 3: return terrain_model.TerrainLayer4DetailTexture;
+					case 4: return terrain_model.TerrainLayer5DetailTexture;
+					case 5: return terrain_model.TerrainLayer6DetailTexture;
+					case 6: return terrain_model.TerrainLayer7DetailTexture;
+					case 7: return terrain_model.TerrainLayer8DetailTexture;
 				}
 
 				return -1;
@@ -2297,7 +2319,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				for (int k = 0; k < (has_second_set ? 8 : 4); k++) {
 					int i = k & 3;
 					bool second = k >= 4;
-					accumulate_terrain_layer(s, base, terrain_layer_albedo_texture(k), terrain_layer_normal_texture(k), terrain_layer_height_texture(k), world_pos, blend, N, V, distance_to_camera, second ? weights2[i] : weights[i], second ? terrain_model.TerrainLayerScales2[i] : terrain_model.TerrainLayerScales[i], second ? terrain_model.TerrainLayerDetailStrength2[i] : terrain_model.TerrainLayerDetailStrength[i], second ? terrain_model.TerrainLayerAdditiveDetail2[i] : terrain_model.TerrainLayerAdditiveDetail[i], (second ? terrain_model.TerrainLayerHeightScales2[i] : terrain_model.TerrainLayerHeightScales[i]) * fade, second ? vec4(terrain_model.TerrainLayerFarScales2[i], terrain_model.TerrainLayerFarDistances2[i], terrain_model.TerrainLayerFarScaleB2[i], terrain_model.TerrainLayerFarDistanceB2[i]) : vec4(terrain_model.TerrainLayerFarScales[i], terrain_model.TerrainLayerFarDistances[i], terrain_model.TerrainLayerFarScaleB[i], terrain_model.TerrainLayerFarDistanceB[i]), second ? terrain_model.TerrainLayerFadeDistance2[i] : terrain_model.TerrainLayerFadeDistance[i], second ? terrain_model.TerrainLayerFadeDistanceXY2[i] : terrain_model.TerrainLayerFadeDistanceXY[i], second ? terrain_model.TerrainLayerAntiTiling2[i] : terrain_model.TerrainLayerAntiTiling[i]);
+					accumulate_terrain_layer(s, base, terrain_layer_albedo_texture(k), terrain_layer_normal_texture(k), terrain_layer_height_texture(k), world_pos, blend, N, V, distance_to_camera, second ? weights2[i] : weights[i], second ? terrain_model.TerrainLayerScales2[i] : terrain_model.TerrainLayerScales[i], second ? terrain_model.TerrainLayerDetailStrength2[i] : terrain_model.TerrainLayerDetailStrength[i], second ? terrain_model.TerrainLayerAdditiveDetail2[i] : terrain_model.TerrainLayerAdditiveDetail[i], (second ? terrain_model.TerrainLayerHeightScales2[i] : terrain_model.TerrainLayerHeightScales[i]) * fade, second ? vec4(terrain_model.TerrainLayerFarScales2[i], terrain_model.TerrainLayerFarDistances2[i], terrain_model.TerrainLayerFarScaleB2[i], terrain_model.TerrainLayerFarDistanceB2[i]) : vec4(terrain_model.TerrainLayerFarScales[i], terrain_model.TerrainLayerFarDistances[i], terrain_model.TerrainLayerFarScaleB[i], terrain_model.TerrainLayerFarDistanceB[i]), second ? terrain_model.TerrainLayerFadeDistance2[i] : terrain_model.TerrainLayerFadeDistance[i], second ? terrain_model.TerrainLayerFadeDistanceXY2[i] : terrain_model.TerrainLayerFadeDistanceXY[i], second ? terrain_model.TerrainLayerAntiTiling2[i] : terrain_model.TerrainLayerAntiTiling[i], terrain_layer_detail_texture(k), second ? terrain_model.TerrainLayerDetailBumpTiling2[i] : terrain_model.TerrainLayerDetailBumpTiling[i], second ? terrain_model.TerrainLayerDetailBumpScale2[i] : terrain_model.TerrainLayerDetailBumpScale[i]);
 				}
 
 				if (s.normal_weight > 0.001) {

@@ -327,6 +327,8 @@ local LAYER_VALUES = {
 	{"CoverBlend", "cover_blend", 0.05},
 	{"CoverDepth", "cover_depth", 0},
 	{"Medium", "medium", 0},
+	{"DetailBumpTiling", "detail_bump_tiling", 0},
+	{"DetailBumpScale", "detail_bump_scale", 0},
 }
 local TERRAIN_WIND_EMISSION = Vec3(0.15, 0.3, 0.4)
 
@@ -362,6 +364,7 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 		material["SetTerrainLayer" .. i .. "Texture"](material, resolve_layer_texture(layer.albedo))
 		material["SetTerrainLayer" .. i .. "NormalTexture"](material, resolve_layer_texture(layer.normal))
 		material["SetTerrainLayer" .. i .. "HeightTexture"](material, resolve_layer_texture(layer.height))
+		material["SetTerrainLayer" .. i .. "DetailTexture"](material, resolve_layer_texture(layer.detail_bump))
 	end
 
 	local any_scatter = false
