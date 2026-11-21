@@ -241,7 +241,7 @@ function ibl.GetEnvironmentGLSLCode()
 				vec2 uv = dir_to_equirect_uv(sample_dir);
 				float lod = max(perceptual_roughness * max_mip, min_lod);
 				vec4 stored = textureLod(TEXTURE(env_tex), uv, lod);
-				float smooth_weight = smoothstep(0.5, 1.5, lod);
+				float smooth_weight = smoothstep(2.0, 3.0, lod);
 
 				if (smooth_weight > 0.0) {
 					int lower = int(floor(lod));

@@ -111,7 +111,7 @@ The world is a planet of radius `planet.RADIUS` (`goluwa/planet.lua`) whose surf
 - Cloud layers can add `system_scale`/`system_amount`: coverage from the weather map read again at a much larger rotated scale, for cloud systems that do not repeat from orbit.
 - The cloud shadow map is centred on the ground below a camera that is above the clouds, not on the sun's ray through the camera.
 - The fog composite splits the far air march at a cloud in front of far geometry, so clouds seen from orbit get the air above them.
-- Coarse environment mips are sampled with a cubic B-spline (`sample_environment_bspline`): bilinear creases between texels degrees wide show as rings on a large smooth reflector such as the sea from orbit.
+- Coarse environment mips (from lod 2) are sampled with a cubic B-spline (`sample_environment_bspline`): bilinear creases between texels degrees wide show as rings on a large smooth reflector such as the sea from orbit.
 
 ## Reflections, translucency, materials
 
