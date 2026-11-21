@@ -27,6 +27,7 @@ water.ocean = {
 	SwellDirection = 50,
 	Directionality = 1,
 	ShoalDepth = 0.4,
+	Surf = 1,
 	Medium = "ocean",
 	Foam = 1,
 	GustAmount = 1,

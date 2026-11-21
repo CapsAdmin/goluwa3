@@ -17,11 +17,15 @@ local height_source
 local texture
 local active_origin = {0, 0}
 local fill
+local heights
+local heights_version = 0
 
 function water_field.SetHeightSource(source)
 	height_source = source
 	fill = nil
 	texture = nil
+	heights = nil
+	heights_version = heights_version + 1
 end
 
 function water_field.GetHeightSource()
@@ -38,6 +42,15 @@ end
 
 function water_field.GetTexture()
 	return texture
+end
+
+function water_field.GetHeights()
+	return heights,
+	heights_version,
+	SIZE,
+	active_origin[1],
+	active_origin[2],
+	WORLD_HALF
 end
 
 function water_field.Update()
@@ -106,6 +119,8 @@ function water_field.Update()
 		texture:Upload(fill.buffer, true)
 		texture:GenerateMipmaps("transfer_dst_optimal")
 		active_origin = {fill.origin_x, fill.origin_z}
+		heights = fill.buffer
+		heights_version = heights_version + 1
 		fill = nil
 	end
 end

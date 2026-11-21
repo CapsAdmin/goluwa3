@@ -20,6 +20,7 @@ local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local water_field = import("goluwa/render3d/water_field.lua")
+local surf = import("goluwa/render3d/surf.lua")
 local render = import("goluwa/render/render.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local path_trace = import("goluwa/render3d/path_trace.lua")
@@ -420,6 +421,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		local params = water.GetOcean()
 		block.foam_amount = water.GetWhitecapFactor(params.WindSpeed) * params.Foam
 		water_field.WriteBlock(self, block, params.ShoalDepth)
+		surf.WriteBlock(self, block)
 		local fft_textures = ocean_fft.Update()
 
 		for i = 1, #water.FFT_CASCADES do
@@ -431,6 +433,8 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 	local field_surface_glsl = [[
 		const float FIELD_TURN_STEP = 0.5235988;
 		const float SHELTER_DAMPING = 0.85;
+		const float SURF_FOAM = 1.2;
+		const float SURF_TAKEOVER = 0.6;
 
 		void fft_surface_turned(vec2 world_xz, float choppiness, float turn, out float height, out vec2 slope, out float jacobian) {
 			vec2 axis = vec2(cos(turn), sin(turn));
@@ -470,7 +474,8 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		{"fft_tex", "int", #water.FFT_CASCADES * 2},
 		{"wave_choppiness", "float"},
 		{"foam_amount", "float"},
-		unpack(water_field.GetFields()),
+		water_field.GetFields(),
+		surf.GetFields(),
 	}
 	list.insert(
 		passes,
@@ -519,7 +524,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 				const float FOAM_DECAY = ]] .. FOAM_DECAY .. [[;
 				const float FOAM_ADD = ]] .. FOAM_ADD .. [[;
 				const float FOAM_SPREAD = ]] .. FOAM_SPREAD .. [[;
-				]] .. water_field.GetGLSL("wave_block") .. field_surface_glsl .. [[
+				]] .. glsl_common.GetNoiseGLSL() .. water_field.GetGLSL("wave_block") .. surf.GetGLSL("wave_block") .. field_surface_glsl .. [[
 
 				void main() {
 					vec2 world_xz = wave_block.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
@@ -529,7 +534,12 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 					float shelter;
 					field_surface(world_xz, wave_block.wave_choppiness, height, slope, jacobian, shelter);
 					float depth = water_field_depth(world_xz);
-					float breaking = water_field_breaking(height, depth) * FOAM_WEIGHT;
+					float surf_height;
+					vec2 surf_slope;
+					float whitewater;
+					float surf_presence;
+					surf_wave(world_xz, depth, wave_block.time, shelter, surf_height, surf_slope, whitewater, surf_presence);
+					float breaking = water_field_breaking(height, depth) * FOAM_WEIGHT + whitewater * SURF_FOAM;
 					float previous = 0.0;
 					vec2 history_uv = in_uv + wave_block.origin_shift;
 
@@ -587,7 +597,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 				const float FOAM_BIAS = ]] .. FOAM_BIAS .. [[;
 				const float FOAM_WEIGHT = ]] .. cascade.foam_weight .. [[;
 				const float FOAM_GAIN = ]] .. FOAM_GAIN .. [[;
-				]] .. water_field.GetGLSL("wave_block") .. field_surface_glsl .. [[
+				]] .. glsl_common.GetNoiseGLSL() .. water_field.GetGLSL("wave_block") .. surf.GetGLSL("wave_block") .. field_surface_glsl .. [[
 
 				void main() {
 					vec2 world_xz = wave_block.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
@@ -599,9 +609,14 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 					float left_behind = textureLod(TEXTURE(wave_block.foam_tex), in_uv, 0.0).r;
 					float fresh = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT;
 					float depth = water_field_depth(world_xz);
-					float damping = water_field_damping(depth) * water_field_height_scale(height, depth);
-					fresh += water_field_breaking(height, depth) * FOAM_WEIGHT;
-					set_wave_data(vec4(height * damping, slope * damping, left_behind + fresh));
+					float surf_height;
+					vec2 surf_slope;
+					float whitewater;
+					float surf_presence;
+					surf_wave(world_xz, depth, wave_block.time, shelter, surf_height, surf_slope, whitewater, surf_presence);
+					float damping = water_field_damping(depth) * water_field_height_scale(height, depth) * (1.0 - SURF_TAKEOVER * surf_presence);
+					fresh += water_field_breaking(height, depth) * FOAM_WEIGHT + whitewater * SURF_FOAM * 0.25;
+					set_wave_data(vec4(height * damping + surf_height, slope * damping + surf_slope, left_behind + fresh));
 				}
 				]],
 			},
@@ -635,7 +650,7 @@ local function write_ocean(self, block)
 	block.ocean_molecular[2] = medium.Molecular.z
 	block.ocean_phase_g = medium.PhaseG
 	block.ocean_scattering[3] = params.Foam
-	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
+	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05 + surf.GetHeightBound()
 	block.ocean_wave_info[1] = params.Caustics
 	block.ocean_wave_info[2] = waves.total_slope_variance
 	block.ocean_wave_info[3] = medium.AbbeNumber
@@ -773,6 +788,7 @@ list.insert(
 					{"sea_offset", "vec4"},
 					{"field_debug", "int"},
 					water_field.GetFields(),
+					surf.GetFields(),
 					medium_surface.block,
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					post_source.pre_exposure_block,
@@ -831,6 +847,7 @@ list.insert(
 					scene_lights.WriteShadowBlock(self, block.shadows, lights)
 					write_ocean(self, block)
 					water_field.WriteBlock(self, block, water.GetOcean().ShoalDepth)
+					surf.WriteBlock(self, block)
 					block.field_debug = field_debug_pvar:Get() and 1 or 0
 					medium_surface.WriteBlock(self, block)
 					caustics.WriteCoverageBlock(block)
@@ -942,6 +959,8 @@ list.insert(
 				or
 				scene_hits.CONSTANTS_GLSL .. "#define RADIANCE_CACHE_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
 			) .. [[
+
+			]] .. surf.GetGLSL("water_data") .. [[
 
 			float get_blue_noise() {
 				if (water_data.blue_noise_tex == -1) return 0.5;
@@ -1909,6 +1928,13 @@ if (w.volume >= 0) {
 					float shaft = step(abs(along.y), 0.04) * step(abs(along.x), 0.35);
 					float head = step(0.15, along.x) * step(along.x, 0.4) * step(abs(along.y), (0.4 - along.x) * 0.8);
 					tint = mix(tint, vec3(0.0), max(shaft, head));
+					float surf_height;
+					vec2 surf_slope;
+					float whitewater;
+					float surf_presence;
+					surf_wave(surface_pos.xz, water_field_depth(surface_pos.xz), water_data.time, field.y, surf_height, surf_slope, whitewater, surf_presence);
+					tint = mix(tint, vec3(0.1, 0.4, 1.0), surf_presence * 0.5);
+					tint = mix(tint, vec3(1.0, 0.1, 0.0), clamp(whitewater, 0.0, 1.0));
 					return tint * get_sun_illuminance() * 0.08;
 				}
 
@@ -2049,7 +2075,7 @@ if (w.volume >= 0) {
 
 				if (density > 0.0) {
 					vec2 lace = foam_lace(foam_p, density, foam_footprint, water_data.time);
-					float opacity = mix(lace.x * mix(0.35, 0.85, density), density * 0.4, smoothstep(0.15, 1.2, above_footprint));
+					float opacity = mix(lace.x * mix(0.35, 0.85, density), density * 0.75, smoothstep(0.15, 1.2, above_footprint));
 					vec3 foam_light = sun_light * (clamp((sun.y + 0.4) / 1.4, 0.0, 1.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), RADIANCE_CACHE_NO_VISIBILITY_RAYS, true);
 					color = mix(color, foam_light * 0.8 * exp(-get_extinction(w) * 0.4), smoothstep(0.0, 1.0, max(cap_density, shore_density)) * 0.25 * shore_blend);
 					color = mix(color, foam_light * 0.75 * lace.y, opacity);

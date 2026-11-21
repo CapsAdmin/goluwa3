@@ -12,6 +12,7 @@ local WAVE_KEYS = {
 	"SwellWavelength",
 	"SwellDirection",
 	"Directionality",
+	"Surf",
 	"Seed",
 }
 
