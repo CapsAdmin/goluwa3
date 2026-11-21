@@ -513,7 +513,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 				vec3 unshadowed_radiance = light.color.rgb * light.color.a * attenuation;
 
-				if (type == 0) unshadowed_radiance *= get_ground_fog_sun_transmittance(get_atmosphere_camera_origin(s.world_pos), L);
+				if (type == 0) unshadowed_radiance *= get_ground_fog_sun_transmittance(get_atmosphere_camera_origin(s.world_pos), L) * get_sun_transmittance_from_origin(s.world_pos, L);
 
 				float lobe_alpha_min = s.roughness_alpha;
 				]] .. surface_features.GetDirectPeakGLSL() .. [[

@@ -1000,6 +1000,12 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return exponential_layer_transmittance(altitude, sun_up, fog_extinction, precipitation_extinction, GROUND_FOG_SCALE_HEIGHT, GROUND_FOG_START_HEIGHT, GROUND_FOG_TOP_HEIGHT, GROUND_FOG_TINT);
 	}
 
+	// the sun light's color already holds the transmittance at the world origin, this turns it into the transmittance at a world position, so far points on the planet see their own sun elevation
+	vec3 get_sun_transmittance_from_origin(vec3 world_pos, vec3 sun_dir) {
+		vec3 reference = sample_transmittance_lut(get_atmosphere_camera_origin(vec3(0.0)), sun_dir);
+		return sample_transmittance_lut(get_atmosphere_camera_origin(world_pos), sun_dir) / max(reference, vec3(1e-6));
+	}
+
 	vec3 get_ground_fog_sun_transmittance(vec3 point, vec3 sun_dir) {
 		return ground_fog_sun_transmittance(length(point) - PLANET_RADIUS, dot(normalize(point), sun_dir), ATMOSPHERE_GROUND_FOG_EXTINCTION, ATMOSPHERE_PRECIPITATION_EXTINCTION);
 	}
