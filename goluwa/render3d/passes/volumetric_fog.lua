@@ -1088,7 +1088,14 @@ local composite_pass = {
 						float handover = FROXEL_FAR * length(view_dir) * (1.0 - smoothstep(4.0, 16.0, camera_altitude));
 
 						if (ATMOSPHERE_ENABLED != 0 && hit_distance > handover) {
-							scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, handover, hit_distance);
+							if (cloud.a < 1.0 && cloud_depth > handover) {
+								scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, cloud_depth, hit_distance) * cloud.a + cloud.rgb;
+								scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, handover, cloud_depth);
+								cloud = vec4(0.0, 0.0, 0.0, 1.0);
+							} else {
+								scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, handover, hit_distance);
+							}
+
 							froxel_distance = handover;
 						}
 
