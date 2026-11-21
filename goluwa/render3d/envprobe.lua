@@ -1273,6 +1273,10 @@ do
 	end
 end
 
+function envprobe.ForceBake()
+	envprobe.last_sun_direction = nil
+end
+
 local function transition_face(cmd, texture, face_idx, to_attachment)
 	if to_attachment then
 		render.TransitionResourceTo(

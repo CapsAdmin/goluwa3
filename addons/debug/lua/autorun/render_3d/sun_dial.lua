@@ -7,6 +7,7 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local weather = import("goluwa/render3d/weather.lua")
+local envprobe = import("goluwa/render3d/envprobe.lua")
 local SunShadowEditor = import("lua/sun_shadow_editor.lua")
 local WIDTH = 604
 local HEIGHT = 412
@@ -390,7 +391,7 @@ end
 
 local DragSurface = react.Component(
 	|props|-> do
-		local drag = react.UseDrag{OnDrag = props.OnDrag}
+		local drag = react.UseDrag{OnDrag = props.OnDrag, OnEnd = envprobe.ForceBake}
 		return ui.Panel{
 			transform = true,
 			layout = props.layout,
