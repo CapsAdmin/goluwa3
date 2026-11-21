@@ -1,6 +1,7 @@
 local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local TerrainPhysics = import("goluwa/terrain/physics.lua")
+local planet = import("goluwa/planet.lua")
 local ffi = require("ffi")
 local FloatArray = ffi.typeof("float[?]")
 local HeightPhysics = {}
@@ -25,7 +26,9 @@ function HeightPhysics:AcquireChunk(request, callback)
 
 	for z = 0, samples - 1 do
 		for x = 0, samples - 1 do
-			heights[z * samples + x] = height(request.min_x + x * step, request.min_z + z * step)
+			local world_x = request.min_x + x * step
+			local world_z = request.min_z + z * step
+			heights[z * samples + x] = height(world_x, world_z) - planet.GetDrop(world_x, world_z)
 		end
 	end
 

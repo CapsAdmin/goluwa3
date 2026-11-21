@@ -4,6 +4,7 @@ local Texture = import("goluwa/render/texture.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local TerrainSource = import("goluwa/terrain/source.lua")
+local planet = import("goluwa/planet.lua")
 local ShaderSource = setmetatable({}, {__index = TerrainSource})
 ShaderSource.__index = ShaderSource
 local FloatArray = ffi.typeof("float[?]")
@@ -100,7 +101,8 @@ vec3 terrain_bake_normal(vec2 p) {
 }
 ]]
 local HEIGHT_BAKE = [[
-	float h = terrain_height(terrain_bake_world_pos());
+	vec2 p = terrain_bake_world_pos();
+	float h = terrain_height(p) - planet_drop(p);
 	return vec4(h, h, h, 1.0);
 ]]
 local NORMAL_BAKE = [[
@@ -109,19 +111,19 @@ local NORMAL_BAKE = [[
 ]]
 local SPLAT_BAKE = [[
 	vec2 p = terrain_bake_world_pos();
-	float h = terrain_bake_field(p);
+	float h = terrain_bake_field(p) + planet_drop(p);
 	vec3 n = terrain_bake_normal(p);
 	return terrain_splat(p, h, n);
 ]]
 local SPLAT2_BAKE = [[
 	vec2 p = terrain_bake_world_pos();
-	float h = terrain_bake_field(p);
+	float h = terrain_bake_field(p) + planet_drop(p);
 	vec3 n = terrain_bake_normal(p);
 	return terrain_splat2(p, h, n);
 ]]
 local COLOR_BAKE = [[
 	vec2 p = terrain_bake_world_pos();
-	float h = terrain_bake_field(p);
+	float h = terrain_bake_field(p) + planet_drop(p);
 	vec3 n = terrain_bake_normal(p);
 	return vec4(terrain_color(p, h, n), 1.0);
 ]]
@@ -162,6 +164,7 @@ function ShaderSource.New(config)
 	self.SelectChunkLayers = config.SelectChunkLayers
 	self.ShaderHeader = table.concat(
 		{
+			planet.GLSL,
 			BAKE_STEP_HELPER,
 			config.Header or
 			"",

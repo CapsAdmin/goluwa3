@@ -50,29 +50,31 @@ end
 
 T.Test3D("heightmap source samples heights in the map orientation", function()
 	local data = make_data()
-	T(HeightmapSource.SampleHeight(data, 0, 0))["=="](0)
-	T(HeightmapSource.SampleHeight(data, -1000, 5))["=="](0)
+	T(HeightmapSource.SampleLocalHeight(data, 0, 0))["=="](0)
+	T(HeightmapSource.SampleLocalHeight(data, -1000, 5))["=="](0)
 	T(
-		math.abs(HeightmapSource.SampleHeight(data, 256, -256) - (8 * 16 + 8) * 256 / 65535 * 100) < 0.5
+		math.abs(HeightmapSource.SampleLocalHeight(data, 256, -256) - (
+					8 * 16 + 8
+				) * 256 / 65535 * 100) < 0.5
 	)["=="](true)
 end)
 
 T.Test3D("heightmap source moves with its origin and follows the outside policy", function()
 	local data = make_data()
-	local inside = HeightmapSource.SampleHeight(data, 256, -256)
+	local inside = HeightmapSource.SampleLocalHeight(data, 256, -256)
 	data.origin = {1000, 2000}
-	T(HeightmapSource.SampleHeight(data, 1256, 1744))["=="](inside)
-	T(HeightmapSource.SampleHeight(data, 256, -256))["=="](0)
+	T(HeightmapSource.SampleLocalHeight(data, 1256, 1744))["=="](inside)
+	T(HeightmapSource.SampleLocalHeight(data, 256, -256))["=="](0)
 	data.outside = "clamp"
 	T(
-		HeightmapSource.SampleHeight(data, 1000 - 80, 2000) == HeightmapSource.SampleHeight(data, 1000, 2000)
+		HeightmapSource.SampleLocalHeight(data, 1000 - 80, 2000) == HeightmapSource.SampleLocalHeight(data, 1000, 2000)
 	)["=="](true)
-	T(HeightmapSource.SampleHeight(data, 1000 - 80, 2000) == 0)["=="](true)
-	local corner = HeightmapSource.SampleHeight(data, 1000 + 512 + 80, 2000 - 512 - 80)
-	T(corner == HeightmapSource.SampleHeight(data, 1000 + 512, 2000 - 512))["=="](true)
+	T(HeightmapSource.SampleLocalHeight(data, 1000 - 80, 2000) == 0)["=="](true)
+	local corner = HeightmapSource.SampleLocalHeight(data, 1000 + 512 + 80, 2000 - 512 - 80)
+	T(corner == HeightmapSource.SampleLocalHeight(data, 1000 + 512, 2000 - 512))["=="](true)
 	T(corner > 90)["=="](true)
 	data.outside = 7.5
-	T(HeightmapSource.SampleHeight(data, 0, 0))["=="](7.5)
+	T(HeightmapSource.SampleLocalHeight(data, 0, 0))["=="](7.5)
 end)
 
 T.Test3D("heightmap file round trips the maps and the layers", function()
@@ -107,7 +109,7 @@ T.Test3D("heightmap file round trips the maps and the layers", function()
 	T(loaded.layers[2].scale)["=="](3)
 	T(loaded.layers[2].albedo.config.path)["=="](LAYER_SOURCE)
 	T(loaded.layers[1])["=="](nil)
-	T(HeightmapSource.SampleHeight(loaded, 256, -256))["=="](HeightmapSource.SampleHeight(data, 256, -256))
+	T(HeightmapSource.SampleLocalHeight(loaded, 256, -256))["=="](HeightmapSource.SampleLocalHeight(data, 256, -256))
 	fs.remove_directory_recursive(DIRECTORY)
 	fs.remove_file(LAYER_SOURCE)
 end)

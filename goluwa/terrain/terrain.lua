@@ -9,6 +9,7 @@ local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local tiles = import("goluwa/terrain/tiles.lua")
 local TerrainPhysics = import("goluwa/terrain/physics.lua")
 local system = import("goluwa/system.lua")
+local planet = import("goluwa/planet.lua")
 local commands = import("goluwa/cli/commands.lua")
 local Terrain = {}
 Terrain.__index = Terrain
@@ -587,7 +588,16 @@ function Terrain:RetireTiles()
 		local best, best_rank, best_index = nil, math.huge
 
 		for i = 1, #due do
-			local rank = self.ViewPriority:Rank(due[i].min_x, min_height, due[i].min_z, due[i].max_x, max_height, due[i].max_z)
+			local tile = due[i]
+			local near_drop, far_drop = planet.GetDropRange(tile.min_x, tile.min_z, tile.max_x, tile.max_z)
+			local rank = self.ViewPriority:Rank(
+				tile.min_x,
+				min_height - far_drop,
+				tile.min_z,
+				tile.max_x,
+				max_height - near_drop,
+				tile.max_z
+			)
 
 			if rank < best_rank then best, best_rank, best_index = due[i], rank, i end
 		end
@@ -739,7 +749,15 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 		local tile = self.Tiles[key]
 
 		if not tile.entity then
-			local priority = view_priority:Rank(want.min_x, min_height, want.min_z, want.max_x, max_height, want.max_z)
+			local near_drop, far_drop = planet.GetDropRange(want.min_x, want.min_z, want.max_x, want.max_z)
+			local priority = view_priority:Rank(
+				want.min_x,
+				min_height - far_drop,
+				want.min_z,
+				want.max_x,
+				max_height - near_drop,
+				want.max_z
+			)
 			local under = covered[key]
 
 			for level = want.level + 1, self.Levels - 1 do

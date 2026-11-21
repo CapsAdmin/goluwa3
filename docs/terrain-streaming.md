@@ -25,6 +25,10 @@ A `terrain` component with an empty `Path` owns its data as properties: `Size`, 
 - Per-frame scans over all tiles must use cached tile bounds and per-level grids (`GatherOverlappingDesired`), not recompute levels or compare every retiring tile with every desired one.
 - Debug: the `terrain_tiles` command (`Terrain:GetDebugReport()`) lists counts and tiles that should be drawn but are hidden; the TERRAIN tab of the PERF window (`terrain_stats`). `addons/examples/lua/examples/render3d/terrain_debug.lua` is a bare rolling terrain with a hue per level; oblique views only (top-down from high looks grey).
 
+## Planet curvature
+
+Sources work in local height (meters above the planet's datum, what `HeightGLSL`, the map samples and `HeightmapSource.SampleLocalHeight` return); the baked heights, the tile meshes, height colliders (`HeightPhysics`) and `HeightmapSource.SampleHeight` (world `TerrainHeight` for roads, decals, foliage, the editor) are world y, the local height minus `planet.GetDrop(x, z)` (see render3d-lighting.md, Planet). Splat and color bakes get the local height back. Build priorities use each tile's drop range.
+
 ## Height functions of a shader source
 
 `terrain_bake_step()` is the sample spacing of the texture being baked, which differs between the mesh heights and the finer field, normal, splat and color bakes of the same tile; anything that changes the height itself with level (octave dropping aside) must use `terrain_tile_step()` (the mesh spacing of the tile, the same in every bake of it), or the mesh and its splat and normals disagree. A pattern finer than a few mesh samples aliases, so a procedural pattern should coarsen with `terrain_tile_step()` (a checkerboard can double its cell size per ring so it stays readable from far above).

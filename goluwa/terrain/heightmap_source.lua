@@ -1,5 +1,6 @@
 local Texture = import("goluwa/render/texture.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
+local planet = import("goluwa/planet.lua")
 local HeightmapSource = {}
 local CLAMPED = {
 	min_filter = "linear",
@@ -286,8 +287,13 @@ function HeightmapSource.UploadMaps(source)
 	if source.IndexTexture then source.IndexTexture:Upload(data.indices.samples) end
 end
 
--- the height in meters at a world position, bilinear in the samples
+-- the world y of the surface at a world position (the map's height bilinear in the samples, minus the planet's curvature)
 function HeightmapSource.SampleHeight(data, x, z)
+	return HeightmapSource.SampleLocalHeight(data, x, z) - planet.GetDrop(x, z)
+end
+
+-- the height in meters above the datum at a world position, bilinear in the samples
+function HeightmapSource.SampleLocalHeight(data, x, z)
 	local u, v = HeightmapSource.ToMap(data, x, z)
 
 	if u < 0 or u > 1 or v < 0 or v > 1 then

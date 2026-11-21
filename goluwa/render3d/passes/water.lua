@@ -30,6 +30,7 @@ local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local BINDING_OCCLUSION = 10
 local BINDING_OPTICAL = 11
 local pvars = import("goluwa/cli/pvars.lua")
+local planet = import("goluwa/planet.lua")
 local FEATURES = {}
 pvars.StartGroup("Environment", "Water", {store = false, prefix = "water_"})
 
@@ -943,7 +944,6 @@ list.insert(
 			}
 
 			#define WATER_NEAR_PLANE (0.1 * water_data.view_scale)
-			const float WATER_TRACE_RANGE = 1000000.0;
 			const float WATER_MAX_SLOPE = 1.5;
 			const float WATER_MULTIPLE_SCATTERING = 0.5;
 			const float WATER_CREST_GLOW = 20.0;
@@ -969,7 +969,7 @@ list.insert(
 				return water_feature(WATER_SUN_SHADOWS) ? get_water_sun_visibility_shadowed(p, dir) : 1.0;
 			}
 
-			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
+			]] .. planet.GLSL .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 				RAY_QUERY and
 				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("water_data") .. scene_hits.GetDirectionGLSL() .. light_occlusion.GetSamplingGLSL("water_data") .. scene_lights.GetPointShadowGLSL("water_data")
@@ -1105,7 +1105,7 @@ list.insert(
 
 			float get_water_surface_height(vec2 world_xz) {
 				float variance;
-				return water_data.ocean_level + get_wave_data(world_xz, 0.0, variance).r;
+				return water_data.ocean_level - planet_drop(world_xz) + get_wave_data(world_xz, 0.0, variance).r;
 			}
 
 			const float OCEAN_RIPPLE_UPWIND_SHARE = 0.1;
@@ -1158,13 +1158,10 @@ list.insert(
 				float camera_height = camera_origin.y - get_water_surface_height(camera_origin.xz);
 
 				if (camera_height >= 0.0) {
-					float top = water_data.ocean_level + wave_bound;
-					float bottom = water_data.ocean_level - wave_bound;
-					float dy = abs(ray_dir.y) < 1e-5 ? 1e-5 : ray_dir.y;
-					float ta = (top - camera_origin.y) / dy;
-					float tb = (bottom - camera_origin.y) / dy;
-					float t = max(min(ta, tb), 0.0);
-					float t_end = min(max(ta, tb), min(scene_limit, WATER_TRACE_RANGE));
+					vec2 top_hit = planet_sphere_intersect(camera_origin, ray_dir, water_data.ocean_level + wave_bound);
+					vec2 bottom_hit = planet_sphere_intersect(camera_origin, ray_dir, water_data.ocean_level - wave_bound);
+					float t = max(top_hit.x, 0.0);
+					float t_end = min(bottom_hit.x > 0.0 ? bottom_hit.x : top_hit.y, scene_limit);
 
 					if (t >= t_end) return -1.0;
 
@@ -1200,9 +1197,9 @@ list.insert(
 					}
 
 					if (!crossed) {
-						float mean_t = (water_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
+						float mean_t = planet_surface_t(camera_origin, ray_dir, water_data.ocean_level);
 
-						if (ray_dir.y < 0.0 && last_h < wave_bound * 2.0 && mean_t > 0.0 && mean_t < scene_limit) {
+						if (last_h < wave_bound * 2.0 && mean_t > 0.0 && mean_t < scene_limit) {
 							hit_pos = ray_dir * mean_t;
 							return mean_t;
 						}
@@ -1284,9 +1281,9 @@ list.insert(
 
 				if (!found_bracket) {
 					if (start_h * end_h > 0.0) {
-						float mean_t = (water_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
+						float mean_t = planet_surface_t(camera_origin, ray_dir, water_data.ocean_level);
 
-						if (camera_height >= 0.0 && ray_dir.y < 0.0 && mean_t > 0.0 && mean_t < scene_limit) {
+						if (camera_height >= 0.0 && mean_t > 0.0 && mean_t < scene_limit) {
 							hit_pos = ray_dir * mean_t;
 							return mean_t;
 						}
@@ -1389,7 +1386,7 @@ list.insert(
 				vec2 flow;
 			};
 
-			Water get_ocean_water() {
+			Water get_ocean_water(vec3 world_pos) {
 				Water w;
 				w.volume = -1;
 				w.absorption = water_data.ocean_absorption.rgb;
@@ -1398,7 +1395,7 @@ list.insert(
 				w.g = water_data.ocean_phase_g;
 				w.ior = water_data.ocean_absorption.w;
 				w.abbe = water_data.ocean_wave_info.w;
-				w.surface_y = water_data.ocean_level;
+				w.surface_y = water_data.ocean_level - planet_drop(world_pos.xz);
 				w.foam = water_data.ocean_scattering.w;
 				w.caustics = water_data.ocean_wave_info.y;
 				w.roughness = 0.0;
@@ -1604,7 +1601,7 @@ list.insert(
 			const float WET_REACH = 0.3;
 
 			float get_height_above_water(vec3 world_pos) {
-				float above = water_data.ocean_enabled != 0 ? world_pos.y - water_data.ocean_level : 1e30;
+				float above = water_data.ocean_enabled != 0 ? world_pos.y + planet_drop(world_pos.xz) - water_data.ocean_level : 1e30;
 
 				for (int i = 0; i < optical_ranges.y; i++) {
 					vec3 local = (water_volume_to_local(i) * vec4(world_pos, 1.0)).xyz;
@@ -1634,7 +1631,7 @@ list.insert(
 
 				if (level <= 0.0) return 0.0;
 
-				return 1.0 - smoothstep(-0.02, 0.03, world_pos.y - water_data.ocean_level - (level - SWASH_LEVEL_BIAS));
+				return 1.0 - smoothstep(-0.02, 0.03, world_pos.y + planet_drop(world_pos.xz) - water_data.ocean_level - (level - SWASH_LEVEL_BIAS));
 			}
 
 			float get_wetness(vec3 world_pos, float above) {
@@ -2284,7 +2281,8 @@ if (w.volume >= 0) {
 				vec3 ray_dir = get_view_ray(in_uv);
 				vec3 camera_origin = water_data.camera_position.xyz + ray_dir * WATER_NEAR_PLANE;
 
-				bool near_surface = water_data.ocean_enabled != 0 && abs(camera_origin.y - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
+				float camera_datum_y = camera_origin.y + planet_drop(camera_origin.xz);
+				bool near_surface = water_data.ocean_enabled != 0 && abs(camera_datum_y - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
 
 				for (int i = 0; i < optical_ranges.y && !near_surface; i++) {
 					vec3 local = (water_volume_to_local(i) * vec4(camera_origin, 1.0)).xyz;
@@ -2363,10 +2361,9 @@ if (w.volume >= 0) {
 					camera_under_ocean = camera_surface_delta < 0.0;
 					float trace_plane_y = water_data.ocean_level + (camera_under_ocean ? -wave_bound : wave_bound);
 
-					if (!camera_under_ocean && camera_origin.y < trace_plane_y) trace_plane_y = water_data.ocean_level;
+					if (!camera_under_ocean && camera_datum_y < trace_plane_y) trace_plane_y = water_data.ocean_level;
 
-					float denom = abs(ray_dir.y) < 1e-5 ? 1e-5 : ray_dir.y;
-					float plane_t = (trace_plane_y - camera_origin.y) / denom;
+					float plane_t = planet_surface_t(camera_origin, ray_dir, trace_plane_y);
 					float trace_anchor_t = plane_t > 0.0 ? plane_t : -1.0;
 
 					if (trace_anchor_t <= 0.0 && abs(camera_surface_delta) <= wave_bound * 1.7) {
@@ -2388,7 +2385,7 @@ if (w.volume >= 0) {
 				bool volume_in_sea = false;
 
 				if (volume >= 0 && water_data.ocean_enabled != 0) {
-					volume_in_sea = abs(water_volume_shape(volume).w - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
+					volume_in_sea = abs(water_volume_shape(volume).w + planet_drop(camera_origin.xz) - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
 
 					if (volume_in_sea && !volume_top && volume_entry > 0.0) volume = -1;
 				}
@@ -2448,7 +2445,7 @@ if (w.volume >= 0) {
 								float sea_alpha;
 								float sea_fold;
 								get_ocean_surface(surface_pos.xz, footprint, sea_normal, sea_alpha, sea_fold);
-								w = mix_water(get_ocean_water(), w, inside);
+								w = mix_water(get_ocean_water(surface_pos), w, inside);
 								normal = normalize(mix(sea_normal, normal, inside));
 								alpha = mix(sea_alpha, alpha, inside);
 								fold = sea_fold * (1.0 - inside);
@@ -2472,7 +2469,7 @@ if (w.volume >= 0) {
 						return;
 					}
 
-					w = get_ocean_water();
+					w = get_ocean_water(camera_under_ocean ? camera_origin : camera_origin + ocean_local_pos);
 
 					if (camera_under_ocean) {
 						surface_t = ocean_t > 0.0 ? ocean_t : -1.0;
@@ -2484,14 +2481,16 @@ if (w.volume >= 0) {
 							vec4 wd = get_wave_data(p.xz, footprint, variance);
 							vec2 grad = wd.gb;
 							add_detail_ripples(p.xz, footprint, 1.0, grad, unused_hess);
-							normal_up = normalize(vec3(-grad.x, 1.0, -grad.y));
+							normal_up = planet_to_world(normalize(vec3(-grad.x, 1.0, -grad.y)), planet_up(p));
 						}
 
 						exit_t = WATER_OPEN_DEPTH;
 						shade_mode = 1;
 					} else {
 						surface_pos = camera_origin + ocean_local_pos;
-						get_ocean_surface(surface_pos.xz, get_pixel_footprint(ocean_t, ray_dir.y), normal, alpha, fold);
+						vec3 surface_up = planet_up(surface_pos);
+						get_ocean_surface(surface_pos.xz, get_pixel_footprint(ocean_t, dot(ray_dir, surface_up)), normal, alpha, fold);
+						normal = planet_to_world(normal, surface_up);
 						entry_t = ocean_t;
 						shade_mode = 2;
 					}
