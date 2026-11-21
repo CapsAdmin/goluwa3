@@ -167,6 +167,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 	local function add_decal(entry, parent_guid)
 		local transform_data = level.ConvertCryDecalMatrixToEngineTransform(entry.world_matrix)
+		local diffuse = entry.diffuse
 		add{
 			guid = level_guid .. ":decal:" .. entry.cry_index,
 			parent = parent_guid,
@@ -181,7 +182,8 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					Material = entry.material_path,
 					Projection = DECAL_PROJECTIONS[entry.projection_type] or "planar",
 					SortPriority = entry.sort_priority,
-					VRange = Vec2(1, 0),
+					URange = Vec2(diffuse.offset_u, diffuse.offset_u + diffuse.tile_u),
+					VRange = Vec2(diffuse.offset_v + diffuse.tile_v, diffuse.offset_v),
 					HeightMidlevel = level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE and 1 or 0.5,
 					SharpAlpha = level.DECAL_ALPHA_IS_SHARPENED,
 				},

@@ -1,5 +1,6 @@
 local startup = import("goluwa/startup.lua")
 local mtl_material = import("lua/crysis_loader/mtl_material.lua")
+local Material = import("goluwa/render3d/material.lua")
 local xml = import("goluwa/codecs/xml.lua")
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
@@ -1608,6 +1609,8 @@ function level.Load(level_dir)
 
 	for _, decal in ipairs(extra.decals) do
 		decal.material_path = game.ResolveMaterialPath(level_dir, decal.material_path)
+		local slots, material = Material.GetOverrideFromPath(decal.material_path)
+		decal.diffuse = (slots and slots[0] or material).cry_texture_maps.Diffuse
 	end
 
 	for _, road in ipairs(extra.roads) do
