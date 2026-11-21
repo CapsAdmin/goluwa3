@@ -2,6 +2,7 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local tonemappers = import("goluwa/render3d/tonemappers.lua")
+local test_chart = import("goluwa/render3d/test_chart.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -42,6 +43,11 @@ local tonemapper = pvars.Setup2{
 	default = "neutral",
 	enums = tonemappers.names,
 	help = "the curve that maps the exposed scene to the display. neutral keeps the exposed colour as it is and only rolls the highlights off to the display's peak, the others are looks. slog3 and logc encode the scene like that camera (curve and wide gamut) and hand it to the look up table (r_grade_lut) as the display transform; without a table the encoded image itself is shown, the flat grey look of log footage, and on HDR outputs they show as neutral",
+}
+local chart_enabled = pvars.Setup2{
+	key = "r_test_chart",
+	default = false,
+	help = "replace the scene with a reference chart (a 24 patch colour chart, a grey ramp in stops around 18% grey and saturated hues) as exact scene values, before the tonemapper, to judge tonemappers, encoders and tables",
 }
 
 function render3d.GetTonemapperIndex()
@@ -543,7 +549,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 8) uniform sampler2D afterimage_tex;
 	layout(set = 0, binding = 9) uniform sampler2D afterimage_bleach_tex;
 	layout(set = 0, binding = 10) uniform sampler2D afterimage_source_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12) .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
 
 	float effective_paper_white;
 
@@ -670,6 +676,8 @@ local compute_shader = [[
 			float grain = float(h & 0xffffu) / 65535.0 + float(h >> 16) / 65535.0 - 1.0;
 			col *= 1.0 + 0.006 * sqrt(max(iso / 100.0 - 1.0, 0.0)) * grain;
 		}
+
+		if (compute.test_chart != 0) col = test_chart(uv) / exposure;
 
 		if (compute.output_mode == 0) {
 			if (compute.debug_passthrough != 0) {
@@ -882,6 +890,7 @@ for _, pass in ipairs{
 			{"dither_steps", "float"},
 			{"has_exposure_tex", "int"},
 			{"tonemapper", "int"},
+			{"test_chart", "int"},
 			{"bloom_strength", "vec4"},
 			{"bloom_threshold", "float"},
 			{"night_vision", "float"},
@@ -921,6 +930,7 @@ for _, pass in ipairs{
 
 			block.dither_steps = dither:Get() and 2 ^ bits - 1 or 0
 			block.tonemapper = render3d.GetTonemapperIndex()
+			block.test_chart = chart_enabled:Get() and 1 or 0
 			write_bloom_strength(block.bloom_strength)
 			block.bloom_threshold = render3d.GetBloomThreshold()
 			block.night_vision = exposure_model.IsEye() and exposure_model.Get("eye.night_vision") and 1 or 0
