@@ -477,10 +477,10 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 		{
 			vec3 diffuse = vec3(0.0);
 			specular = vec3(0.0);
-			vec2 direct_env_brdf = texture(TEXTURE(]] .. block_name .. [[.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
+			vec4 direct_lut = texture(TEXTURE(]] .. block_name .. [[.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness));
+			vec2 direct_env_brdf = direct_lut.rg;
 			vec3 energy_compensation = GGXEnergyCompensation(s.F0, direct_env_brdf);
 			vec3 diffuse_view = max(1.0 - (s.F0 * direct_env_brdf.x + F90(s.F0) * direct_env_brdf.y) * energy_compensation, vec3(0.0)) * (1.0 - s.metallic);
-			vec3 average_fresnel = s.F0 + (vec3(F90(s.F0)) - s.F0) / 21.0;
 
 			int light_cell = light_grid_cell(s.world_pos);
 
@@ -633,7 +633,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				vec3 F = F_Schlick(s.F0, LoH);
 
 				vec3 Fr = (D * V_func) * F * energy_compensation;
-				vec3 Fd = Fd_EON(s.albedo, s.perceptual_roughness, NoL, s.NdotV, dot(L, s.V)) * diffuse_view * (1.0 - F_Schlick(s.F0, NoL)) / max(1.0 - average_fresnel, vec3(0.001));
+				vec3 Fd = Fd_EON(s.albedo, s.perceptual_roughness, NoL, s.NdotV, dot(L, s.V)) * diffuse_view * GGXDiffuseCoupling(s.F0, texture(TEXTURE(]] .. block_name .. [[.brdf_lut_tex), vec2(NoL, s.perceptual_roughness)).rg, direct_lut.ba);
 
 				float diffuse_weight = 1.0;
 				]] .. surface_features.GetDirectLayerGLSL() .. [[

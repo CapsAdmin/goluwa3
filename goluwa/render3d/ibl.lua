@@ -119,6 +119,14 @@ function ibl.GetBRDFGLSLCode()
 				return 1.0 / (1.0 - (1.0 - min(env_brdf.x + env_brdf.y, 1.0)) * average_fresnel);
 			}
 
+			vec3 GGXSpecularAlbedo(vec3 f0, vec2 env_brdf) {
+				return (f0 * env_brdf.x + F90(f0) * env_brdf.y) * GGXEnergyCompensation(f0, env_brdf);
+			}
+
+			vec3 GGXDiffuseCoupling(vec3 f0, vec2 light_env_brdf, vec2 average_env_brdf) {
+				return max(1.0 - GGXSpecularAlbedo(f0, light_env_brdf), vec3(0.0)) / max(1.0 - GGXSpecularAlbedo(f0, average_env_brdf), vec3(0.001));
+			}
+
 			float RadicalInverse_Vdc(uint bits) {
 				bits = (bits << 16u) | (bits >> 16u);
 				bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);

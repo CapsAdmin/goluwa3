@@ -14,8 +14,9 @@ local tex = Texture.New{
 tex:Shade([[
 	const float PI          = 3.14159265359;
 	const uint  NUM_SAMPLES = 1024u;
-	const float INV_SAMPLES = 1.0 / float(NUM_SAMPLES);
 	const float EPSILON     = 0.001;
+	const uint  AVERAGE_STRATA = 32u;
+	const uint  AVERAGE_SAMPLES = 256u;
 
 	float radicalInverse(uint bits) {
 		bits = (bits << 16u) | (bits >> 16u);
@@ -24,10 +25,6 @@ tex:Shade([[
 		bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
 		bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
 		return float(bits) * 2.3283064365386963e-10;
-	}
-
-	vec2 hammersley(uint i) {
-		return vec2(float(i) * INV_SAMPLES, radicalInverse(i));
 	}
 
 	vec3 importanceSampleGGX(vec2 Xi, float roughness) {
@@ -45,18 +42,13 @@ tex:Shade([[
 		return 0.5 / (lambdaV + lambdaL);
 	}
 
-	vec4 shade(vec2 uv, vec3 _cube_dir) {
-		float NdotV    = max(uv.x, EPSILON);
-		float roughness = uv.y;
-		float alpha = max(roughness * roughness, EPSILON);
-
+	vec2 integrate_dfg(float NdotV, float roughness, float alpha, uint sample_count) {
 		vec3 V = vec3(sqrt(1.0 - NdotV * NdotV), 0.0, NdotV);
-
 		float DFG1 = 0.0;
 		float DFG2 = 0.0;
 
-		for (uint i = 0u; i < NUM_SAMPLES; i++) {
-			vec2 Xi = hammersley(i);
+		for (uint i = 0u; i < sample_count; i++) {
+			vec2 Xi = vec2(float(i) / float(sample_count), radicalInverse(i));
 			vec3 H  = importanceSampleGGX(Xi, roughness);
 			vec3 L  = normalize(2.0 * dot(V, H) * H - V);
 
@@ -74,7 +66,20 @@ tex:Shade([[
 			}
 		}
 
-		return vec4(DFG1 * INV_SAMPLES, DFG2 * INV_SAMPLES, 0.0, 1.0);
+		return vec2(DFG1, DFG2) / float(sample_count);
+	}
+
+	vec4 shade(vec2 uv, vec3 _cube_dir) {
+		float roughness = uv.y;
+		float alpha = max(roughness * roughness, EPSILON);
+		vec2 dfg = integrate_dfg(max(uv.x, EPSILON), roughness, alpha, NUM_SAMPLES);
+		vec2 cosine_average = vec2(0.0);
+
+		for (uint i = 0u; i < AVERAGE_STRATA; i++) {
+			cosine_average += integrate_dfg(max(sqrt((float(i) + 0.5) / float(AVERAGE_STRATA)), EPSILON), roughness, alpha, AVERAGE_SAMPLES);
+		}
+
+		return vec4(dfg, cosine_average / float(AVERAGE_STRATA));
 	}
 ]])
 return tex

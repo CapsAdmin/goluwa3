@@ -118,7 +118,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float NoV;
 				vec3 energy_compensation;
 				vec3 diffuse_view;
-				vec3 diffuse_fresnel_scale;
+				vec2 average_env_brdf;
 				float specular_chance;
 			};
 
@@ -126,12 +126,12 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				v.N = bend_normal_to_view(v.N, v.V);
 				v.alpha = max(v.alpha, 0.0015);
 				v.NoV = max(dot(v.N, v.V), 0.001);
-				vec2 env_brdf = textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(v.NoV, v.perceptual_roughness), 0.0).rg;
+				vec4 brdf_lut = textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(v.NoV, v.perceptual_roughness), 0.0);
+				vec2 env_brdf = brdf_lut.rg;
 				v.energy_compensation = GGXEnergyCompensation(v.F0, env_brdf);
 				vec3 specular_albedo = (v.F0 * env_brdf.x + F90(v.F0) * env_brdf.y) * v.energy_compensation;
 				v.diffuse_view = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - v.metallic);
-				vec3 average_fresnel = v.F0 + (vec3(F90(v.F0)) - v.F0) / 21.0;
-				v.diffuse_fresnel_scale = 1.0 / max(1.0 - average_fresnel, vec3(0.001));
+				v.average_env_brdf = brdf_lut.ba;
 				float specular = luminance(specular_albedo);
 				float diffuse = luminance(v.albedo * v.diffuse_view);
 				v.specular_chance = diffuse <= 0.0 ? 1.0 : clamp(specular / max(specular + diffuse, 1e-6), 0.1, 0.9);
@@ -151,7 +151,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float G1 = 2.0 * v.NoV / (v.NoV + sqrt(a2 + (1.0 - a2) * v.NoV * v.NoV));
 				pdf = v.specular_chance * G1 * D / (4.0 * v.NoV) + (1.0 - v.specular_chance) * NoL / PT_PI;
 				vec3 Fr = D * V_SmithGGXCorrelated(v.alpha, v.NoV, NoL) * F_Schlick(v.F0, LoH) * v.energy_compensation;
-				vec3 Fd = Fd_EON(v.albedo, v.perceptual_roughness, NoL, v.NoV, dot(L, v.V)) * v.diffuse_view * (1.0 - F_Schlick(v.F0, NoL)) * v.diffuse_fresnel_scale;
+				vec3 Fd = Fd_EON(v.albedo, v.perceptual_roughness, NoL, v.NoV, dot(L, v.V)) * v.diffuse_view * GGXDiffuseCoupling(v.F0, textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(NoL, v.perceptual_roughness), 0.0).rg, v.average_env_brdf);
 				return Fr + Fd;
 			}
 
