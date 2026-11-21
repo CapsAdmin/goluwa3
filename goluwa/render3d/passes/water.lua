@@ -562,7 +562,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 
 					float made = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT * water_field_damping(depth);
 					float wet = max(previous_wet - wave_block.dt * SWASH_DRY_RATE, swash_wet > 0.0 ? surf_height + SWASH_LEVEL_BIAS : 0.0);
-					float foam = previous * exp(-FOAM_DECAY * wave_block.dt) + (made + breaking) * FOAM_ADD * wave_block.dt;
+					float foam = previous * exp(-FOAM_DECAY * (1.0 + previous) * wave_block.dt) + (made + breaking) * FOAM_ADD * wave_block.dt;
 					set_foam(vec4(foam, wet, 0.0, 1.0));
 				}
 				]],
