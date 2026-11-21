@@ -61,7 +61,8 @@ scattering.LOOKUP_GLSL = [[
 		irradiance = exp(mix(log(irradiance_0), log(irradiance_1), ws)) * fade;
 	}
 
-	vec3 sc_lookup(int table, float r, float mu, float mu_s, float nu) {
+	// elevation_jitter in table rows (within -0.5..0.5) box filters the elevation interpolation over frames, which hides the creases between rows on large smooth areas
+	vec3 sc_lookup_jittered(int table, float r, float mu, float mu_s, float nu, float elevation_jitter) {
 		float fr = pow(clamp((r - PLANET_RADIUS) / (ATMOSPHERE_RADIUS - PLANET_RADIUS), 0.0, 1.0), 1.0 / SC_RADIUS_POWER) * float(SC_R - 1);
 		float ir0 = min(floor(fr), float(SC_R - 2));
 		float wr = fr - ir0;
@@ -71,7 +72,7 @@ scattering.LOOKUP_GLSL = [[
 		float t = upper ?
 			sqrt(clamp((e - e0) / (0.5 * PI - e0), 0.0, 1.0)) :
 			sqrt(clamp((e0 - e) / (0.5 * PI + e0), 0.0, 1.0));
-		float y = clamp(t * float(SC_V), 0.5, float(SC_V) - 0.5) + (upper ? float(SC_V) : 0.0);
+		float y = clamp(t * float(SC_V) + elevation_jitter, 0.5, float(SC_V) - 0.5) + (upper ? float(SC_V) : 0.0);
 		float fs = clamp((mu_s - SC_MU_S_MIN) / (1.0 - SC_MU_S_MIN), 0.0, 1.0) * float(SC_S - 1);
 		float is0 = min(floor(fs), float(SC_S - 2));
 		float ws = fs - is0;
@@ -82,6 +83,10 @@ scattering.LOOKUP_GLSL = [[
 		vec3 a = mix(sc_fetch(table, is0, ir0, x, y), sc_fetch(table, is0 + 1.0, ir0, x, y), ws);
 		vec3 b = mix(sc_fetch(table, is0, ir0 + 1.0, x, y), sc_fetch(table, is0 + 1.0, ir0 + 1.0, x, y), ws);
 		return mix(a, b, wr) * smoothstep(SC_MU_S_MIN - 0.05, SC_MU_S_MIN, mu_s);
+	}
+
+	vec3 sc_lookup(int table, float r, float mu, float mu_s, float nu) {
+		return sc_lookup_jittered(table, r, mu, mu_s, nu, 0.0);
 	}
 ]]
 local PASSES_GLSL = [[

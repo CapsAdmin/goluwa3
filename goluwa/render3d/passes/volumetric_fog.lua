@@ -958,6 +958,59 @@ local composite_pass = {
 				return scattered;
 			}
 
+			vec3 far_air_source(vec3 p, vec3 up, vec3 ray_dir, vec3 light_dir, float density_r, float density_m, float elevation_jitter) {
+				float mu = dot(ray_dir, light_dir);
+				vec3 single = (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * sample_transmittance_lut(p, light_dir) * ATMOSPHERE_CLOUD_SHADOW(p);
+				vec3 multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX != -1 ? sc_lookup_jittered(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(p), dot(up, ray_dir), dot(up, light_dir), mu, elevation_jitter) : vec3(0.0);
+				return (single + multi) * SUN_COLOR;
+			}
+
+			// past the handover distance (meters along the ray) the air in front of geometry is marched per pixel instead of read from the froxels, whose log slices cannot resolve air far from a high camera; it marches back to front from the hit so the steps crowd where the air is dense, and integrates the multiple scattering source, since the difference of two path lookups breaks for rays that end on the ground
+			const int FAR_AIR_STEPS = 24;
+
+			vec3 apply_far_air(vec3 color, vec3 ray_dir, vec3 sun_dir, float from_m, float to_m) {
+				float scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
+				vec3 origin = get_atmosphere_camera_origin(fog_data.camera_position.xyz);
+				float fog_near;
+				float fog_length;
+
+				if (get_ground_fog_segment_with_ground_clip(origin, ray_dir, to_m * scale, false, fog_near, fog_length)) {
+					float fog_far = fog_near + fog_length;
+					fog_near = max(fog_near, from_m * scale);
+
+					if (fog_far > fog_near) color = apply_ground_fog_segment(color, origin, ray_dir, fog_near, fog_far - fog_near, sun_dir, get_fog_sun_horizon_visibility(sun_dir), vec3(0.0), 1.0);
+				}
+
+				vec2 shell = ray_sphere_intersect(origin, ray_dir, ATMOSPHERE_RADIUS);
+				float t_near = max(from_m * scale, shell.x);
+				float t_far = min(to_m * scale, shell.y);
+
+				if (t_far <= t_near) return color;
+
+				bool primary_is_sun = dot(sun_dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9999;
+				vec3 other_dir = primary_is_sun ? ATMOSPHERE_MOON_DIRECTION : ATMOSPHERE_SKY_SUN_DIRECTION;
+				float other_illuminance = primary_is_sun ? ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE : ATMOSPHERE_SUN_DISC_ILLUMINANCE;
+				float segment = t_far - t_near;
+				float elevation_jitter = fract(fog_jitter * 7.31 + 0.37) - 0.5;
+
+				for (int i = 0; i < FAR_AIR_STEPS; i++) {
+					float d0 = get_march_distance(float(i) / float(FAR_AIR_STEPS), segment);
+					float d1 = get_march_distance(float(i + 1) / float(FAR_AIR_STEPS), segment);
+					float step_size = d1 - d0;
+					vec3 p = origin + ray_dir * (t_far - d0 - fog_jitter * step_size);
+					vec3 up = normalize(p);
+					float density_r = rayleigh_density(p);
+					float density_m = mie_density(p);
+					vec3 extinction = compute_view_tau(density_r, density_m, ozone_density(p));
+					vec3 step_transmittance = exp(-extinction * step_size);
+					vec3 source = far_air_source(p, up, ray_dir, sun_dir, density_r, density_m, elevation_jitter) * ATMOSPHERE_SUN_ILLUMINANCE + far_air_source(p, up, ray_dir, other_dir, density_r, density_m, elevation_jitter) * other_illuminance;
+					vec3 weight = mix(vec3(step_size), (1.0 - step_transmittance) / max(extinction, vec3(1e-9)), greaterThan(extinction, vec3(1e-9)));
+					color = color * step_transmittance + source * weight;
+				}
+
+				return color;
+			}
+
 			void main() {
 				float pre_exposure = get_pre_exposure();
 				vec4 scene = texture(TEXTURE(fog_data.source_tex), in_uv);
@@ -1028,18 +1081,28 @@ local composite_pass = {
 
 					color = front_scattered + front_transmittance * cloud.rgb + cloud.a * (behind_scattered + layer_transmittance * scene.rgb);
 				} else {
+					float froxel_distance = hit_distance;
+
 					if (hit_distance >= 0.0) {
+						float camera_altitude = length(get_atmosphere_camera_origin(fog_data.camera_position.xyz)) - PLANET_RADIUS;
+						float handover = FROXEL_FAR * length(view_dir) * (1.0 - smoothstep(4.0, 16.0, camera_altitude));
+
+						if (ATMOSPHERE_ENABLED != 0 && hit_distance > handover) {
+							scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, handover, hit_distance);
+							froxel_distance = handover;
+						}
+
 						cloud_front = cloud.rgb;
 						scene.rgb *= cloud.a;
 					}
 
 					vec3 fog_transmittance;
-					vec3 fog_scattered = get_volumetric_fog(in_uv, hit_distance, fog_transmittance);
+					vec3 fog_scattered = get_volumetric_fog(in_uv, froxel_distance, fog_transmittance);
 					color = scene.rgb * fog_transmittance + fog_scattered;
 
 					if (fog_data.cloud_view_tex >= 0 && cloud.a < 1.0) {
 						vec3 front_transmittance;
-						vec3 front_scattered = get_volumetric_fog(in_uv, cloud_depth, front_transmittance);
+						vec3 front_scattered = get_volumetric_fog(in_uv, froxel_distance >= 0.0 ? min(cloud_depth, froxel_distance) : cloud_depth, front_transmittance);
 						color = front_scattered + front_transmittance * cloud_front + cloud.a * (fog_scattered - front_scattered) + fog_transmittance * scene.rgb;
 					}
 				}
