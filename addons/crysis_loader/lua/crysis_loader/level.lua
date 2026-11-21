@@ -18,6 +18,7 @@ local sample_terrain_height01_at_world
 local f32_union = ffi.new("union { uint32_t u; float f; }")
 local level = {}
 level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE = true
+level.DECAL_ALPHA_CLEAN = 0.4
 
 local function find_child_by_tag(node, tag)
 	if not (node and node.children) then return nil end
@@ -497,7 +498,11 @@ do
 		local projector = find_child_by_tag(properties, "Projector")
 		local indirect = attrs.EntityClass == "SimpleIndirectLight"
 		local projector_attrs = projector and projector.attrs or {}
-		local has_projector = (projector_attrs.texture_Texture or "") ~= "" and projector_attrs.bProjectInAllDirs ~= "1"
+		local has_projector = (
+				projector_attrs.texture_Texture or
+				""
+			) ~= "" and
+			projector_attrs.bProjectInAllDirs ~= "1"
 		return {
 			name = attrs.Name,
 			world_matrix = world_matrix,
@@ -676,11 +681,7 @@ do
 							if mtl:starts_with(lower) then candidates[#candidates + 1] = mtl end
 						end
 
-						material_cache[material_name] = #lower < 64 and
-							material_name or
-							#candidates == 1 and
-							candidates[1] or
-							false
+						material_cache[material_name] = #lower < 64 and material_name or #candidates == 1 and candidates[1] or false
 					end
 
 					material_path = material_cache[material_name] or nil
@@ -758,9 +759,7 @@ function level.ParseEditorObjectsDocument(document)
 	for layer in iter_children_by_tag(object_layers, "Layer") do
 		local attrs = layer.attrs or {}
 
-		if attrs.Name and attrs.Hidden == "1" then
-			hidden_layers[attrs.Name] = true
-		end
+		if attrs.Name and attrs.Hidden == "1" then hidden_layers[attrs.Name] = true end
 	end
 
 	if not objects then return out end
@@ -1610,7 +1609,9 @@ function level.Load(level_dir)
 	if brush_entries then list.extend(entries, brush_entries) end
 
 	for i = #entries, 1, -1 do
-		if HIDDEN_MODELS[entries[i].model_path:lower()] then table.remove(entries, i) end
+		if HIDDEN_MODELS[entries[i].model_path:lower()] then
+			table.remove(entries, i)
+		end
 	end
 
 	for _, entry in ipairs(entries) do

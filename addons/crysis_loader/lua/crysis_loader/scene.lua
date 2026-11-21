@@ -186,6 +186,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					VRange = Vec2(diffuse.offset_v + diffuse.tile_v, diffuse.offset_v),
 					UVBorder = true,
 					HeightMidlevel = level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE and 1 or 0.5,
+					AlphaClean = level.DECAL_ALPHA_CLEAN,
 				},
 			},
 		}
@@ -604,6 +605,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 						TileLength = road.tile_length,
 						FadeLength = road.step_size,
 						HeightMidlevel = level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE and 1 or 0.5,
+						AlphaClean = level.DECAL_ALPHA_CLEAN,
 					},
 				},
 			}

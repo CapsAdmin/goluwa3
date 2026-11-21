@@ -21,6 +21,7 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/surface_type.lua"),
 	import("goluwa/render3d/features/terrain.lua"),
 	import("goluwa/render3d/features/detail.lua"),
+	import("goluwa/render3d/features/decal.lua"),
 	import("goluwa/render3d/features/vegetation.lua"),
 	import("goluwa/render3d/features/scatter.lua"),
 }

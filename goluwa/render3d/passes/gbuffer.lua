@@ -822,6 +822,10 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 
 			if (Decal && DecalBorder && (any(lessThan(displacement.uv, vec2(0.0))) || any(greaterThan(displacement.uv, vec2(1.0))))) discard;
 
+			if (Decal && decal_model.DecalAlphaClean > 0.0) {
+				alpha = clamp((alpha - decal_model.DecalAlphaClean) / (1.0 - 2.0 * decal_model.DecalAlphaClean), 0.0, 1.0);
+			}
+
 			compute_translucency_and_discard(alpha);
 
 			Surface surface;

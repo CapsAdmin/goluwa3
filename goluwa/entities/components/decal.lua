@@ -25,6 +25,7 @@ META:GetSet("Width", 1, {callback = "OnFrameChanged"})
 META:GetSet("TileLength", 1, {callback = "OnFrameChanged"})
 META:GetSet("FadeLength", 1, {callback = "OnFrameChanged"})
 META:GetSet("UVBorder", false, {callback = "OnMaterialChanged"})
+META:GetSet("AlphaClean", 0, {callback = "OnMaterialChanged"})
 META:GetSet("HeightMidlevel", 1, {callback = "OnMaterialChanged"})
 META:EndStorable()
 local REBUILD_SETTLE_TIME = 0.2
@@ -81,6 +82,7 @@ function META:GetBatchMaterial()
 	material:SetDithered(true)
 	material:SetDecalFade(true)
 	material:SetDecalBorder(self.UVBorder)
+	material:SetDecalAlphaClean(self.AlphaClean)
 	material:SetHeightMidlevel(self.HeightMidlevel)
 	return self.Material, material
 end
@@ -88,7 +90,11 @@ end
 function META:OnMaterialChanged()
 	if not self.world then return end
 
-	if self.Projection == "brush" then self:Rebuild() else self:QueueProjection() end
+	if self.Projection == "brush" then
+		self:Rebuild()
+	else
+		self:QueueProjection()
+	end
 end
 
 function META:FindTargets()
