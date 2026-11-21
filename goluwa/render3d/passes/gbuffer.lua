@@ -817,14 +817,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			float alpha = get_alpha_uv(displacement.uv);
 
 			if (Decal && DecalFade) {
-				float fade = in_texture_blend;
-
-				if (fade < 0.0) {
-					vec2 centered = in_uv - 0.5;
-					fade = clamp(dot(centered, centered) * 4.0, 0.0, 1.0);
-				}
-
-				alpha *= 1.0 - fade;
+				alpha *= 1.0 - in_texture_blend;
 			}
 
 			compute_translucency_and_discard(alpha);

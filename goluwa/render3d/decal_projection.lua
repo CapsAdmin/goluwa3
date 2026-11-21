@@ -1,6 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local decal_projection = {}
-decal_projection.RADIAL_FADE = -1
 local TERRAIN_STEP = 1
 local TERRAIN_MAX_CELLS = 48
 local GRADIENT_STEP = 0.5
@@ -92,7 +91,6 @@ do
 					normal = normal,
 					u = u,
 					v = v,
-					fade = decal_projection.RADIAL_FADE,
 				}
 			end
 		end
@@ -293,7 +291,6 @@ do
 				normal = normal,
 				u = u,
 				v = v,
-				fade = decal_projection.RADIAL_FADE,
 			}
 		end
 
