@@ -364,7 +364,7 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 			ev = clamp(metered_ev - compute.compensation, compute.min_ev, compute.max_ev);
 		}
 
-		if (compute.lock != 0) ev = compute.lock_ev - compute.compensation;
+		if (compute.lock != 0) ev = compute.lock_ev;
 
 		float log_target = ]] .. LOG_EXPOSURE_AT_EV0 .. [[ - ev;
 		vec4 prev = texture(prev_exposure_tex, vec2(0.5));

@@ -131,10 +131,7 @@ function saved_views.GetExposure()
 	if not texture then return end
 
 	local current, metered_ev = texture:Download():GetPixelFloat(0, 0)
-	local view = View.GetActive()
-	local compensation = view and view.ExposureCompensation or exposure.GetCompensation()
-	return exposure.LOG_EXPOSURE_AT_EV0 - math.log(current, 2) + compensation,
-	metered_ev
+	return exposure.LOG_EXPOSURE_AT_EV0 - math.log(current, 2), metered_ev
 end
 
 function saved_views.Capture()
