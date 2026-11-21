@@ -15,6 +15,7 @@ local SWASH_ELEVATION = 3
 local LAND_SPEED = 3
 local float_array = ffi.typeof("float[?]")
 local texture
+local RUNUP = 1.25
 local path_texture
 local active = {origin_x = 0, origin_z = 0, half = 0, frequency = 0, valid = false}
 local solve
@@ -340,8 +341,8 @@ function surf.GetGLSL(block_name)
 		const float SURF_BORE_FRONT = 0.08;
 		const float SURF_BORE_CYCLES = 1.5;
 
-		float surf_shape(float u, float steepness, float broken) {
-			float front = u < 0.5 ? 0.5 * pow(2.0 * u, 1.0 + 2.0 * steepness) : u;
+		float surf_shape(float u, float steepness, float broken, float plunge) {
+			float front = u < 0.5 ? 0.5 * pow(2.0 * u, 1.0 + 2.0 * steepness + 4.0 * plunge) : u;
 			float peaked = pow(0.5 + 0.5 * cos(6.28318530718 * (front - 0.5)), 1.0 + 3.0 * steepness);
 			float bore = u < 0.5 ? smoothstep(0.5 - SURF_BORE_FRONT, 0.5, u) : pow(1.0 - (u - 0.5) * 2.0, 1.5);
 			return mix(peaked, bore, broken) - 0.3;
@@ -349,7 +350,7 @@ function surf.GetGLSL(block_name)
 
 		const float SURF_SWASH_CYCLES = 0.85;
 		const float SURF_SWASH_PEAK = 0.35;
-		const float SURF_RUNUP = 1.0;
+		const float SURF_RUNUP = ]] .. RUNUP .. [[;
 		const float SURF_NEVER_BROKEN = ]] .. NEVER_BROKEN * 0.5 .. [[;
 
 		float surf_crest_height(vec2 world_xz, float crest, float shelter) {
@@ -423,9 +424,11 @@ function surf.GetGLSL(block_name)
 			wave_height = min(wave_height, SURF_BREAKING_RATIO * min(depth, max(path.x, 0.0) + 0.25 * max(depth - path.x, 0.0)));
 			float wavelength = 1.0 / max(length(travel) * $B.surf_frequency, 1e-3);
 			float steepness = clamp(wave_height / wavelength / 0.14, 0.0, 1.0);
-			float shape = surf_shape(u, steepness, broken);
+			float breaker_iribarren = max(beach_slope, 0.01) / sqrt(max(wave_height / deep_wavelength, 1e-4));
+			float plunge = smoothstep(0.35, 0.9, breaker_iribarren) * smoothstep(0.7, 0.95, ratio) * (1.0 - smoothstep(1.05, 1.3, ratio));
+			float shape = surf_shape(u, steepness, broken, plunge);
 			float du = 0.004;
-			float shape_slope = (surf_shape(min(u + du, 1.0), steepness, broken) - surf_shape(max(u - du, 0.0), steepness, broken)) / (min(u + du, 1.0) - max(u - du, 0.0));
+			float shape_slope = (surf_shape(min(u + du, 1.0), steepness, broken, plunge) - surf_shape(max(u - du, 0.0), steepness, broken, plunge)) / (min(u + du, 1.0) - max(u - du, 0.0));
 			height = wave_height * shape * presence;
 			slope = -shape_slope * wave_height * $B.surf_frequency * travel * presence;
 			float slope_length = length(slope);
@@ -440,7 +443,8 @@ function surf.GetGLSL(block_name)
 			float face = u < 0.5 ? smoothstep(0.5 - SURF_BORE_FRONT * 1.5, 0.5, u) : exp(-(u - 0.5) * 12.0);
 			float energy = exp(-max(since_break, 0.0) / (SURF_BORE_CYCLES * 2.0)) * smoothstep(0.03, 0.25, wave_height);
 			float patches = smoothstep(0.25, 0.7, value_noise2(world_xz * 0.15 + vec2(crest * 5.3, 0.0)) * 0.6 + value_noise2(world_xz * 0.6 - vec2(0.0, crest * 2.1)) * 0.4 + energy * 0.4);
-			whitewater = (broken * face * energy * patches + smoothstep(0.75, 1.0, ratio) * smoothstep(0.4, 0.5, u) * (1.0 - step(0.55, u))) * presence;
+			float lip = plunge * smoothstep(0.44, 0.49, u) * (1.0 - smoothstep(0.5, 0.53, u));
+			whitewater = (broken * face * energy * patches + smoothstep(0.75, 1.0, ratio) * smoothstep(0.4, 0.5, u) * (1.0 - step(0.55, u)) + lip * 1.5) * presence;
 		}
 	]]
 	):gsub("%$B", block_name)
