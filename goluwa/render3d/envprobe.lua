@@ -43,6 +43,8 @@ envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
 envprobe.FACES_PER_FRAME = 1
 envprobe.DYNAMIC_INTERVAL = envprobe.DYNAMIC_INTERVAL or 0.25
 envprobe.SUN_CHANGE_DEGREES = envprobe.SUN_CHANGE_DEGREES or 1
+envprobe.HORIZON_SUN_CHANGE_DEGREES = envprobe.HORIZON_SUN_CHANGE_DEGREES or 0.05
+envprobe.SUN_CHANGE_DEGREES_PER_ELEVATION = envprobe.SUN_CHANGE_DEGREES_PER_ELEVATION or 0.025
 envprobe.MAX_UPLOADED_PROBES = 64
 envprobe.enabled = true
 pvars.StartGroup("Lighting", "Environment probes", {store = false, prefix = "envprobe_"})
@@ -1227,39 +1229,48 @@ local function get_probe_capture_depth_texture(bundle)
 	return framebuffer and framebuffer:GetDepthTexture() or nil
 end
 
-function envprobe.HasSkyChanged()
-	local environment_map_version = atmosphere.GetEnvironmentMapVersion()
-
-	if environment_map_version ~= envprobe.last_environment_map_version then
-		envprobe.last_environment_map_version = environment_map_version
-		return true
+do
+	local function has_body_moved(dir, last)
+		local degrees = math.min(
+			envprobe.SUN_CHANGE_DEGREES,
+			envprobe.HORIZON_SUN_CHANGE_DEGREES + envprobe.SUN_CHANGE_DEGREES_PER_ELEVATION * math.abs(math.deg(math.asin(math.clamp(dir.y, -1, 1))))
+		)
+		return dir:GetDot(last) < math.cos(math.rad(degrees))
 	end
 
-	local sun = get_primary_sun(render3d.GetLights())
+	function envprobe.HasSkyChanged()
+		local environment_map_version = atmosphere.GetEnvironmentMapVersion()
 
-	if not sun then return false end
+		if environment_map_version ~= envprobe.last_environment_map_version then
+			envprobe.last_environment_map_version = environment_map_version
+			return true
+		end
 
-	local sky = atmosphere.GetSky()
-	local sun_dir = sky and sky.sun_direction or sun.Owner.transform:GetRotation():GetBackward()
-	local moon_dir = sky and sky.moon_direction or sun_dir
-	local cloud_version = clouds.GetSkyVersion()
-	local min_cos = math.cos(math.rad(envprobe.SUN_CHANGE_DEGREES))
+		local sun = get_primary_sun(render3d.GetLights())
 
-	if
-		not envprobe.last_sun_direction or
-		sun_dir:GetDot(envprobe.last_sun_direction) < min_cos or
-		moon_dir:GetDot(envprobe.last_moon_direction) < min_cos or
-		cloud_version ~= envprobe.last_cloud_version or
-		atmosphere.IsEnabled() ~= envprobe.last_atmosphere_enabled
-	then
-		envprobe.last_sun_direction = sun_dir:Copy()
-		envprobe.last_moon_direction = moon_dir:Copy()
-		envprobe.last_cloud_version = cloud_version
-		envprobe.last_atmosphere_enabled = atmosphere.IsEnabled()
-		return true
+		if not sun then return false end
+
+		local sky = atmosphere.GetSky()
+		local sun_dir = sky and sky.sun_direction or sun.Owner.transform:GetRotation():GetBackward()
+		local moon_dir = sky and sky.moon_direction or sun_dir
+		local cloud_version = clouds.GetSkyVersion()
+
+		if
+			not envprobe.last_sun_direction or
+			has_body_moved(sun_dir, envprobe.last_sun_direction) or
+			has_body_moved(moon_dir, envprobe.last_moon_direction) or
+			cloud_version ~= envprobe.last_cloud_version or
+			atmosphere.IsEnabled() ~= envprobe.last_atmosphere_enabled
+		then
+			envprobe.last_sun_direction = sun_dir:Copy()
+			envprobe.last_moon_direction = moon_dir:Copy()
+			envprobe.last_cloud_version = cloud_version
+			envprobe.last_atmosphere_enabled = atmosphere.IsEnabled()
+			return true
+		end
+
+		return false
 	end
-
-	return false
 end
 
 local function transition_face(cmd, texture, face_idx, to_attachment)
