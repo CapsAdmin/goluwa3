@@ -66,6 +66,8 @@ clouds.LAYER_DEFAULTS = {
 	swirl = 0,
 	wind_scale = 2.5,
 	evolution = 0.6,
+	system_scale = 0,
+	system_amount = 0,
 }
 
 local function create_layer(params)
@@ -574,6 +576,8 @@ function clouds.WriteBlock(self, block)
 		local vary = block.cloud_layer_vary[k]
 		vary[0] = layer.swirl
 		vary[1] = layer.flat and 0 or layer.base_variation
+		vary[2] = layer.system_scale
+		vary[3] = layer.system_amount
 	end
 
 	local dir = clouds.light_direction
@@ -784,6 +788,23 @@ function clouds.GetGLSL(block)
 			return bottom * top;
 		}
 
+		// a layer's coverage: its weather map, plus with system_scale the same map read twice at incommensurate rotated scales, so cloud systems far larger than the map do not repeat
+		float cloud_coverage(int i, vec2 xz, vec4 weather) {
+			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
+			vec4 scale = CLOUD_BLOCK.cloud_layer_scale[i];
+			vec4 vary = CLOUD_BLOCK.cloud_layer_vary[i];
+			float coverage = shape.z + (weather.r - 0.5) * scale.w;
+
+			if (vary.z > 0.0) {
+				vec2 a = vec2(xz.x * 0.8 - xz.y * 0.6, xz.x * 0.6 + xz.y * 0.8) / vary.z + vec2(0.37, 0.71);
+				vec2 b = vec2(xz.x * 0.28 + xz.y * 0.96, xz.y * 0.28 - xz.x * 0.96) / (vary.z * 0.37) + vec2(0.13, 0.52);
+				float system = textureLod(TEXTURE(CLOUD_BLOCK.cloud_weather_tex), a, 0.0).r * 0.6 + textureLod(TEXTURE(CLOUD_BLOCK.cloud_weather_tex), b, 0.0).r * 0.4;
+				coverage += (system - 0.5) * vary.w;
+			}
+
+			return saturate(coverage);
+		}
+
 		float cloud_density_shaded(int i, vec3 p, float alt, bool detail, float footprint, out float shade) {
 			shade = 0.0;
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
@@ -800,7 +821,7 @@ function clouds.GetGLSL(block)
 
 			if (hf <= 0.0 || hf >= 1.0) return 0.0;
 
-			float coverage = saturate(shape.z + (weather.r - 0.5) * scale.w);
+			float coverage = cloud_coverage(i, p.xz, weather);
 			coverage = mix(coverage, saturate(coverage * 1.4 + 0.25), style.z * smoothstep(0.65, 0.9, hf));
 
 			if (coverage <= 0.0) return 0.0;
@@ -895,7 +916,7 @@ function clouds.GetGLSL(block)
 			vec4 offset = CLOUD_BLOCK.cloud_layer_offset[i];
 			vec4 offset2 = CLOUD_BLOCK.cloud_layer_offset2[i];
 			vec4 weather = textureLod(TEXTURE(CLOUD_BLOCK.cloud_weather_tex), (p.xz + offset.xy) / scale.x, 0.0);
-			float coverage = saturate(shape.z + (weather.r - 0.5) * scale.w);
+			float coverage = cloud_coverage(i, p.xz, weather);
 			float streaks = saturate((weather.b - 0.1) / 0.6);
 			vec3 n = textureLod(cloud_base_noise, vec3((p.xz + offset.zw) / scale.y, offset2.x / scale.y).xzy, 1.0).gba;
 			float field = streaks * mix(0.55, 1.0, dot(n, vec3(0.5, 0.3, 0.2)));

@@ -107,6 +107,7 @@ The world is a planet of radius `planet.RADIUS` (`goluwa/planet.lua`) whose surf
 - Surface ambient and reflections are scaled by `get_sky_light_from(world_pos, env_position)` (the sky irradiance at the point over where the environment probe was captured), and cloud ambient is taken at the first cloud point, not the camera, so the far side of the terminator goes dark.
 - The camera's default far plane is 1e8 m (reversed float depth loses nothing); the horizon seen from orbit is thousands of km away.
 - Pixel footprints from the projection need `abs(projection[1][1])`: the y flip makes it negative, and a negative footprint turns off every distance filter that reads it.
+- Cloud layers can add `system_scale`/`system_amount`: coverage from the weather map read again at a much larger rotated scale, for cloud systems that do not repeat from orbit.
 - Coarse environment mips are sampled with a cubic B-spline (`sample_environment_bspline`): bilinear creases between texels degrees wide show as rings on a large smooth reflector such as the sea from orbit.
 
 ## Reflections, translucency, materials
