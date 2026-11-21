@@ -25,11 +25,13 @@ local EVENT_RADIUS = 220
 local EVENT_CLUSTER = 12
 surf.TAKEOVER = 0.6
 local float_array = ffi.typeof("float[?]")
-local texture
-local path_texture
+local textures = {}
+local path_textures = {}
+local active_set = 1
 local active = {origin_x = 0, origin_z = 0, half = 0, frequency = 0, valid = false}
-local solve
-local solved_key
+local solving
+local solved_key = {}
+local ROWS_PER_STEP = 32
 
 local function wavenumber(omega, depth)
 	local deep = omega * omega / water.GRAVITY
@@ -73,6 +75,8 @@ local function start_solve(
 	local height = surf.GetHeight()
 
 	for row = 0, SIZE - 1 do
+		if row % ROWS_PER_STEP == ROWS_PER_STEP - 1 then coroutine.yield() end
+
 		for column = 0, SIZE - 1 do
 			local sum = 0
 
@@ -117,7 +121,7 @@ local function start_solve(
 		end
 	end
 
-	solve = {
+	return {
 		arrival = arrival,
 		cost = cost,
 		fixed = fixed,
@@ -220,6 +224,8 @@ local function finish_solve(state)
 	local path = float_array(SIZE * SIZE * 2)
 
 	for row = 0, SIZE - 1 do
+		if row % ROWS_PER_STEP == ROWS_PER_STEP - 1 then coroutine.yield() end
+
 		for column = 0, SIZE - 1 do
 			local i = row * SIZE + column
 			local t = arrival[i]
@@ -267,39 +273,30 @@ local function finish_solve(state)
 		end
 	end
 
-	if not texture then
-		texture = Texture.New{
-			width = SIZE,
-			height = SIZE,
-			format = "r32g32b32a32_sfloat",
-			buffer = packed,
-			sampler = {
+	local set = active_set
+
+	if not textures[1] then
+		for i = 1, 2 do
+			local sampler = {
 				min_filter = "linear",
 				mag_filter = "linear",
 				wrap_s = "clamp_to_edge",
 				wrap_t = "clamp_to_edge",
-			},
-		}
-		path_texture = Texture.New{
-			width = SIZE,
-			height = SIZE,
-			format = "r32g32_sfloat",
-			buffer = path,
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
+			}
+			textures[i] = Texture.New{width = SIZE, height = SIZE, format = "r32g32b32a32_sfloat", buffer = packed, sampler = sampler}
+			path_textures[i] = Texture.New{width = SIZE, height = SIZE, format = "r32g32_sfloat", buffer = path, sampler = sampler}
+		end
 	else
-		texture:Upload(packed)
-		path_texture:Upload(path)
+		set = 3 - active_set
+		textures[set]:UploadAsync(packed)
+		path_textures[set]:UploadAsync(path)
 	end
 
 	local event_cells = {}
 
 	for row = 1, SIZE - 2 do
+		if row % ROWS_PER_STEP == ROWS_PER_STEP - 1 then coroutine.yield() end
+
 		for column = 1, SIZE - 2 do
 			local i = row * SIZE + column
 			local t = arrival[i]
@@ -340,6 +337,11 @@ local function finish_solve(state)
 		end
 	end
 
+	while not (textures[set]:IsUploadDone() and path_textures[set]:IsUploadDone()) do
+		coroutine.yield()
+	end
+
+	active_set = set
 	active = {
 		origin_x = state.origin_x,
 		origin_z = state.origin_z,
@@ -579,9 +581,9 @@ do
 
 		for i = 1, #active.event_cells do
 			local cell = active.event_cells[i]
-			local dx, dz = cell.x - camera.x, cell.z - camera.z
+			local dx, dy, dz = cell.x - camera.x, active.level - camera.y, cell.z - camera.z
 
-			if dx * dx + dz * dz < radius2 then
+			if dx * dx + dy * dy + dz * dz < radius2 then
 				local before = math.floor((previous_time - cell.arrival) * frequency)
 				local now = math.floor((time - cell.arrival) * frequency)
 
@@ -660,28 +662,49 @@ function surf.Update()
 
 	if not heights then
 		active.valid = false
-		solve = nil
+		solving = nil
+		solved_key.version = nil
 		return
 	end
 
-	local key = tostring(water.GetOceanWaves()) .. ":" .. version
+	local waves = water.GetOceanWaves()
+	local angle_step = math.floor(math.deg(waves.dominant_angle) / 2 + 0.5)
+	local wavelength_step = math.floor(math.log(waves.dominant_wavelength) / math.log(1.03) + 0.5)
+	local height_step = math.floor(math.log(math.max(surf.GetHeight(), 1e-3)) / math.log(1.05) + 0.5)
 
-	if not solve and solved_key ~= key then
-		solved_key = key
-		start_solve(heights, field_size, origin_x, origin_z, half, origin_x, origin_z, half)
-		return
+	if
+		solved_key.angle ~= angle_step or
+		solved_key.wavelength ~= wavelength_step or
+		solved_key.height ~= height_step or
+		solved_key.version ~= version
+	then
+		solved_key.angle = angle_step
+		solved_key.wavelength = wavelength_step
+		solved_key.height = height_step
+		solved_key.version = version
+		solving = coroutine.create(function()
+			local state = start_solve(heights, field_size, origin_x, origin_z, half, origin_x, origin_z, half)
+
+			for step = 0, SWEEP_ROUNDS * 4 - 1 do
+				coroutine.yield()
+				sweep(state, step % 4)
+			end
+
+			coroutine.yield()
+			finish_solve(state)
+		end)
 	end
 
-	if not solve then return end
+	if not solving then return end
 
-	if solve.sweep < SWEEP_ROUNDS * 4 then
-		sweep(solve, solve.sweep % 4)
-		solve.sweep = solve.sweep + 1
-		return
+	local ok, err = coroutine.resume(solving)
+
+	if not ok then
+		solving = nil
+		error(err, 0)
 	end
 
-	finish_solve(solve)
-	solve = nil
+	if coroutine.status(solving) == "dead" then solving = nil end
 end
 
 function surf.GetHeight()
@@ -707,8 +730,8 @@ end
 
 function surf.WriteBlock(self, block)
 	surf.Update()
-	block.surf_tex = active.valid and self:GetTextureIndex(texture) or -1
-	block.surf_path_tex = active.valid and self:GetTextureIndex(path_texture) or -1
+	block.surf_tex = active.valid and self:GetTextureIndex(textures[active_set]) or -1
+	block.surf_path_tex = active.valid and self:GetTextureIndex(path_textures[active_set]) or -1
 	block.surf_origin[0] = active.origin_x
 	block.surf_origin[1] = active.origin_z
 	block.surf_half = active.half

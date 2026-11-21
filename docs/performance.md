@@ -49,6 +49,9 @@ Screenshot A/B: freeze time-driven things (`system.SetElapsedTime` from a high p
 - GC cost grows with the number of live objects, not their bytes: millions of small tables and cdata (per-vertex tables, Vec3 fields) make every cycle and its atomic step slow even when big ffi arrays dominate the bytes. `log.heap()` of the jit.log fork shows both and who holds them.
 - Vulkan memory: mesh buffers up to 4 MiB are sub-allocated from 64 MiB blocks (`goluwa/render/vulkan/internal/buffer_pool.lua`) because one `vkAllocateMemory` per buffer dominates model loading. Meshes nothing else shares take `Polygon3D:UploadVertexArray(..., mode)` `"owned"` (no dedupe key string) or `"host"` (cpu-only, no gpu buffers).
 
+- `Texture:Upload` ends in `render.SubmitAndWait`: it waits for the GPU to go idle, 4 to 10 ms in a busy frame. Data that changes at runtime goes through `Texture:UploadAsync` into a texture no frame in flight samples (keep two and swap once `IsUploadDone`), like the surf solve and the ocean FFT spectra do.
+- Spread big Lua jobs over frames as a coroutine that yields every few rows and is resumed once per frame (the surf eikonal solve, the ocean spectrum when it follows the climate wind), and keep using the previous result until the new one is done.
+
 ## Where GPU/CPU time goes (general rules)
 
 - GPU: DDGI, lighting, translucent/glass and ray traced reflections dominate; they are covered in render3d-lighting.md. Per-light and per-ray early-outs matter more than anything else in shaders: reject cheap cases (brightness, facing away, occlusion map) before the expensive ones (shadow map, screen-space march, ray queries), and march/trace last.
