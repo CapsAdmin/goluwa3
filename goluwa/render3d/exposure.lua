@@ -58,13 +58,13 @@ define(
 	}
 )
 define(
-	"camera.grey",
+	"camera.middle_grey_lightness",
 	50,
 	{
 		group = "Camera",
 		min = 1,
-		max = 90,
-		help = "the grey midpoint in percent, the brightness the metered scene average is exposed to. 18 is middle grey, higher exposes brighter, lower darker",
+		max = 100,
+		help = "how light the metered scene average is shown, in perceived lightness (CIE L*, 0 black to 100 white). 50 is middle grey (18% of white), higher exposes brighter, lower darker. It does not change a locked or manual exposure",
 	}
 )
 define(
@@ -274,7 +274,9 @@ end
 function exposure.GetCompensation()
 	if state["eye.enabled"] then return 0 end
 
-	return log2(state["camera.grey"] / (KEY * 100))
+	local lightness = state["camera.middle_grey_lightness"]
+	local relative_luminance = lightness > 8 and ((lightness + 16) / 116) ^ 3 or lightness / 903.3
+	return log2(relative_luminance / KEY)
 end
 
 function exposure.GetPixelsPerDegree(height)
