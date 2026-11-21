@@ -46,7 +46,7 @@ float terrain_height(vec2 p) {
 
 	float inland = smoothstep(0.0, 0.25, s);
 	float hills = pn_fbm_lod(p / 90000.0 + SEED_OFFSET + vec2(-8.0, 2.0), 7, 90000.0, step) * 0.5 + 0.5;
-	return 1800.0 * s * (1.0 - inland) + inland * (450.0 + 500.0 * hills) * smoothstep(0.0, 0.08, s) + 5200.0 * earth_mountains(p, step) * smoothstep(0.02, 0.12, s);
+	return 20.0 * smoothstep(0.0, 0.002, s) + 1800.0 * s * (1.0 - inland) + inland * (450.0 + 500.0 * hills) * smoothstep(0.0, 0.08, s) + 5200.0 * earth_mountains(p, step) * smoothstep(0.02, 0.12, s);
 }
 ]=]
 local SPLAT_GLSL = [=[
@@ -57,7 +57,7 @@ float earth_dryness(vec2 p) {
 vec4 terrain_splat(vec2 p, float h, vec3 n) {
 	float slope = 1.0 - n.y;
 	float detail = pn_fbm(p / 300.0, 3) * 0.5;
-	float beach = 1.0 - smoothstep(2.0, 8.0, h + detail * 4.0);
+	float beach = 1.0 - smoothstep(1.0, 3.0, h + detail * 1.5);
 	float desert = smoothstep(0.55, 0.8, earth_dryness(p) + detail * 0.1) * (1.0 - smoothstep(900.0, 1600.0, h));
 	float rock = max(smoothstep(0.25, 0.45, slope + detail * 0.1), smoothstep(2200.0, 3000.0, h + detail * 300.0));
 	float snow = smoothstep(3400.0, 3900.0, h + detail * 400.0) * (1.0 - smoothstep(0.5, 0.7, slope));
@@ -111,6 +111,35 @@ earth.terrain = Terrain.New{
 }:Start()
 weather.SetTimeScale(0)
 weather.SetSunDirection(Vec3(-0.5, 0.6, 0.35):GetNormalized())
+weather.SetCloudLayers{
+	{
+		name = "low",
+		bottom = 1400,
+		thickness = 1600,
+		coverage = 0.32,
+		density = 0.07,
+		type = 1,
+		detail_scale = 250,
+		base_variation = 200,
+		variation = 0.15,
+		system_scale = 1200000,
+		system_amount = 1.1,
+	},
+	{
+		name = "high",
+		bottom = 9000,
+		thickness = 400,
+		coverage = 0.25,
+		density = 0.25,
+		flat = true,
+		weather_scale = 30000,
+		shape_scale = 6000,
+		wind_scale = 6,
+		variation = 0.15,
+		system_scale = 2000000,
+		system_amount = 1.2,
+	},
+}
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
 water.SetOcean{WindSpeed = 8, WindDirection = 0}
