@@ -122,6 +122,11 @@ local trace_steps_pvar = pvars.Setup2{
 	integer = true,
 	help = "most steps of the trace for the sea's surface from above, too few miss the thin tops of steep waves at grazing angles",
 }
+local field_debug_pvar = pvars.Setup2{
+	key = "r_water_field_debug",
+	default = false,
+	help = "colours the sea by the wave field from the depth around the camera: hue is the angle the waves turn towards the shore, dark is sheltered from the open sea",
+}
 local reorder_pvar = pvars.Setup2{
 	key = "r_water_reorder",
 	default = true,
@@ -423,6 +428,44 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		end
 	end
 
+	local field_surface_glsl = [[
+		const float FIELD_TURN_STEP = 0.5235988;
+		const float SHELTER_DAMPING = 0.85;
+
+		void fft_surface_turned(vec2 world_xz, float choppiness, float turn, out float height, out vec2 slope, out float jacobian) {
+			vec2 axis = vec2(cos(turn), sin(turn));
+			vec2 p = fft_undisplace(vec2(axis.x * world_xz.x + axis.y * world_xz.y, -axis.y * world_xz.x + axis.x * world_xz.y), choppiness);
+			vec3 normal;
+			fft_surface(p, choppiness, height, normal, jacobian);
+			vec2 local_slope = -normal.xz / normal.y;
+			slope = vec2(axis.x * local_slope.x - axis.y * local_slope.y, axis.y * local_slope.x + axis.x * local_slope.y);
+		}
+
+		void field_surface(vec2 world_xz, float choppiness, out float height, out vec2 slope, out float jacobian, out float shelter) {
+			vec2 field = water_field_waves(world_xz);
+			shelter = field.y;
+			float bin = field.x / FIELD_TURN_STEP;
+			float low = floor(bin);
+			float blend = bin - low;
+			fft_surface_turned(world_xz, choppiness, low * FIELD_TURN_STEP, height, slope, jacobian);
+
+			if (blend > 0.01) {
+				float other_height;
+				vec2 other_slope;
+				float other_jacobian;
+				fft_surface_turned(world_xz, choppiness, (low + 1.0) * FIELD_TURN_STEP, other_height, other_slope, other_jacobian);
+				float scale = 1.0 / sqrt((1.0 - blend) * (1.0 - blend) + blend * blend);
+				height = mix(height, other_height, blend) * scale;
+				slope = mix(slope, other_slope, blend) * scale;
+				jacobian = 1.0 + (mix(jacobian, other_jacobian, blend) - 1.0) * scale;
+			}
+
+			float open_sea = 1.0 - SHELTER_DAMPING * shelter;
+			height *= open_sea;
+			slope *= open_sea;
+			jacobian = 1.0 + (jacobian - 1.0) * open_sea;
+		}
+	]]
 	local fft_fields = {
 		{"fft_tex", "int", #water.FFT_CASCADES * 2},
 		{"wave_choppiness", "float"},
@@ -450,14 +493,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 							{"history_tex", "int"},
 							{"history_valid", "float"},
 							{"dt", "float"},
-							fft_fields[1],
-							fft_fields[2],
-							fft_fields[3],
-							fft_fields[4],
-							fft_fields[5],
-							fft_fields[6],
-							fft_fields[7],
-							fft_fields[8],
+							unpack(fft_fields),
 						},
 						write = function(self, block)
 							write_wave_block(self, block)
@@ -483,15 +519,15 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 				const float FOAM_DECAY = ]] .. FOAM_DECAY .. [[;
 				const float FOAM_ADD = ]] .. FOAM_ADD .. [[;
 				const float FOAM_SPREAD = ]] .. FOAM_SPREAD .. [[;
-				]] .. water_field.GetGLSL("wave_block") .. [[
+				]] .. water_field.GetGLSL("wave_block") .. field_surface_glsl .. [[
 
 				void main() {
 					vec2 world_xz = wave_block.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
 					float height;
-					vec3 normal;
+					vec2 slope;
 					float jacobian;
-					vec2 p = fft_undisplace(world_xz, wave_block.wave_choppiness);
-					fft_surface(p, wave_block.wave_choppiness, height, normal, jacobian);
+					float shelter;
+					field_surface(world_xz, wave_block.wave_choppiness, height, slope, jacobian, shelter);
 					float depth = water_field_depth(world_xz);
 					float breaking = water_field_breaking(height, depth) * FOAM_WEIGHT;
 					float previous = 0.0;
@@ -536,14 +572,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 							render3d.common_block,
 							{"wave_origin", "vec2"},
 							{"foam_tex", "int"},
-							fft_fields[1],
-							fft_fields[2],
-							fft_fields[3],
-							fft_fields[4],
-							fft_fields[5],
-							fft_fields[6],
-							fft_fields[7],
-							fft_fields[8],
+							unpack(fft_fields),
 						},
 						write = function(self, block)
 							write_wave_block(self, block)
@@ -558,22 +587,21 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 				const float FOAM_BIAS = ]] .. FOAM_BIAS .. [[;
 				const float FOAM_WEIGHT = ]] .. cascade.foam_weight .. [[;
 				const float FOAM_GAIN = ]] .. FOAM_GAIN .. [[;
-				]] .. water_field.GetGLSL("wave_block") .. [[
+				]] .. water_field.GetGLSL("wave_block") .. field_surface_glsl .. [[
 
 				void main() {
 					vec2 world_xz = wave_block.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
-					float choppiness = wave_block.wave_choppiness;
-					vec2 p = fft_undisplace(world_xz, choppiness);
 					float height;
-					vec3 normal;
+					vec2 slope;
 					float jacobian;
-					fft_surface(p, choppiness, height, normal, jacobian);
+					float shelter;
+					field_surface(world_xz, wave_block.wave_choppiness, height, slope, jacobian, shelter);
 					float left_behind = textureLod(TEXTURE(wave_block.foam_tex), in_uv, 0.0).r;
 					float fresh = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT;
 					float depth = water_field_depth(world_xz);
 					float damping = water_field_damping(depth) * water_field_height_scale(height, depth);
 					fresh += water_field_breaking(height, depth) * FOAM_WEIGHT;
-					set_wave_data(vec4(height * damping, -normal.x / normal.y * damping, -normal.z / normal.y * damping, left_behind + fresh));
+					set_wave_data(vec4(height * damping, slope * damping, left_behind + fresh));
 				}
 				]],
 			},
@@ -743,6 +771,8 @@ list.insert(
 					{"ripple_info", "vec4"},
 					{"sea_info", "vec4"},
 					{"sea_offset", "vec4"},
+					{"field_debug", "int"},
+					water_field.GetFields(),
 					medium_surface.block,
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					post_source.pre_exposure_block,
@@ -800,6 +830,8 @@ list.insert(
 					directional_shadows.GetPrimarySunColor(lights):CopyToFloatPointer(block.primary_sun_color)
 					scene_lights.WriteShadowBlock(self, block.shadows, lights)
 					write_ocean(self, block)
+					water_field.WriteBlock(self, block, water.GetOcean().ShoalDepth)
+					block.field_debug = field_debug_pvar:Get() and 1 or 0
 					medium_surface.WriteBlock(self, block)
 					caustics.WriteCoverageBlock(block)
 					block.photon_caustics = (
@@ -922,7 +954,7 @@ list.insert(
 				return blue_noise_r2(blue_noise_texel(TEXTURE(water_data.blue_noise_tex), water_pixel).rg, float(water_data.frame * water_data.rough_rays + sample_index));
 			}
 
-			]] .. medium_surface.GetGLSL("water_data") .. [[
+			]] .. medium_surface.GetGLSL("water_data") .. water_field.GetGLSL("water_data") .. [[
 
 			vec2 foam_cells(vec2 p) {
 				vec2 i = floor(p);
@@ -1861,6 +1893,25 @@ if (w.volume >= 0) {
 			float above_unfiltered = 0.0;
 
 			vec3 finish_above(Water w, vec3 surface_pos, vec3 normal, float alpha, float fold, vec3 transmittance, vec3 inscatter) {
+				if (water_data.field_debug != 0 && w.volume < 0) {
+					vec2 field = water_field_waves(surface_pos.xz);
+					float hue = field.x / 6.28318530718 + 0.5;
+					vec3 tint = clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+					tint = mix(vec3(1.0), tint, clamp(abs(field.x) * 2.0, 0.0, 1.0)) * (1.0 - 0.8 * field.y);
+					float cell = max(4.0, above_footprint * 40.0);
+					vec2 center = (floor(surface_pos.xz / cell) + 0.5) * cell;
+					vec2 center_field = water_field_waves(center);
+					float c = cos(center_field.x);
+					float sn = sin(center_field.x);
+					vec2 dir = vec2(c * water_data.field_wave_dir.x - sn * water_data.field_wave_dir.y, sn * water_data.field_wave_dir.x + c * water_data.field_wave_dir.y);
+					vec2 local_p = (surface_pos.xz - center) / cell;
+					vec2 along = vec2(dot(local_p, dir), dot(local_p, vec2(-dir.y, dir.x)));
+					float shaft = step(abs(along.y), 0.04) * step(abs(along.x), 0.35);
+					float head = step(0.15, along.x) * step(along.x, 0.4) * step(abs(along.y), (0.4 - along.x) * 0.8);
+					tint = mix(tint, vec3(0.0), max(shaft, head));
+					return tint * get_sun_illuminance() * 0.08;
+				}
+
 				vec3 reflection = resolve_reflection() * mix(0.3, 1.0, above_sky_visibility);
 				vec3 transmitted = above_behind * transmittance + inscatter;
 

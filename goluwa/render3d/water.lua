@@ -411,6 +411,9 @@ do
 		waves.total_slope_variance = 0.003 + 0.00512 * params.WindSpeed * development
 		waves.swell_variance = swell_sigma * swell_sigma
 		waves.swell_k = swell_k
+		local swell_dominates = swell_sigma > 0.21 * wind * wind / g / 4 * math.sqrt(energy)
+		waves.dominant_angle = swell_dominates and swell_angle or wind_angle
+		waves.dominant_wavelength = swell_dominates and 2 * PI / swell_k or 2 * PI * g / (peak_omega * peak_omega)
 		waves.detail_slope_variance = slope_variance_between(waves, band_edges[3], 2 * PI / water.RIPPLE_WAVELENGTH)
 		water.spectrum_version = water.spectrum_version + 1
 		water.ocean_waves = waves

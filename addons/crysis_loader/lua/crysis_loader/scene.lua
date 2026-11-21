@@ -79,7 +79,6 @@ local function build_atmosphere_record(data)
 			WindSpeed = math.sqrt(2 * ocean.waves_size * water.GRAVITY / 0.21),
 			WindDirection = wind_direction,
 			SwellHeight = ocean.waves_size * 0.5,
-			Directionality = 0,
 			SwellDirection = wind_direction + 20,
 			Medium = medium,
 		}
