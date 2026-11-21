@@ -555,8 +555,15 @@ do
 		out.velocity_x = velocity_x
 		out.velocity_y = velocity_y
 		out.velocity_z = velocity_z
+
+		if water.shallow_sampler then water.shallow_sampler(x, z, time, out) end
+
 		return out
 	end
+end
+
+function water.SetShallowSampler(sampler)
+	water.shallow_sampler = sampler
 end
 
 return water

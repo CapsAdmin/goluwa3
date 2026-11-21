@@ -435,7 +435,7 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		const float FIELD_TURN_STEP = 0.5235988;
 		const float SHELTER_DAMPING = 0.85;
 		const float SURF_FOAM = 1.2;
-		const float SURF_TAKEOVER = 0.6;
+		const float SURF_TAKEOVER = ]] .. surf.TAKEOVER .. [[;
 		const float SWASH_DRY_RATE = 0.02;
 		const float SWASH_LEVEL_BIAS = ]] .. SWASH_LEVEL_BIAS .. [[;
 

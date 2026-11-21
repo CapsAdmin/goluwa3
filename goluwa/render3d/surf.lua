@@ -4,6 +4,8 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local water = import("goluwa/render3d/water.lua")
 local water_field = import("goluwa/render3d/water_field.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local event = import("goluwa/event.lua")
 local surf = {}
 local SIZE = 512
 local SWEEP_ROUNDS = 2
@@ -13,9 +15,17 @@ local BREAKING_RATIO = 0.78
 local MIN_DEPTH = 0.02
 local SWASH_ELEVATION = 3
 local LAND_SPEED = 3
+local BORE_CYCLES = 1.5
+local SWASH_CYCLES = 0.85
+local SWASH_PEAK = 0.35
+local RUNUP = 1.25
+local WAVE_DEPTH_RATIO = 0.8
+local SHELTER_STEPS = 24
+local EVENT_RADIUS = 220
+local EVENT_CLUSTER = 12
+surf.TAKEOVER = 0.6
 local float_array = ffi.typeof("float[?]")
 local texture
-local RUNUP = 1.25
 local path_texture
 local active = {origin_x = 0, origin_z = 0, half = 0, frequency = 0, valid = false}
 local solve
@@ -34,7 +44,16 @@ local function get_train()
 	return waves, cycles / water.WAVE_PERIOD
 end
 
-local function start_solve(heights, field_size, origin_x, origin_z, half)
+local function start_solve(
+	heights,
+	field_size,
+	origin_x,
+	origin_z,
+	half,
+	field_origin_x,
+	field_origin_z,
+	field_half
+)
 	local waves, frequency = get_train()
 	local omega = 2 * math.pi * frequency
 	local level = render3d.GetOceanLevel()
@@ -114,6 +133,15 @@ local function start_solve(heights, field_size, origin_x, origin_z, half)
 		texel = texel,
 		frequency = frequency,
 		deep_depth = deep_depth,
+		heights = heights,
+		field_size = field_size,
+		field_origin_x = field_origin_x,
+		field_origin_z = field_origin_z,
+		field_half = field_half,
+		level = level,
+		wave_dir_x = dir_x,
+		wave_dir_z = dir_z,
+		wavelength = waves.dominant_wavelength,
 	}
 end
 
@@ -137,9 +165,23 @@ local function sweep(state, direction)
 			if fixed[i] == 0 then
 				local on_land = land[i] == 1
 				local left = column > 0 and (on_land or land[i - 1] == 0) and arrival[i - 1] or UNREACHED
-				local right = column < SIZE - 1 and (on_land or land[i + 1] == 0) and arrival[i + 1] or UNREACHED
+				local right = column < SIZE - 1 and
+					(
+						on_land or
+						land[i + 1] == 0
+					)
+					and
+					arrival[i + 1] or
+					UNREACHED
 				local up = row > 0 and (on_land or land[i - SIZE] == 0) and arrival[i - SIZE] or UNREACHED
-				local down = row < SIZE - 1 and (on_land or land[i + SIZE] == 0) and arrival[i + SIZE] or UNREACHED
+				local down = row < SIZE - 1 and
+					(
+						on_land or
+						land[i + SIZE] == 0
+					)
+					and
+					arrival[i + SIZE] or
+					UNREACHED
 				local a, a_index = left, i - 1
 
 				if right < left then a, a_index = right, i + 1 end
@@ -255,14 +297,352 @@ local function finish_solve(state)
 		path_texture:Upload(path)
 	end
 
+	local event_cells = {}
+
+	for row = 1, SIZE - 2 do
+		for column = 1, SIZE - 2 do
+			local i = row * SIZE + column
+			local t = arrival[i]
+
+			if t < UNREACHED then
+				local kind
+
+				if state.land[i] == 0 and state.breaks[i] == 1 and state.broken_at[i] == t then
+					kind = "break"
+				elseif
+					state.land[i] == 1 and
+					(
+						state.land[i - 1] == 0 and
+						state.fixed[i - 1] == 0 or
+						state.land[i + 1] == 0 and
+						state.fixed[i + 1] == 0 or
+						state.land[i - SIZE] == 0 and
+						state.fixed[i - SIZE] == 0 or
+						state.land[i + SIZE] == 0 and
+						state.fixed[i + SIZE] == 0
+					)
+				then
+					kind = "swash"
+				end
+
+				if kind then
+					event_cells[#event_cells + 1] = {
+						kind = kind,
+						x = state.origin_x + ((column + 0.5) / SIZE * 2 - 1) * state.half,
+						z = state.origin_z + ((row + 0.5) / SIZE * 2 - 1) * state.half,
+						arrival = t,
+						depth = state.depths[i],
+						travel_x = packed[i * 4 + 1],
+						travel_z = packed[i * 4 + 2],
+					}
+				end
+			end
+		end
+	end
+
 	active = {
 		origin_x = state.origin_x,
 		origin_z = state.origin_z,
 		half = state.half,
 		frequency = state.frequency,
 		deep_depth = state.deep_depth,
+		packed = packed,
+		path = path,
+		heights = state.heights,
+		field_size = state.field_size,
+		field_origin_x = state.field_origin_x,
+		field_origin_z = state.field_origin_z,
+		field_half = state.field_half,
+		level = state.level,
+		wave_dir_x = state.wave_dir_x,
+		wave_dir_z = state.wave_dir_z,
+		wavelength = state.wavelength,
+		event_cells = event_cells,
 		valid = true,
 	}
+end
+
+local value_noise2 = glsl_common.ValueNoise2
+
+local function smoothstep(edge0, edge1, x)
+	local t = math.clamp((x - edge0) / (edge1 - edge0), 0, 1)
+	return t * t * (3 - 2 * t)
+end
+
+local function bilinear(data, stride, channel, size, u, v)
+	local x = u * size - 0.5
+	local y = v * size - 0.5
+	local x0 = math.floor(x)
+	local y0 = math.floor(y)
+	local fx = x - x0
+	local fy = y - y0
+	local x1 = math.min(x0 + 1, size - 1)
+	local y1 = math.min(y0 + 1, size - 1)
+	x0 = math.max(x0, 0)
+	y0 = math.max(y0, 0)
+	x1 = math.max(x1, 0)
+	y1 = math.max(y1, 0)
+	local a = data[(y0 * size + x0) * stride + channel]
+	local b = data[(y0 * size + x1) * stride + channel]
+	local c = data[(y1 * size + x0) * stride + channel]
+	local d = data[(y1 * size + x1) * stride + channel]
+	local top = a + (b - a) * fx
+	return top + (c + (d - c) * fx - top) * fy
+end
+
+local function field_height(x, z)
+	local u = (x - active.field_origin_x) / (2 * active.field_half) + 0.5
+	local v = (z - active.field_origin_z) / (2 * active.field_half) + 0.5
+
+	if u < 0 or v < 0 or u > 1 or v > 1 then return nil end
+
+	return bilinear(active.heights, 1, 0, active.field_size, u, v)
+end
+
+local function field_depth(x, z)
+	local height = field_height(x, z)
+	return height and active.level - height or 1e4
+end
+
+local function shelter_at(x, z)
+	local reach = math.clamp(active.wavelength * 6, 60, 240)
+	local step = reach / SHELTER_STEPS
+	local shelter = 0
+
+	for i = 1, SHELTER_STEPS do
+		local along = i * step
+		local height = field_height(x - active.wave_dir_x * along, z - active.wave_dir_z * along)
+
+		if not height then break end
+
+		shelter = math.max(shelter, smoothstep(-2, 0.5, height - active.level) * (1 - along / reach))
+	end
+
+	return shelter
+end
+
+local function crest_height(x, z, crest, shelter)
+	local along = value_noise2(x * 0.012 + crest * 3.7, z * 0.012 + crest * 1.3) * 0.7 + value_noise2(x * 0.05 + crest * 1.9, z * 0.05) * 0.3
+	local sets = 0.8 + 0.3 * math.sin(crest * 0.8975979 + value_noise2(x * 0.002, z * 0.002) * 6)
+	return surf.GetHeight() * math.lerp(0.45, 1.3, along) * sets * (1 - 0.85 * shelter)
+end
+
+local function swash_curve(tau)
+	if tau < SWASH_PEAK then return math.sin(math.pi / 2 * tau / SWASH_PEAK) end
+
+	if tau < 1 then
+		return math.cos(math.pi / 2 * (tau - SWASH_PEAK) / (1 - SWASH_PEAK))
+	end
+
+	return 0
+end
+
+local function shape(u, steepness, broken, plunge)
+	local front = u < 0.5 and 0.5 * (2 * u) ^ (1 + 2 * steepness + 4 * plunge) or u
+	local peaked = (0.5 + 0.5 * math.cos(2 * math.pi * (front - 0.5))) ^ (1 + 3 * steepness)
+	local bore = u < 0.5 and smoothstep(0.5 - 0.08, 0.5, u) or (1 - (u - 0.5) * 2) ^ 1.5
+	return peaked + (bore - peaked) * broken - 0.3
+end
+
+local function breaker_plunge(x, z, wave_height)
+	local slope_x = ((field_height(x + 2, z) or 0) - (field_height(x - 2, z) or 0)) / 4
+	local slope_z = ((field_height(x, z + 2) or 0) - (field_height(x, z - 2) or 0)) / 4
+	local beach_slope = math.sqrt(slope_x * slope_x + slope_z * slope_z)
+	local deep_wavelength = water.GRAVITY / (2 * math.pi * active.frequency * active.frequency)
+	local iribarren = math.max(beach_slope, 0.01) / math.sqrt(math.max(wave_height / deep_wavelength, 1e-4))
+	return beach_slope, deep_wavelength, iribarren
+end
+
+function surf.IsActive()
+	return active.valid
+end
+
+function surf.ApplyToSample(x, z, time, out)
+	if not active.valid then return end
+
+	local depth = field_depth(x, z)
+
+	if depth >= 1e3 then return end
+
+	time = time % water.WAVE_PERIOD
+	local u = (x - active.origin_x) / (2 * active.half) + 0.5
+	local v = (z - active.origin_z) / (2 * active.half) + 0.5
+	local packed = active.packed
+	local reached = smoothstep(0.6, 1, bilinear(packed, 4, 3, SIZE, u, v))
+	local height, slope_x, slope_z, velocity_x, velocity_y, velocity_z, presence = 0, 0, 0, 0, 0, 0, 0
+
+	if reached > 0 then
+		local weight = math.max(bilinear(packed, 4, 3, SIZE, u, v), 1e-3)
+		local arrival = bilinear(packed, 4, 0, SIZE, u, v) / weight
+		local travel_x = bilinear(packed, 4, 1, SIZE, u, v) / weight
+		local travel_z = bilinear(packed, 4, 2, SIZE, u, v) / weight
+		local shallowest = bilinear(active.path, 2, 0, SIZE, u, v)
+		local since_break_seconds = bilinear(active.path, 2, 1, SIZE, u, v)
+		local frequency = active.frequency
+		local shelter = shelter_at(x, z)
+		local cycles = (time - arrival) * frequency + 0.5
+		local since_break = since_break_seconds * frequency
+		local swash_phase = cycles - 0.5
+		local swash_crest = math.floor(swash_phase)
+		local spent = since_break_seconds >= NEVER_BROKEN * 0.5 and
+			1 or
+			math.exp(-math.max(since_break, 0) / (BORE_CYCLES * 4))
+		local shore_height = crest_height(x, z, swash_crest, shelter) * spent
+		local _, _, shore_iribarren = breaker_plunge(x, z, shore_height)
+		local runup = shore_height * math.clamp(shore_iribarren, 0.3, 1.5) * RUNUP
+		local swash = runup * swash_curve((swash_phase - swash_crest) / SWASH_CYCLES) * reached
+
+		if depth <= 0 then
+			presence = reached
+			height = swash
+		else
+			presence = reached * (1 - smoothstep(0.35, 1, depth / active.deep_depth))
+
+			if presence > 0 then
+				local crest = math.floor(cycles)
+				local phase = cycles - crest
+				local shoaling = math.clamp(active.deep_depth / math.max(depth, 0.05), 1, 40) ^ 0.25
+				local wave_height = crest_height(x, z, crest, shelter) * shoaling
+				local ratio = wave_height / (BREAKING_RATIO * depth)
+				local broken = math.max(smoothstep(0.85, 1.1, ratio), math.exp(-math.max(since_break, 0) / BORE_CYCLES))
+				wave_height = math.min(
+					wave_height,
+					BREAKING_RATIO * math.min(depth, math.max(shallowest, 0) + 0.25 * math.max(depth - shallowest, 0))
+				)
+				local travel = math.sqrt(travel_x * travel_x + travel_z * travel_z)
+				local wavelength = 1 / math.max(travel * frequency, 1e-3)
+				local steepness = math.clamp(wave_height / wavelength / 0.14, 0, 1)
+				local _, _, iribarren = breaker_plunge(x, z, wave_height)
+				local plunge = smoothstep(0.35, 0.9, iribarren) * smoothstep(0.7, 0.95, ratio) * (
+						1 - smoothstep(1.05, 1.3, ratio)
+					)
+				local du = 0.004
+				local value = shape(phase, steepness, broken, plunge)
+				local derivative = (
+						shape(math.min(phase + du, 1), steepness, broken, plunge) - shape(math.max(phase - du, 0), steepness, broken, plunge)
+					) / (
+						math.min(phase + du, 1) - math.max(phase - du, 0)
+					)
+				height = wave_height * value * presence
+				slope_x = -derivative * wave_height * frequency * travel_x * presence
+				slope_z = -derivative * wave_height * frequency * travel_z * presence
+				local slope_length = math.sqrt(slope_x * slope_x + slope_z * slope_z)
+
+				if slope_length > 2.5 then
+					slope_x = slope_x * 2.5 / slope_length
+					slope_z = slope_z * 2.5 / slope_length
+				end
+
+				local speed = 1 / math.max(travel, 1e-4)
+				local carried = speed * math.max(height, 0) / math.max(depth, 0.1)
+				velocity_x = travel_x / math.max(travel, 1e-4) * carried
+				velocity_z = travel_z / math.max(travel, 1e-4) * carried
+				velocity_y = derivative * wave_height * frequency * presence
+				local sheet = swash * (1 - smoothstep(0, 0.3 + runup, depth))
+
+				if sheet > height then height = sheet end
+			end
+		end
+	end
+
+	local cap = math.max(WAVE_DEPTH_RATIO * depth, 1e-3)
+	local ratio = out.height / cap
+	local scale = math.abs(ratio) < 1e-3 and 1 or math.tanh(ratio) / ratio
+	local damping = smoothstep(0, water.GetOcean().ShoalDepth, depth) * scale * (
+			1 - surf.TAKEOVER * presence
+		)
+	out.height = out.height * damping + height
+	out.slope_x = out.slope_x * damping + slope_x
+	out.slope_z = out.slope_z * damping + slope_z
+	out.velocity_x = out.velocity_x * damping + velocity_x
+	out.velocity_y = out.velocity_y * damping + velocity_y
+	out.velocity_z = out.velocity_z * damping + velocity_z
+end
+
+water.SetShallowSampler(surf.ApplyToSample)
+
+do
+	local previous_time
+	local clusters = {}
+	local found = {}
+
+	local function detect_events(time)
+		if not previous_time or time < previous_time or time - previous_time > 1 then
+			previous_time = time
+			return
+		end
+
+		local camera = render3d.GetCamera():GetPosition()
+		local frequency = active.frequency
+		local radius2 = EVENT_RADIUS * EVENT_RADIUS
+		local count = 0
+
+		for i = 1, #active.event_cells do
+			local cell = active.event_cells[i]
+			local dx, dz = cell.x - camera.x, cell.z - camera.z
+
+			if dx * dx + dz * dz < radius2 then
+				local before = math.floor((previous_time - cell.arrival) * frequency)
+				local now = math.floor((time - cell.arrival) * frequency)
+
+				if now > before then
+					local shelter = shelter_at(cell.x, cell.z)
+					local wave_height = crest_height(cell.x, cell.z, now, shelter)
+					local height, plunge
+
+					if cell.kind == "break" then
+						wave_height = math.min(
+							wave_height * math.clamp(active.deep_depth / math.max(cell.depth, 0.05), 1, 40) ^ 0.25,
+							BREAKING_RATIO * math.max(cell.depth, 0.05)
+						)
+						local _, _, iribarren = breaker_plunge(cell.x, cell.z, wave_height)
+						height = wave_height
+						plunge = smoothstep(0.35, 0.9, iribarren)
+					else
+						local _, _, iribarren = breaker_plunge(cell.x, cell.z, wave_height)
+						height = wave_height * math.clamp(iribarren, 0.3, 1.5) * RUNUP
+						plunge = 0
+					end
+
+					local key = cell.kind .. math.floor(cell.x / EVENT_CLUSTER) .. ":" .. math.floor(cell.z / EVENT_CLUSTER)
+					local existing = clusters[key]
+
+					if not existing then
+						count = count + 1
+						existing = found[count] or {}
+						found[count] = existing
+						clusters[key] = existing
+						existing.Kind = cell.kind
+						existing.Height = 0
+					end
+
+					if height > existing.Height then
+						local travel = math.max(math.sqrt(cell.travel_x * cell.travel_x + cell.travel_z * cell.travel_z), 1e-4)
+						existing.Height = height
+						existing.Plunge = plunge
+						existing.X = cell.x
+						existing.Y = active.level + (cell.kind == "swash" and -cell.depth or 0)
+						existing.Z = cell.z
+						existing.DirectionX = cell.travel_x / travel
+						existing.DirectionZ = cell.travel_z / travel
+						existing.Speed = 1 / travel
+					end
+				end
+			end
+		end
+
+		for i = 1, count do
+			event.Call("SurfBreak", found[i])
+		end
+
+		for key in pairs(clusters) do
+			clusters[key] = nil
+		end
+
+		previous_time = time
+	end
+
+	surf.DetectEvents = detect_events
 end
 
 local updated_frame = -1
@@ -273,6 +653,9 @@ function surf.Update()
 	if frame == updated_frame then return end
 
 	updated_frame = frame
+
+	if active.valid then surf.DetectEvents(water.GetWaveTime()) end
+
 	local heights, version, field_size, origin_x, origin_z, half = water_field.GetHeights()
 
 	if not heights then
@@ -285,7 +668,7 @@ function surf.Update()
 
 	if not solve and solved_key ~= key then
 		solved_key = key
-		start_solve(heights, field_size, origin_x, origin_z, half)
+		start_solve(heights, field_size, origin_x, origin_z, half, origin_x, origin_z, half)
 		return
 	end
 
