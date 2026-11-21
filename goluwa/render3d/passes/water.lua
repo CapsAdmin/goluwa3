@@ -126,7 +126,7 @@ local trace_steps_pvar = pvars.Setup2{
 local field_debug_pvar = pvars.Setup2{
 	key = "r_water_field_debug",
 	default = false,
-	help = "colours the sea by the wave field from the depth around the camera: hue is the angle the waves turn towards the shore, dark is sheltered from the open sea",
+	help = "colours the sea by the wave field from the depth around the camera: hue is the angle the waves turn towards the shore, dark is sheltered from the open sea, blue is where surf runs, red is whitewater, cyan is swash over the sand",
 }
 local reorder_pvar = pvars.Setup2{
 	key = "r_water_reorder",
@@ -159,6 +159,7 @@ local FOAM_BIAS = 1.03
 local FOAM_SPREAD = 1.5
 local FOAM_GAIN = 2.5
 local FOAM_DECAY = 0.3
+local SWASH_LEVEL_BIAS = 1
 local FOAM_ADD = 1.0
 local previous_origins = {}
 
@@ -435,6 +436,8 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		const float SHELTER_DAMPING = 0.85;
 		const float SURF_FOAM = 1.2;
 		const float SURF_TAKEOVER = 0.6;
+		const float SWASH_DRY_RATE = 0.02;
+		const float SWASH_LEVEL_BIAS = ]] .. SWASH_LEVEL_BIAS .. [[;
 
 		void fft_surface_turned(vec2 world_xz, float choppiness, float turn, out float height, out vec2 slope, out float jacobian) {
 			vec2 axis = vec2(cos(turn), sin(turn));
@@ -538,9 +541,11 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 					vec2 surf_slope;
 					float whitewater;
 					float surf_presence;
-					surf_wave(world_xz, depth, wave_block.time, shelter, surf_height, surf_slope, whitewater, surf_presence);
+					float swash_wet;
+					surf_wave(world_xz, depth, wave_block.time, shelter, surf_height, surf_slope, whitewater, surf_presence, swash_wet);
 					float breaking = water_field_breaking(height, depth) * FOAM_WEIGHT + whitewater * SURF_FOAM;
 					float previous = 0.0;
+					float previous_wet = 0.0;
 					vec2 history_uv = in_uv + wave_block.origin_shift;
 
 					if (wave_block.history_valid > 0.5 && all(greaterThan(history_uv, vec2(0.0))) && all(lessThan(history_uv, vec2(1.0)))) {
@@ -552,11 +557,13 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 							+ textureLod(TEXTURE(wave_block.history_tex), history_uv - vec2(0.0, texel.y), 0.0).r;
 						previous = mix(textureLod(TEXTURE(wave_block.history_tex), history_uv, 0.0).r, around * 0.25, spread);
 						if (!(previous >= 0.0 && previous < 16.0)) previous = 0.0;
+						previous_wet = clamp(textureLod(TEXTURE(wave_block.history_tex), history_uv, 0.0).g, 0.0, 8.0);
 					}
 
-					float made = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT;
+					float made = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT * water_field_damping(depth);
+					float wet = max(previous_wet - wave_block.dt * SWASH_DRY_RATE, swash_wet > 0.0 ? surf_height + SWASH_LEVEL_BIAS : 0.0);
 					float foam = previous * exp(-FOAM_DECAY * wave_block.dt) + (made + breaking) * FOAM_ADD * wave_block.dt;
-					set_foam(vec4(foam, 0.0, 0.0, 1.0));
+					set_foam(vec4(foam, wet, 0.0, 1.0));
 				}
 				]],
 			},
@@ -607,13 +614,14 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 					float shelter;
 					field_surface(world_xz, wave_block.wave_choppiness, height, slope, jacobian, shelter);
 					float left_behind = textureLod(TEXTURE(wave_block.foam_tex), in_uv, 0.0).r;
-					float fresh = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT;
 					float depth = water_field_depth(world_xz);
+					float fresh = clamp((mix(FOAM_BIAS - 0.15, FOAM_BIAS, wave_block.foam_amount) - jacobian) * FOAM_GAIN, 0.0, 1.0) * wave_block.foam_amount * FOAM_WEIGHT * water_field_damping(depth);
 					float surf_height;
 					vec2 surf_slope;
 					float whitewater;
 					float surf_presence;
-					surf_wave(world_xz, depth, wave_block.time, shelter, surf_height, surf_slope, whitewater, surf_presence);
+					float swash_wet;
+					surf_wave(world_xz, depth, wave_block.time, shelter, surf_height, surf_slope, whitewater, surf_presence, swash_wet);
 					float damping = water_field_damping(depth) * water_field_height_scale(height, depth) * (1.0 - SURF_TAKEOVER * surf_presence);
 					fresh += water_field_breaking(height, depth) * FOAM_WEIGHT + whitewater * SURF_FOAM * 0.25;
 					set_wave_data(vec4(height * damping + surf_height, slope * damping + surf_slope, left_behind + fresh));
@@ -654,6 +662,14 @@ local function write_ocean(self, block)
 	block.ocean_wave_info[1] = params.Caustics
 	block.ocean_wave_info[2] = waves.total_slope_variance
 	block.ocean_wave_info[3] = medium.AbbeNumber
+
+	for i = 1, 2 do
+		local pipeline = render3d.pipelines[get_foam_pipeline_name(WAVE_CASCADES[i])]
+		block.swash_wet_tex[i - 1] = pipeline and
+			pipeline.framebuffers and
+			self:GetTextureIndex(pipeline:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)) or
+			-1
+	end
 
 	for i, cascade in ipairs(WAVE_CASCADES) do
 		local pipeline = render3d.pipelines[cascade.name]
@@ -787,6 +803,7 @@ list.insert(
 					{"sea_info", "vec4"},
 					{"sea_offset", "vec4"},
 					{"field_debug", "int"},
+					{"swash_wet_tex", "int", 2},
 					water_field.GetFields(),
 					surf.GetFields(),
 					medium_surface.block,
@@ -960,7 +977,6 @@ list.insert(
 				scene_hits.CONSTANTS_GLSL .. "#define RADIANCE_CACHE_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
 			) .. [[
 
-			]] .. surf.GetGLSL("water_data") .. [[
 
 			float get_blue_noise() {
 				if (water_data.blue_noise_tex == -1) return 0.5;
@@ -973,7 +989,7 @@ list.insert(
 				return blue_noise_r2(blue_noise_texel(TEXTURE(water_data.blue_noise_tex), water_pixel).rg, float(water_data.frame * water_data.rough_rays + sample_index));
 			}
 
-			]] .. medium_surface.GetGLSL("water_data") .. water_field.GetGLSL("water_data") .. [[
+			]] .. medium_surface.GetGLSL("water_data") .. water_field.GetGLSL("water_data") .. surf.GetGLSL("water_data") .. [[
 
 			vec2 foam_cells(vec2 p) {
 				vec2 i = floor(p);
@@ -1156,6 +1172,7 @@ list.insert(
 					float approach = WATER_MAX_SLOPE * horizontal + max(-ray_dir.y, 0.0);
 					float prev_t = t;
 					bool crossed = false;
+					bool reached_end = false;
 					float last_h = 1.0;
 
 					for (int i = 0; i < water_data.trace_steps; i++) {
@@ -1168,13 +1185,16 @@ list.insert(
 							break;
 						}
 
-						prev_t = t;
-						t += max(h / approach, 0.008 * t + 0.02);
+						if (t >= t_end) {
+							reached_end = true;
+							break;
+						}
 
-						if (t > t_end) break;
+						prev_t = t;
+						t = min(t + max(h / approach, 0.008 * t + 0.02), t_end);
 					}
 
-					if (!crossed && t <= t_end) {
+					if (!crossed && !reached_end) {
 						hit_pos = ray_dir * t;
 						return t;
 					}
@@ -1596,6 +1616,27 @@ list.insert(
 				return above;
 			}
 
+			const float SWASH_LEVEL_BIAS = ]] .. SWASH_LEVEL_BIAS .. [[;
+
+			float get_swash_wetness(vec3 world_pos) {
+				float level = 0.0;
+
+				for (int i = 1; i >= 0; i--) {
+					int tex = water_data.swash_wet_tex[i];
+					if (tex < 0) continue;
+					vec4 origin = water_data.wave_origin[i];
+					vec2 uv = (world_pos.xz - origin.xy) * (0.5 / origin.z) + 0.5;
+					vec2 edge = abs(uv - 0.5) * 2.0;
+					float coverage = 1.0 - smoothstep(0.75, 0.97, max(edge.x, edge.y));
+					if (coverage <= 0.0) continue;
+					level = mix(level, textureLod(TEXTURE(tex), uv, 0.0).g, coverage);
+				}
+
+				if (level <= 0.0) return 0.0;
+
+				return 1.0 - smoothstep(-0.02, 0.03, world_pos.y - water_data.ocean_level - (level - SWASH_LEVEL_BIAS));
+			}
+
 			float get_wetness(vec3 world_pos, float above) {
 				float reach = (WET_REACH + water_data.ocean_wave_info.x * 0.3) * mix(0.75, 1.25, value_noise2(world_pos.xz * 0.5) * 0.6 + value_noise2(world_pos.xz * 1.1 + 5.3) * 0.4);
 				return 1.0 - smoothstep(reach * 0.35, reach, above);
@@ -1613,7 +1654,7 @@ list.insert(
 				vec3 half_dir = normalize(view_dir + sun);
 				float sun_specular = no_l > 0.0 ? D_GGXAlpha(alpha, max(dot(normal, half_dir), 0.0)) * V_SmithGGXCorrelated(alpha, no_v, no_l) * fresnel_dielectric(max(dot(view_dir, half_dir), 0.0), 1.0 / 1.33) * no_l * get_water_sun_visibility(world_pos + normal * 0.05, sun) : 0.0;
 				vec3 sky = sample_environment_specular(water_data.env_tex, reflect(-view_dir, normal), normal, perceptual) * fresnel_dielectric(no_v, 1.0 / 1.33);
-				return color + (sky + get_sun_illuminance() * sun_specular) * wetness * mix(0.4, 1.0, film);
+				return color + (sky + get_sun_illuminance() * sun_specular) * wetness * mix(0.12, 1.0, film);
 			}
 
 			]] .. medium_surface.GetCausticGLSL(
@@ -1932,9 +1973,11 @@ if (w.volume >= 0) {
 					vec2 surf_slope;
 					float whitewater;
 					float surf_presence;
-					surf_wave(surface_pos.xz, water_field_depth(surface_pos.xz), water_data.time, field.y, surf_height, surf_slope, whitewater, surf_presence);
+					float swash_wet;
+					surf_wave(surface_pos.xz, water_field_depth(surface_pos.xz), water_data.time, field.y, surf_height, surf_slope, whitewater, surf_presence, swash_wet);
 					tint = mix(tint, vec3(0.1, 0.4, 1.0), surf_presence * 0.5);
 					tint = mix(tint, vec3(1.0, 0.1, 0.0), clamp(whitewater, 0.0, 1.0));
+					if (water_field_depth(surface_pos.xz) < 0.0) tint = vec3(0.0, 1.0, 1.0);
 					return tint * get_sun_illuminance() * 0.08;
 				}
 
@@ -2015,9 +2058,11 @@ if (w.volume >= 0) {
 				float shore_blend = 1.0;
 				vec3 shore_floor = surface_pos;
 
+				float water_top = w.volume < 0 ? max(surface_pos.y, w.surface_y) : w.surface_y;
+
 				if (above_scene_distance < 1e29 && w.foam > 0.0 && water_feature(WATER_SHORE_FOAM)) {
 					shore_floor = surface_pos - above_view_dir * above_scene_distance;
-					float vertical = w.surface_y - shore_floor.y;
+					float vertical = water_top - shore_floor.y;
 
 					if (vertical < SHORE_CAST) {
 						vec2 texel = 14.0 / water_data.render_size;
@@ -2031,7 +2076,7 @@ if (w.volume >= 0) {
 							float depth = scene_depth_at(uv);
 							vec3 neighbor = depth > 0.0 ? get_world_pos(uv, depth) : shore_floor;
 							slope += min(abs(neighbor.y - shore_floor.y) / max(length(neighbor.xz - shore_floor.xz), 1e-3), MAX_SHORE_SLOPE) * 0.125;
-							height_sum += max(w.surface_y - neighbor.y, -0.05);
+							height_sum += max(water_top - neighbor.y, -0.05);
 						}
 
 						shore_depth = height_sum / 9.0;
@@ -2417,7 +2462,10 @@ if (w.volume >= 0) {
 					if (!ocean_first) {
 						if (scene_depth > 0.0 && water_feature(WATER_SHORE_FOAM)) {
 							float above = get_height_above_water(scene_pos);
-							if (above < 2.0) scene_color = apply_wetness(in_uv, scene_color, scene_pos, -ray_dir, get_wetness(scene_pos, above), 1.0 - smoothstep(0.0, 0.1, above));
+							if (above < 3.0) {
+								float swash_wet = water_data.ocean_enabled != 0 ? get_swash_wetness(scene_pos) : 0.0;
+								scene_color = apply_wetness(in_uv, scene_color, scene_pos, -ray_dir, max(get_wetness(scene_pos, above), swash_wet), 1.0 - smoothstep(0.0, 0.1, above));
+							}
 						}
 
 						write_passthrough(scene_color);

@@ -11,6 +11,8 @@ local UNREACHED = 1e9
 local NEVER_BROKEN = 1e4
 local BREAKING_RATIO = 0.78
 local MIN_DEPTH = 0.02
+local SWASH_ELEVATION = 3
+local LAND_SPEED = 3
 local float_array = ffi.typeof("float[?]")
 local texture
 local path_texture
@@ -47,6 +49,7 @@ local function start_solve(heights, field_size, origin_x, origin_z, half)
 	local shallowest = float_array(SIZE * SIZE)
 	local broken_at = float_array(SIZE * SIZE)
 	local breaks = ffi.new("uint8_t[?]", SIZE * SIZE)
+	local land = ffi.new("uint8_t[?]", SIZE * SIZE)
 	local height = surf.GetHeight()
 
 	for row = 0, SIZE - 1 do
@@ -71,9 +74,13 @@ local function start_solve(heights, field_size, origin_x, origin_z, half)
 			local x = ((column + 0.5) / SIZE * 2 - 1) * half
 			local z = ((row + 0.5) / SIZE * 2 - 1) * half
 
-			if depth <= MIN_DEPTH then
+			if depth <= -SWASH_ELEVATION then
 				arrival[i] = UNREACHED
 				fixed[i] = 1
+			elseif depth <= MIN_DEPTH then
+				arrival[i] = UNREACHED
+				land[i] = 1
+				cost[i] = texel / LAND_SPEED
 			elseif
 				depth >= deep_depth or
 				row == 0 or
@@ -98,6 +105,7 @@ local function start_solve(heights, field_size, origin_x, origin_z, half)
 		shallowest = shallowest,
 		broken_at = broken_at,
 		breaks = breaks,
+		land = land,
 		sweep = 0,
 		origin_x = origin_x,
 		origin_z = origin_z,
@@ -111,6 +119,7 @@ end
 local function sweep(state, direction)
 	local arrival, cost, fixed = state.arrival, state.cost, state.fixed
 	local depths, shallowest, broken_at, breaks = state.depths, state.shallowest, state.broken_at, state.breaks
+	local land = state.land
 	local row_from, row_to, row_step = 0, SIZE - 1, 1
 	local column_from, column_to, column_step = 0, SIZE - 1, 1
 
@@ -125,10 +134,11 @@ local function sweep(state, direction)
 			local i = row * SIZE + column
 
 			if fixed[i] == 0 then
-				local left = column > 0 and arrival[i - 1] or UNREACHED
-				local right = column < SIZE - 1 and arrival[i + 1] or UNREACHED
-				local up = row > 0 and arrival[i - SIZE] or UNREACHED
-				local down = row < SIZE - 1 and arrival[i + SIZE] or UNREACHED
+				local on_land = land[i] == 1
+				local left = column > 0 and (on_land or land[i - 1] == 0) and arrival[i - 1] or UNREACHED
+				local right = column < SIZE - 1 and (on_land or land[i + 1] == 0) and arrival[i + 1] or UNREACHED
+				local up = row > 0 and (on_land or land[i - SIZE] == 0) and arrival[i - SIZE] or UNREACHED
+				local down = row < SIZE - 1 and (on_land or land[i + SIZE] == 0) and arrival[i + SIZE] or UNREACHED
 				local a, a_index = left, i - 1
 
 				if right < left then a, a_index = right, i + 1 end
@@ -149,7 +159,7 @@ local function sweep(state, direction)
 				if candidate < arrival[i] then
 					local upwind = a < b and a_index or b_index
 					arrival[i] = candidate
-					shallowest[i] = math.min(shallowest[upwind], depths[i])
+					shallowest[i] = on_land and shallowest[upwind] or math.min(shallowest[upwind], depths[i])
 					broken_at[i] = broken_at[upwind] < UNREACHED and
 						broken_at[upwind] or
 						breaks[i] == 1 and
@@ -337,34 +347,78 @@ function surf.GetGLSL(block_name)
 			return mix(peaked, bore, broken) - 0.3;
 		}
 
-		void surf_wave(vec2 world_xz, float depth, float time, float shelter, out float height, out vec2 slope, out float whitewater, out float presence) {
+		const float SURF_SWASH_CYCLES = 0.85;
+		const float SURF_SWASH_PEAK = 0.35;
+		const float SURF_RUNUP = 1.0;
+		const float SURF_NEVER_BROKEN = ]] .. NEVER_BROKEN * 0.5 .. [[;
+
+		float surf_crest_height(vec2 world_xz, float crest, float shelter) {
+			float along = value_noise2(world_xz * 0.012 + vec2(crest * 3.7, crest * 1.3)) * 0.7 + value_noise2(world_xz * 0.05 + vec2(crest * 1.9, 0.0)) * 0.3;
+			float sets = 0.8 + 0.3 * sin(crest * 0.8975979 + value_noise2(world_xz * 0.002) * 6.0);
+			return $B.surf_height * mix(0.45, 1.3, along) * sets * (1.0 - 0.85 * shelter);
+		}
+
+		float surf_swash_curve(float tau) {
+			if (tau < SURF_SWASH_PEAK) return sin(1.5707963 * tau / SURF_SWASH_PEAK);
+			if (tau < 1.0) return cos(1.5707963 * (tau - SURF_SWASH_PEAK) / (1.0 - SURF_SWASH_PEAK));
+			return 0.0;
+		}
+
+		void surf_wave(vec2 world_xz, float depth, float time, float shelter, out float height, out vec2 slope, out float whitewater, out float presence, out float wet) {
 			height = 0.0;
 			slope = vec2(0.0);
 			whitewater = 0.0;
 			presence = 0.0;
+			wet = 0.0;
 
-			if ($B.surf_tex < 0 || depth <= 0.0) return;
+			if ($B.surf_tex < 0) return;
 
 			vec2 uv = (world_xz - $B.surf_origin) / (2.0 * $B.surf_half) + 0.5;
 
 			if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return;
 
 			vec4 arrival = textureLod(TEXTURE($B.surf_tex), uv, 0.0);
-			presence = smoothstep(0.6, 1.0, arrival.w) * (1.0 - smoothstep(0.35, 1.0, depth / $B.surf_deep_depth));
+			float reached = smoothstep(0.6, 1.0, arrival.w);
+
+			if (reached <= 0.0) return;
+
+			vec2 path = textureLod(TEXTURE($B.surf_path_tex), uv, 0.0).rg;
+			float cycles = (time - arrival.x / max(arrival.w, 1e-3)) * $B.surf_frequency + 0.5;
+			float since_break = path.y * $B.surf_frequency;
+			float swash_phase = cycles - 0.5;
+			float swash_crest = floor(swash_phase);
+			float spent = path.y >= SURF_NEVER_BROKEN ? 1.0 : exp(-max(since_break, 0.0) / (SURF_BORE_CYCLES * 4.0));
+			float shore_height = surf_crest_height(world_xz, swash_crest, shelter) * spent;
+			float beach_slope = length(vec2(
+				water_field_height(world_xz + vec2(2.0, 0.0), 1.0) - water_field_height(world_xz - vec2(2.0, 0.0), 1.0),
+				water_field_height(world_xz + vec2(0.0, 2.0), 1.0) - water_field_height(world_xz - vec2(0.0, 2.0), 1.0)
+			)) / 4.0;
+			float deep_wavelength = 9.81 / (6.28318530718 * $B.surf_frequency * $B.surf_frequency);
+			float iribarren = max(beach_slope, 0.01) / sqrt(max(shore_height / deep_wavelength, 1e-4));
+			float runup = shore_height * clamp(iribarren, 0.3, 1.5) * SURF_RUNUP;
+			float tau = (swash_phase - swash_crest) / SURF_SWASH_CYCLES;
+			float swash = runup * surf_swash_curve(tau) * reached;
+
+			if (depth <= 0.0) {
+				float film = swash + depth;
+				presence = reached;
+				wet = step(0.002, film);
+				height = swash;
+				float tip = smoothstep(0.0, 0.01, film) * (1.0 - smoothstep(0.01, 0.1, film));
+				whitewater = (tau < SURF_SWASH_PEAK ? tip + 0.35 * wet : 0.0) * smoothstep(0.05, 0.3, shore_height);
+				return;
+			}
+
+			presence = reached * (1.0 - smoothstep(0.35, 1.0, depth / $B.surf_deep_depth));
 
 			if (presence <= 0.0) return;
 
 			vec2 travel = arrival.yz / max(arrival.w, 1e-3);
-			float cycles = (time - arrival.x / max(arrival.w, 1e-3)) * $B.surf_frequency + 0.5;
 			float crest = floor(cycles);
 			float u = cycles - crest;
-			float along = value_noise2(world_xz * 0.012 + vec2(crest * 3.7, crest * 1.3)) * 0.7 + value_noise2(world_xz * 0.05 + vec2(crest * 1.9, 0.0)) * 0.3;
-			float sets = 0.8 + 0.3 * sin(crest * 0.8975979 + value_noise2(world_xz * 0.002) * 6.0);
-			vec2 path = textureLod(TEXTURE($B.surf_path_tex), uv, 0.0).rg;
 			float shoaling = pow(clamp($B.surf_deep_depth / max(depth, 0.05), 1.0, 40.0), 0.25);
-			float wave_height = $B.surf_height * shoaling * mix(0.45, 1.3, along) * sets * (1.0 - 0.85 * shelter);
+			float wave_height = surf_crest_height(world_xz, crest, shelter) * shoaling;
 			float ratio = wave_height / (SURF_BREAKING_RATIO * depth);
-			float since_break = path.y * $B.surf_frequency;
 			float broken = max(smoothstep(0.85, 1.1, ratio), exp(-max(since_break, 0.0) / SURF_BORE_CYCLES));
 			wave_height = min(wave_height, SURF_BREAKING_RATIO * min(depth, max(path.x, 0.0) + 0.25 * max(depth - path.x, 0.0)));
 			float wavelength = 1.0 / max(length(travel) * $B.surf_frequency, 1e-3);
@@ -376,6 +430,13 @@ function surf.GetGLSL(block_name)
 			slope = -shape_slope * wave_height * $B.surf_frequency * travel * presence;
 			float slope_length = length(slope);
 			if (slope_length > 2.5) slope *= 2.5 / slope_length;
+			float sheet = swash * (1.0 - smoothstep(0.0, 0.3 + runup, depth));
+
+			if (sheet > height) {
+				slope *= 1.0 - smoothstep(height, height + 0.05, sheet);
+				height = sheet;
+			}
+
 			float face = u < 0.5 ? smoothstep(0.5 - SURF_BORE_FRONT * 1.5, 0.5, u) : exp(-(u - 0.5) * 12.0);
 			float energy = exp(-max(since_break, 0.0) / (SURF_BORE_CYCLES * 2.0)) * smoothstep(0.03, 0.25, wave_height);
 			float patches = smoothstep(0.25, 0.7, value_noise2(world_xz * 0.15 + vec2(crest * 5.3, 0.0)) * 0.6 + value_noise2(world_xz * 0.6 - vec2(0.0, crest * 2.1)) * 0.4 + energy * 0.4);

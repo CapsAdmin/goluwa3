@@ -186,7 +186,7 @@ function water_field.GetGLSL(block_name)
 		}
 
 		float water_field_breaking(float crest_height, float depth) {
-			return 0.3 * smoothstep(0.5, 1.0, max(crest_height, 0.0) / max(depth, 0.05)) * step(depth, 1e3);
+			return 0.3 * smoothstep(0.5, 1.0, max(crest_height, 0.0) / max(depth, 0.05)) * step(depth, 1e3) * step(0.0, depth);
 		}
 
 		vec2 water_field_waves(vec2 world_xz) {
