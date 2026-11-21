@@ -1048,6 +1048,75 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	staging_buffer:Remove()
 end
 
+do
+	local Fence = import("goluwa/render/vulkan/internal/fence.lua")
+	local pending = {}
+
+	-- uploads the whole first mip without waiting. The caller must not let a frame read the texture until IsUploadDone
+	-- returns true: the copy lands some time after this returns, so write into a texture no frame in flight samples
+	function Texture:UploadAsync(buffer)
+		local device = render.GetDevice()
+		local size = self.image:GetWidth() * self.image:GetHeight() * render.GetVulkanFormatSize(self.format)
+		local staging = Buffer.New{
+			device = device,
+			size = size,
+			usage = "transfer_src",
+			properties = {"host_visible", "host_coherent"},
+			name = build_texture_debug_name(self.debug_name or "texture", "async upload staging"),
+		}
+		staging:CopyData(buffer, size)
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		render.TransitionResourceTo(
+			self,
+			"transfer_dst_optimal",
+			{
+				cmd = cmd,
+				srcStage = "all_commands",
+				srcAccess = "none",
+				dstStage = "transfer",
+				dstAccess = "transfer_write",
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+		cmd:CopyBufferToImage(staging, self.image, self.image:GetWidth(), self.image:GetHeight(), 0, 0)
+		render.TransitionResourceFrom(
+			self,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "transfer",
+				srcAccess = "transfer_write",
+				dstStage = "all_commands",
+				dstAccess = "shader_read",
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+		cmd:End()
+		local fence = Fence.New(device)
+		fence:Reset()
+		render.GetQueue():SubmitNoWait(cmd, fence)
+		pending[self] = {fence = fence, cmd = cmd, staging = staging}
+	end
+
+	function Texture:IsUploadDone()
+		local upload = pending[self]
+
+		if not upload then return true end
+
+		if not upload.fence:IsSignaled() then return false end
+
+		render.GetQueue():RetireFence(upload.fence)
+		upload.cmd:Remove()
+		upload.staging:Remove()
+		upload.fence:Remove()
+		pending[self] = nil
+		return true
+	end
+end
+
 function Texture:UploadCompressed(data, vulkan_info)
 	if not self.image then error("Cannot upload: texture has no image") end
 
