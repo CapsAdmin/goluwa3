@@ -50,7 +50,6 @@ local SKY_VIEW_ILLUMINANCE_QUANTIZATION = 1000
 local RAYLEIGH_SCALE_HEIGHT = 8.0
 local OZONE_CENTER_HEIGHT = 25.0
 local OZONE_WIDTH = 15.0
-local RAYLEIGH_BETA = Vec3(0.0058, 0.0135, 0.0331)
 atmosphere.DEFAULT_AEROSOL = {angstrom = 1.3, albedo = 0.95, g = 0.7, scale_height = 1.2}
 local aerosol_shape = {
 	atmosphere.DEFAULT_AEROSOL.angstrom,
@@ -58,14 +57,12 @@ local aerosol_shape = {
 	atmosphere.DEFAULT_AEROSOL.g,
 	atmosphere.DEFAULT_AEROSOL.scale_height,
 }
-local RAYLEIGH_GREEN_EXTINCTION = 0.0135
 local VISIBILITY_OPTICAL_DEPTH = -math.log(0.02)
 local AEROSOL_SPECTRUM = Vec3(0, 1, 0)
 local AEROSOL_ALBEDO, AEROSOL_G, AEROSOL_HEIGHT = 0, 0, 0
 local MIE_BETA_EXT = Vec3(0, 0, 0)
 local MIE_BETA = Vec3(0, 0, 0)
 local aerosol_extinction = 0
-local OZONE_BETA_ABS = Vec3(0.00065, 0.00188, 0.000085)
 atmosphere.DEFAULT_SUN_ILLUMINANCE = 127000
 local DEFAULT_SUN_ILLUMINANCE = atmosphere.DEFAULT_SUN_ILLUMINANCE
 atmosphere.SUN_ANGULAR_RADIUS = 0.00465
@@ -110,6 +107,75 @@ atmosphere.cloud_sky_texture = nil
 atmosphere.cloud_transmittance = 1
 atmosphere.sky = nil
 atmosphere.enabled = true
+local SPECTRUM = {
+	wavelengths = {},
+	rayleigh = {},
+	ozone = {},
+	aerosol = {},
+	weights = {{}, {}, {}},
+}
+
+do
+	local function lobe(l, mu, s1, s2)
+		local t = (l - mu) / (l < mu and s1 or s2)
+		return math.exp(-0.5 * t * t)
+	end
+
+	local sums = {0, 0, 0}
+
+	for l = 380, 780, 10 do
+		local i = #SPECTRUM.wavelengths + 1
+		local um = l / 1000
+		SPECTRUM.wavelengths[i] = l
+		SPECTRUM.rayleigh[i] = 0.008569 * um ^ -4 * (
+				1 + 0.0113 * um ^ -2 + 0.00013 * um ^ -4
+			) / RAYLEIGH_SCALE_HEIGHT
+		SPECTRUM.ozone[i] = 5.1e-21 * math.exp(-0.5 * ((l - 603) / 58) ^ 2) * 8.06e18 / OZONE_WIDTH
+		SPECTRUM.aerosol[i] = 1
+		local x = 1.056 * lobe(l, 599.8, 37.9, 31.0) + 0.362 * lobe(l, 442.0, 16.0, 26.7) - 0.065 * lobe(l, 501.1, 20.4, 26.2)
+		local y = 0.821 * lobe(l, 568.8, 46.9, 40.5) + 0.286 * lobe(l, 530.9, 16.3, 31.1)
+		local z = 1.217 * lobe(l, 437.0, 11.8, 36.0) + 0.681 * lobe(l, 459.0, 26.0, 13.8)
+		local sun = 1 / ((l * 1e-9) ^ 5 * (math.exp(1.4388e-2 / (l * 1e-9 * 5778)) - 1))
+		local rgb = {
+			3.2404542 * x - 1.5371385 * y - 0.4985314 * z,
+			-0.9692660 * x + 1.8760108 * y + 0.0415560 * z,
+			0.0556434 * x - 0.2040259 * y + 1.0572252 * z,
+		}
+
+		for c = 1, 3 do
+			SPECTRUM.weights[c][i] = sun * rgb[c]
+			sums[c] = sums[c] + sun * rgb[c]
+		end
+	end
+
+	for c = 1, 3 do
+		for i = 1, #SPECTRUM.wavelengths do
+			SPECTRUM.weights[c][i] = SPECTRUM.weights[c][i] / sums[c]
+		end
+	end
+end
+
+local RAYLEIGH_BAND, OZONE_BAND, AEROSOL_BAND_WAVELENGTH = {}, {}, {}
+local RAYLEIGH_550 = SPECTRUM.rayleigh[(550 - SPECTRUM.wavelengths[1]) / 10 + 1]
+
+do
+	local angstrom = atmosphere.DEFAULT_AEROSOL.angstrom
+
+	for c = 1, 3 do
+		local rayleigh, ozone, aerosol = 0, 0, 0
+
+		for i, l in ipairs(SPECTRUM.wavelengths) do
+			local w = SPECTRUM.weights[c][i]
+			rayleigh = rayleigh + w * SPECTRUM.rayleigh[i]
+			ozone = ozone + w * SPECTRUM.ozone[i]
+			aerosol = aerosol + w * (l / 550) ^ -angstrom
+		end
+
+		RAYLEIGH_BAND[c] = rayleigh
+		OZONE_BAND[c] = math.max(ozone, 0)
+		AEROSOL_BAND_WAVELENGTH[c] = 550 * aerosol ^ (-1 / angstrom)
+	end
+end
 
 local function normalize_components(x, y, z)
 	local length = math.sqrt(x * x + y * y + z * z)
@@ -201,7 +267,7 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	const float GROUND_FOG_OCTAVE_EXTINCTION = 0.544;
 	const float GROUND_FOG_OCTAVE_PHASE = 0.669;
 	const float GROUND_FOG_OCTAVE_THICKNESS = 0.929;
-	#define AEROSOL_SPECTRUM vec3(pow(680.0 / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x), 1.0, pow(440.0 / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x))
+	#define AEROSOL_SPECTRUM vec3(pow(]] .. string.format("%.2f", AEROSOL_BAND_WAVELENGTH[1]) .. [[ / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x), pow(]] .. string.format("%.2f", AEROSOL_BAND_WAVELENGTH[2]) .. [[ / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x), pow(]] .. string.format("%.2f", AEROSOL_BAND_WAVELENGTH[3]) .. [[ / 550.0, -ATMOSPHERE_AEROSOL_SHAPE.x))
 	#define AEROSOL_ALBEDO (ATMOSPHERE_AEROSOL_SHAPE.y)
 	#define MIE_BETA_EXT (ATMOSPHERE_AEROSOL_EXTINCTION * AEROSOL_SPECTRUM)
 	#define MIE_BETA (MIE_BETA_EXT * AEROSOL_ALBEDO)
@@ -209,8 +275,8 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	#define MIE_SCALE_HEIGHT (ATMOSPHERE_AEROSOL_SHAPE.w)
 	const float OZONE_CENTER_HEIGHT = 25.0;
 	const float OZONE_WIDTH = 15.0;
-	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
-	const vec3 OZONE_BETA_ABS = vec3(0.00065, 0.00188, 0.000085);
+	const vec3 RAYLEIGH_BETA = vec3(]] .. string.format("%.7g, %.7g, %.7g", RAYLEIGH_BAND[1], RAYLEIGH_BAND[2], RAYLEIGH_BAND[3]) .. [[);
+	const vec3 OZONE_BETA_ABS = vec3(]] .. string.format("%.7g, %.7g, %.7g", OZONE_BAND[1], OZONE_BAND[2], OZONE_BAND[3]) .. [[);
 	const vec3 GROUND_ALBEDO = vec3(0.30, 0.27, 0.22);
 	const vec3 SUN_COLOR = vec3(]] .. string.format(
 		"%.4f, %.4f, %.4f",
@@ -545,53 +611,6 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 
 ]] .. glsl_common.GetSunHorizonVisibilityGLSL() .. [[
 ]]
-local SPECTRUM = {
-	wavelengths = {},
-	rayleigh = {},
-	ozone = {},
-	aerosol = {},
-	weights = {{}, {}, {}},
-}
-
-do
-	local function lobe(l, mu, s1, s2)
-		local t = (l - mu) / (l < mu and s1 or s2)
-		return math.exp(-0.5 * t * t)
-	end
-
-	local sums = {0, 0, 0}
-
-	for l = 380, 780, 10 do
-		local i = #SPECTRUM.wavelengths + 1
-		local um = l / 1000
-		SPECTRUM.wavelengths[i] = l
-		SPECTRUM.rayleigh[i] = 0.008569 * um ^ -4 * (
-				1 + 0.0113 * um ^ -2 + 0.00013 * um ^ -4
-			) / RAYLEIGH_SCALE_HEIGHT
-		SPECTRUM.ozone[i] = 5.1e-21 * math.exp(-0.5 * ((l - 603) / 58) ^ 2) * 8.06e18 / OZONE_WIDTH
-		SPECTRUM.aerosol[i] = 1
-		local x = 1.056 * lobe(l, 599.8, 37.9, 31.0) + 0.362 * lobe(l, 442.0, 16.0, 26.7) - 0.065 * lobe(l, 501.1, 20.4, 26.2)
-		local y = 0.821 * lobe(l, 568.8, 46.9, 40.5) + 0.286 * lobe(l, 530.9, 16.3, 31.1)
-		local z = 1.217 * lobe(l, 437.0, 11.8, 36.0) + 0.681 * lobe(l, 459.0, 26.0, 13.8)
-		local sun = 1 / ((l * 1e-9) ^ 5 * (math.exp(1.4388e-2 / (l * 1e-9 * 5778)) - 1))
-		local rgb = {
-			3.2404542 * x - 1.5371385 * y - 0.4985314 * z,
-			-0.9692660 * x + 1.8760108 * y + 0.0415560 * z,
-			0.0556434 * x - 0.2040259 * y + 1.0572252 * z,
-		}
-
-		for c = 1, 3 do
-			SPECTRUM.weights[c][i] = sun * rgb[c]
-			sums[c] = sums[c] + sun * rgb[c]
-		end
-	end
-
-	for c = 1, 3 do
-		for i = 1, #SPECTRUM.wavelengths do
-			SPECTRUM.weights[c][i] = SPECTRUM.weights[c][i] / sums[c]
-		end
-	end
-end
 
 local function glsl_array(name, values)
 	local parts = {}
@@ -1231,7 +1250,7 @@ do
 		return math.max(
 			VISIBILITY_OPTICAL_DEPTH / (
 					atmosphere.aerosol_visibility / 1000
-				) - RAYLEIGH_GREEN_EXTINCTION,
+				) - RAYLEIGH_550,
 			0
 		)
 	end
@@ -1266,7 +1285,11 @@ do
 
 	function atmosphere.UpdateAerosol()
 		local ext = get_aerosol_extinction_550()
-		local spectrum = Vec3((680 / 550) ^ -aerosol_shape[1], 1, (440 / 550) ^ -aerosol_shape[1])
+		local spectrum = Vec3(
+			(AEROSOL_BAND_WAVELENGTH[1] / 550) ^ -aerosol_shape[1],
+			(AEROSOL_BAND_WAVELENGTH[2] / 550) ^ -aerosol_shape[1],
+			(AEROSOL_BAND_WAVELENGTH[3] / 550) ^ -aerosol_shape[1]
+		)
 
 		if
 			ext == aerosol_extinction and
@@ -1339,7 +1362,7 @@ do
 	function atmosphere.GetVisibility()
 		local ground_fog = get_ground_fog_extinction() * get_eye_falloff()
 		return VISIBILITY_OPTICAL_DEPTH / (
-				RAYLEIGH_GREEN_EXTINCTION + get_aerosol_extinction_550() + ground_fog + atmosphere.precipitation_extinction
+				RAYLEIGH_550 + get_aerosol_extinction_550() + ground_fog + atmosphere.precipitation_extinction
 			) * 1000
 	end
 
