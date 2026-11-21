@@ -1,3 +1,4 @@
+local bit = require("bit")
 local glsl_common = {}
 glsl_common.LUMINANCE_WEIGHTS = "vec3(0.2126, 0.7152, 0.0722)"
 
@@ -215,6 +216,52 @@ function glsl_common.GetHashGLSL()
 		}
 		#endif
 	]]
+end
+
+do
+	local TWO32 = 4294967296
+
+	local function mul32(a, b)
+		local a_low = a % 65536
+		local b_low = b % 65536
+		return (
+				(
+					a_low * math.floor(b / 65536) + math.floor(a / 65536) * b_low
+				) % 65536 * 65536 + a_low * b_low
+			) % TWO32
+	end
+
+	local function pcg3d_x(x, y, z)
+		x = (mul32(x, 1664525) + 1013904223) % TWO32
+		y = (mul32(y, 1664525) + 1013904223) % TWO32
+		z = (mul32(z, 1664525) + 1013904223) % TWO32
+		x = (x + mul32(y, z)) % TWO32
+		y = (y + mul32(z, x)) % TWO32
+		z = (z + mul32(x, y)) % TWO32
+		x = bit.bxor(x, bit.rshift(x, 16)) % TWO32
+		y = bit.bxor(y, bit.rshift(y, 16)) % TWO32
+		z = bit.bxor(z, bit.rshift(z, 16)) % TWO32
+		x = (x + mul32(y, z)) % TWO32
+		return x
+	end
+
+	local function corner(x, y)
+		return math.floor(pcg3d_x(x, y, 0) / 256) / 16777216
+	end
+
+	function glsl_common.ValueNoise2(px, py)
+		local ix, iy = math.floor(px), math.floor(py)
+		local fx, fy = px - ix, py - iy
+		fx = fx * fx * (3 - 2 * fx)
+		fy = fy * fy * (3 - 2 * fy)
+		local cx, cy = (ix + 32768) % TWO32, (iy + 32768) % TWO32
+		local a = corner(cx, cy)
+		local b = corner((cx + 1) % TWO32, cy)
+		local c = corner(cx, (cy + 1) % TWO32)
+		local d = corner((cx + 1) % TWO32, (cy + 1) % TWO32)
+		local top = a + (b - a) * fx
+		return top + (c + (d - c) * fx - top) * fy
+	end
 end
 
 function glsl_common.GetNoiseGLSL()
