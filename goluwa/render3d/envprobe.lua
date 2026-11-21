@@ -16,6 +16,7 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
+local planet = import("goluwa/planet.lua")
 local envprobe = {}
 
 local function get_primary_sun(lights)
@@ -1655,6 +1656,9 @@ do
 	local ALTITUDE_STEP = 1.1
 	local ALTITUDE_OFFSET = 10
 	local ALTITUDE_REBAKE_INTERVAL = 0.25
+	-- surfaces seen from a high camera lie far below it, so they are lit by the sky near the ground, not by the camera's
+	local MAX_ALTITUDE = 4000
+	local HORIZONTAL_STEP = 20000
 	local log_step = math.log(ALTITUDE_STEP)
 
 	function envprobe.UpdateEnvironmentAltitude()
@@ -1662,10 +1666,19 @@ do
 
 		if not probe then return end
 
-		local height = math.max(render3d.GetCamera():GetPosition().y, 0)
+		local position = render3d.GetCamera():GetPosition()
+		local height = math.min(math.max(position.y + planet.GetDrop(position.x, position.z), 0), MAX_ALTITUDE)
 		local key = math.floor(math.log(1 + height / ALTITUDE_OFFSET) / log_step)
+		local cell_x = math.floor(position.x / HORIZONTAL_STEP + 0.5)
+		local cell_z = math.floor(position.z / HORIZONTAL_STEP + 0.5)
 
-		if key == envprobe.environment_altitude_key then return end
+		if
+			key == envprobe.environment_altitude_key and
+			cell_x == envprobe.environment_cell_x and
+			cell_z == envprobe.environment_cell_z
+		then
+			return
+		end
 
 		local now = system.GetTime()
 
@@ -1677,7 +1690,13 @@ do
 		end
 
 		envprobe.environment_altitude_key = key
-		probe.position.y = ALTITUDE_OFFSET * (ALTITUDE_STEP ^ key - 1)
+		envprobe.environment_cell_x = cell_x
+		envprobe.environment_cell_z = cell_z
+		probe.position.x = cell_x * HORIZONTAL_STEP
+		probe.position.z = cell_z * HORIZONTAL_STEP
+		probe.position.y = ALTITUDE_OFFSET * (
+				ALTITUDE_STEP ^ key - 1
+			) - planet.GetDrop(probe.position.x, probe.position.z)
 		probe.needs_update = true
 	end
 end
