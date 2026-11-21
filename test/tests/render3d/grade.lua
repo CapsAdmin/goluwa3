@@ -889,3 +889,161 @@ T.Test3D("Graphics render3d grade log mode feeds the encoded scene to the table 
 
 	if not ok then error(err, 0) end
 end)
+
+local function bend(v)
+	local t = 0.2 * (v[1] - v[2]) * (v[2] - v[3])
+	return {v[1] + t, v[2], v[3] - t}
+end
+
+local function interpolate(map, size, v, tetrahedral)
+	local n = size - 1
+	local i0, w = {}, {}
+
+	for i = 1, 3 do
+		local f = clamp(v[i], 0, 1) * n
+		i0[i] = math.floor(f)
+		w[i] = f - i0[i]
+	end
+
+	local function corner(dr, dg, db)
+		return map({
+			math.min(i0[1] + dr, n) / n,
+			math.min(i0[2] + dg, n) / n,
+			math.min(i0[3] + db, n) / n,
+		})
+	end
+
+	local c = {}
+
+	for dr = 0, 1 do
+		for dg = 0, 1 do
+			for db = 0, 1 do
+				c[dr .. dg .. db] = corner(dr, dg, db)
+			end
+		end
+	end
+
+	local out = {}
+	local r, g, b = w[1], w[2], w[3]
+
+	for i = 1, 3 do
+		local function at(key)
+			return c[key][i]
+		end
+
+		if tetrahedral then
+			if r > g then
+				if g > b then
+					out[i] = at("000") + (at("100") - at("000")) * r + (at("110") - at("100")) * g + (at("111") - at("110")) * b
+				elseif r > b then
+					out[i] = at("000") + (at("100") - at("000")) * r + (at("101") - at("100")) * b + (at("111") - at("101")) * g
+				else
+					out[i] = at("000") + (at("001") - at("000")) * b + (at("101") - at("001")) * r + (at("111") - at("101")) * g
+				end
+			elseif r > b then
+				out[i] = at("000") + (at("010") - at("000")) * g + (at("110") - at("010")) * r + (at("111") - at("110")) * b
+			elseif g > b then
+				out[i] = at("000") + (at("010") - at("000")) * g + (at("011") - at("010")) * b + (at("111") - at("011")) * r
+			else
+				out[i] = at("000") + (at("001") - at("000")) * b + (at("011") - at("001")) * g + (at("111") - at("011")) * r
+			end
+		else
+			local function lerp(a, d, t)
+				return a + (d - a) * t
+			end
+
+			out[i] = lerp(
+				lerp(lerp(at("000"), at("100"), r), lerp(at("010"), at("110"), r), g),
+				lerp(lerp(at("001"), at("101"), r), lerp(at("011"), at("111"), r), g),
+				b
+			)
+		end
+	end
+
+	return out
+end
+
+local TETRA_COLORS = {
+	{0.80, 0.55, 0.20},
+	{0.85, 0.20, 0.55},
+	{0.55, 0.20, 0.85},
+	{0.55, 0.85, 0.20},
+	{0.20, 0.85, 0.55},
+	{0.20, 0.55, 0.85},
+	{0.25, 0.25, 0.25},
+	{0.60, 0.60, 0.60},
+}
+local tetra_pass = table.copy(lut_pass)
+tetra_pass.name = "grade_tetra_test"
+tetra_pass.FramebufferSize = {x = #TETRA_COLORS, y = 1}
+tetra_pass.shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data", 2, 3) .. (function()
+	local colors = {}
+
+	for i, c in ipairs(TETRA_COLORS) do
+		colors[i] = string.format("vec3(%.9f, %.9f, %.9f)", c[1], c[2], c[3])
+	end
+
+	return string.format(
+		[[
+	void main() {
+		int x = int(gl_GlobalInvocationID.x);
+		vec3 colors[%d] = vec3[%d](%s);
+
+		if (x < %d) imageStore(out_graded, ivec2(x, 0), vec4(grade_display(SRGBToLinear(colors[x])), 1.0));
+	}
+]],
+		#TETRA_COLORS,
+		#TETRA_COLORS,
+		table.concat(colors, ", "),
+		#TETRA_COLORS
+	)
+end)()
+
+T.Test3D("Graphics render3d grade look up table is interpolated tetrahedrally and keeps greys neutral", function(draw)
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			tetra_pass,
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+	local path = write_temp(cube_text("LUT_3D_SIZE 3\n", 3, bend))
+	local ok, err = pcall(function()
+		reset()
+		set_lut(path, 100, "srgb", "after")
+		draw()
+		local downloaded = render3d.pipelines.grade_tetra_test:GetFramebuffer(1):GetAttachment(1):Download()
+		local differs = false
+
+		for x, color in ipairs(TETRA_COLORS) do
+			local expected = interpolate(bend, 3, color, true)
+			local trilinear = interpolate(bend, 3, color, false)
+			local got = {downloaded:GetPixelFloat(x - 1, 0)}
+
+			for i = 1, 3 do
+				T(linear_to_srgb(got[i]), "color " .. x .. " channel " .. i)["~"](clamp(expected[i], 0, 1), 5e-4)
+
+				if math.abs(expected[i] - trilinear[i]) > 2e-3 then differs = true end
+			end
+
+			if color[1] == color[2] and color[2] == color[3] then
+				T(got[1], "grey " .. x .. " r against g")["~"](got[2], 1e-5)
+				T(got[2], "grey " .. x .. " g against b")["~"](got[3], 1e-5)
+				T(math.abs(trilinear[1] - trilinear[3]) > 1e-3, "trilinear tints grey " .. x)["=="](true)
+			end
+		end
+
+		T(differs)["=="](true)
+	end)
+	reset_lut()
+	os.remove(path)
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
+	if not ok then error(err, 0) end
+end)
+

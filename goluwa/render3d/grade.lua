@@ -332,7 +332,20 @@ local LUT_GLSL = [[
 		vec3 c101 = texelFetch(grade_lut_3d_tex, ivec2(i1.b * size + i1.r, i0.g), 0).rgb;
 		vec3 c011 = texelFetch(grade_lut_3d_tex, ivec2(i1.b * size + i0.r, i1.g), 0).rgb;
 		vec3 c111 = texelFetch(grade_lut_3d_tex, ivec2(i1.b * size + i1.r, i1.g), 0).rgb;
-		return mix(mix(mix(c000, c100, w.r), mix(c010, c110, w.r), w.g), mix(mix(c001, c101, w.r), mix(c011, c111, w.r), w.g), w.b);
+
+		if (w.r > w.g) {
+			if (w.g > w.b) return c000 + (c100 - c000) * w.r + (c110 - c100) * w.g + (c111 - c110) * w.b;
+
+			if (w.r > w.b) return c000 + (c100 - c000) * w.r + (c101 - c100) * w.b + (c111 - c101) * w.g;
+
+			return c000 + (c001 - c000) * w.b + (c101 - c001) * w.r + (c111 - c101) * w.g;
+		}
+
+		if (w.r > w.b) return c000 + (c010 - c000) * w.g + (c110 - c010) * w.r + (c111 - c110) * w.b;
+
+		if (w.g > w.b) return c000 + (c010 - c000) * w.g + (c011 - c010) * w.b + (c111 - c011) * w.r;
+
+		return c000 + (c001 - c000) * w.b + (c011 - c001) * w.g + (c111 - c011) * w.r;
 	}
 
 	vec3 grade_lut(vec3 x) {
