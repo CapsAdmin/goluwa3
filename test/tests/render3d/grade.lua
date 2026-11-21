@@ -684,9 +684,23 @@ local function logc(x)
 	return 5.367655 * x + 0.092809
 end
 
+local function cineon(x)
+	local offset = 10 ^ ((95 - 685) * 0.002 / 0.6)
+	return (685 + 300 * math.log10(math.max(x * (1 - offset) + offset, 1e-6))) / 1023
+end
+
 local function encode_reference(c, kind)
-	local m = FROM_REC709[kind]
 	local out = {}
+
+	if kind == 7 then
+		for i = 1, 3 do
+			out[i] = cineon(math.max(c[i], 0))
+		end
+
+		return out
+	end
+
+	local m = FROM_REC709[kind]
 
 	for i = 1, 3 do
 		local v = m[i][1] * math.max(c[1], 0) + m[i][2] * math.max(c[2], 0) + m[i][3] * math.max(c[3], 0)
@@ -712,10 +726,10 @@ end
 
 local encoder_pass = log_test_pass(
 	"grade_encoder_test",
-	10,
+	15,
 	1,
 	[[
-	if (x < 10) imageStore(out_graded, ivec2(x, 0), vec4(log_encode(inputs[x % 5], x < 5 ? 5 : 6), 1.0));
+	if (x < 15) imageStore(out_graded, ivec2(x, 0), vec4(log_encode(inputs[x % 5], 5 + x / 5), 1.0));
 ]]
 )
 
@@ -759,10 +773,10 @@ T.Test3D("Graphics render3d grade log encoders match the camera curves and gamut
 	}
 	local ok, err = pcall(function()
 		draw()
-		local texels = download_texels("grade_encoder_test", 10, 1)
+		local texels = download_texels("grade_encoder_test", 15, 1)
 
-		for x = 0, 9 do
-			local kind = x < 5 and 5 or 6
+		for x = 0, 14 do
+			local kind = 5 + math.floor(x / 5)
 			local expected = encode_reference(inputs[x % 5 + 1], kind)
 
 			for i = 1, 3 do
@@ -772,6 +786,9 @@ T.Test3D("Graphics render3d grade log encoders match the camera curves and gamut
 
 		T(slog3(0.18))["~"](420 / 1023, 1e-6)
 		T(logc(0.18))["~"](0.391, 1e-3)
+		T(cineon(1))["~"](685 / 1023, 1e-9)
+		T(cineon(13.5216945686))["~"](1, 1e-9)
+		T(cineon(-0.0056508194))["~"](0, 1e-9)
 		T(texels[0][0][1])["~"](slog3(0.5), 1e-3)
 	end)
 	render3d.Initialize{
@@ -789,7 +806,7 @@ T.Test3D("Graphics render3d grade log mode feeds the encoded scene to the table 
 		local paths = {}
 		local text3d = cube_text("LUT_3D_SIZE 2\n", 2, mix_channels)
 
-		for _, kind in ipairs{5, 6} do
+		for _, kind in ipairs{5, 6, 7} do
 			render3d.Initialize{
 				passes = {
 					import("goluwa/render3d/passes/gbuffer.lua"),

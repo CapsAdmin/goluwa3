@@ -104,7 +104,17 @@ function compute_helpers.GetColorHelpersGLSL()
 			return mix(low, high, step(5.367655 * 0.010591 + 0.092809, y));
 		}
 
+		vec3 cineon_curve(vec3 x) {
+			return (685.0 + 300.0 * log(max(x * (1.0 - 0.010797751623277) + 0.010797751623277, vec3(1e-6))) / 2.302585093) / 1023.0;
+		}
+
+		vec3 cineon_inverse(vec3 y) {
+			return (pow(vec3(10.0), (y * 1023.0 - 685.0) * 0.002 / 0.6) - 0.010797751623277) / (1.0 - 0.010797751623277);
+		}
+
 		vec3 log_decode(vec3 y, int tonemapper) {
+			if (tonemapper == 7) return cineon_inverse(y);
+
 			if (tonemapper == 5) {
 				return inverse(rows_matrix(vec3(0.6456795, 0.2591145, 0.0952060), vec3(0.0875300, 0.7596996, 0.1527704), vec3(0.0369574, 0.1292809, 0.8337617))) * slog3_inverse(y);
 			}
@@ -114,6 +124,8 @@ function compute_helpers.GetColorHelpersGLSL()
 
 		vec3 log_encode(vec3 x, int tonemapper) {
 			x = max(x, vec3(0.0));
+
+			if (tonemapper == 7) return cineon_curve(x);
 
 			if (tonemapper == 5) {
 				return slog3_curve(rows_mul(vec3(0.6456795, 0.2591145, 0.0952060), vec3(0.0875300, 0.7596996, 0.1527704), vec3(0.0369574, 0.1292809, 0.8337617), x));

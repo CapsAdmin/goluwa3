@@ -1,6 +1,15 @@
 local tonemappers = {}
-tonemappers.names = {"agx", "agx_punchy", "aces", "gt7", "neutral", "slog3", "logc"}
-tonemappers.indices = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, neutral = 4, slog3 = 5, logc = 6}
+tonemappers.names = {"agx", "agx_punchy", "aces", "gt7", "neutral", "slog3", "logc", "cineon"}
+tonemappers.indices = {
+	agx = 0,
+	agx_punchy = 1,
+	aces = 2,
+	gt7 = 3,
+	neutral = 4,
+	slog3 = 5,
+	logc = 6,
+	cineon = 7,
+}
 local GLSL = [[
 		vec3 agx_contrast(vec3 x) {
 			vec3 x2 = x * x;

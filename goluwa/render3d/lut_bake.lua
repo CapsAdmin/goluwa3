@@ -45,7 +45,7 @@ local function check(config)
 		"lut_bake: glsl must define vec3 bake_transform(vec3 x)"
 	)
 	local encoding = tonemappers.indices[config.encoding]
-	assert(encoding == 5 or encoding == 6, "lut_bake: encoding must be slog3 or logc")
+	assert(encoding and encoding >= 5, "lut_bake: encoding must be slog3, logc or cineon")
 	assert(
 		type(config.size) == "number" and config.size >= 2,
 		"lut_bake: size must be at least 2"
@@ -81,7 +81,7 @@ local function create_buffer(byte_size, readback)
 end
 
 -- Bakes a display transform into a .cube read like a camera table: red fastest, the input is the
--- scene encoded by `encoding` (slog3 or logc, see compute_helpers log_encode), the output is the
+-- scene encoded by `encoding` (slog3, logc or cineon, see compute_helpers log_encode), the output is the
 -- display image sRGB encoded. `glsl` defines `vec3 bake_transform(vec3 x)` from the exposed scene
 -- (18% grey is 0.18) to display linear and may call anything in compute_helpers. Returns the path
 -- and whether it was already cached.
