@@ -42,7 +42,7 @@ local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
 	default = "neutral",
 	enums = tonemappers.names,
-	help = "the curve that maps the exposed scene to the display. neutral keeps the exposed colour as it is and only rolls the highlights off to the display's peak, the others are looks. slog3 and logc encode the scene like that camera (curve and wide gamut) and hand it to the look up table (r_grade_lut) as the display transform; without a table the encoded image itself is shown, the flat grey look of log footage, and on HDR outputs they show as neutral",
+	help = "the curve that maps the exposed scene to the display. neutral keeps the exposed colour as it is and only rolls the highlights off to the display's peak, the others are looks. slog3 and logc encode the scene like that camera (curve and wide gamut) and hand it to the look up table (r_grade_lut) as the display transform; without a table the encoded image itself is shown, the flat grey look of log footage. On HDR outputs that image is placed at paper white, with no highlights above it",
 }
 local chart_enabled = pvars.Setup2{
 	key = "r_test_chart",
@@ -693,7 +693,16 @@ local compute_shader = [[
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
 		} else {
-			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / effective_paper_white, compute.tonemapper)) * effective_paper_white;
+			vec3 nits;
+
+			if (compute.debug_passthrough != 0) {
+				nits = clamp(col, 0.0, 1.0) * compute.hdr_paper_white;
+			} else if (compute.tonemapper >= 5) {
+				vec3 exposed = col * exposure;
+				nits = grade_display_log(clamp(log_encode(exposed, compute.tonemapper), 0.0, 1.0), clamp(tonemap(exposed, 4), 0.0, 1.0)) * effective_paper_white;
+			} else {
+				nits = grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / effective_paper_white, compute.tonemapper)) * effective_paper_white;
+			}
 
 			if (compute.output_mode == 1) {
 				nits = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps));
