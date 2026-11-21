@@ -18,7 +18,6 @@ local sample_terrain_height01_at_world
 local f32_union = ffi.new("union { uint32_t u; float f; }")
 local level = {}
 level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE = true
-level.DECAL_ALPHA_IS_SHARPENED = true
 
 local function find_child_by_tag(node, tag)
 	if not (node and node.children) then return nil end

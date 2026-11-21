@@ -25,7 +25,6 @@ META:GetSet("Width", 1, {callback = "OnFrameChanged"})
 META:GetSet("TileLength", 1, {callback = "OnFrameChanged"})
 META:GetSet("FadeLength", 1, {callback = "OnFrameChanged"})
 META:GetSet("HeightMidlevel", 1, {callback = "OnMaterialChanged"})
-META:GetSet("SharpAlpha", false, {callback = "OnMaterialChanged"})
 META:EndStorable()
 local REBUILD_SETTLE_TIME = 0.2
 local PROJECTION_BUDGET = 0.004
@@ -81,7 +80,6 @@ function META:GetBatchMaterial()
 	material:SetDithered(true)
 	material:SetDecalFade(true)
 	material:SetHeightMidlevel(self.HeightMidlevel)
-	material:SetSharpAlpha(self.SharpAlpha)
 	return self.Material, material
 end
 

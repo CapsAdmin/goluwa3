@@ -1490,12 +1490,10 @@ end
 function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, phase_expr)
 	local decal = phase_expr and
 		[[
-					if (SharpAlpha) alpha = smoothstep(0.3, 0.7, alpha);
 					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy + $PHASE * 9.04165, vec2(0.06711056, 0.00583715))));
 					if (alpha <= noise) discard;
 		]] or
 		[[
-					if (SharpAlpha) alpha = smoothstep(0.3, 0.7, alpha);
 					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > alpha) discard;
 		]]
 	local alpha_test = phase_expr and

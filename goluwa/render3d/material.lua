@@ -123,7 +123,6 @@ Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCoverage", false, {callback = "InvalidateFlags", requires = "AlphaTest"})
 Material:GetSet("Decal", false, {callback = "InvalidateFlags"})
-Material:GetSet("SharpAlpha", false, {callback = "InvalidateFlags"})
 Material:GetSet("DecalFade", false, {callback = "InvalidateFlags"})
 Material:GetSet("SnowBackdrop", false, {callback = "InvalidateFlags"})
 Material:GetSet("Dithered", false, {callback = "InvalidateFlags"})
@@ -605,7 +604,6 @@ local FLAGS = {
 	"EmissiveTextureIsColor",
 	"MetallicFromRoughnessMask",
 	"Decal",
-	"SharpAlpha",
 	"AlphaCoverage",
 	"DecalFade",
 	"SnowBackdrop",
@@ -959,10 +957,7 @@ do
 
 				if provider then import(provider) end
 
-				local load = assert(
-					override_loaders[extension],
-					"unsupported material override format: " .. path
-				)
+				local load = assert(override_loaders[extension], "unsupported material override format: " .. path)
 				local slots, material = load(path)
 				cached = {slots = slots, material = material}
 				override_cache[path] = cached
