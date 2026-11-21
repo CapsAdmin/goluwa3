@@ -226,7 +226,7 @@ return {
 					}
 				) .. [[
 			float get_pixel_footprint(float t) {
-				return t * 2.0 / (camera_medium_data.projection[1][1] * camera_medium_data.render_size.y);
+				return t * 2.0 / (abs(camera_medium_data.projection[1][1]) * camera_medium_data.render_size.y);
 			}
 
 			vec3 camera_body_shaft_sample(ray_material body, vec3 sun_dir, vec3 attenuation, float mu, vec3 p) {

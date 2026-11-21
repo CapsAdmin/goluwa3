@@ -997,7 +997,7 @@ function clouds.GetGLSL(block)
 			float depth_sum = 0.0;
 			float depth_weight = 0.0;
 			int light_steps = quality >= 1.0 ? 6 : 4;
-			float pixel_angle = 2.0 / (CLOUD_BLOCK.projection[1][1] * CLOUD_BLOCK.render_size.y);
+			float pixel_angle = 2.0 / (abs(CLOUD_BLOCK.projection[1][1]) * CLOUD_BLOCK.render_size.y);
 
 			for (int s = 0; s < count && transmittance > CLOUD_HIDDEN_TRANSMITTANCE; s++) {
 				int i = seg_layer[s];

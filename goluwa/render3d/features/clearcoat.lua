@@ -65,7 +65,7 @@ return {
 		s.coat_N = s.coat_smooth_N;
 
 		if (s.clearcoat > 0.0) {
-			float footprint = length(s.world_pos - lighting_data.camera_position.xyz) * 2.0 * lighting_data.inv_projection[1][1] / float(size.y) / sqrt(max(dot(s.geometric_N, s.V), 0.01));
+			float footprint = length(s.world_pos - lighting_data.camera_position.xyz) * 2.0 * abs(lighting_data.inv_projection[1][1]) / float(size.y) / sqrt(max(dot(s.geometric_N, s.V), 0.01));
 			apply_rain_surface(s.world_pos, footprint, s.clearcoat_rain, s.coat_N, s.clearcoat_alpha);
 		}
 	]],
