@@ -1,6 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
+local tonemappers = import("goluwa/render3d/tonemappers.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -35,33 +36,16 @@ local eye_defocus = pvars.Setup2{
 	help = "in eye mode the eye focuses green, so red and blue are slightly out of focus by the pupil's size, which blurs saturated lights at night",
 }
 pvars.EndGroup()
-local tonemappers = {
-	agx = 0,
-	agx_punchy = 1,
-	aces = 2,
-	gt7 = 3,
-	neutral = 4,
-	slog3 = 5,
-	logc = 6,
-}
 pvars.StartGroup("Post", "Display", {store = false})
 local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
 	default = "neutral",
-	enums = {
-		"agx",
-		"agx_punchy",
-		"aces",
-		"gt7",
-		"neutral",
-		"slog3",
-		"logc",
-	},
+	enums = tonemappers.names,
 	help = "the curve that maps the exposed scene to the display. neutral keeps the exposed colour as it is and only rolls the highlights off to the display's peak, the others are looks. slog3 and logc encode the scene like that camera (curve and wide gamut) and hand it to the look up table (r_grade_lut) as the display transform; without a table the encoded image itself is shown, the flat grey look of log footage, and on HDR outputs they show as neutral",
 }
 
 function render3d.GetTonemapperIndex()
-	return tonemappers[tonemapper:Get()]
+	return tonemappers.indices[tonemapper:Get()]
 end
 
 local update_hdr_metadata

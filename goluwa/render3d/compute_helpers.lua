@@ -1,4 +1,5 @@
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local tonemappers = import("goluwa/render3d/tonemappers.lua")
 local compute_helpers = {}
 
 function compute_helpers.GetScreenHelpersGLSL()
@@ -69,125 +70,7 @@ function compute_helpers.GetColorHelpersGLSL()
 			return clamp(encoded + r * amplitude / steps, 0.0, 1.0);
 		}
 
-		vec3 agx_contrast(vec3 x) {
-			vec3 x2 = x * x;
-			vec3 x4 = x2 * x2;
-			return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
-		}
-
-		vec3 agx(vec3 x, bool punchy) {
-			const mat3 inset = mat3(
-				0.842479062253094, 0.0423282422610123, 0.0423756549057051,
-				0.0784335999999992, 0.878468636469772, 0.0784336,
-				0.0792237451477643, 0.0791661274605434, 0.879142973793104
-			);
-			const mat3 outset = mat3(
-				1.19687900512017, -0.0528968517574562, -0.0529716355144438,
-				-0.0980208811401368, 1.15190312990417, -0.0980434501171241,
-				-0.0990297440797205, -0.0989611768448433, 1.15107367264116
-			);
-			const float min_ev = -12.47393;
-			const float max_ev = 4.026069;
-			x = clamp(log2(max(inset * x, vec3(1e-10))), min_ev, max_ev);
-			x = agx_contrast((x - min_ev) / (max_ev - min_ev));
-
-			float saturation = 1.2;
-
-			if (punchy) {
-				x = pow(max(x, vec3(0.0)), vec3(1.35));
-				saturation = 1.4;
-			}
-
-			float luma = luminance(x);
-			x = luma + saturation * (x - luma);
-
-			return pow(max(outset * x, vec3(0.0)), vec3(2.2));
-		}
-
-		vec3 aces_fitted(vec3 x) {
-			return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
-		}
-
-		vec3 gt7_curve(vec3 x, float peak) {
-			const float alpha = 0.25;
-			const float mid = 0.538;
-			const float linear_section = 0.444;
-			const float toe_strength = 1.28;
-			const float k = (linear_section - 1.0) / (alpha - 1.0);
-			float ka = peak * linear_section + peak * k;
-			float kb = -peak * k * exp(linear_section / k);
-			float kc = -1.0 / (k * peak);
-			vec3 t = clamp(x / mid, 0.0, 1.0);
-			vec3 weight_linear = t * t * (3.0 - 2.0 * t);
-			vec3 toe = mid * pow(x / mid, vec3(toe_strength));
-			vec3 shoulder = ka + kb * exp(x * kc);
-			return mix(mix(toe, x, weight_linear), shoulder, step(linear_section * peak, x));
-		}
-
-		vec3 gt7_rgb_to_ictcp(vec3 rgb) {
-			const mat3 rgb_to_lms = mat3(
-				1688.0, 683.0, 99.0,
-				2146.0, 2951.0, 309.0,
-				262.0, 462.0, 3688.0
-			) / 4096.0;
-			const mat3 lms_to_ictcp = mat3(
-				2048.0, 6610.0, 17933.0,
-				2048.0, -13613.0, -17390.0,
-				0.0, 7003.0, -543.0
-			) / 4096.0;
-			return lms_to_ictcp * pq_encode(rgb_to_lms * rgb * 100.0);
-		}
-
-		vec3 gt7_ictcp_to_rgb(vec3 ictcp) {
-			const mat3 ictcp_to_lms = mat3(
-				1.0, 1.0, 1.0,
-				0.00860904, -0.00860904, 0.560031,
-				0.11103, -0.11103, -0.320627
-			);
-			const mat3 lms_to_rgb = mat3(
-				3.43661, -0.79133, -0.0259499,
-				-2.50645, 1.9836, -0.0989137,
-				0.0698454, -0.192271, 1.12486
-			);
-			return max(lms_to_rgb * pq_decode(ictcp_to_lms * ictcp) * 0.01, vec3(0.0));
-		}
-
-		vec3 gt7(vec3 x, float peak) {
-			const mat3 bt709_to_bt2020 = mat3(
-				0.6274, 0.0691, 0.0164,
-				0.3293, 0.9195, 0.0880,
-				0.0433, 0.0114, 0.8956
-			);
-			const mat3 bt2020_to_bt709 = mat3(
-				1.6605, -0.1246, -0.0182,
-				-0.5876, 1.1329, -0.1006,
-				-0.0728, -0.0083, 1.1187
-			);
-			const float blend_ratio = 0.6;
-			const float fade_start = 0.98;
-			const float fade_end = 1.16;
-
-			vec3 rgb = bt709_to_bt2020 * x;
-			vec3 ucs = gt7_rgb_to_ictcp(rgb);
-			vec3 skewed = gt7_curve(rgb, peak);
-			float chroma_scale = 1.0 - smoothstep(fade_start, fade_end, ucs.x / gt7_rgb_to_ictcp(vec3(peak)).x);
-			vec3 scaled = gt7_ictcp_to_rgb(vec3(ucs.x, ucs.yz * chroma_scale));
-			return max(bt2020_to_bt709 * min(mix(skewed, scaled, blend_ratio), vec3(peak)), vec3(0.0));
-		}
-
-		vec3 neutral(vec3 x, float peak) {
-			const float start = 0.76;
-			const float desaturation = 0.15;
-			float m = max(x.r, max(x.g, x.b));
-
-			if (m <= start) return x;
-
-			float d = peak - start;
-			float new_peak = peak - d * d / (m + d - start);
-			x *= new_peak / m;
-			float g = 1.0 - 1.0 / (desaturation * (m - new_peak) + 1.0);
-			return mix(x, vec3(new_peak), g);
-		}
+	]] .. tonemappers.GetGLSL() .. [[
 
 		vec3 rows_mul(vec3 r0, vec3 r1, vec3 r2, vec3 x) {
 			return vec3(dot(r0, x), dot(r1, x), dot(r2, x));
@@ -215,19 +98,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			return logc_curve(rows_mul(vec3(0.6313210, 0.2708007, 0.0978783), vec3(0.0368199, 0.7930370, 0.1701431), vec3(0.0173697, 0.1487892, 0.8338411), x));
 		}
 
-		vec3 tonemap(vec3 x, int tonemapper) {
-			x = max(x, vec3(0.0));
-
-			if (tonemapper >= 5) return neutral(x, 1.0);
-
-			if (tonemapper == 3) return gt7(x * 2.5, 2.5) / 2.5;
-
-			if (tonemapper == 2) return aces_fitted(x);
-
-			if (tonemapper == 4) return neutral(x, 1.0);
-
-			return agx(x, tonemapper == 1);
-		}
 	]]
 end
 
