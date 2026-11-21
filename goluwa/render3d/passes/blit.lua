@@ -35,13 +35,29 @@ local eye_defocus = pvars.Setup2{
 	help = "in eye mode the eye focuses green, so red and blue are slightly out of focus by the pupil's size, which blurs saturated lights at night",
 }
 pvars.EndGroup()
-local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, neutral = 4}
+local tonemappers = {
+	agx = 0,
+	agx_punchy = 1,
+	aces = 2,
+	gt7 = 3,
+	neutral = 4,
+	slog3 = 5,
+	logc = 6,
+}
 pvars.StartGroup("Post", "Display", {store = false})
 local tonemapper = pvars.Setup2{
 	key = "r_tonemapper",
 	default = "neutral",
-	enums = {"agx", "agx_punchy", "aces", "gt7", "neutral"},
-	help = "the curve that maps the exposed scene to the display. neutral keeps the exposed colour as it is and only rolls the highlights off to the display's peak, the others are looks",
+	enums = {
+		"agx",
+		"agx_punchy",
+		"aces",
+		"gt7",
+		"neutral",
+		"slog3",
+		"logc",
+	},
+	help = "the curve that maps the exposed scene to the display. neutral keeps the exposed colour as it is and only rolls the highlights off to the display's peak, the others are looks. slog3 and logc encode the scene like that camera (curve and wide gamut) and hand it to the look up table (r_grade_lut) as the display transform; without a table the encoded image itself is shown, the flat grey look of log footage, and on HDR outputs they show as neutral",
 }
 
 function render3d.GetTonemapperIndex()
@@ -555,7 +571,7 @@ local compute_shader = [[
 			return gt7(x * paper_white, peak * paper_white) / paper_white;
 		}
 
-		if (tonemapper == 4) return neutral(x, peak);
+		if (tonemapper >= 4) return neutral(x, peak);
 
 		const float knee = 0.6;
 		float m = max(x.r, max(x.g, x.b));
@@ -672,7 +688,14 @@ local compute_shader = [[
 		}
 
 		if (compute.output_mode == 0) {
-			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0)) * display_scale;
+			if (compute.debug_passthrough != 0) {
+				col = clamp(col, 0.0, 1.0);
+			} else if (compute.tonemapper >= 5) {
+				vec3 exposed = col * exposure;
+				col = grade_display_log(clamp(log_encode(exposed, compute.tonemapper), 0.0, 1.0), clamp(tonemap(exposed, 4), 0.0, 1.0)) * display_scale;
+			} else {
+				col = grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0)) * display_scale;
+			}
 
 			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 

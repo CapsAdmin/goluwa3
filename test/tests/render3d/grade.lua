@@ -442,14 +442,14 @@ T.Test("Graphics render3d grade a look up table switches the block on only when 
 	T(grade.WriteBlock(block).lut_mode)["=="](0)
 	local path = write_temp(cube_text("LUT_3D_SIZE 2\n", 2, mix_channels))
 	set_lut(path, 100, "srgb", "after")
-	T(bit.band(grade.WriteBlock(block).lut_mode, 1))["=="](1)
+	T(grade.WriteBlock(block).lut_mode)["=="](16 + 1)
 	T(block.lut_size_3d)["=="](2)
 	T(block.lut_size_1d)["=="](0)
 	set_lut(path, 100, "linear", "before")
 	grade.WriteBlock(block)
-	T(block.lut_mode)["=="](1 + 2 + 2 * 4)
+	T(block.lut_mode)["=="](16 + 1 + 2 + 2 * 4)
 	set_lut(path, 0, "srgb", "after")
-	T(grade.WriteBlock(block).lut_mode)["=="](0)
+	T(grade.WriteBlock(block).lut_mode)["=="](16)
 	set_lut("/no/such/lut.cube", 100, "srgb", "after")
 	T(grade.WriteBlock(block).lut_mode)["=="](0)
 	reset_lut()
@@ -542,6 +542,327 @@ T.Test3D("Graphics render3d grade shader applies a look up table like the refere
 		os.remove(path)
 	end
 
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
+	if not ok then error(err, 0) end
+end)
+
+local function chromaticity_matrix(r, g, b, w)
+	local function column(p)
+		return {p[1] / p[2], 1, (1 - p[1] - p[2]) / p[2]}
+	end
+
+	local primaries = {column(r), column(g), column(b)}
+	local white = column(w)
+
+	local function det(m)
+		return m[1][1] * (
+				m[2][2] * m[3][3] - m[2][3] * m[3][2]
+			) - m[1][2] * (
+				m[2][1] * m[3][3] - m[2][3] * m[3][1]
+			) + m[1][3] * (
+				m[2][1] * m[3][2] - m[2][2] * m[3][1]
+			)
+	end
+
+	local m = {
+		{primaries[1][1], primaries[2][1], primaries[3][1]},
+		{primaries[1][2], primaries[2][2], primaries[3][2]},
+		{primaries[1][3], primaries[2][3], primaries[3][3]},
+	}
+	local d = det(m)
+	local scale = {}
+
+	for i = 1, 3 do
+		local mi = {
+			{m[1][1], m[1][2], m[1][3]},
+			{m[2][1], m[2][2], m[2][3]},
+			{m[3][1], m[3][2], m[3][3]},
+		}
+
+		for row = 1, 3 do
+			mi[row][i] = white[row]
+		end
+
+		scale[i] = det(mi) / d
+	end
+
+	local out = {}
+
+	for row = 1, 3 do
+		out[row] = {m[row][1] * scale[1], m[row][2] * scale[2], m[row][3] * scale[3]}
+	end
+
+	return out
+end
+
+local function invert(m)
+	local a, b, c, d, e, f, g, h, i = m[1][1], m[1][2], m[1][3], m[2][1], m[2][2], m[2][3], m[3][1], m[3][2], m[3][3]
+	local det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+	return {
+		{
+			(
+				e * i - f * h
+			) / det,
+			(
+				c * h - b * i
+			) / det,
+			(
+				b * f - c * e
+			) / det,
+		},
+		{
+			(
+				f * g - d * i
+			) / det,
+			(
+				a * i - c * g
+			) / det,
+			(
+				c * d - a * f
+			) / det,
+		},
+		{
+			(
+				d * h - e * g
+			) / det,
+			(
+				b * g - a * h
+			) / det,
+			(
+				a * e - b * d
+			) / det,
+		},
+	}
+end
+
+local function multiply(a, b)
+	local out = {}
+
+	for i = 1, 3 do
+		out[i] = {}
+
+		for j = 1, 3 do
+			out[i][j] = a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j]
+		end
+	end
+
+	return out
+end
+
+local WHITE = {0.3127, 0.3290}
+local REC709 = chromaticity_matrix({0.64, 0.33}, {0.30, 0.60}, {0.15, 0.06}, WHITE)
+local FROM_REC709 = {
+	[5] = multiply(
+		invert(chromaticity_matrix({0.766, 0.275}, {0.225, 0.800}, {0.089, -0.087}, WHITE)),
+		REC709
+	),
+	[6] = multiply(
+		invert(chromaticity_matrix({0.6840, 0.3130}, {0.2210, 0.8480}, {0.0861, -0.1020}, WHITE)),
+		REC709
+	),
+}
+
+local function slog3(x)
+	if x >= 0.01125 then
+		return (420 + math.log10((x + 0.01) / 0.19) * 261.5) / 1023
+	end
+
+	return (x * (171.2102946929 - 95) / 0.01125 + 95) / 1023
+end
+
+local function logc(x)
+	if x > 0.010591 then
+		return 0.247190 * math.log10(5.555556 * x + 0.052272) + 0.385537
+	end
+
+	return 5.367655 * x + 0.092809
+end
+
+local function encode_reference(c, kind)
+	local m = FROM_REC709[kind]
+	local out = {}
+
+	for i = 1, 3 do
+		local v = m[i][1] * math.max(c[1], 0) + m[i][2] * math.max(c[2], 0) + m[i][3] * math.max(c[3], 0)
+		out[i] = (kind == 5 and slog3 or logc)(v)
+	end
+
+	return out
+end
+
+local function log_test_pass(name, width, height, body)
+	local pass = table.copy(lut_pass)
+	pass.name = name
+	pass.FramebufferSize = {x = width, y = height}
+	pass.shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data", 2, 3) .. [[
+		void main() {
+			int x = int(gl_GlobalInvocationID.x);
+			int y = int(gl_GlobalInvocationID.y);
+			]] .. INPUTS .. body .. [[
+		}
+	]]
+	return pass
+end
+
+local encoder_pass = log_test_pass(
+	"grade_encoder_test",
+	10,
+	1,
+	[[
+	if (x < 10) imageStore(out_graded, ivec2(x, 0), vec4(log_encode(inputs[x % 5], x < 5 ? 5 : 6), 1.0));
+]]
+)
+
+local function log_mode_pass(kind)
+	return log_test_pass(
+		"grade_log_mode_test",
+		5,
+		2,
+		string.format(
+			[[
+		if (x < 5 && y == 0) imageStore(out_graded, ivec2(x, 0), vec4(grade_display_log(clamp(log_encode(inputs[x], %d), 0.0, 1.0), clamp(tonemap(inputs[x], 4), 0.0, 1.0)), 1.0));
+		if (x < 5 && y == 1) imageStore(out_graded, ivec2(x, 1), vec4(grade_display(clamp(tonemap(inputs[x], 4), 0.0, 1.0)), 1.0));
+	]],
+			kind
+		)
+	)
+end
+
+local function download_texels(pipeline_name, width, height)
+	local downloaded = render3d.pipelines[pipeline_name]:GetFramebuffer(1):GetAttachment(1):Download()
+	local texels = {}
+
+	for y = 0, height - 1 do
+		texels[y] = {}
+
+		for x = 0, width - 1 do
+			texels[y][x] = {downloaded:GetPixelFloat(x, y)}
+		end
+	end
+
+	return texels
+end
+
+T.Test3D("Graphics render3d grade log encoders match the camera curves and gamuts", function(draw)
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			encoder_pass,
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+	local ok, err = pcall(function()
+		draw()
+		local texels = download_texels("grade_encoder_test", 10, 1)
+
+		for x = 0, 9 do
+			local kind = x < 5 and 5 or 6
+			local expected = encode_reference(inputs[x % 5 + 1], kind)
+
+			for i = 1, 3 do
+				T(texels[0][x][i], "encoder " .. kind .. " input " .. x % 5 .. " channel " .. i)["~"](expected[i], 1e-4)
+			end
+		end
+
+		T(slog3(0.18))["~"](420 / 1023, 1e-6)
+		T(logc(0.18))["~"](0.391, 1e-3)
+		T(texels[0][0][1])["~"](slog3(0.5), 1e-3)
+	end)
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3D("Graphics render3d grade log mode feeds the encoded scene to the table and writes its output", function(draw)
+	local ok, err = pcall(function()
+		local paths = {}
+		local text3d = cube_text("LUT_3D_SIZE 2\n", 2, mix_channels)
+
+		for _, kind in ipairs{5, 6} do
+			render3d.Initialize{
+				passes = {
+					import("goluwa/render3d/passes/gbuffer.lua"),
+					log_mode_pass(kind),
+					import("goluwa/render3d/passes/blit.lua"),
+				},
+			}
+			reset()
+			reset_lut()
+			draw()
+			local texels = download_texels("grade_log_mode_test", 5, 2)
+
+			for x = 0, 4 do
+				local encoded = encode_reference(inputs[x + 1], kind)
+
+				for i = 1, 3 do
+					T(
+						texels[0][x][i],
+						"no table shows the raw log kind " .. kind .. " input " .. x .. " channel " .. i
+					)["~"](srgb_to_linear(clamp(encoded[i], 0, 1)), 5e-4)
+				end
+			end
+
+			local path = write_temp(text3d)
+			paths[#paths + 1] = path
+
+			for _, space in ipairs{"srgb", "gamma24", "linear"} do
+				set_lut(path, 100, space, "after")
+				draw()
+				texels = download_texels("grade_log_mode_test", 5, 2)
+
+				for x = 0, 4 do
+					local encoded = encode_reference(inputs[x + 1], kind)
+
+					for i = 1, 3 do
+						encoded[i] = clamp(encoded[i], 0, 1)
+					end
+
+					local out = mix_channels(encoded)
+
+					for i = 1, 3 do
+						local y = clamp(out[i], 0, 1)
+
+						if space == "gamma24" then
+							y = linear_to_srgb(y ^ 2.4)
+						elseif space == "linear" then
+							y = linear_to_srgb(y)
+						end
+
+						T(texels[0][x][i], "kind " .. kind .. " " .. space .. " input " .. x .. " channel " .. i)["~"](srgb_to_linear(y), 5e-4)
+					end
+				end
+			end
+
+			set_lut(path, 0, "srgb", "after")
+			draw()
+			texels = download_texels("grade_log_mode_test", 5, 2)
+
+			for x = 0, 4 do
+				for i = 1, 3 do
+					T(texels[0][x][i], "strength 0 is the neutral image")["~"](texels[1][x][i], 1e-5)
+				end
+			end
+		end
+
+		reset_lut()
+
+		for _, path in ipairs(paths) do
+			os.remove(path)
+		end
+	end)
+	reset()
+	reset_lut()
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),

@@ -97,7 +97,7 @@ local lut_space = pvars.Setup2{
 	key = "r_grade_lut_space",
 	default = "srgb",
 	enums = {"srgb", "gamma24", "linear"},
-	help = "the encoding the table reads and writes: srgb, a plain 2.4 gamma (what Resolve film looks output) or linear light",
+	help = "the encoding the table reads and writes: srgb, a plain 2.4 gamma (what Resolve film looks output) or linear light. With a slog3 or logc tonemapper the table reads the camera log and this is only how it writes: Rec709 camera tables write BT.709 video, srgb shows it lighter and gamma24 darker and contrastier like a video monitor",
 }
 local lut_order = pvars.Setup2{
 	key = "r_grade_lut_order",
@@ -281,9 +281,9 @@ function grade.WriteBlock(block)
 	local strength = lut_strength:Get() / 100
 	block.lut_strength = strength
 	block.lut_mode = lut and
-		strength ~= 0 and
 		bit.bor(
-			1,
+			16,
+			strength ~= 0 and 1 or 0,
 			lut_order:Get() == "before" and 2 or 0,
 			bit.lshift(lut_spaces[lut_space:Get()], 2)
 		) or
@@ -355,10 +355,28 @@ local LUT_GLSL = [[
 
 		return mix(x, y, BLOCK.lut_strength);
 	}
+
+	vec3 grade_lut_log(vec3 v, vec3 plain) {
+		if (BLOCK.lut_size_1d > 0) v = grade_lut_shaper(v);
+
+		if (BLOCK.lut_size_3d > 0) v = grade_lut_cube(v);
+
+		vec3 y = clamp(v, 0.0, 1.0);
+		int space = (BLOCK.lut_mode >> 2) & 3;
+
+		if (space == 1) y = LinearToSRGB(pow(y, vec3(2.4)));
+		else if (space == 2) y = LinearToSRGB(y);
+
+		return mix(plain, y, BLOCK.lut_strength);
+	}
 ]]
 local LUT_STUB = [[
 	vec3 grade_lut(vec3 x) {
 		return x;
+	}
+
+	vec3 grade_lut_log(vec3 v, vec3 plain) {
+		return plain;
 	}
 ]]
 
@@ -368,6 +386,24 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d)
 	return (
 		(
 			lut .. [[
+		vec3 grade_controls(vec3 x) {
+			if (BLOCK.grade_on == 0) return x;
+
+			if (BLOCK.grade_brightness != 0.0) x = pow(max(x, vec3(0.0)), vec3(exp2(-0.8 * BLOCK.grade_brightness)));
+
+			if (BLOCK.grade_contrast != 0.0) {
+				float p = exp2(0.75 * BLOCK.grade_contrast);
+				vec3 a = pow(x, vec3(p));
+				vec3 b = pow(1.0 - x, vec3(p));
+				x = a / (a + b);
+			}
+
+			float saturation = max(1.0 + BLOCK.grade_saturation, 0.0);
+			x = mix(vec3(dot(x, vec3(0.2126, 0.7152, 0.0722))), x, saturation);
+			x *= vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
+			return x * vec3(BLOCK.grade_gain_r, BLOCK.grade_gain_g, BLOCK.grade_gain_b) + vec3(BLOCK.grade_lift_r, BLOCK.grade_lift_g, BLOCK.grade_lift_b);
+		}
+
 		vec3 grade_display(vec3 c) {
 			if (BLOCK.grade_on == 0 && (BLOCK.lut_mode & 1) == 0) return c;
 
@@ -375,25 +411,21 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d)
 
 			if ((BLOCK.lut_mode & 3) == 3) x = grade_lut(x);
 
-			if (BLOCK.grade_on != 0) {
-				if (BLOCK.grade_brightness != 0.0) x = pow(max(x, vec3(0.0)), vec3(exp2(-0.8 * BLOCK.grade_brightness)));
-
-				if (BLOCK.grade_contrast != 0.0) {
-					float p = exp2(0.75 * BLOCK.grade_contrast);
-					vec3 a = pow(x, vec3(p));
-					vec3 b = pow(1.0 - x, vec3(p));
-					x = a / (a + b);
-				}
-
-				float saturation = max(1.0 + BLOCK.grade_saturation, 0.0);
-				x = mix(vec3(dot(x, vec3(0.2126, 0.7152, 0.0722))), x, saturation);
-				x *= vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
-				x = x * vec3(BLOCK.grade_gain_r, BLOCK.grade_gain_g, BLOCK.grade_gain_b) + vec3(BLOCK.grade_lift_r, BLOCK.grade_lift_g, BLOCK.grade_lift_b);
-			}
+			x = grade_controls(x);
 
 			if ((BLOCK.lut_mode & 3) == 1) x = grade_lut(x);
 
 			return SRGBToLinear(clamp(x, 0.0, 1.0));
+		}
+
+		vec3 grade_display_log(vec3 encoded, vec3 plain) {
+			vec3 x = clamp(encoded, 0.0, 1.0);
+
+			if ((BLOCK.lut_mode & 16) != 0) x = LinearToSRGB(plain);
+
+			if ((BLOCK.lut_mode & 1) != 0) x = grade_lut_log(encoded, x);
+
+			return SRGBToLinear(clamp(grade_controls(x), 0.0, 1.0));
 		}
 
 		vec3 grade_display_hdr(vec3 c) {

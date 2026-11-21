@@ -189,8 +189,36 @@ function compute_helpers.GetColorHelpersGLSL()
 			return mix(x, vec3(new_peak), g);
 		}
 
+		vec3 rows_mul(vec3 r0, vec3 r1, vec3 r2, vec3 x) {
+			return vec3(dot(r0, x), dot(r1, x), dot(r2, x));
+		}
+
+		vec3 slog3_curve(vec3 x) {
+			vec3 high = (420.0 + log(max(x + 0.01, vec3(1e-6)) / 0.19) / 2.302585093 * 261.5) / 1023.0;
+			vec3 low = (x * (171.2102946929 - 95.0) / 0.01125 + 95.0) / 1023.0;
+			return mix(low, high, step(0.01125, x));
+		}
+
+		vec3 logc_curve(vec3 x) {
+			vec3 high = 0.247190 * log(max(5.555556 * x + 0.052272, vec3(1e-6))) / 2.302585093 + 0.385537;
+			vec3 low = 5.367655 * x + 0.092809;
+			return mix(low, high, step(0.010591, x));
+		}
+
+		vec3 log_encode(vec3 x, int tonemapper) {
+			x = max(x, vec3(0.0));
+
+			if (tonemapper == 5) {
+				return slog3_curve(rows_mul(vec3(0.6456795, 0.2591145, 0.0952060), vec3(0.0875300, 0.7596996, 0.1527704), vec3(0.0369574, 0.1292809, 0.8337617), x));
+			}
+
+			return logc_curve(rows_mul(vec3(0.6313210, 0.2708007, 0.0978783), vec3(0.0368199, 0.7930370, 0.1701431), vec3(0.0173697, 0.1487892, 0.8338411), x));
+		}
+
 		vec3 tonemap(vec3 x, int tonemapper) {
 			x = max(x, vec3(0.0));
+
+			if (tonemapper >= 5) return neutral(x, 1.0);
 
 			if (tonemapper == 3) return gt7(x * 2.5, 2.5) / 2.5;
 
