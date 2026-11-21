@@ -824,6 +824,24 @@ function level.ParseLevelData(data)
 	return level.ParseLevelDataDocument(document)
 end
 
+function level.GetSunDirection(orbit, hours)
+	local time = ((hours + 12) / 24) * math.pi * 2
+	local x, y, z = math.sin(time), math.cos(time), 0
+	y, z = y * math.cos(orbit.longitude), -y * math.sin(orbit.longitude)
+	x, z = x * math.cos(orbit.latitude) - z * math.sin(orbit.latitude),
+	x * math.sin(orbit.latitude) + z * math.cos(orbit.latitude)
+	return Vec3(x, y, z)
+end
+
+function level.GetSunHours(orbit, sun)
+	local c, s = math.cos(orbit.latitude), math.sin(orbit.latitude)
+	local x0, z0 = sun.x * c + sun.z * s, -sun.x * s + sun.z * c
+	c, s = math.cos(orbit.longitude), math.sin(orbit.longitude)
+	local y0, z1 = sun.y * c - z0 * s, sun.y * s + z0 * c
+	return (math.atan2(x0, y0) / (math.pi * 2) * 24 - 12) % 24,
+	math.deg(math.asin(math.clamp(z1, -1, 1)))
+end
+
 function level.ParseMissionEnvironment(mission)
 	local sun_direction
 	local fog_density
@@ -869,14 +887,11 @@ function level.ParseMissionEnvironment(mission)
 	end
 
 	if time_of_day and lighting then
-		local time = ((tonumber(time_of_day.attrs.Time) + 12) / 24) * math.pi * 2
-		local longitude = 0.5 * math.pi - math.rad(tonumber(lighting.attrs.Longitude))
-		local latitude = -math.rad(tonumber(lighting.attrs.SunRotation))
-		local x, y, z = math.sin(time), math.cos(time), 0
-		y, z = y * math.cos(longitude), -y * math.sin(longitude)
-		x, z = x * math.cos(latitude) - z * math.sin(latitude),
-		x * math.sin(latitude) + z * math.cos(latitude)
-		sun_direction = units.ToEngine(Vec3(x, -z, y))
+		level.sun_orbit = {
+			longitude = 0.5 * math.pi - math.rad(tonumber(lighting.attrs.Longitude)),
+			latitude = -math.rad(tonumber(lighting.attrs.SunRotation)),
+		}
+		sun_direction = level.GetSunDirection(level.sun_orbit, tonumber(time_of_day.attrs.Time))
 	end
 
 	return {
