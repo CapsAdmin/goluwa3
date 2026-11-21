@@ -88,6 +88,30 @@ function compute_helpers.GetColorHelpersGLSL()
 			return mix(low, high, step(0.010591, x));
 		}
 
+		mat3 rows_matrix(vec3 r0, vec3 r1, vec3 r2) {
+			return transpose(mat3(r0, r1, r2));
+		}
+
+		vec3 slog3_inverse(vec3 y) {
+			vec3 high = pow(vec3(10.0), (y * 1023.0 - 420.0) / 261.5) * 0.19 - 0.01;
+			vec3 low = (y * 1023.0 - 95.0) * 0.01125 / (171.2102946929 - 95.0);
+			return mix(low, high, step(171.2102946929 / 1023.0, y));
+		}
+
+		vec3 logc_inverse(vec3 y) {
+			vec3 high = (pow(vec3(10.0), (y - 0.385537) / 0.247190) - 0.052272) / 5.555556;
+			vec3 low = (y - 0.092809) / 5.367655;
+			return mix(low, high, step(5.367655 * 0.010591 + 0.092809, y));
+		}
+
+		vec3 log_decode(vec3 y, int tonemapper) {
+			if (tonemapper == 5) {
+				return inverse(rows_matrix(vec3(0.6456795, 0.2591145, 0.0952060), vec3(0.0875300, 0.7596996, 0.1527704), vec3(0.0369574, 0.1292809, 0.8337617))) * slog3_inverse(y);
+			}
+
+			return inverse(rows_matrix(vec3(0.6313210, 0.2708007, 0.0978783), vec3(0.0368199, 0.7930370, 0.1701431), vec3(0.0173697, 0.1487892, 0.8338411))) * logc_inverse(y);
+		}
+
 		vec3 log_encode(vec3 x, int tonemapper) {
 			x = max(x, vec3(0.0));
 
