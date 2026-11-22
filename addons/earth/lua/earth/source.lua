@@ -205,14 +205,6 @@ function EarthSource.New(config)
 	self.ImageryUse = {}
 	self.Bathymetry = config.Bathymetry
 	self.BathymetryMaxZoom = config.BathymetryMaxZoom or 10
-	self.Blank = Texture.New{
-		width = 1,
-		height = 1,
-		format = "r8g8b8a8_srgb",
-		buffer = ffi.new("uint8_t[4]", 118, 118, 118, 255),
-		mip_map_levels = 1,
-		sampler = LINEAR,
-	}
 	self.HeightDetailDivisor = config.HeightDetailDivisor or 2
 	self.ResolvesPerFrame = config.ResolvesPerFrame or 8
 	self.Waiting = {}
@@ -504,6 +496,21 @@ local function release_texture(self, texture)
 	pool[#pool + 1] = texture
 end
 
+-- the texture bound where a chunk has no imagery or water mosaic; Finish removes it, as Terrain:Start finishes its source
+-- before it bakes
+local function get_blank(self)
+	self.Blank = self.Blank or
+		Texture.New{
+			width = 1,
+			height = 1,
+			format = "r8g8b8a8_srgb",
+			buffer = ffi.new("uint8_t[4]", 118, 118, 118, 255),
+			mip_map_levels = 1,
+			sampler = LINEAR,
+		}
+	return self.Blank
+end
+
 local function bake(self, item, heights, imagery, bathymetry)
 	local request = item.request
 	local domain = item.domain
@@ -536,7 +543,8 @@ local function bake(self, item, heights, imagery, bathymetry)
 
 	if bathymetry then fill_sea(height_pixels, height_width, heights, bathymetry) end
 
-	local textures = {info_texture, height_texture, self.Blank}
+	local blank = get_blank(self)
+	local textures = {info_texture, height_texture, blank}
 	local uploads = {{info_texture, info}, {height_texture, height_pixels}}
 	local water = self.Water and self.Water:PlanMosaic(heights)
 
@@ -571,7 +579,7 @@ local function bake(self, item, heights, imagery, bathymetry)
 
 	ShaderSource.RequestChunk(self, request, function(chunk)
 		for _, texture in ipairs(textures) do
-			if texture ~= self.Blank then release_texture(self, texture) end
+			if texture ~= blank then release_texture(self, texture) end
 		end
 
 		request.textures = nil
@@ -722,7 +730,11 @@ function EarthSource:Finish()
 	end
 
 	self.MosaicPool = {}
-	self.Blank:Remove()
+
+	if self.Blank then
+		self.Blank:Remove()
+		self.Blank = nil
+	end
 end
 
 function EarthSource:GetPendingCount()
