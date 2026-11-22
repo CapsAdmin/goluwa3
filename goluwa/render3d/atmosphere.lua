@@ -3,6 +3,7 @@ local atmosphere = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
 local Texture = import("goluwa/render/texture.lua")
+local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local scattering = import("goluwa/render3d/atmosphere_scattering.lua")
 local media = import("goluwa/render3d/media.lua")
@@ -1181,12 +1182,13 @@ local function destroy_transmittance_texture()
 	atmosphere.transmittance_texture = nil
 end
 
-local function create_lut_texture(width, height)
+local function create_lut_texture(width, height, cmd)
 	return Texture.New{
 		width = width,
 		height = height,
 		format = "r16g16b16a16_sfloat",
 		mip_map_levels = 1,
+		cmd = cmd,
 		sampler = {
 			min_filter = "linear",
 			mag_filter = "linear",
@@ -1585,8 +1587,12 @@ function atmosphere.GetSunIlluminance()
 	return atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 end
 
+-- a new view is made while a frame is recorded (the camera moved): waiting for it would wait for the whole queue, so it
+-- is recorded on its own and submitted ahead of the frame, which runs it first
 local function create_sky_view_texture(x, y, z, elevation)
-	local tex = create_lut_texture(SKY_VIEW_LUT_WIDTH, SKY_VIEW_LUT_HEIGHT)
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	local tex = create_lut_texture(SKY_VIEW_LUT_WIDTH, SKY_VIEW_LUT_HEIGHT, cmd)
 	local length = math.sqrt(x * x + y * y + z * z)
 	local ux, uy, uz = x / length, y / length, z / length
 	local hx, hy, hz = uy, -ux, 0
@@ -1595,9 +1601,10 @@ local function create_sky_view_texture(x, y, z, elevation)
 	local cos_e, sin_e = math.cos(elevation), math.sin(elevation)
 	local transmittance = atmosphere.GetTransmittanceTexture()
 	local scattering_table = atmosphere.GetScatteringTexture()
-	tex:Shade(
+	local views = tex:Shade(
 		sky_view_glsl,
 		{
+			cmd = cmd,
 			textures = {transmittance, scattering_table},
 			custom_declarations = SKY_VIEW_DECLARATIONS,
 			fragment_push_constants = {
@@ -1616,6 +1623,10 @@ local function create_sky_view_texture(x, y, z, elevation)
 			},
 		}
 	)
+	-- Shade only orders it before later fragment shaders, compute passes read it too
+	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "all_commands", memoryBarrier = true}
+	cmd:End()
+	render.SubmitDetached(cmd, views)
 	return tex
 end
 
