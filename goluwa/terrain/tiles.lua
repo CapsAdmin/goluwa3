@@ -179,6 +179,9 @@ function tiles.GetShell(layers)
 	return shell
 end
 
+-- the vertices are only read while the polygon uploads (it keeps its own gpu layout copy), so one array is reused
+local scratch_vertices, scratch_count = nil, 0
+
 function tiles.BuildPolygon(chunk, skirt_depth, stride, mode, shell)
 	local request = chunk.request
 	local full_samples = request.samples
@@ -189,7 +192,12 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode, shell)
 	local grid_count = samples * samples
 	local template = get_template(cells, step, mode == "host", shell and shell > 0)
 	local vertex_count = template.vertex_count
-	local vertices = VertexType(vertex_count)
+
+	if vertex_count > scratch_count then
+		scratch_vertices, scratch_count = VertexType(vertex_count), vertex_count
+	end
+
+	local vertices = scratch_vertices
 	ffi.copy(vertices, template.vertices, VertexSize * vertex_count)
 
 	for z = 0, cells do
