@@ -4,6 +4,7 @@ local level = import("lua/crysis_loader/level.lua")
 local timer = import("goluwa/timer.lua")
 local HeightPhysics = import("goluwa/terrain/height_physics.lua")
 local water_field = import("goluwa/render3d/water_field.lua")
+local planet = import("goluwa/planet.lua")
 local META = objects.CreateTemplate("cry_level")
 META:StartStorable()
 META:GetSet("Path", "", {callback = "Load"})
@@ -57,7 +58,7 @@ function META:Build(level_dir)
 	if RENDER_3D and data.terrain and data.terrain.height_data then
 		local terrain = data.terrain
 		self.water_field_source = function(x, z)
-			return level.SampleTerrainHeight(terrain, x, z)
+			return level.SampleTerrainHeight(terrain, x, z) - planet.GetDrop(x, z)
 		end
 		water_field.SetHeightSource(self.water_field_source)
 	end

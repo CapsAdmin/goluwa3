@@ -158,7 +158,7 @@ function cry_water.BuildVolumes(object)
 		local height = 0
 
 		for i, point in ipairs(object.points) do
-			points[i] = units.ToEngine(point.pos)
+			points[i] = units.PositionToEngine(point.pos)
 			height = height + points[i].y
 		end
 
@@ -179,10 +179,10 @@ function cry_water.BuildVolumes(object)
 
 	for i = 1, #object.points - 1 do
 		local p0, p1 = object.points[i], object.points[i + 1]
-		local a = units.ToEngine(p0.pos)
-		local b = units.ToEngine(p0.forw)
-		local c = units.ToEngine(p1.back)
-		local d = units.ToEngine(p1.pos)
+		local a = units.PositionToEngine(p0.pos)
+		local b = units.PositionToEngine(p0.forw)
+		local c = units.PositionToEngine(p1.back)
+		local d = units.PositionToEngine(p1.pos)
 		local width_a = p0.width > 0 and p0.width or object.width
 		local width_b = p1.width > 0 and p1.width or object.width
 		local pieces = math.max(math.ceil((d - a):GetLength() / RIVER_PIECE_LENGTH), 1)

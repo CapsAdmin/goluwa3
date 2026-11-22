@@ -382,7 +382,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 			for i, entry in ipairs(group.entries) do
 				local r = records[i - 1]
-				local position = units.ToEngine(entry.position)
+				local position = units.PositionToEngine(entry.position)
 				r.x, r.y, r.z, r.scale, r.yaw = position.x, position.y, position.z, entry.scale, entry.yaw
 				local up = entry.terrain_normal
 
@@ -426,7 +426,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 				local position = units.ToEngine(entry.position)
 				foliage_field.AddCanopy(position.x, position.z, math.max(3 * prototype.size * entry.scale, 2.5))
 			elseif prototype.category == "Bushes" or prototype.category == "Groundplants" then
-				local position = units.ToEngine(entry.position)
+				local position = units.PositionToEngine(entry.position)
 				foliage_field.AddInstance(
 					position.x,
 					position.y,
@@ -450,7 +450,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 			local folder = add_folder(level_guid, "Vegetation Physics")
 
 			for index, entry in ipairs(physics_entries) do
-				local position = units.ToEngine(entry.position)
+				local position = units.PositionToEngine(entry.position)
 				local up = entry.terrain_normal
 				scatter.WritePlacement(
 					matrix,
@@ -582,9 +582,9 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 			for _, point in ipairs(road.points) do
 				for _, vector in ipairs{
-					units.ToEngine(point.pos),
-					units.ToEngine(point.back),
-					units.ToEngine(point.forw),
+					units.PositionToEngine(point.pos),
+					units.PositionToEngine(point.back),
+					units.PositionToEngine(point.forw),
 				} do
 					list.insert(values, vector.x)
 					list.insert(values, vector.y)

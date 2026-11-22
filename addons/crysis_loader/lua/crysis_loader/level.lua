@@ -215,7 +215,7 @@ function level.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 	rotation_matrix.m21 = back.y
 	rotation_matrix.m22 = back.z
 	return {
-		position = units.ToEngine(origin),
+		position = units.PositionToEngine(origin),
 		rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
 		scale = Vec3(
 			math.abs(scale_x) > 0.000001 and scale_x or 1,
@@ -240,7 +240,7 @@ function level.ConvertCryDecalMatrixToEngineTransform(world_matrix)
 	rotation_matrix.m10, rotation_matrix.m11, rotation_matrix.m12 = up.x, up.y, up.z
 	rotation_matrix.m20, rotation_matrix.m21, rotation_matrix.m22 = back.x, back.y, back.z
 	return {
-		position = units.ToEngine(origin),
+		position = units.PositionToEngine(origin),
 		rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
 		scale = Vec3(scale_x, scale_y, scale_z),
 	}
