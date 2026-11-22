@@ -1,6 +1,7 @@
 local ljsocket = import("goluwa/bindings/socket.lua")
 local objects = import("goluwa/objects/objects.lua")
 local socket_pool = import("goluwa/sockets/socket_pool.lua")
+local dns = import("goluwa/sockets/dns.lua")
 local TCPClient = objects.CreateTemplate("socket_tcp_client")
 TCPClient:GetSet("BufferSize", 64000)
 
@@ -93,18 +94,33 @@ local services = {
 	http = "80",
 }
 
+-- connects once the host is resolved (dns.lua, off the main thread); what is sent meanwhile waits in the send buffer
 function TCPClient:Connect(host, service)
 	if service == "https" then self:SetupTLS() end
 
-	local ok, err = self.socket:connect(host, services[service] or service)
+	local socket = self.socket
+	local port = services[service] or service
 
-	if ok then
+	dns.Resolve(host, port, function(address, err)
+		if not self:IsValid() or self.socket ~= socket then return end
+
+		if not address then
+			return self:Error("Unable to resolve " .. host .. ": " .. tostring(err))
+		end
+
+		local ok, connect_err = socket:connect(host, port, address)
+
+		if not ok then
+			return self:Error(
+				"Unable to connect to " .. host .. ":" .. service .. ": " .. tostring(connect_err)
+			)
+		end
+
 		self.connecting = true
 		self:InsertIntoSocketPool()
-		return true
-	end
+	end)
 
-	return self:Error("Unable to connect to " .. host .. ":" .. service .. ": " .. err)
+	return true
 end
 
 function TCPClient:Send(data)

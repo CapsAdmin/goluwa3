@@ -1422,8 +1422,10 @@ do
 		end
 	end
 
-	function meta:connect(host, service)
-		local res, err = M.find_first_address_info(host, service, nil, self.family, self.socket_type, self.protocol)
+	-- address: the host's numeric address when it was resolved already (the host still names it to the connection, tls
+	-- sends it as the server name)
+	function meta:connect(host, service, address)
+		local res, err = M.find_first_address_info(address or host, service, nil, self.family, self.socket_type, self.protocol)
 
 		if not res then return res, err end
 
