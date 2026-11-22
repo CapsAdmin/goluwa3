@@ -8,6 +8,8 @@ local tint_mesh = import("lua/earth/tint_mesh.lua")
 -- a building tile's blocks as wall and roof meshes, built on the thread pool (BuildJob)
 local building_mesh = {}
 building_mesh.FLOOR_HEIGHT = 3.2
+-- a wall's uv has a whole number of bays about this wide across and a floor per unit up, the wall's bottom at -FOOTING
+building_mesh.BAY_WIDTH = 4
 -- the walls reach this far under the lowest ground of their footprint, so slopes do not show the gap under them
 building_mesh.FOOTING = 3
 building_mesh.CLASS_HEIGHTS = {
@@ -230,11 +232,13 @@ local function add_walls(mesh, ring, bottom, top)
 		if length > 0.01 then
 			local nx, nz = dz / length, -dx / length
 			local tx, tz = dx / length, dz / length
-			local u = length / 4
-			local a0 = tint_mesh.AddVertex(mesh, ax, bottom, az, nx, 0, nz, 0, 0, tx, tz)
-			local b0 = tint_mesh.AddVertex(mesh, bx, bottom, bz, nx, 0, nz, u, 0, tx, tz)
-			local b1 = tint_mesh.AddVertex(mesh, bx, top, bz, nx, 0, nz, u, height / 3, tx, tz)
-			local a1 = tint_mesh.AddVertex(mesh, ax, top, az, nx, 0, nz, 0, height / 3, tx, tz)
+			local u = math.max(math.floor(length / building_mesh.BAY_WIDTH + 0.5), 1)
+			local v0 = -building_mesh.FOOTING / building_mesh.FLOOR_HEIGHT
+			local v1 = v0 + height / building_mesh.FLOOR_HEIGHT
+			local a0 = tint_mesh.AddVertex(mesh, ax, bottom, az, nx, 0, nz, 0, v0, tx, tz)
+			local b0 = tint_mesh.AddVertex(mesh, bx, bottom, bz, nx, 0, nz, u, v0, tx, tz)
+			local b1 = tint_mesh.AddVertex(mesh, bx, top, bz, nx, 0, nz, u, v1, tx, tz)
+			local a1 = tint_mesh.AddVertex(mesh, ax, top, az, nx, 0, nz, 0, v1, tx, tz)
 			tint_mesh.AddTriangle(mesh, a0, b1, a1)
 			tint_mesh.AddTriangle(mesh, a0, b0, b1)
 		end

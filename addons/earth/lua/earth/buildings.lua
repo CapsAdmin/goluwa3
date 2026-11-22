@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local geo = import("lua/earth/geo.lua")
 local overture_tiles = import("lua/earth/overture_tiles.lua")
 local building_mesh = import("lua/earth/building_mesh.lua")
+local layer_texture = import("goluwa/terrain/layer_texture.lua")
 -- Overture's buildings (OpenStreetMap, Microsoft's and Google's machine learned footprints, Esri) as blocks: the
 -- footprints of the zoom 14 tiles around the camera extruded to their height, or their floors, or a guess by class
 local buildings = {}
@@ -24,6 +25,40 @@ local MAX_BUILDING = 2
 -- the pixel size of the photo the roofs take their colour from; where no imagery source is about this sharp the roofs
 -- keep a colour picked from a palette
 local PHOTO_METERS = 1.7
+-- one bay of a facade over a wall's uv (building_mesh: a bay across, a floor up): plaster, a window with a frame and
+-- a sill, a band at the floor; white, so the wall's vertex colour is the plaster's, the glass dark in any colour
+local FACADE = {
+	Size = 256,
+	Header = [=[
+float facade_window(vec2 uv) {
+	vec2 d = abs(uv - vec2(0.5, 0.55)) - vec2(0.24, 0.24);
+	return max(d.x, d.y);
+}
+]=],
+	Height = [=[
+float layer_height(vec2 uv) {
+	uv = fract(uv);
+	float window = facade_window(uv);
+	float frame = smoothstep(0.0, 0.004, -window) * (1.0 - smoothstep(-0.03, -0.026, window));
+	float glass = smoothstep(0.03, 0.026, -window);
+	float band = 1.0 - smoothstep(0.02, 0.03, uv.y);
+	return 0.8 - glass * 0.6 - frame * 0.2 + band * 0.1 + tile_fbm(uv, 8.0, 3, 0.5) * 0.04;
+}
+]=],
+	Albedo = [=[
+	vec2 f = fract(uv);
+	float window = facade_window(f);
+	float glass = smoothstep(0.0, -0.004, window + 0.03);
+	float frame = smoothstep(0.0, -0.004, window) * (1.0 - glass);
+	float band = 1.0 - smoothstep(0.02, 0.03, f.y);
+	float dirt = tile_fbm(uv, 6.0, 4, 0.5) * 0.12 + smoothstep(0.3, 0.0, f.y) * 0.06;
+	vec3 plaster = vec3(1.0 - dirt - band * 0.15);
+	vec3 col = mix(plaster, vec3(0.75), frame);
+	col = mix(col, vec3(0.06, 0.07, 0.08) + 0.05 * f.y, glass);
+	return vec4(col, 1.0);
+]=],
+	Depth = 0.6,
+}
 local VertexType = Polygon3D.VertexType
 local VERTEX_SIZE = ffi.sizeof(VertexType(1))
 local Index32Array = ffi.typeof("uint32_t[?]")
@@ -254,6 +289,8 @@ function buildings.Start(source)
 		wall_material = Material.New()
 		wall_material:SetVertexTint(true)
 		wall_material:SetRoughnessMultiplier(0.9)
+		wall_material:SetAlbedoTexture(layer_texture.BakeAlbedo(FACADE))
+		wall_material:SetNormalTexture(layer_texture.BakeNormal(FACADE))
 		roof_material = Material.New()
 		roof_material:SetVertexTint(true)
 		roof_material:SetRoughnessMultiplier(0.8)
