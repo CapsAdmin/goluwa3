@@ -6,6 +6,9 @@ local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
 local event = import("goluwa/event.lua")
 local Texture = import("goluwa/render/texture.lua")
+local render = import("goluwa/render/render.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local planet = import("goluwa/planet.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local weather = import("goluwa/render3d/weather.lua")
@@ -230,31 +233,161 @@ local function sample(grid, lat, lon, time, out)
 	return out
 end
 
-local function build_map()
+-- the map is drawn on the gpu: every texel goes from the world to its latitude and longitude on the sphere under the
+-- tangent plane (geo.WorldToLatLon) and reads the grid there through the b-spline, from the two hours around the time
+-- blended into one plane; the params are the anchor's basis (east, north, up), its longitude, the radius, the map's
+-- size, the grid's south west corner, step and side and the map's texels, then the plane's three channels
+local PARAMS = 17
+local GROUP = 8
+local SHADER = [=[
+	float cloud_cover_bspline(float t, int k) {
+		float t2 = t * t, t3 = t2 * t;
+
+		if (k == 0) return (1.0 - t) * (1.0 - t) * (1.0 - t) / 6.0;
+		if (k == 1) return (3.0 * t3 - 6.0 * t2 + 4.0) / 6.0;
+		if (k == 2) return (-3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0) / 6.0;
+		return t3 / 6.0;
+	}
+
+	void main() {
+		int texels = int(params[16]);
+		ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+
+		if (pixel.x >= texels || pixel.y >= texels) return;
+
+		float size = params[11];
+		vec2 world = (vec2(pixel) + 0.5) / float(texels) * size - size * 0.5;
+		float radius = params[10];
+		float e = world.x / radius;
+		float n = -world.y / radius;
+		float u = sqrt(max(1.0 - e * e - n * n, 0.0));
+		vec3 v = e * vec3(params[0], params[1], params[2]) + n * vec3(params[3], params[4], params[5]) + u * vec3(params[6], params[7], params[8]);
+		float lat = degrees(asin(clamp(v.z, -1.0, 1.0)));
+		float lon = degrees(atan(v.y, v.x));
+		lon = params[9] + mod(lon - params[9] + 180.0, 360.0) - 180.0;
+		float step = params[14];
+		int side = int(params[15]);
+		float gy = (lat - params[12]) / step;
+		float gx = (mod(lon - params[13] + 180.0, 360.0) - 180.0) / step;
+		int iy = int(floor(gy));
+		int ix = int(floor(gx));
+		vec3 value = vec3(0.0);
+
+		for (int j = 0; j < 4; j++) {
+			int row = clamp(iy + j - 1, 0, side - 1) * side;
+			float wy = cloud_cover_bspline(gy - float(iy), j);
+
+			for (int i = 0; i < 4; i++) {
+				int at = ]=] .. PARAMS .. [=[ + row + clamp(ix + i - 1, 0, side - 1);
+				value += wy * cloud_cover_bspline(gx - float(ix), i) * vec3(params[at], params[at + side * side], params[at + 2 * side * side]);
+			}
+		}
+
+		imageStore(out_map, pixel, vec4(clamp(value, 0.0, 1.0), 1.0));
+	}
+]=]
+local pipeline
+local param_buffers = {}
+
+local function get_frame_span()
+	return math.max(render.GetSwapchainImageCount() or 1, 1)
+end
+
+local function get_pipeline()
+	pipeline = pipeline or
+		EasyPipeline.Compute{
+			name = "earth_cloud_cover",
+			DescriptorSetCount = get_frame_span(),
+			LocalSize = {x = GROUP, y = GROUP, z = 1},
+			storage_images = {{binding_index = 0}},
+			storage_buffers = {{binding_index = 1}},
+			custom_declarations = [=[
+				layout(set = 0, binding = 0, rgba8) uniform writeonly image2D out_map;
+				layout(set = 0, binding = 1, std430) buffer Params { float params[]; };
+			]=],
+			shader = SHADER,
+		}
+	return pipeline
+end
+
+-- the params of the map at the time it is drawn for, into this frame's buffer (the ones of frames still in flight are
+-- left alone)
+local function write_params(slot, time)
 	local grid = cloud_cover.grid
-	local source = cloud_cover.source
-	local time = weather.GetTime()
-	local pixels = ffi.new("uint8_t[?]", MAP_TEXELS * MAP_TEXELS * 4)
-	local value = {}
+	local anchor = cloud_cover.source.Anchor
+	local plane = GRID_SIDE * GRID_SIDE
+	local buffer = param_buffers[slot]
 
-	for row = 0, MAP_TEXELS - 1 do
-		local z = (row + 0.5) / MAP_TEXELS * MAP_SIZE - MAP_SIZE / 2
+	if not buffer then
+		buffer = render.CreateBuffer{
+			byte_size = (PARAMS + plane * 3) * 4,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "earth cloud cover",
+		}
+		param_buffers[slot] = buffer
+	end
 
-		for column = 0, MAP_TEXELS - 1 do
-			local x = (column + 0.5) / MAP_TEXELS * MAP_SIZE - MAP_SIZE / 2
-			local lat, lon = source:WorldToLatLon(x, z)
-			sample(grid, lat, lon, time, value)
-			local o = (row * MAP_TEXELS + column) * 4
-			pixels[o] = math.floor(value[1] * 255 + 0.5)
-			pixels[o + 1] = math.floor(value[2] * 255 + 0.5)
-			pixels[o + 2] = math.floor(value[3] * 255 + 0.5)
-			pixels[o + 3] = 255
+	local params = ffi.cast("float *", buffer:Map())
+	params[0], params[1], params[2] = anchor.ex, anchor.ey, anchor.ez
+	params[3], params[4], params[5] = anchor.nx, anchor.ny, anchor.nz
+	params[6], params[7], params[8] = anchor.ux, anchor.uy, anchor.uz
+	params[9], params[10], params[11] = anchor.lon, planet.RADIUS, MAP_SIZE
+	params[12], params[13], params[14], params[15], params[16] = grid.lat0, grid.lon0, GRID_STEP, GRID_SIDE, MAP_TEXELS
+	local times = grid.times
+	local t = 1
+
+	while t < #times - 1 and times[t + 1] <= time do
+		t = t + 1
+	end
+
+	local ft = math.clamp((time - times[t]) / (times[t + 1] - times[t]), 0, 1)
+
+	for channel = 1, 3 do
+		local v = grid.cover[channel]
+		local out = params + PARAMS + (channel - 1) * plane
+
+		for i = 0, plane - 1 do
+			out[i] = v[(t - 1) * plane + i] * (1 - ft) + v[t * plane + i] * ft
 		end
 	end
 
-	cloud_cover.texture:Upload(pixels)
-	clouds.SetCoverageMap(cloud_cover.texture, -MAP_SIZE / 2, -MAP_SIZE / 2, MAP_SIZE)
-	cloud_cover.built_time = time
+	return buffer
+end
+
+-- records the map's drawing into the frame, when a build asked for one
+local function draw_map()
+	local time = cloud_cover.draw_time
+	local cmd = time and render.GetCommandBuffer()
+
+	if not cmd then return end
+
+	local slot = ((render.GetCurrentFrame() or 1) - 1) % get_frame_span() + 1
+	local p = get_pipeline()
+	local buffer = write_params(slot, time)
+	local texture = cloud_cover.texture
+	render.TransitionResourceToComputeStorage(texture, {cmd = cmd})
+	p:UpdateDescriptorSet("storage_image", slot, 0, 0, texture:GetView())
+	p:UpdateDescriptorSet("storage_buffer", slot, 1, 0, buffer, buffer:GetSize())
+	p.pipeline:Dispatch(cmd, math.ceil(MAP_TEXELS / GROUP), math.ceil(MAP_TEXELS / GROUP), 1, slot)
+	render.TransitionResource(
+		texture,
+		"shader_read_only_optimal",
+		{
+			cmd = cmd,
+			srcStage = "compute",
+			srcAccess = "shader_write",
+			dstStage = "all_commands",
+			dstAccess = "shader_read",
+		}
+	)
+	clouds.SetCoverageMap(texture, -MAP_SIZE / 2, -MAP_SIZE / 2, MAP_SIZE)
+	cloud_cover.draw_time = nil
+end
+
+local function build_map()
+	cloud_cover.draw_time = weather.GetTime()
+	cloud_cover.built_time = cloud_cover.draw_time
 end
 
 -- the layers' own coverage is the cover over the camera: what the sky light, the shadow fallback and the estimates use
@@ -335,11 +468,12 @@ function cloud_cover.Start(source)
 			wrap_s = "clamp_to_edge",
 			wrap_t = "clamp_to_edge",
 		},
-		image = {usage = {"sampled", "transfer_dst"}},
+		image = {usage = {"storage", "sampled"}},
 	}
 	weather.SetCloudLayers(cloud_cover.LAYERS)
 	refetch()
 	event.AddListener("Update", "earth_cloud_cover", update)
+	event.AddListener("PreRenderPass", "earth_cloud_cover", draw_map)
 end
 
 -- the origin moved: the map is drawn again in the new frame, from a new grid when the old one is too far
@@ -350,6 +484,7 @@ end
 
 function cloud_cover.Stop()
 	event.RemoveListener("Update", "earth_cloud_cover")
+	event.RemoveListener("PreRenderPass", "earth_cloud_cover")
 
 	if cloud_cover.texture then
 		clouds.SetCoverageMap(nil)
