@@ -414,6 +414,11 @@ local default_passes = {
 	{"effects_post", "goluwa/render3d/passes/effects_post.lua"},
 	{"dof", "goluwa/render3d/passes/dof.lua", group = "post processing"},
 	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua", group = "motion blur"},
+	{
+		"mirage_shimmer",
+		"goluwa/render3d/passes/mirage_shimmer.lua",
+		group = "mirage",
+	},
 	{"screen_fields", "goluwa/render3d/passes/screen_fields.lua"},
 	{
 		"ambient_occlusion_debug",

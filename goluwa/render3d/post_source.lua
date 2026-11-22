@@ -217,6 +217,18 @@ function post_source.GetSceneSourceTexture(self)
 		self.name ~= "dlss" and
 		self.name ~= "dof" and
 		self.name ~= "motion_blur" and
+		self.name ~= "mirage_shimmer" and
+		post_source.IsMirageActive() and
+		render3d.IsPassEnabled("mirage_shimmer")
+	then
+		return render3d.pipelines.mirage_shimmer:GetFramebuffer():GetAttachment(1)
+	end
+
+	if
+		self.name ~= "taa" and
+		self.name ~= "dlss" and
+		self.name ~= "dof" and
+		self.name ~= "motion_blur" and
 		render3d.IsPassEnabled("motion_blur") and
 		render3d.motion_blur_enabled:Get()
 	then

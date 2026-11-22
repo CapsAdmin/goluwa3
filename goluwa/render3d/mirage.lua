@@ -14,7 +14,11 @@ mirage.STEFAN_BOLTZMANN = 5.670374419e-8
 mirage.AIR_REFRACTIVITY = 77.6e-6 * 1013.25
 mirage.AIR_HEAT_CAPACITY = 1.2 * 1005
 mirage.GRAVITY = 9.81
+mirage.FREE_CONVECTION_CT2 = 2.68
 mirage.TEMPERATURE_FLUCTUATION = 0.15
+mirage.APERTURE = 0.003
+mirage.SURFACE_LAYER = 0.01
+mirage.EDDY_SIZE = 0.5
 mirage.PATCH_SIZE = 1.5
 mirage.MIN_HEAT = 0.5
 pvars.StartGroup("Lighting", "Mirage", {store = false})
@@ -22,7 +26,7 @@ local enabled = pvars.Setup2{
 	key = "r_mirage",
 	default = true,
 	friendly = "heat mirage",
-	help = "sunlit surfaces heat the air above them by a surface energy balance (absorbed sun against convection, radiation and conduction, cooled by wind and wetness). the hot air bends grazing view rays back up below the critical angle, so far road shows the sky and the bottoms of distant things",
+	help = "sunlit surfaces heat the air above them by a surface energy balance (absorbed sun against convection, radiation and conduction, cooled by wind and wetness). the hot air bends grazing view rays back up below the critical angle, so far road shows the sky and the bottoms of distant things, and the turbulence above it makes what is seen through it shimmer",
 }
 pvars.EndGroup()
 mirage.block = {
@@ -106,6 +110,25 @@ function mirage.GetGLSL(block_name)
 
 		float mirage_convective_velocity(float heat) {
 			return pow(]] .. constant(mirage.GRAVITY) .. [[ / ]] .. block_name .. [[.mirage_air_temperature * mirage_heat_flux(heat), 1.0 / 3.0);
+		}
+
+		float mirage_cn2(float heat) {
+			float air = ]] .. block_name .. [[.mirage_air_temperature;
+			float gradient = ]] .. constant(mirage.AIR_REFRACTIVITY) .. [[ / (air * air);
+			return gradient * gradient * ]] .. constant(mirage.FREE_CONVECTION_CT2) .. [[ * pow(mirage_heat_flux(heat), 4.0 / 3.0) * pow(]] .. constant(mirage.GRAVITY) .. [[ / air, -2.0 / 3.0);
+		}
+
+		float mirage_path_cn2(float heat, float camera_height, float target_height, float distance) {
+			float low = max(min(camera_height, target_height), ]] .. constant(mirage.SURFACE_LAYER) .. [[);
+			float high = max(max(camera_height, target_height), ]] .. constant(mirage.SURFACE_LAYER) .. [[);
+
+			if (high - low < 1e-3 * high) return mirage_cn2(heat) * distance * pow(high, -4.0 / 3.0);
+
+			return mirage_cn2(heat) * distance / (high - low) * 3.0 * (pow(low, -1.0 / 3.0) - pow(high, -1.0 / 3.0));
+		}
+
+		float mirage_arrival_angle(float path_cn2) {
+			return sqrt(2.91 * pow(]] .. constant(mirage.APERTURE) .. [[, -1.0 / 3.0) * path_cn2);
 		}
 	]]
 end
