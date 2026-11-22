@@ -11,6 +11,7 @@ local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
+local planet = import("goluwa/planet.lua")
 local ray_materials = {}
 ray_materials.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + fluid_volumes.MAX_VOLUMES + 2
 pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
@@ -116,7 +117,7 @@ function ray_materials.GetOpticalDeclarationsGLSL(binding)
 end
 
 function ray_materials.GetOpticalTintGLSL()
-	return medium_common.GetGLSL() .. [[
+	return planet.GLSL .. medium_common.GetGLSL() .. [[
 
 		vec3 optical_layer_depth(optical_volume volume, vec3 origin, vec3 dir, float distance) {
 			float top = volume.shape.y;
@@ -179,6 +180,26 @@ function ray_materials.GetOpticalTintGLSL()
 				}
 
 				return optical_transmittance(volume.extinction * density, finish - start);
+			}
+
+			if (volume.kind > 1.5) {
+				vec3 sea = vec3(0.0);
+
+				for (int w = 0; w < 3; w++) {
+					float level = volume.surface_y + (float(w) - 1.0) * volume.wave;
+					vec2 hit = planet_sphere_intersect(origin, dir, level);
+					float path = max(min(hit.y, distance) - max(hit.x, 0.0), 0.0);
+
+					if (light_ray && hit.x <= 0.0 && hit.y > 0.0 && hit.y < distance) {
+						float cosine = dot(dir, planet_up(origin));
+
+						if (cosine > 1e-4) path = (level - origin.y - planet_drop(origin.xz)) / medium_refracted_cosine(cosine, volume.ior);
+					}
+
+					sea += (w == 1 ? 0.5 : 0.25) * optical_transmittance(volume.extinction, path);
+				}
+
+				return sea;
 			}
 
 			vec3 local_origin = (volume.to_local * vec4(origin, 1.0)).xyz;
@@ -720,8 +741,6 @@ end
 
 local AXES = {"x", "y", "z"}
 local volume_count = 0
-local OCEAN_HALF_SIZE = 1e5
-local OCEAN_DEPTH = 1e4
 local OCEAN_WAVE_SCALE = 3.5
 local OCEAN_WAVE_FLOOR = 0.05
 
@@ -748,9 +767,6 @@ end
 local function write_ocean_record(volume)
 	local params = water.GetOcean()
 	local medium = media.presets[params.Medium]
-	volume.to_local[0], volume.to_local[5], volume.to_local[10], volume.to_local[15] = 1, 1, 1, 1
-	volume.to_local[13] = -render3d.GetOceanLevel()
-	volume.shape[0], volume.shape[1], volume.shape[2] = OCEAN_HALF_SIZE, OCEAN_DEPTH, OCEAN_HALF_SIZE
 	volume.kind = 2
 	set_vec3(volume.absorption, medium.Absorption)
 	set_vec3(volume.scattering, medium.Scattering)
