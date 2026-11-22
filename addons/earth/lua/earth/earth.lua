@@ -10,6 +10,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local weather = import("goluwa/render3d/weather.lua")
 local earth = {}
 earth.ATTRIBUTION = {
 	"Elevation: Mapterhorn (https://mapterhorn.com/attribution); sea floor: Terrain Tiles on AWS (Mapzen; ETOPO1, GEBCO, and others)",
@@ -63,6 +64,7 @@ function earth.GetTileSets()
 end
 
 local function start_terrain(lat, lon)
+	weather.SetLocation(lat, lon)
 	local heights, imagery, bathymetry = earth.GetTileSets()
 	local config = earth.config
 	earth.source = EarthSource.New{
@@ -124,12 +126,14 @@ local function update()
 	end
 end
 
--- config: lat, lon (the world origin), Layers, Terrain (any Terrain config),
+-- config: lat, lon (the world origin, the weather's location when not given; the weather's location follows the origin),
+-- Layers, Terrain (any Terrain config),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
 	earth.config = config
-	start_terrain(config.lat, config.lon)
+	local lat, lon = weather.GetLocation()
+	start_terrain(config.lat or lat, config.lon or lon)
 	event.AddListener("Update", "earth", update)
 
 	event.AddListener("DrawHUD", "earth_attribution", function()
@@ -160,6 +164,7 @@ function earth.Recenter(lat, lon)
 	old_terrain.Root.transform:SetRotation(rotation)
 	earth.previous_terrain = old_terrain
 	start_terrain(lat, lon).Root:AddComponent("visibility"):SetVisible(false)
+
 	local view = View.GetActive()
 
 	if view then

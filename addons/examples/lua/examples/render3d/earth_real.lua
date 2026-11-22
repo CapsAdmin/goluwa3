@@ -2,7 +2,6 @@ local earth = import("lua/earth/earth.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local water = import("goluwa/render3d/water.lua")
 local weather = import("goluwa/render3d/weather.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 
 local function layer(name, scale)
@@ -18,13 +17,12 @@ local function layer(name, scale)
 end
 
 earth.Start{
-	lat = tonumber(os.getenv("EARTH_LAT")) or 46.5935,
-	lon = tonumber(os.getenv("EARTH_LON")) or 7.9091,
+	lat = tonumber(os.getenv("EARTH_LAT")),
+	lon = tonumber(os.getenv("EARTH_LON")),
 	Layers = {layer("grass", 3), layer("sand", 4), layer("rock", 11), layer("snow", 7)},
 	Terrain = {Levels = tonumber(os.getenv("LEVELS")) or 15},
 }
 weather.SetTimeScale(0)
-weather.SetSunDirection(Vec3(-0.5, 0.6, 0.35):GetNormalized())
 weather.SetCloudLayers{
 	{
 		name = "low",

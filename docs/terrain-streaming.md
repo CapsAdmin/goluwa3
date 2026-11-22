@@ -31,7 +31,7 @@ Sources work in local height (meters above the planet's datum, what `HeightGLSL`
 
 ## Earth (`addons/earth`)
 
-`lua/earth/earth.lua` streams the real Earth as terrain: `earth.Start{lat, lon, Layers, Terrain, RecenterDistance}` (the example is `addons/examples/lua/examples/render3d/earth_real.lua`, `EARTH_LAT`/`EARTH_LON`).
+`lua/earth/earth.lua` streams the real Earth as terrain: `earth.Start{lat, lon, Layers, Terrain, RecenterDistance}` (the example is `addons/examples/lua/examples/render3d/earth_real.lua`, `EARTH_LAT`/`EARTH_LON`). Without lat and lon it starts at the weather's location (`weather.GetLocation`, set by the game addon), and the weather's location follows the origin (start and `Recenter`), so the sun and sky are those over the origin.
 
 - Frame: the world origin stands on the anchor latitude and longitude, +x is east, -z is north, and a world x, z is the point of the sphere straight below the tangent plane (`planet.GetDrop`, `geo.WorldToLatLon`). The planet is a sphere of `planet.RADIUS`; lat/lon are used as if spherical. Heights are above sea level (EGM2008, as the data comes), so they meet the ocean at 0.
 - `source.lua` (`EarthSource`) is a shader source whose bakes get per chunk textures (`request.textures` in `ShaderSource`): a 9 x 9 map from world x, z to web mercator pixels computed in doubles on the cpu (float32 cannot hold a global mercator pixel at deep zooms), a height mosaic and an imagery mosaic copied from the decoded tiles at one zoom per chunk. A chunk waits for its tiles; tiles that cannot come (failed, or deeper than the data goes there) make it use the next coarser zoom. Terrain marks a request it no longer wants `request.cancelled`, so a source that waits can drop it.
