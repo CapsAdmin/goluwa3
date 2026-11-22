@@ -13,7 +13,8 @@ local layer_texture = import("goluwa/terrain/layer_texture.lua")
 local geo = import("lua/earth/geo.lua")
 local overture_tiles = import("lua/earth/overture_tiles.lua")
 local road_mesh = import("lua/earth/road_mesh.lua")
-local tint_mesh = import("lua/earth/tint_mesh.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 -- Overture's roads near the camera as ribbons over the terrain (road_mesh.lua), in cells whose heights are read back
 -- from the terrain itself, so a ribbon lies on the ground the terrain draws; farther away the roads are the terrain's
 -- painted ones (road_grid.lua)
@@ -29,8 +30,6 @@ local UPDATE_INTERVAL = 0.25
 local MAX_BUILDING = 4
 local MAX_HEIGHTS = 8
 local tiles_source = overture_tiles.Get("transportation", ZOOM)
-local VERTEX_SIZE = tint_mesh.VERTEX_SIZE
-local VertexType = Polygon3D.VertexType
 local Index32Array = ffi.typeof("uint32_t[?]")
 -- one texture repeat: across the road 0 to 1, along it V_PERIOD meters, the dashes 3 of every 12
 local MARKINGS = [=[
@@ -118,26 +117,46 @@ local function create_cell_entity(cell, meta, blob)
 	visual:SetCullDistance(KEEP_RADIUS * 2)
 	visual:SetCastShadows(false)
 	local data = ffi.cast("const uint8_t *", blob.ptr)
-	local offset = 0
 
-	for style, counts in ipairs(meta.styles) do
-		local vertex_count, index_count = counts[1], counts[2]
+	for style, info in ipairs(meta.styles) do
+		local vertex_count, index_count = info.vertices, info.indices
 
 		if index_count > 0 then
-			local vertices = VertexType(vertex_count)
-			ffi.copy(vertices, data + offset, vertex_count * VERTEX_SIZE)
+			local core = ffi.new("uint8_t[?]", vertex_count * vertex_layout.CoreStride)
+			ffi.copy(core, data + info.offset, vertex_count * vertex_layout.CoreStride)
+			local extras = ffi.new("uint8_t[?]", vertex_count * vertex_layout.ExtrasStride)
+			ffi.copy(
+				extras,
+				data + info.offset + vertex_count * vertex_layout.CoreStride,
+				vertex_count * vertex_layout.ExtrasStride
+			)
 			local indices = Index32Array(index_count)
-			ffi.copy(indices, data + offset + vertex_count * VERTEX_SIZE, index_count * 4)
+			ffi.copy(
+				indices,
+				data + info.offset + vertex_count * (
+						vertex_layout.CoreStride + vertex_layout.ExtrasStride
+					),
+				index_count * 4
+			)
 			local child = Entity.New{Name = entity:GetName() .. "_" .. style, Parent = entity}
 			child:AddComponent("transform")
 			local polygon = Polygon3D.New()
-			polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, false, "owned", nil, "uint32_t")
+			local aabb = info.aabb
+			polygon:UploadVertexArray(
+				nil,
+				vertex_count,
+				indices,
+				index_count,
+				false,
+				"owned",
+				AABB(aabb[1], aabb[2], aabb[3], aabb[4], aabb[5], aabb[6]),
+				"uint32_t",
+				{core = core, extras = extras}
+			)
 			local primitive = child:AddComponent("visual_primitive")
 			primitive:SetPolygon3D(polygon)
 			primitive:SetMaterial(get_materials()[style])
 		end
-
-		offset = offset + vertex_count * VERTEX_SIZE + index_count * 4
 	end
 
 	visual:BuildAABB()
@@ -467,13 +486,15 @@ function roads.Start(source, terrain)
 			local job = cell.job
 			local indices = 0
 
-			for _, counts in ipairs(job.meta.styles) do
-				indices = indices + counts[2]
+			for _, info in ipairs(job.meta.styles) do
+				indices = indices + info.indices
 			end
 
 			if cell.entity then cell.entity:Remove() end
 
 			cell.entity = indices > 0 and create_cell_entity(cell, job.meta, job.blob) or nil
+
+			if job.blob then threads.release_blob(job.blob) end
 
 			cell.job = nil
 			cell.state = "built"

@@ -3,6 +3,7 @@ local mvt = import("goluwa/codecs/mvt.lua")
 local geo = import("lua/earth/geo.lua")
 local road_grid = import("lua/earth/road_grid.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 -- roads as ribbons lying on the terrain, built on the thread pool: Decode turns a transportation tile into the lines of
 -- its roads on the ground, Build turns the lines crossing one cell into ribbons over the terrain's own heights there
 local road_mesh = {}
@@ -392,18 +393,34 @@ function road_mesh.Build(input)
 	local bytes = 0
 
 	for style, mesh in ipairs(meshes) do
-		meta[style] = {mesh.count, mesh.index_count}
-		bytes = bytes + mesh.count * tint_mesh.VERTEX_SIZE + mesh.index_count * 4
+		local aabb = {math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge}
+
+		for i = 0, mesh.count - 1 do
+			local p = mesh.vertices[i].position
+
+			for k = 0, 2 do
+				aabb[k + 1] = math.min(aabb[k + 1], p[k])
+				aabb[k + 4] = math.max(aabb[k + 4], p[k])
+			end
+		end
+
+		meta[style] = {vertices = mesh.count, indices = mesh.index_count, aabb = aabb, offset = bytes}
+		bytes = bytes + mesh.count * (
+				vertex_layout.CoreStride + vertex_layout.ExtrasStride
+			) + mesh.index_count * 4
 	end
 
 	local blob = ffi.new("uint8_t[?]", math.max(bytes, 1))
-	local offset = 0
 
-	for _, mesh in ipairs(meshes) do
-		ffi.copy(blob + offset, mesh.vertices, mesh.count * tint_mesh.VERTEX_SIZE)
-		offset = offset + mesh.count * tint_mesh.VERTEX_SIZE
-		ffi.copy(blob + offset, mesh.indices, mesh.index_count * 4)
-		offset = offset + mesh.index_count * 4
+	for style, mesh in ipairs(meshes) do
+		local core = blob + meta[style].offset
+		local extras = core + mesh.count * vertex_layout.CoreStride
+		vertex_layout.SplitInto(mesh.vertices, mesh.count, core, extras)
+		ffi.copy(
+			extras + mesh.count * vertex_layout.ExtrasStride,
+			mesh.indices,
+			mesh.index_count * 4
+		)
 	end
 
 	return {styles = meta}, blob
