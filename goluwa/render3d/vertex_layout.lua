@@ -317,10 +317,10 @@ do
 		end
 
 		for i = 1, count - 1 do
-			local at = words + i * word_stride + cpu_core_words
+			local at = i * word_stride + cpu_core_words
 
 			for w = 0, extras_words - 1 do
-				if at[w] ~= reference[w] then return nil end
+				if words[at + w] ~= reference[w] then return nil end
 			end
 		end
 
