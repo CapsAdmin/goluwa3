@@ -2,9 +2,9 @@ local ffi = require("ffi")
 local bit = require("bit")
 local mvt = import("goluwa/codecs/mvt.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
-local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local planet = import("goluwa/planet.lua")
 local geo = import("lua/earth/geo.lua")
+local tint_mesh = import("lua/earth/tint_mesh.lua")
 -- a building tile's blocks as wall and roof meshes, built on the thread pool (BuildJob)
 local building_mesh = {}
 building_mesh.FLOOR_HEIGHT = 3.2
@@ -72,9 +72,7 @@ building_mesh.COLOR_NAMES = {
 	blue = {0.40, 0.52, 0.70},
 	pink = {0.90, 0.68, 0.68},
 }
-local VertexType = vertex_layout.ArrayType
-local VERTEX_SIZE = ffi.sizeof(VertexType(1))
-local Index32Array = ffi.typeof("uint32_t[?]")
+local VERTEX_SIZE = tint_mesh.VERTEX_SIZE
 
 local function get_height(properties)
 	if properties.height then return properties.height end
@@ -217,56 +215,9 @@ local function photo_color(photo, rings)
 	to_linear(b / count / 255)
 end
 
-local function new_mesh()
-	return {
-		vertices = VertexType(1024),
-		capacity = 1024,
-		count = 0,
-		indices = Index32Array(2048),
-		index_capacity = 2048,
-		index_count = 0,
-		color = {1, 1, 1},
-	}
-end
-
-local function reserve(mesh, vertices, indices)
-	if mesh.count + vertices > mesh.capacity then
-		local capacity = math.max(mesh.capacity * 2, mesh.count + vertices)
-		local grown = VertexType(capacity)
-		ffi.copy(grown, mesh.vertices, VERTEX_SIZE * mesh.count)
-		mesh.vertices, mesh.capacity = grown, capacity
-	end
-
-	if mesh.index_count + indices > mesh.index_capacity then
-		local capacity = math.max(mesh.index_capacity * 2, mesh.index_count + indices)
-		local grown = Index32Array(capacity)
-		ffi.copy(grown, mesh.indices, 4 * mesh.index_count)
-		mesh.indices, mesh.index_capacity = grown, capacity
-	end
-end
-
-local function add_vertex(mesh, x, y, z, nx, ny, nz, u, v, tx, tz)
-	local vertex = mesh.vertices[mesh.count]
-	local color = mesh.color
-	vertex.vertex_color[0], vertex.vertex_color[1], vertex.vertex_color[2], vertex.vertex_color[3] = color[1], color[2], color[3], 1
-	vertex.position[0], vertex.position[1], vertex.position[2] = x, y, z
-	vertex.normal[0], vertex.normal[1], vertex.normal[2] = nx, ny, nz
-	vertex.uv[0], vertex.uv[1] = u, v
-	vertex.tangent[0], vertex.tangent[1], vertex.tangent[2], vertex.tangent[3] = tx, 0, tz, -1
-	mesh.count = mesh.count + 1
-	return mesh.count - 1
-end
-
--- front faces wind so that (b - a) x (c - a) points away from their normal, as the terrain's do
-local function add_triangle(mesh, a, b, c)
-	local i = mesh.index_count
-	mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2] = a, b, c
-	mesh.index_count = i + 3
-end
-
 local function add_walls(mesh, ring, bottom, top)
 	local n = #ring / 2
-	reserve(mesh, n * 4, n * 6)
+	tint_mesh.Reserve(mesh, n * 4, n * 6)
 	local height = top - bottom
 
 	for i = 1, n do
@@ -280,12 +231,12 @@ local function add_walls(mesh, ring, bottom, top)
 			local nx, nz = dz / length, -dx / length
 			local tx, tz = dx / length, dz / length
 			local u = length / 4
-			local a0 = add_vertex(mesh, ax, bottom, az, nx, 0, nz, 0, 0, tx, tz)
-			local b0 = add_vertex(mesh, bx, bottom, bz, nx, 0, nz, u, 0, tx, tz)
-			local b1 = add_vertex(mesh, bx, top, bz, nx, 0, nz, u, height / 3, tx, tz)
-			local a1 = add_vertex(mesh, ax, top, az, nx, 0, nz, 0, height / 3, tx, tz)
-			add_triangle(mesh, a0, b1, a1)
-			add_triangle(mesh, a0, b0, b1)
+			local a0 = tint_mesh.AddVertex(mesh, ax, bottom, az, nx, 0, nz, 0, 0, tx, tz)
+			local b0 = tint_mesh.AddVertex(mesh, bx, bottom, bz, nx, 0, nz, u, 0, tx, tz)
+			local b1 = tint_mesh.AddVertex(mesh, bx, top, bz, nx, 0, nz, u, height / 3, tx, tz)
+			local a1 = tint_mesh.AddVertex(mesh, ax, top, az, nx, 0, nz, 0, height / 3, tx, tz)
+			tint_mesh.AddTriangle(mesh, a0, b1, a1)
+			tint_mesh.AddTriangle(mesh, a0, b0, b1)
 		end
 	end
 end
@@ -293,21 +244,21 @@ end
 local function add_roof(mesh, rings, top)
 	local triangles = math2d.TriangulateContoursEvenOdd(rings)
 	local count = #triangles / 6
-	reserve(mesh, count * 3, count * 3)
+	tint_mesh.Reserve(mesh, count * 3, count * 3)
 
 	for t = 0, count - 1 do
 		local o = t * 6
 		local ax, az = triangles[o + 1], triangles[o + 2]
 		local bx, bz = triangles[o + 3], triangles[o + 4]
 		local cx, cz = triangles[o + 5], triangles[o + 6]
-		local a = add_vertex(mesh, ax, top, az, 0, 1, 0, ax / 8, az / 8, 1, 0)
-		local b = add_vertex(mesh, bx, top, bz, 0, 1, 0, bx / 8, bz / 8, 1, 0)
-		local c = add_vertex(mesh, cx, top, cz, 0, 1, 0, cx / 8, cz / 8, 1, 0)
+		local a = tint_mesh.AddVertex(mesh, ax, top, az, 0, 1, 0, ax / 8, az / 8, 1, 0)
+		local b = tint_mesh.AddVertex(mesh, bx, top, bz, 0, 1, 0, bx / 8, bz / 8, 1, 0)
+		local c = tint_mesh.AddVertex(mesh, cx, top, cz, 0, 1, 0, cx / 8, cz / 8, 1, 0)
 
 		if (bz - az) * (cx - ax) - (bx - ax) * (cz - az) > 0 then
-			add_triangle(mesh, a, c, b)
+			tint_mesh.AddTriangle(mesh, a, c, b)
 		else
-			add_triangle(mesh, a, b, c)
+			tint_mesh.AddTriangle(mesh, a, b, c)
 		end
 	end
 end
@@ -335,7 +286,7 @@ function building_mesh.Build(input)
 	local data = file:read("*a")
 	file:close()
 	local layer = #data > 0 and mvt.Decode(data).building
-	local walls, roofs = new_mesh(), new_mesh()
+	local walls, roofs = tint_mesh.New(), tint_mesh.New()
 	local anchor = geo.NewAnchor(input.anchor_lat, input.anchor_lon)
 	local heights = ffi.cast("const float *", input.grid)
 	local photo = input.photo
