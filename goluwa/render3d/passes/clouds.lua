@@ -119,7 +119,7 @@ local noise_pass = {
 			binding_index = BINDING_OUT4,
 			dst_stage = "compute",
 			get_texture = function()
-				return clouds.EnsureResources().slice
+				return clouds.EnsureResources().region
 			end,
 		},
 	},
@@ -133,13 +133,14 @@ local noise_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUT .. [[, rgba8) uniform writeonly image3D out_base;
 		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, rgba8) uniform writeonly image3D out_detail;
 		layout(set = 0, binding = ]] .. BINDING_OUT3 .. [[, rgba8) uniform writeonly image2D out_weather;
-		layout(set = 0, binding = ]] .. BINDING_OUT4 .. [[, r16f) uniform writeonly image2D out_slice;
+		layout(set = 0, binding = ]] .. BINDING_OUT4 .. [[, rgba8) uniform writeonly image2D out_region;
 	]],
 	shader = clouds.NOISE_GLSL .. [[
 		const int BASE_SIZE = ]] .. clouds.BASE_NOISE_SIZE .. [[;
 		const int DETAIL_SIZE = ]] .. clouds.DETAIL_NOISE_SIZE .. [[;
 		const int WEATHER_SIZE = ]] .. clouds.WEATHER_SIZE .. [[;
-		const int SLICE_SIZE = ]] .. clouds.SLICE_SIZE .. [[;
+		const int REGION_SIZE = ]] .. clouds.REGION_SIZE .. [[;
+		const float SHAPE_PERIOD = ]] .. clouds.SHAPE_PERIOD .. [[.0;
 
 		float worley_channel(vec3 p, int freq, uint seed) {
 			return saturate((cloud_worley_fbm(p, ivec3(freq), seed) - 0.32) / 0.32);
@@ -155,11 +156,15 @@ local noise_pass = {
 				float perlin = saturate(0.5 + 0.8 * cloud_perlin_fbm(p, ivec3(4), 6, 0u));
 				float worley = cloud_worley_fbm(p, ivec3(4), 10u);
 				float perlin_worley = saturate(remap(perlin, worley - 1.0, 1.0, 0.0, 1.0));
+				float small_perlin = saturate(0.5 + 0.8 * cloud_perlin_fbm(p, ivec3(8), 5, 160u));
+				float small_worley = cloud_worley_fbm(p, ivec3(8), 170u);
+				float small = saturate(remap(small_perlin, small_worley - 1.0, 1.0, 0.0, 1.0));
+				float cells = worley_channel(p, 8, 20u);
 				imageStore(out_base, id, vec4(
 					saturate((perlin_worley - 0.54) / 0.26),
-					worley_channel(p, 8, 20u),
-					worley_channel(p, 16, 30u),
-					worley_channel(p, 32, 40u)
+					cells,
+					cells * 0.625 + worley_channel(p, 16, 30u) * 0.25 + worley_channel(p, 32, 40u) * 0.125,
+					saturate((small - 0.54) / 0.26)
 				));
 			}
 
@@ -193,11 +198,17 @@ local noise_pass = {
 				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), base));
 			}
 
-			int slice_tiles = SLICE_SIZE / BASE_SIZE;
+			int region_tiles = REGION_SIZE / BASE_SIZE;
 
-			if (id.z < slice_tiles * slice_tiles) {
-				ivec2 pixel = id.xy + ivec2(id.z % slice_tiles, id.z / slice_tiles) * BASE_SIZE;
-				imageStore(out_slice, pixel, vec4(cloud_slice_noise((vec2(pixel) + 0.5) / float(SLICE_SIZE))));
+			if (id.z < region_tiles * region_tiles) {
+				ivec2 pixel = id.xy + ivec2(id.z % region_tiles, id.z / region_tiles) * BASE_SIZE;
+				vec2 p = (vec2(pixel) + 0.5) / float(REGION_SIZE);
+				// cells in tiles of the shape noise: the slice moves over 3 (unlike a sideways warp it keeps vertical columns of the noise vertical), the rest over 4 to 24
+				float slice = cloud_region_noise(p, SHAPE_PERIOD / 3.0, 1u) * 1.5;
+				float small = smoothstep(-0.2, 0.2, cloud_region_noise(p, SHAPE_PERIOD / 12.0, 2u) + 0.5 * cloud_region_noise(p, SHAPE_PERIOD / 6.0, 3u));
+				float coverage = (cloud_region_noise(p, SHAPE_PERIOD / 24.0, 4u) + 0.6 * cloud_region_noise(p, SHAPE_PERIOD / 12.0, 5u) + 0.35 * cloud_region_noise(p, SHAPE_PERIOD / 6.0, 6u)) * 2.3;
+				float shallow = smoothstep(-0.25, 0.25, cloud_region_noise(p, SHAPE_PERIOD / 8.0, 7u) + 0.5 * cloud_region_noise(p, SHAPE_PERIOD / 4.0, 8u));
+				imageStore(out_region, pixel, vec4(slice * 0.25 + 0.5, small, coverage * 0.25 + 0.5, shallow));
 			}
 		}
 	]],

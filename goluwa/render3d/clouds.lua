@@ -39,9 +39,10 @@ clouds.DETAIL_NOISE_SIZE = 128
 clouds.WEATHER_SIZE = 512
 clouds.SKY_REFRESH_INTERVAL = 2
 clouds.SKY_CHANGE_INTERVAL = 0.5
--- the shape noise's slices repeat every SHAPE_PERIOD of its tiles, so the offsets that move it must wrap at that
-clouds.SHAPE_PERIOD = 96
-clouds.SLICE_SIZE = 512
+-- the region map (the shape noise's slice, cloud size, coverage and depth over large areas) repeats every SHAPE_PERIOD
+-- tiles of the shape noise, so the offsets that move it must wrap at that
+clouds.SHAPE_PERIOD = 192
+clouds.REGION_SIZE = 512
 clouds.enabled = true
 clouds.layers = {}
 clouds.cover = 0
@@ -71,6 +72,9 @@ clouds.LAYER_DEFAULTS = {
 	system_scale = 0,
 	system_amount = 0,
 	map_channel = 0,
+	regional_coverage = 0.4,
+	regional_size = 0.7,
+	regional_depth = 0.5,
 }
 
 local function create_layer(params)
@@ -371,11 +375,11 @@ function clouds.EnsureResources()
 		"repeat",
 		"repeat"
 	)
-	t.slice = create_target(
-		clouds.SLICE_SIZE,
-		clouds.SLICE_SIZE,
-		"r16_sfloat",
-		"slice",
+	t.region = create_target(
+		clouds.REGION_SIZE,
+		clouds.REGION_SIZE,
+		"r8g8b8a8_unorm",
+		"region",
 		"repeat",
 		"repeat"
 	)
@@ -568,7 +572,7 @@ function clouds.GetBlockLayout()
 	return {
 		{"cloud_layer_count", "int"},
 		{"cloud_weather_tex", "int"},
-		{"cloud_slice_tex", "int"},
+		{"cloud_region_tex", "int"},
 		{"cloud_frame", "int"},
 		{"cloud_detail_min_mip", "int"},
 		{"cloud_layer_steps", "int"},
@@ -579,6 +583,7 @@ function clouds.GetBlockLayout()
 		{"cloud_layer_offset", "vec4", clouds.MAX_LAYERS},
 		{"cloud_layer_offset2", "vec4", clouds.MAX_LAYERS},
 		{"cloud_layer_vary", "vec4", clouds.MAX_LAYERS},
+		{"cloud_layer_region", "vec4", clouds.MAX_LAYERS},
 		{"cloud_coverage_map_tex", "int"},
 		{"cloud_coverage_map_rect", "vec4"},
 		{"cloud_light_direction", "vec4"},
@@ -590,7 +595,7 @@ function clouds.WriteBlock(self, block)
 	local layers = clouds.layers
 	block.cloud_layer_count = #layers
 	block.cloud_weather_tex = self:GetTextureIndex(clouds.EnsureResources().weather)
-	block.cloud_slice_tex = self:GetTextureIndex(clouds.textures.slice)
+	block.cloud_region_tex = self:GetTextureIndex(clouds.textures.region)
 	block.cloud_frame = clouds.frame or 0
 	block.cloud_detail_min_mip = detail_min_mip:Get()
 	block.cloud_layer_steps = math.max(math.floor(layer_steps:Get() * quality.Get().cloud_step_scale), 1)
@@ -628,6 +633,10 @@ function clouds.WriteBlock(self, block)
 		vary[1] = layer.flat and 0 or layer.base_variation
 		vary[2] = layer.system_scale
 		vary[3] = layer.system_amount
+		local region = block.cloud_layer_region[k]
+		region[0] = layer.regional_coverage
+		region[1] = layer.flat and 0 or layer.regional_size
+		region[2] = layer.flat and 0 or layer.regional_depth
 	end
 
 	local map = clouds.coverage_map
@@ -716,11 +725,8 @@ clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. glsl_common.GetRemapGLSL() .. [
 		return sum / total;
 	}
 
-	// the shape noise tiles, so each place reads its own horizontal slice of it: the lookup is moved up by this gradient noise over cells of CLOUD_SLICE_CELL tiles, p 0..1 spanning the CLOUD_SHAPE_PERIOD tiles it repeats over. unlike a sideways warp it keeps vertical columns of the noise vertical
-	float cloud_slice_noise(vec2 p) {
-		const float CLOUD_SLICE_CELL = 3.0;
-		const float CLOUD_SLICE_AMOUNT = 1.5;
-		const float cells = ]] .. clouds.SHAPE_PERIOD .. [[.0 / CLOUD_SLICE_CELL;
+	// gradient noise over p 0..1 with this many cells per side, repeating over it, about -1..1
+	float cloud_region_noise(vec2 p, float cells, uint seed) {
 		vec2 q = p * cells;
 		vec2 c = floor(q);
 		vec2 f = q - c;
@@ -729,11 +735,11 @@ clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. glsl_common.GetRemapGLSL() .. [
 
 		for (int k = 0; k < 4; k++) {
 			vec2 o = vec2(k & 1, k >> 1);
-			uint h = pcg3d(uvec3(uvec2(mod(c + o, cells)), 7919u)).x;
+			uint h = pcg3d(uvec3(uvec2(mod(c + o, cells)), seed)).x;
 			n[k] = dot(vec2(h & 0xffffu, h >> 16u) / 32767.5 - 1.0, f - o);
 		}
 
-		return mix(mix(n.x, n.y, u.x), mix(n.z, n.w, u.x), u.y) * CLOUD_SLICE_AMOUNT;
+		return mix(mix(n.x, n.y, u.x), mix(n.z, n.w, u.x), u.y);
 	}
 
 	float cloud_worley_fbm(vec3 p, ivec3 freq, uint seed) {
@@ -867,16 +873,17 @@ function clouds.GetGLSL(block)
 			return bottom * top;
 		}
 
-		float cloud_slice(vec2 xz) {
-			return textureLod(TEXTURE(CLOUD_BLOCK.cloud_slice_tex), xz / CLOUD_SHAPE_PERIOD, 0.0).r;
+		// the region map at a point of the shape noise (xz in its tiles): r the slice of the shape noise to read, g the share of small clouds, b a coverage offset about -1..1, a how much shallower the clouds are
+		vec4 cloud_region(vec2 xz) {
+			return textureLod(TEXTURE(CLOUD_BLOCK.cloud_region_tex), xz / CLOUD_SHAPE_PERIOD, 0.0) * vec4(4.0, 1.0, 4.0, 1.0) - vec4(2.0, 0.0, 2.0, 0.0);
 		}
 
-		// a layer's coverage: its weather map, plus with system_scale the same map read twice at incommensurate rotated scales, so cloud systems far larger than the map do not repeat; inside the coverage map its channel replaces both large scale terms
-		float cloud_coverage(int i, vec2 xz, vec4 weather) {
+		// a layer's coverage: its weather map and the region map, plus with system_scale the same map read twice at incommensurate rotated scales, so cloud systems far larger than the map do not repeat; inside the coverage map its channel replaces both large scale terms
+		float cloud_coverage(int i, vec2 xz, vec4 weather, vec4 region) {
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 			vec4 scale = CLOUD_BLOCK.cloud_layer_scale[i];
 			vec4 vary = CLOUD_BLOCK.cloud_layer_vary[i];
-			float coverage = shape.z;
+			float coverage = shape.z + region.b * CLOUD_BLOCK.cloud_layer_region[i].x;
 
 			if (vary.z > 0.0) {
 				vec2 a = vec2(xz.x * 0.8 - xz.y * 0.6, xz.x * 0.6 + xz.y * 0.8) / vary.z + vec2(0.37, 0.71);
@@ -922,7 +929,10 @@ function clouds.GetGLSL(block)
 
 			if (hf <= 0.0 || hf >= 1.0) return 0.0;
 
-			float coverage = cloud_coverage(i, p.xz, weather);
+			vec2 shape_xz = (p.xz + offset.zw) / scale.y;
+			vec4 region = cloud_region(shape_xz);
+			vec4 regional = CLOUD_BLOCK.cloud_layer_region[i];
+			float coverage = cloud_coverage(i, p.xz, weather, region);
 			coverage = mix(coverage, saturate(coverage * 1.4 + 0.25), style.z * smoothstep(0.65, 0.9, hf));
 
 			if (coverage <= 0.0) return 0.0;
@@ -937,16 +947,14 @@ function clouds.GetGLSL(block)
 			}
 
 			float far_density = far * unresolved;
-			vec3 uvw = (vec3(p.x + offset.z, alt + offset2.x, p.z + offset.w)) / scale.y;
+			vec3 uvw = vec3(shape_xz.x, (alt + offset2.x) / scale.y + region.r, shape_xz.y);
 			float lod = log2(max(footprint * ]] .. clouds.BASE_NOISE_SIZE .. [[.0 / scale.y, 1.0));
-			float slice = cloud_slice(uvw.xz);
-			uvw.y += slice;
 			float heaps = style.x * (1.0 - style.z);
-			float top = 1.0;
+			float top = 1.0 - regional.z * region.a;
 
 			if (heaps > 0.0) {
-				float cell = saturate((textureLod(cloud_base_noise, vec3(uvw.x, offset2.x / scale.y + slice, uvw.z), max(lod, CLOUD_TOP_CELL_LOD)).g - 0.3) / 0.4);
-				top = mix(1.0, mix(0.3, 1.0, mix(weather.g, cell, 0.6)), heaps);
+				float cell = saturate((textureLod(cloud_base_noise, vec3(uvw.x, offset2.x / scale.y + region.r, uvw.z), max(lod, CLOUD_TOP_CELL_LOD)).g - 0.3) / 0.4);
+				top *= mix(1.0, mix(0.3, 1.0, mix(weather.g, cell, 0.6)), heaps);
 			}
 
 			float h = hf / top;
@@ -959,8 +967,7 @@ function clouds.GetGLSL(block)
 			profile = max(profile, style.z * smoothstep(0.6, 0.8, hf) * (1.0 - smoothstep(0.92, 1.0, hf)));
 			vec4 n = textureLod(cloud_base_noise, uvw, lod);
 
-			float fbm = dot(n.gba, vec3(0.625, 0.25, 0.125));
-			float base = saturate(remap(n.r, (1.0 - fbm) * 0.3, 1.0, 0.0, 1.0));
+			float base = saturate(remap(mix(n.r, n.a, region.g * regional.y), (1.0 - n.b) * 0.3, 1.0, 0.0, 1.0));
 			float d = pow(saturate(remap(base * profile, 1.0 - coverage, 1.0, 0.0, 1.0)), 0.7);
 			d *= mix(1.0, mix(0.6, 1.0, smoothstep(0.0, 0.5, hf)), style.x);
 			d = mix(d, profile * (0.55 + 0.45 * base), smoothstep(0.9, 1.0, coverage));
@@ -1022,11 +1029,11 @@ function clouds.GetGLSL(block)
 			vec4 offset = CLOUD_BLOCK.cloud_layer_offset[i];
 			vec4 offset2 = CLOUD_BLOCK.cloud_layer_offset2[i];
 			vec4 weather = textureLod(TEXTURE(CLOUD_BLOCK.cloud_weather_tex), (p.xz + offset.xy) / scale.x, 0.0);
-			float coverage = cloud_coverage(i, p.xz, weather);
-			float streaks = saturate((weather.b - 0.1) / 0.6);
 			vec2 shape_uv = (p.xz + offset.zw) / scale.y;
-			vec3 n = textureLod(cloud_base_noise, vec3(shape_uv.x, offset2.x / scale.y + cloud_slice(shape_uv), shape_uv.y), 1.0).gba;
-			float field = streaks * mix(0.55, 1.0, dot(n, vec3(0.5, 0.3, 0.2)));
+			vec4 region = cloud_region(shape_uv);
+			float coverage = cloud_coverage(i, p.xz, weather, region);
+			float streaks = saturate((weather.b - 0.1) / 0.6);
+			float field = streaks * mix(0.55, 1.0, textureLod(cloud_base_noise, vec3(shape_uv.x, offset2.x / scale.y + region.r, shape_uv.y), 1.0).b);
 			field = saturate(remap(field, 1.0 - coverage, 1.0, 0.0, 1.0));
 			field = mix(field, 0.6 + 0.4 * field, smoothstep(0.9, 1.0, coverage));
 			// unresolved from far away: the optical depth with the mean transmittance of the cloudy fraction, as for the volumetric layers
