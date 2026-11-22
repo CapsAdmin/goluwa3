@@ -1058,6 +1058,17 @@ function Terrain:Start()
 	return self
 end
 
+-- stops streaming and keeps the tiles that are drawn as they are, until Stop
+function Terrain:Freeze()
+	active_terrains[self] = nil
+	event.RemoveListener("Update", self.UpdateId)
+
+	if self.holding_scene_load then
+		self.holding_scene_load = false
+		scene_loading.End()
+	end
+end
+
 function Terrain:Stop()
 	active_terrains[self] = nil
 	event.RemoveListener("Update", self.UpdateId)
