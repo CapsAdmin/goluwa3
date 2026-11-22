@@ -29,10 +29,9 @@ function TerrainPhysics:GatherAnchors(camera_position)
 
 	if camera_position then anchors[1] = camera_position end
 
+	-- sleeping bodies too: one wakes when the collider under it goes, and falls before it is built again
 	for _, body in ipairs(RigidBody.Instances) do
-		if body:IsDynamic() and body:GetAwake() then
-			anchors[#anchors + 1] = body:GetPosition()
-		end
+		if body:IsDynamic() then anchors[#anchors + 1] = body:GetPosition() end
 	end
 
 	return anchors
