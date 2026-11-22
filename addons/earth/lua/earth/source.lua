@@ -359,14 +359,30 @@ local function resolve_mosaic(item, kind)
 	end
 end
 
--- the mosaic's pixels in rows of stride pixels (at least its width)
-local function compose(mosaic, bytes_per_pixel, stride, rows)
+-- upload data is copied into a staging buffer when it is recorded, so a bake's arrays are reused between bakes
+local scratch = {}
+
+local function get_scratch(name, bytes)
+	local entry = scratch[name]
+
+	if not entry or entry.bytes < bytes then
+		entry = {bytes = bytes, data = ByteArray(bytes)}
+		scratch[name] = entry
+	end
+
+	return entry.data
+end
+
+-- the mosaic's pixels in rows of stride pixels (at least its width), into the named scratch array if one is given
+local function compose(mosaic, bytes_per_pixel, stride, rows, scratch_name)
 	local set = mosaic.set
 	local size = set.TileSize
 	local world = mosaic.world
 	local width, height = mosaic.width, mosaic.height
 	local row_bytes = (stride or width) * bytes_per_pixel
-	local pixels = ByteArray(row_bytes * (rows or height))
+	local pixels = scratch_name and
+		get_scratch(scratch_name, row_bytes * (rows or height)) or
+		ByteArray(row_bytes * (rows or height))
 
 	for row = 0, height - 1 do
 		local gy = math.clamp(mosaic.y0 + row, 0, world - 1)
@@ -515,7 +531,7 @@ local function bake(self, item, heights, imagery, bathymetry)
 	info[o + 6] = heights.height
 	local info_texture = acquire_texture(self, GRID, GRID + 1, "r32g32b32a32_sfloat", NEAREST)
 	local height_texture = acquire_texture(self, height_width, height_height, "r32_sfloat", NEAREST)
-	local height_pixels = compose(heights, 4, height_width, height_height)
+	local height_pixels = compose(heights, 4, height_width, height_height, "heights")
 
 	if bathymetry then fill_sea(height_pixels, height_width, heights, bathymetry) end
 
@@ -525,7 +541,7 @@ local function bake(self, item, heights, imagery, bathymetry)
 
 	if water then
 		local width, height = pool_size(water.width), pool_size(water.height)
-		local pixels = FloatArray(width * height * 2)
+		local pixels = ffi.cast("float *", get_scratch("water", width * height * 8))
 		self.Water:FillMosaic(water, pixels, width)
 		info[o + 8] = water.scale
 		info[o + 9] = water.offset_x
@@ -540,7 +556,7 @@ local function bake(self, item, heights, imagery, bathymetry)
 	if imagery then
 		local width, height = pool_size(imagery.width), pool_size(imagery.height)
 		textures[3] = acquire_texture(self, width, height, "r8g8b8a8_srgb", LINEAR)
-		uploads[#uploads + 1] = {textures[3], compose(imagery, 4, width, height)}
+		uploads[#uploads + 1] = {textures[3], compose(imagery, 4, width, height, "imagery")}
 	end
 
 	request.textures = textures
