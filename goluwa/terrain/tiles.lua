@@ -139,10 +139,31 @@ local function get_template(cells, step, host, shell)
 		index = index + 6
 	end
 
+	-- the tessellation topology welds corners by position: on a tile only the skirts' heights differ from the grid
+	-- edge they hang from, so lowering them here welds the template like every tile of it
+	local topology_vertices
+
+	if shell then
+		topology_vertices = VertexType(vertex_count)
+		ffi.copy(topology_vertices, vertices, VertexSize * vertex_count)
+
+		for i = grid_count, base_start - 1 do
+			topology_vertices[i].position[1] = -1
+		end
+	end
+
 	template = {
 		vertices = vertices,
 		vertex_count = vertex_count,
 		index_count = index_count,
+		topology = shell and
+			{
+				vertices = topology_vertices,
+				vertex_count = vertex_count,
+				indices = indices,
+				index_count = index_count,
+			} or
+			nil,
 		indices = IndexBuffer and
 			IndexBuffer.FromPointer(
 				indices,
@@ -278,6 +299,7 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode, shell)
 
 	local polygon = Polygon3D.New()
 	polygon:SetGridCells(cells)
+	polygon.TopologySource = template.topology
 	polygon:UploadVertexArray(
 		vertices,
 		vertex_count,

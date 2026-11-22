@@ -70,7 +70,7 @@ function tessellation.IsEligible(material, entry)
 	local polygon3d = entry.polygon3d
 
 	if material.terrain_tile then
-		return material.TerrainShell > 0 and polygon3d.mesh.vertex_buffer.data ~= nil
+		return material.TerrainShell > 0 and polygon3d.TopologySource ~= nil
 	end
 
 	if not material:HasHeightMap() then return false end
@@ -127,7 +127,7 @@ do
 	local function read_polygon(polygon3d)
 		local px, py, pz, nx, ny, nz, u, v = {}, {}, {}, {}, {}, {}, {}, {}
 		local indices = {}
-		local packed = polygon3d.packed
+		local packed = polygon3d.TopologySource or polygon3d.packed
 		local vertex_count
 
 		if packed then
@@ -384,12 +384,15 @@ do
 		}
 	end
 
+	-- polygon3d.TopologySource ({vertices, vertex_count, indices, index_count}) stands in for the polygon's own data and
+	-- is shared by every polygon that welds the same way (terrain tiles of one template), so they share the topology
 	function tessellation.GetTopology(polygon3d)
-		local topology = topologies[polygon3d.mesh]
+		local key = polygon3d.TopologySource or polygon3d.mesh
+		local topology = topologies[key]
 
 		if not topology then
 			topology = build_topology(polygon3d)
-			topologies[polygon3d.mesh] = topology
+			topologies[key] = topology
 		end
 
 		return topology
