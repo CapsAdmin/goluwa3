@@ -771,6 +771,12 @@ end
 function META:ReadResult(job, slot)
 	local out = ffi.cast(float_ptr, slot.output:Map())
 	local result = acoustics.NewResult(job)
+	-- the rays and queries are only read while the result is absorbed, before this slot is read again, so each slot
+	-- refills its own tables instead of making new ones every frame
+	slot.ray_values = slot.ray_values or {}
+	slot.query_values = slot.query_values or {}
+	result.rays = slot.ray_values
+	result.queries = slot.query_values
 	local stats = result.stats
 	local groups = math.ceil(job.rays / GROUP_SIZE)
 
