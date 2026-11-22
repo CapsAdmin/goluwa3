@@ -232,52 +232,52 @@ float terrain_height(vec2 p) {
 	return earth_carve(h, water.x, water.y);
 }
 ]=]
--- the layers are grass, sand, rock, snow, then dirt and gravel when there are more than four (else those go to sand
--- and rock): a land class says which, the photo says how green the ground is within it; without a class the photo's
--- colour decides alone
+-- the earth's eight layers: grass, forest floor, rock, crop (the four a scatter set reads, so it can grow meadows,
+-- woods, scree and fields apart), then sand, snow, dirt and gravel; a land class says which, the photo says how green
+-- the ground is within it, and without a class the photo's colour decides alone. Under water the bed is dirt
 local LAYERS_GLSL = [=[
-// layers 1 to 4 in a, 5 and 6 in b; veg is how green the photo is, snow how snow-like
+// layers 1 to 4 in a, 5 to 8 in b; veg is how green the photo is, snow how snow-like
 void earth_class_layers(int land_class, float veg, float snow, float sandy, float low, out vec4 a, out vec4 b) {
 	a = vec4(0.0);
 	b = vec4(0.0);
 
 	if (land_class == 1) { // forest
-		a.x = 0.55 + 0.35 * veg;
-		b.x = 1.0 - a.x;
+		a.y = 0.55 + 0.35 * veg;
+		b.z = 1.0 - a.y;
 	} else if (land_class == 2) { // shrub
 		a.x = 0.5 + 0.3 * veg;
 		a.z = 0.1;
-		b.x = 0.4 - 0.3 * veg;
+		b.z = 0.4 - 0.3 * veg;
 	} else if (land_class == 3) { // grass
 		a.x = 0.6 + 0.4 * veg;
-		b.x = 1.0 - a.x;
+		b.z = 1.0 - a.x;
 	} else if (land_class == 4) { // crop
-		a.x = veg;
-		b.x = 1.0 - veg;
+		a.w = veg;
+		b.z = 1.0 - veg;
 	} else if (land_class == 5) { // urban
 		a.x = 0.8 * veg;
-		b.y = 1.0 - a.x;
+		b.w = 1.0 - a.x;
 	} else if (land_class == 6) { // bare
 		a.x = 0.5 * veg;
-		a.y = sandy * (1.0 - a.x);
+		b.x = sandy * (1.0 - a.x);
 		a.z = 0.15;
-		b.x = (1.0 - sandy) * (1.0 - a.x);
-		a.w = snow;
+		b.z = (1.0 - sandy) * (1.0 - a.x);
+		b.y = snow;
 	} else if (land_class == 7) { // sand
-		a.y = 1.0;
+		b.x = 1.0;
 	} else if (land_class == 8) { // rock
 		a.z = 0.8;
-		b.y = 0.2;
-		a.w = snow;
+		b.w = 0.2;
+		b.y = snow;
 	} else if (land_class == 9) { // wetland
 		a.x = 0.4 + 0.4 * veg;
-		b.x = 1.0 - a.x;
+		b.z = 1.0 - a.x;
 	} else if (land_class == 10) { // snow
-		a.w = 1.0;
+		b.y = 1.0;
 	} else {
-		a.w = snow;
-		a.y = max(low, sandy) * (1.0 - a.w);
-		a.x = 1.0 - a.y - a.w;
+		b.y = snow;
+		b.x = max(low, sandy) * (1.0 - b.y);
+		a.x = 1.0 - b.x - b.y;
 	}
 }
 
@@ -307,7 +307,7 @@ void earth_layers(vec2 p, float h, vec3 n, out vec4 a, out vec4 b) {
 	// steep ground, and grey ground without a class, is rock whatever else
 	float rock = max(
 		smoothstep(0.3, 0.5, 1.0 - n.y),
-		(1.0 - smoothstep(0.08, 0.16, saturation)) * smoothstep(0.08, 0.2, brightest) * (1.0 - a.w) * float(classes == ivec4(0))
+		(1.0 - smoothstep(0.08, 0.16, saturation)) * smoothstep(0.08, 0.2, brightest) * (1.0 - b.y) * float(classes == ivec4(0))
 	);
 	a *= 1.0 - rock;
 	b *= 1.0 - rock;
@@ -315,26 +315,23 @@ void earth_layers(vec2 p, float h, vec3 n, out vec4 a, out vec4 b) {
 	float sum = max(dot(a, vec4(1.0)) + dot(b, vec4(1.0)), 0.0001);
 	a /= sum;
 	b /= sum;
+	vec2 m = earth_map(p).xy;
+	float bed = 1.0 - smoothstep(-1.0, 0.5, earth_water(m).x);
+	a *= 1.0 - bed;
+	b *= 1.0 - bed;
+	b.z += bed;
 	// paved roads have no layer, so they are the photo's and the road's colour alone; unpaved ones are dirt
-	vec2 road = earth_road(earth_map(p).xy);
+	vec2 road = earth_road(m);
 
 	if (road.y > 0.0) {
 		float cover = earth_road_cover(road, terrain_bake_step());
 		a *= 1.0 - cover;
 		b *= 1.0 - cover;
 
-		if (road.y >= ]=] .. road_grid.UNPAVED .. [=[.0) b.x += cover;
+		if (road.y >= ]=] .. road_grid.UNPAVED .. [=[.0) b.z += cover;
 	}
 }
-]=]
-local SPLAT4_GLSL = LAYERS_GLSL .. [=[
-vec4 terrain_splat(vec2 p, float h, vec3 n) {
-	vec4 a, b;
-	earth_layers(p, h, n, a, b);
-	return a + vec4(0.0, b.x, b.y, 0.0);
-}
-]=]
-local SPLAT6_GLSL = LAYERS_GLSL .. [=[
+
 vec4 terrain_splat(vec2 p, float h, vec3 n) {
 	vec4 a, b;
 	earth_layers(p, h, n, a, b);
@@ -365,23 +362,23 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 ]=]
 
 -- config: Anchor ({lat, lon}), Heights (a TileSet), Imagery (TileSets in the order they are tried: a chunk takes the
--- first whose bounds hold it at a zoom it serves, the next where its tiles are missing; optional), Layers (grass, sand,
--- rock, snow and optionally dirt and gravel, see LAYERS_GLSL), Bathymetry (a TileSet whose
+-- first whose bounds hold it at a zoom it serves, the next where its tiles are missing; optional), Layers (eight,
+-- see LAYERS_GLSL), Bathymetry (a TileSet whose
 -- heights fill the sea where Heights has none, optional: with it a missing height tile is sea and a height of exactly 0
 -- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
 -- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples);
 -- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua),
 -- source.Land and source.Roads to tile grids (tile_grids.lua) of land_grid.lua and road_grid.lua
 function EarthSource.New(config)
-	local six = config.Layers and config.Layers[5] ~= nil
-	local layer_ids = {0, 1, 2, 3, 4, 5}
+	assert(not config.Layers or #config.Layers == 8, "the earth has eight layers")
+	local layer_ids = {0, 1, 2, 3, 4, 5, 6, 7}
 	local self = setmetatable(
 		ShaderSource.New{
 			Header = HEADER,
 			HeightGLSL = HEIGHT_GLSL,
-			SplatGLSL = config.Layers and (six and SPLAT6_GLSL or SPLAT4_GLSL) or nil,
-			Splat2GLSL = six and SPLAT2_GLSL or nil,
-			SelectChunkLayers = six and function()
+			SplatGLSL = config.Layers and LAYERS_GLSL or nil,
+			Splat2GLSL = config.Layers and SPLAT2_GLSL or nil,
+			SelectChunkLayers = config.Layers and function()
 				return config.Layers, layer_ids
 			end or nil,
 			ColorGLSL = config.Imagery and COLOR_GLSL or nil,

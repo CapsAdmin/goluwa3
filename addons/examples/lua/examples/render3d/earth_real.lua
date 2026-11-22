@@ -3,8 +3,9 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local water = import("goluwa/render3d/water.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
+local foliage_sets = import("lua/foliage/scatter_sets.lua")
 
-local function layer(name, scale)
+local function layer(name, scale, scatter)
 	local textures = terrain_textures[name]
 	return {
 		name = name,
@@ -13,21 +14,61 @@ local function layer(name, scale)
 		scale = scale,
 		detail = 0.35,
 		fade_distance = 600,
+		scatter = scatter and 1 or 0,
 	}
 end
 
+local function is_tree(definition)
+	return definition.model:find("/trees/", 1, true) ~= nil
+end
+
+local function is_grass(definition)
+	return definition.model:find("/grass/", 1, true) ~= nil
+end
+
+-- meadows on grass, woods on the forest floor, scree on rock and a dense even crop on fields
+local scatter_set = os.getenv("EARTH_SCATTER") ~= "0" and
+	foliage_sets.Combine(
+		{Name = "earth"},
+		{
+			{
+				set = foliage_sets.foliage_meadow,
+				layers = {1, 0, 0, 0},
+				only = function(definition)
+					return not is_tree(definition)
+				end,
+			},
+			{set = foliage_sets.foliage_tropical, layers = {0, 1, 0, 0}},
+			{
+				set = foliage_sets.foliage_meadow,
+				layers = {0, 1, 0, 0},
+				only = is_tree,
+				override = {density = 0.0025, cluster = {scale = 40, amount = 0.4}},
+			},
+			{set = foliage_sets.foliage_rocky, layers = {0, 0, 1, 0}},
+			{
+				set = foliage_sets.foliage_meadow,
+				layers = {0, 0, 0, 1},
+				only = is_grass,
+				override = {cluster = {scale = 4, amount = 0.15}},
+			},
+		}
+	) or
+	nil
 earth.Start{
 	lat = tonumber(os.getenv("EARTH_LAT")),
 	lon = tonumber(os.getenv("EARTH_LON")),
 	Layers = {
-		layer("grass", 3),
+		layer("grass", 3, true),
+		layer("dirt", 3, true),
+		layer("rock", 11, true),
+		layer("grass", 3, true),
 		layer("sand", 4),
-		layer("rock", 11),
 		layer("snow", 7),
 		layer("dirt", 3),
 		layer("gravel", 2.5),
 	},
-	Terrain = {Levels = tonumber(os.getenv("LEVELS")) or 15},
+	Terrain = {Levels = tonumber(os.getenv("LEVELS")) or 15, ScatterSet = scatter_set},
 	Clouds = true,
 	Buildings = true,
 	Water = true,
