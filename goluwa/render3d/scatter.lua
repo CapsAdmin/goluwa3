@@ -2377,6 +2377,28 @@ scatter.PLACED_UPLOADS = 4
 scatter.PLACED_CONFORMS = 2
 scatter.PLACED_CONFORM_INTERVAL = 300
 
+do
+	local TINT_WORD = 0xFF808080
+	local Uint32Pointer = ffi.typeof("uint32_t *")
+
+	-- writes the matrix of a placed instance at a position, scale, yaw about a normal (unit), as AddPlacements reads them
+	function scatter.WritePlacement(out, at, x, y, z, scale, yaw, nx, ny, nz)
+		local sign = nz >= 0 and 1 or -1
+		local a = -1 / (sign + nz)
+		local b = nx * ny * a
+		local b1x, b1y, b1z = 1 + sign * nx * nx * a, sign * b, -sign * nx
+		local b2x, b2y, b2z = b, sign + ny * ny * a, -ny
+		local c, s = math.cos(yaw), math.sin(yaw)
+		local xx, xy, xz = b1x * c + b2x * s, b1y * c + b2y * s, b1z * c + b2z * s
+		local zx, zy, zz = xy * nz - xz * ny, xz * nx - xx * nz, xx * ny - xy * nx
+		out[at], out[at + 1], out[at + 2], out[at + 3] = xx * scale, xy * scale, xz * scale, 0
+		out[at + 4], out[at + 5], out[at + 6] = nx * scale, ny * scale, nz * scale
+		ffi.cast(Uint32Pointer, out + at)[7] = TINT_WORD
+		out[at + 8], out[at + 9], out[at + 10], out[at + 11] = zx * scale, zy * scale, zz * scale, 0
+		out[at + 12], out[at + 13], out[at + 14], out[at + 15] = x, y, z, 1
+	end
+end
+
 function scatter.AddPlacements(proto, matrices, count)
 	assert(proto.placed, proto.name .. " is not a placed prototype")
 	local cell = scatter.PLACED_CELL

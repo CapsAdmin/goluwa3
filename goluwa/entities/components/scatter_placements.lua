@@ -17,25 +17,6 @@ META:EndStorable()
 local Record = ffi.typeof("struct { float x, y, z, scale, yaw, nx, ny, nz; }")
 local RecordPtr = ffi.typeof("$ *", Record)
 local FloatArray = ffi.typeof("float[?]")
-local TINT_WORD = 0xFF808080
-
-local function write_matrix(out, words, at, r)
-	local nx, ny, nz = r.nx, r.ny, r.nz
-	local sign = nz >= 0 and 1 or -1
-	local a = -1 / (sign + nz)
-	local b = nx * ny * a
-	local b1x, b1y, b1z = 1 + sign * nx * nx * a, sign * b, -sign * nx
-	local b2x, b2y, b2z = b, sign + ny * ny * a, -ny
-	local c, s = math.cos(r.yaw), math.sin(r.yaw)
-	local xx, xy, xz = b1x * c + b2x * s, b1y * c + b2y * s, b1z * c + b2z * s
-	local zx, zy, zz = xy * nz - xz * ny, xz * nx - xx * nz, xx * ny - xy * nx
-	local scale = r.scale
-	out[at], out[at + 1], out[at + 2], out[at + 3] = xx * scale, xy * scale, xz * scale, 0
-	out[at + 4], out[at + 5], out[at + 6] = nx * scale, ny * scale, nz * scale
-	words[at + 7] = TINT_WORD
-	out[at + 8], out[at + 9], out[at + 10], out[at + 11] = zx * scale, zy * scale, zz * scale, 0
-	out[at + 12], out[at + 13], out[at + 14], out[at + 15] = r.x, r.y, r.z, 1
-end
 
 function META:Place()
 	local count = math.floor(#self.Records / ffi.sizeof(Record))
@@ -45,10 +26,10 @@ function META:Place()
 	local scatter = import("goluwa/render3d/scatter.lua")
 	local records = ffi.cast(RecordPtr, self.Records)
 	local matrices = FloatArray(count * 16)
-	local words = ffi.cast("uint32_t *", matrices)
 
 	for i = 0, count - 1 do
-		write_matrix(matrices, words, i * 16, records[i])
+		local r = records[i]
+		scatter.WritePlacement(matrices, i * 16, r.x, r.y, r.z, r.scale, r.yaw, r.nx, r.ny, r.nz)
 	end
 
 	self.set = ScatterSet.New{
