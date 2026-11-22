@@ -5,6 +5,7 @@ local math2d = import("goluwa/render2d/math2d.lua")
 local planet = import("goluwa/planet.lua")
 local geo = import("lua/earth/geo.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 -- a building tile's blocks as wall and roof meshes, built on the thread pool (BuildJob)
 local building_mesh = {}
 building_mesh.FLOOR_HEIGHT = 3.2
@@ -28,7 +29,6 @@ building_mesh.CLASS_HEIGHTS = {
 	apartments = 15,
 }
 building_mesh.DEFAULT_HEIGHT = 8
-building_mesh.PART_BYTES = 8 * 4 + 4 * 4
 -- sRGB colours a building is picked from by a hash of its id, weights first: plaster, brick, paint
 building_mesh.WALL_COLORS = {
 	{6, 0.86, 0.84, 0.80},
@@ -75,7 +75,6 @@ building_mesh.COLOR_NAMES = {
 	blue = {0.40, 0.52, 0.70},
 	pink = {0.90, 0.68, 0.68},
 }
-local VERTEX_SIZE = tint_mesh.VERTEX_SIZE
 
 local function get_height(properties)
 	if properties.height then return properties.height end
@@ -612,9 +611,10 @@ end
 
 -- input: path (the tile's decoded mvt), x, y, zoom, anchor_lat, anchor_lon, origin_x, origin_z (the meshes' origin in
 -- the world) and a grid of ground heights over the tile (grid_size, grid_lat0, grid_lon0, grid_dlat, grid_dlon, grid:
--- floats as a string); returns the counts and one blob of the wall then roof vertices, then the wall then roof indices,
--- then per building its wall and roof ranges (vertex first, count, index first, count; uint32) and then per building its
--- outline's bounds (min x, min z, max x, max z; floats)
+-- floats as a string); returns the counts, the walls' and roofs' bounds and one blob with sections (byte offsets in
+-- meta.sections): the walls' and roofs' vertices in the gpu layout (core and extras), their indices, every position
+-- (walls then roofs) and the indices of both into them, per building its wall and roof ranges into those (vertex first,
+-- count, index first, count; uint32) and per building its outline's bounds (min x, min z, max x, max z; floats)
 function building_mesh.Build(input)
 	local file = assert(io.open(input.path, "rb"))
 	local data = file:read("*a")
@@ -770,20 +770,73 @@ function building_mesh.Build(input)
 		end
 	end
 
-	local vertex_bytes = (walls.count + roofs.count) * VERTEX_SIZE
-	local index_bytes = (walls.index_count + roofs.index_count) * 4
-	local blob = ffi.new("uint8_t[?]", vertex_bytes + index_bytes + #parts * building_mesh.PART_BYTES)
-	ffi.copy(blob, walls.vertices, walls.count * VERTEX_SIZE)
-	ffi.copy(blob + walls.count * VERTEX_SIZE, roofs.vertices, roofs.count * VERTEX_SIZE)
-	ffi.copy(blob + vertex_bytes, walls.indices, walls.index_count * 4)
-	ffi.copy(blob + vertex_bytes + walls.index_count * 4, roofs.indices, roofs.index_count * 4)
-	local ranges = ffi.cast("uint32_t *", blob + vertex_bytes + index_bytes)
-	local bounds = ffi.cast("float *", ranges + #parts * 8)
+	-- everything per vertex is done here, so the main thread only copies blocks: the gpu layout of the walls and roofs,
+	-- their bounds, and for the colliders every position, the indices of both into them and each building's ranges
+	local sections = {}
+	local size = 0
+
+	local function section(name, bytes)
+		sections[name] = size
+		size = size + bytes
+	end
+
+	local vertex_count = walls.count + roofs.count
+	local index_count = walls.index_count + roofs.index_count
+	section("wall_core", walls.count * vertex_layout.CoreStride)
+	section("wall_extras", walls.count * vertex_layout.ExtrasStride)
+	section("roof_core", roofs.count * vertex_layout.CoreStride)
+	section("roof_extras", roofs.count * vertex_layout.ExtrasStride)
+	section("wall_indices", walls.index_count * 4)
+	section("roof_indices", roofs.index_count * 4)
+	section("positions", vertex_count * 12)
+	section("indices", index_count * 4)
+	section("ranges", #parts * 32)
+	section("bounds", #parts * 16)
+	local blob = ffi.new("uint8_t[?]", math.max(size, 1))
+	vertex_layout.SplitInto(walls.vertices, walls.count, blob + sections.wall_core, blob + sections.wall_extras)
+	vertex_layout.SplitInto(roofs.vertices, roofs.count, blob + sections.roof_core, blob + sections.roof_extras)
+	ffi.copy(blob + sections.wall_indices, walls.indices, walls.index_count * 4)
+	ffi.copy(blob + sections.roof_indices, roofs.indices, roofs.index_count * 4)
+	local positions = ffi.cast("float *", blob + sections.positions)
+	local indices = ffi.cast("uint32_t *", blob + sections.indices)
+	local aabbs = {}
+
+	for m, mesh in ipairs{walls, roofs} do
+		local first = m == 1 and 0 or walls.count
+		local aabb = {math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge}
+
+		for i = 0, mesh.count - 1 do
+			local p = mesh.vertices[i].position
+			local o = (first + i) * 3
+			positions[o], positions[o + 1], positions[o + 2] = p[0], p[1], p[2]
+
+			for k = 0, 2 do
+				aabb[k + 1] = math.min(aabb[k + 1], p[k])
+				aabb[k + 4] = math.max(aabb[k + 4], p[k])
+			end
+		end
+
+		aabbs[m] = aabb
+	end
+
+	for i = 0, walls.index_count - 1 do
+		indices[i] = walls.indices[i]
+	end
+
+	for i = 0, roofs.index_count - 1 do
+		indices[walls.index_count + i] = roofs.indices[i] + walls.count
+	end
+
+	local ranges = ffi.cast("uint32_t *", blob + sections.ranges)
+	local bounds = ffi.cast("float *", blob + sections.bounds)
 
 	for i, part in ipairs(parts) do
 		for k = 0, 7 do
 			ranges[(i - 1) * 8 + k] = part[k + 1]
 		end
+
+		ranges[(i - 1) * 8 + 4] = ranges[(i - 1) * 8 + 4] + walls.count
+		ranges[(i - 1) * 8 + 6] = ranges[(i - 1) * 8 + 6] + walls.index_count
 
 		for k = 0, 3 do
 			bounds[(i - 1) * 4 + k] = part[k + 9]
@@ -796,6 +849,9 @@ function building_mesh.Build(input)
 		roof_vertices = roofs.count,
 		wall_indices = walls.index_count,
 		roof_indices = roofs.index_count,
+		wall_aabb = aabbs[1],
+		roof_aabb = aabbs[2],
+		sections = sections,
 	},
 	blob
 end

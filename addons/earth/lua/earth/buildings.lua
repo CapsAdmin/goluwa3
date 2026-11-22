@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
+local threads = import("goluwa/bindings/threads.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -13,7 +14,8 @@ local building_mesh = import("lua/earth/building_mesh.lua")
 local layer_texture = import("goluwa/terrain/layer_texture.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
-local vertex_math = import("goluwa/render3d/vertex_math.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 -- Overture's buildings (OpenStreetMap, Microsoft's and Google's machine learned footprints, Esri) as blocks: the
 -- footprints of the zoom 14 tiles around the camera extruded to their height, or their floors, or a guess by class
 local buildings = {}
@@ -62,9 +64,6 @@ float layer_height(vec2 uv) {
 ]=],
 	Depth = 0.6,
 }
-local VertexType = Polygon3D.VertexType
-local VERTEX_SIZE = ffi.sizeof(VertexType(1))
-local VertexPointer = vertex_math.VertexPointer
 local Index32Array = ffi.typeof("uint32_t[?]")
 local FloatArray = ffi.typeof("float[?]")
 -- buildings get colliders within COLLIDER_RADIUS of the camera or a dynamic body (asleep too, or it wakes when the
@@ -85,26 +84,33 @@ local function get_path(tile)
 	return tiles_source:GetPath(tile.x, tile.y)
 end
 
-local function create_primitive(
-	parent,
-	name,
-	material,
-	blob,
-	vertex_offset,
-	vertex_count,
-	index_offset,
-	index_count
-)
+local function create_primitive(parent, name, material, data, sections, prefix, vertex_count, index_count, aabb)
 	if index_count == 0 then return end
 
-	local vertices = VertexType(vertex_count)
-	ffi.copy(vertices, blob + vertex_offset, vertex_count * VERTEX_SIZE)
+	local core = ffi.new("uint8_t[?]", vertex_count * vertex_layout.CoreStride)
+	ffi.copy(core, data + sections[prefix .. "_core"], vertex_count * vertex_layout.CoreStride)
+	local extras = ffi.new("uint8_t[?]", vertex_count * vertex_layout.ExtrasStride)
+	ffi.copy(
+		extras,
+		data + sections[prefix .. "_extras"],
+		vertex_count * vertex_layout.ExtrasStride
+	)
 	local indices = Index32Array(index_count)
-	ffi.copy(indices, blob + index_offset, index_count * 4)
+	ffi.copy(indices, data + sections[prefix .. "_indices"], index_count * 4)
 	local entity = Entity.New{Name = parent:GetName() .. "_" .. name, Parent = parent}
 	entity:AddComponent("transform")
 	local polygon = Polygon3D.New()
-	polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, false, "owned", nil, "uint32_t")
+	polygon:UploadVertexArray(
+		nil,
+		vertex_count,
+		indices,
+		index_count,
+		false,
+		"owned",
+		AABB(aabb[1], aabb[2], aabb[3], aabb[4], aabb[5], aabb[6]),
+		"uint32_t",
+		{core = core, extras = extras}
+	)
 	local primitive = entity:AddComponent("visual_primitive")
 	primitive:SetPolygon3D(polygon)
 	primitive:SetMaterial(material)
@@ -119,61 +125,42 @@ local function create_tile_entity(tile, meta, blob)
 	local visual = tile.entity:AddComponent("visual")
 	visual:SetCullDistance(KEEP_RADIUS * 2)
 	local data = ffi.cast("const uint8_t *", blob.ptr)
-	local vertex_bytes = (meta.wall_vertices + meta.roof_vertices) * VERTEX_SIZE
+	local sections = meta.sections
 	create_primitive(
 		tile.entity,
 		"walls",
 		wall_material,
 		data,
-		0,
+		sections,
+		"wall",
 		meta.wall_vertices,
-		vertex_bytes,
-		meta.wall_indices
+		meta.wall_indices,
+		meta.wall_aabb
 	)
 	create_primitive(
 		tile.entity,
 		"roofs",
 		roof_material,
 		data,
-		meta.wall_vertices * VERTEX_SIZE,
+		sections,
+		"roof",
 		meta.roof_vertices,
-		vertex_bytes + meta.wall_indices * 4,
-		meta.roof_indices
+		meta.roof_indices,
+		meta.roof_aabb
 	)
 	visual:BuildAABB()
-	local vertex_count = meta.wall_vertices + meta.roof_vertices
-	local index_count = meta.wall_indices + meta.roof_indices
-	local vertices = ffi.cast(VertexPointer, data)
-	local indices = ffi.cast("const uint32_t *", data + vertex_bytes)
-	local positions = FloatArray(vertex_count * 3)
-	local combined = Index32Array(index_count)
-
-	for i = 0, vertex_count - 1 do
-		local p = vertices[i].position
-		positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] = p[0], p[1], p[2]
-	end
-
-	for i = 0, index_count - 1 do
-		combined[i] = indices[i] + (i < meta.wall_indices and 0 or meta.wall_vertices)
-	end
-
-	local ranges = Index32Array(meta.buildings * 8)
-	local bounds = FloatArray(meta.buildings * 4)
-	ffi.copy(ranges, data + vertex_bytes + index_count * 4, meta.buildings * 32)
-	ffi.copy(
-		bounds,
-		data + vertex_bytes + index_count * 4 + meta.buildings * 32,
-		meta.buildings * 16
-	)
+	-- the collision data stays in the job's result, which the collector does not count, until the tile goes
+	tile.blob = blob
+	local positions = ffi.cast("const float *", data + sections.positions)
+	local indices = ffi.cast("const uint32_t *", data + sections.indices)
+	local ranges = ffi.cast("const uint32_t *", data + sections.ranges)
+	local bounds = ffi.cast("const float *", data + sections.bounds)
 	local cells = {}
 	local min_x, min_z, max_x, max_z = math.huge, math.huge, -math.huge, -math.huge
 
 	for part = 0, meta.buildings - 1 do
 		min_x, min_z = math.min(min_x, bounds[part * 4]), math.min(min_z, bounds[part * 4 + 1])
 		max_x, max_z = math.max(max_x, bounds[part * 4 + 2]), math.max(max_z, bounds[part * 4 + 3])
-		local o = part * 8
-		ranges[o + 4] = ranges[o + 4] + meta.wall_vertices
-		ranges[o + 6] = ranges[o + 6] + meta.wall_indices
 
 		for cz = math.floor(bounds[part * 4 + 1] / COLLIDER_CELL), math.floor(bounds[part * 4 + 3] / COLLIDER_CELL) do
 			for cx = math.floor(bounds[part * 4] / COLLIDER_CELL), math.floor(bounds[part * 4 + 2] / COLLIDER_CELL) do
@@ -185,8 +172,9 @@ local function create_tile_entity(tile, meta, blob)
 	end
 
 	tile.collision = {
+		buildings = meta.buildings,
 		positions = positions,
-		indices = combined,
+		indices = indices,
 		ranges = ranges,
 		bounds = bounds,
 		cells = cells,
@@ -295,7 +283,11 @@ local function build_tile(tile)
 			return
 		end
 
-		if job.meta.buildings > 0 then create_tile_entity(tile, job.meta, job.blob) end
+		if job.meta.buildings > 0 then
+			create_tile_entity(tile, job.meta, job.blob)
+		elseif job.blob then
+			threads.release_blob(job.blob)
+		end
 
 		tile.state = "built"
 	end)
@@ -304,7 +296,11 @@ end
 local function remove_tile(tile)
 	if tile.entity then tile.entity:Remove() end
 
+	if tile.blob then threads.release_blob(tile.blob) end
+
 	tile.entity = nil
+	tile.collision = nil
+	tile.blob = nil
 	tile.removed = true
 end
 

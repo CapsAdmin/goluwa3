@@ -199,8 +199,10 @@ T.Test("earth building blocks stand on the ground under them to their height", f
 	T(meta.buildings)["=="](1)
 	T(meta.wall_vertices)["=="](16)
 	T(meta.roof_vertices)["=="](6)
-	local vertices = ffi.cast(vertex_layout.PointerType, blob)
-	local roof = vertices[meta.wall_vertices]
+	local data = ffi.cast("const uint8_t *", blob)
+	local sections = meta.sections
+	local vertices = vertex_layout.Join(data + sections.wall_core, data + sections.wall_extras, meta.wall_vertices)
+	local roof = vertex_layout.Join(data + sections.roof_core, data + sections.roof_extras, meta.roof_vertices)[0]
 	local drop = planet.GetDrop(roof.position[0] + origin_x, roof.position[2] + origin_z)
 	T(math.abs(roof.position[1] - (100 - drop + 12.5)))["<"](0.1)
 	T(math.abs(vertices[0].position[1] - (100 - drop - building_mesh.FOOTING)))["<"](0.1)
@@ -353,8 +355,15 @@ T.Test("earth road grids measure the distance to road edges and leave out bridge
 			segment = {
 				extent = 4096,
 				features = {
-					line(1024, {subtype = "road", class = "primary", road_surface = '[{"value":"paved"}]'}),
-					line(2048, {subtype = "road", class = "residential", road_flags = '[{"values":["is_bridge"],"between":[0.5,1.0]}]'}),
+					line(1024, {subtype = "road", class = "primary", road_surface = "[{\"value\":\"paved\"}]"}),
+					line(
+						2048,
+						{
+							subtype = "road",
+							class = "residential",
+							road_flags = "[{\"values\":[\"is_bridge\"],\"between\":[0.5,1.0]}]",
+						}
+					),
 					line(3072, {subtype = "road", class = "footway", subclass = "sidewalk"}),
 				},
 			},
