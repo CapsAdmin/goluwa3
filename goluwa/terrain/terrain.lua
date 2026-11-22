@@ -369,46 +369,58 @@ end
 
 -- the source changed inside a box: tiles and colliders over it are baked again and swapped in place once
 -- the new chunk is ready, so nothing disappears meanwhile
+local function rebuild_tile(self, key, tile)
+	local generation = self.Generation
+	local want = {key = key, level = tile.level, chunk_x = tile.chunk_x, chunk_z = tile.chunk_z}
+	local old_rebuild = tile.rebuild_key
+	tile.rebuild_generation = generation
+	tile.rebuild_key = self:AcquireChunk(
+		self:BuildTileRequest(tile.level, tile.chunk_x, tile.chunk_z),
+		function(chunk)
+			if self.Tiles[key] ~= tile or tile.removed or tile.rebuild_generation ~= generation then
+				return
+			end
+
+			local built = self:CreateTile(want, chunk)
+			tile.entity:Remove()
+
+			if tile.bvh_entity then
+				tile.bvh_entity:Remove()
+				tile.bvh_entity = nil
+				tile.bvh_time = system.GetUnscaledElapsedTime()
+			end
+
+			self:ReleaseChunk(tile.chunk_key)
+			tile.chunk_key = tile.rebuild_key
+			tile.rebuild_key = nil
+			tile.entity = built.entity
+			tile.polygon = built.polygon
+			tile.chunk = chunk
+			tile.material = built.material
+			tile.scatter_entry = tile.material:GetScatterSet() and tile.entity.visual:GetRenderEntries()[1] or nil
+			set_tile_hidden(self, tile, tile.hidden)
+		end,
+		-1
+	)
+
+	if old_rebuild then self:ReleaseChunk(old_rebuild) end
+end
+
 function Terrain:Invalidate(min_x, min_z, max_x, max_z)
 	self.Generation = self.Generation + 1
 	local box = {min_x = min_x, min_z = min_z, max_x = max_x, max_z = max_z}
 
 	for key, tile in pairs(self.Tiles) do
-		if tile.entity and tiles_overlap(tile, box) then
-			local generation = self.Generation
-			local want = {key = key, level = tile.level, chunk_x = tile.chunk_x, chunk_z = tile.chunk_z}
-			local old_rebuild = tile.rebuild_key
-			tile.rebuild_generation = generation
-			tile.rebuild_key = self:AcquireChunk(
-				self:BuildTileRequest(tile.level, tile.chunk_x, tile.chunk_z),
-				function(chunk)
-					if self.Tiles[key] ~= tile or tile.removed or tile.rebuild_generation ~= generation then
-						return
-					end
+		if tiles_overlap(tile, box) then
+			if tile.entity then
+				rebuild_tile(self, key, tile)
+			else
+				local entry = self.Chunks[tile.chunk_key]
 
-					local built = self:CreateTile(want, chunk)
-					tile.entity:Remove()
-
-					if tile.bvh_entity then
-						tile.bvh_entity:Remove()
-						tile.bvh_entity = nil
-						tile.bvh_time = system.GetUnscaledElapsedTime()
-					end
-
-					self:ReleaseChunk(tile.chunk_key)
-					tile.chunk_key = tile.rebuild_key
-					tile.rebuild_key = nil
-					tile.entity = built.entity
-					tile.polygon = built.polygon
-					tile.chunk = chunk
-					tile.material = built.material
-					tile.scatter_entry = tile.material:GetScatterSet() and tile.entity.visual:GetRenderEntries()[1] or nil
-					set_tile_hidden(self, tile, tile.hidden)
-				end,
-				-1
-			)
-
-			if old_rebuild then self:ReleaseChunk(old_rebuild) end
+				-- a chunk the source has started on (or that is in and becoming the tile) was made from what it had
+				-- before, so the tile is built again once it is in
+				if entry and not entry.queued then tile.invalidated = true end
+			end
 		end
 	end
 
@@ -695,6 +707,11 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 					end
 
 					self:FindBlockers(tile)
+
+					if tile.invalidated then
+						tile.invalidated = nil
+						rebuild_tile(self, key, tile)
+					end
 
 					if self:IsTileBlocked(tile) then
 						if tile.scatter_entry then get_scatter().Preload(tile.entity.visual) end
