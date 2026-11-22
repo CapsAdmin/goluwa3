@@ -29,9 +29,10 @@ local LINEAR = {
 -- chunk's domain and one more row: (origin x, z, grid step, the spacing of the finest height data there),
 -- (height mosaic pixel size, the height mosaic's width and height in texels: the texture is a pooled size at least that),
 -- (water mosaic texels per height mosaic texel, water mosaic offset x, y, 1 when there is a water mosaic),
--- (the water mosaic's width and height in texels);
+-- (the water mosaic's width and height in texels), (land mosaic texels per height mosaic texel, land mosaic offset x, y,
+-- 1 when there is a land mosaic), (the land mosaic's width and height in texels);
 -- texture1: the height mosaic (meters), texture2: the imagery mosaic, texture3: the water mosaic (signed distance to the
--- shore, water level; see water_grid.lua)
+-- shore, water level; see water_grid.lua), texture4: the land mosaic (land_grid.lua's classes over 255)
 local HEADER = noise.WORLD .. [=[
 vec4 earth_info(int x, int y) {
 	return texelFetch(TEXTURE(terrain_bake.texture0), ivec2(x, y), 0);
@@ -96,6 +97,35 @@ vec3 earth_photo(vec2 p) {
 	vec2 m = earth_map(p).zw;
 	return texture(TEXTURE(terrain_bake.texture2), m / vec2(textureSize(TEXTURE(terrain_bake.texture2), 0))).rgb;
 }
+
+int earth_land_texel(ivec2 c, ivec2 last) {
+	return int(texelFetch(TEXTURE(terrain_bake.texture4), clamp(c, ivec2(0), last), 0).r * 255.0 + 0.5);
+}
+
+// the land classes of the four land mosaic texels around a world position and their bilinear weights, class 0 without
+// a land mosaic; the position is moved by a little noise first, so the polygons' straight edges do not show
+void earth_land(vec2 p, out ivec4 classes, out vec4 weights) {
+	vec4 land = earth_info(4, ]=] .. GRID .. [=[);
+
+	if (land.w == 0.0) {
+		classes = ivec4(0);
+		weights = vec4(1.0, 0.0, 0.0, 0.0);
+		return;
+	}
+
+	vec2 warp = vec2(pn_fbm(p / 40.0 + vec2(3.1, 7.7), 3), pn_fbm(p / 40.0 + vec2(-5.3, 1.9), 3)) * 12.0;
+	vec2 t = earth_map(p + warp).xy * land.x + land.yz - 0.5;
+	ivec2 last = ivec2(earth_info(5, ]=] .. GRID .. [=[).xy) - 1;
+	ivec2 i = ivec2(floor(t));
+	vec2 f = t - vec2(i);
+	classes = ivec4(
+		earth_land_texel(i, last),
+		earth_land_texel(i + ivec2(1, 0), last),
+		earth_land_texel(i + ivec2(0, 1), last),
+		earth_land_texel(i + ivec2(1, 1), last)
+	);
+	weights = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+}
 ]=]
 local HEIGHT_GLSL = [=[
 float earth_mosaic_bilinear(vec2 m) {
@@ -133,8 +163,12 @@ vec2 earth_water(vec2 m) {
 
 ]=] .. water_grid.GLSL .. [=[
 
-// relief finer than the data: noise below the data's own spacing, stronger on steep ground, none at the sea or near water;
-// then the ground is carved under lakes and rivers
+// how much relief finer than the height data each land class has (unknown, forest, shrub, grass, crop, urban, bare,
+// sand, rock, wetland, snow)
+const float EARTH_LAND_RELIEF[11] = float[](1.0, 1.0, 1.0, 0.7, 0.25, 0.25, 1.0, 0.6, 1.5, 0.3, 1.0);
+
+// relief finer than the data: noise below the data's own spacing, stronger on steep ground and by the land class, none
+// at the sea or near water; then the ground is carved under lakes and rivers
 float terrain_height(vec2 p) {
 	vec2 m = earth_map(p).xy;
 	float h = earth_mosaic_height(m);
@@ -149,27 +183,123 @@ float terrain_height(vec2 p) {
 		) / (2.0 * pixel);
 		float wavelength = spacing * 2.0;
 		float detail = pn_fbm_lod(p / wavelength + vec2(31.7, -12.3), 4, wavelength, terrain_tile_step());
-		h += detail * spacing * (0.04 + 0.3 * min(length(slope), 1.0)) * smoothstep(0.0, 4.0, h) * earth_water_noise(water.x);
+		ivec4 classes;
+		vec4 weights;
+		earth_land(p, classes, weights);
+		float relief = dot(
+			weights,
+			vec4(EARTH_LAND_RELIEF[classes.x], EARTH_LAND_RELIEF[classes.y], EARTH_LAND_RELIEF[classes.z], EARTH_LAND_RELIEF[classes.w])
+		);
+		h += detail * spacing * (0.04 + 0.3 * min(length(slope), 1.0)) * relief * smoothstep(0.0, 4.0, h) * earth_water_noise(water.x);
 	}
 
 	return earth_carve(h, water.x, water.y);
 }
 ]=]
-local SPLAT_GLSL = [=[
-vec4 terrain_splat(vec2 p, float h, vec3 n) {
+-- the layers are grass, sand, rock, snow, then dirt and gravel when there are more than four (else those go to sand
+-- and rock): a land class says which, the photo says how green the ground is within it; without a class the photo's
+-- colour decides alone
+local LAYERS_GLSL = [=[
+// layers 1 to 4 in a, 5 and 6 in b; veg is how green the photo is, snow how snow-like
+void earth_class_layers(int land_class, float veg, float snow, float sandy, float low, out vec4 a, out vec4 b) {
+	a = vec4(0.0);
+	b = vec4(0.0);
+
+	if (land_class == 1) { // forest
+		a.x = 0.55 + 0.35 * veg;
+		b.x = 1.0 - a.x;
+	} else if (land_class == 2) { // shrub
+		a.x = 0.5 + 0.3 * veg;
+		a.z = 0.1;
+		b.x = 0.4 - 0.3 * veg;
+	} else if (land_class == 3) { // grass
+		a.x = 0.6 + 0.4 * veg;
+		b.x = 1.0 - a.x;
+	} else if (land_class == 4) { // crop
+		a.x = veg;
+		b.x = 1.0 - veg;
+	} else if (land_class == 5) { // urban
+		a.x = 0.8 * veg;
+		b.y = 1.0 - a.x;
+	} else if (land_class == 6) { // bare
+		a.x = 0.5 * veg;
+		a.y = sandy * (1.0 - a.x);
+		a.z = 0.15;
+		b.x = (1.0 - sandy) * (1.0 - a.x);
+		a.w = snow;
+	} else if (land_class == 7) { // sand
+		a.y = 1.0;
+	} else if (land_class == 8) { // rock
+		a.z = 0.8;
+		b.y = 0.2;
+		a.w = snow;
+	} else if (land_class == 9) { // wetland
+		a.x = 0.4 + 0.4 * veg;
+		b.x = 1.0 - a.x;
+	} else if (land_class == 10) { // snow
+		a.w = 1.0;
+	} else {
+		a.w = snow;
+		a.y = max(low, sandy) * (1.0 - a.w);
+		a.x = 1.0 - a.y - a.w;
+	}
+}
+
+void earth_layers(vec2 p, float h, vec3 n, out vec4 a, out vec4 b) {
 	vec3 c = earth_photo(p);
 	float brightest = max(c.r, max(c.g, c.b));
 	float saturation = (brightest - min(c.r, min(c.g, c.b))) / max(brightest, 0.001);
-	float slope = 1.0 - n.y;
+	float veg = smoothstep(0.08, 0.3, (2.0 * c.g - c.r - c.b) / max(c.r + c.g + c.b, 0.001));
 	float snow = smoothstep(0.35, 0.55, brightest) * (1.0 - smoothstep(0.1, 0.25, saturation));
-	float rock = max(smoothstep(0.3, 0.5, slope), (1.0 - smoothstep(0.08, 0.16, saturation)) * smoothstep(0.08, 0.2, brightest));
-	float sand = max(1.0 - smoothstep(1.0, 4.0, h), smoothstep(0.15, 0.3, brightest) * smoothstep(0.2, 0.35, saturation) * step(c.g, c.r));
-	vec4 w;
-	w.w = snow;
-	w.z = rock * (1.0 - snow);
-	w.y = sand * (1.0 - w.z - w.w);
-	w.x = max(1.0 - w.y - w.z - w.w, 0.0);
-	return w / max(dot(w, vec4(1.0)), 0.0001);
+	float sandy = smoothstep(0.15, 0.3, brightest) * smoothstep(0.2, 0.35, saturation) * step(c.g, c.r);
+	float low = 1.0 - smoothstep(1.0, 4.0, h);
+	ivec4 classes;
+	vec4 weights;
+	earth_land(p, classes, weights);
+	a = vec4(0.0);
+	b = vec4(0.0);
+
+	for (int k = 0; k < 4; k++) {
+		if (weights[k] > 0.0) {
+			vec4 ca, cb;
+			earth_class_layers(classes[k], veg, snow, sandy, low, ca, cb);
+			a += ca * weights[k];
+			b += cb * weights[k];
+		}
+	}
+
+	// steep ground, and grey ground without a class, is rock whatever else
+	float rock = max(
+		smoothstep(0.3, 0.5, 1.0 - n.y),
+		(1.0 - smoothstep(0.08, 0.16, saturation)) * smoothstep(0.08, 0.2, brightest) * (1.0 - a.w) * float(classes == ivec4(0))
+	);
+	a *= 1.0 - rock;
+	b *= 1.0 - rock;
+	a.z += rock;
+	float sum = max(dot(a, vec4(1.0)) + dot(b, vec4(1.0)), 0.0001);
+	a /= sum;
+	b /= sum;
+}
+]=]
+local SPLAT4_GLSL = LAYERS_GLSL .. [=[
+vec4 terrain_splat(vec2 p, float h, vec3 n) {
+	vec4 a, b;
+	earth_layers(p, h, n, a, b);
+	return a + vec4(0.0, b.x, b.y, 0.0);
+}
+]=]
+local SPLAT6_GLSL = LAYERS_GLSL .. [=[
+vec4 terrain_splat(vec2 p, float h, vec3 n) {
+	vec4 a, b;
+	earth_layers(p, h, n, a, b);
+	return a;
+}
+]=]
+local SPLAT2_GLSL = [=[
+vec4 terrain_splat2(vec2 p, float h, vec3 n) {
+	vec4 a, b;
+	earth_layers(p, h, n, a, b);
+	return b;
 }
 ]=]
 local COLOR_GLSL = [=[
@@ -179,17 +309,25 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 ]=]
 
 -- config: Anchor ({lat, lon}), Heights (a TileSet), Imagery (TileSets in the order they are tried: a chunk takes the
--- first whose bounds hold it at a zoom it serves, the next where its tiles are missing; optional), Layers, Bathymetry (a TileSet whose
+-- first whose bounds hold it at a zoom it serves, the next where its tiles are missing; optional), Layers (grass, sand,
+-- rock, snow and optionally dirt and gravel, see LAYERS_GLSL), Bathymetry (a TileSet whose
 -- heights fill the sea where Heights has none, optional: with it a missing height tile is sea and a height of exactly 0
 -- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
 -- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples);
--- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua)
+-- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua),
+-- source.Land to one that says what their ground is (land_cover.lua)
 function EarthSource.New(config)
+	local six = config.Layers and config.Layers[5] ~= nil
+	local layer_ids = {0, 1, 2, 3, 4, 5}
 	local self = setmetatable(
 		ShaderSource.New{
 			Header = HEADER,
 			HeightGLSL = HEIGHT_GLSL,
-			SplatGLSL = config.Layers and SPLAT_GLSL or nil,
+			SplatGLSL = config.Layers and (six and SPLAT6_GLSL or SPLAT4_GLSL) or nil,
+			Splat2GLSL = six and SPLAT2_GLSL or nil,
+			SelectChunkLayers = six and function()
+				return config.Layers, layer_ids
+			end or nil,
 			ColorGLSL = config.Imagery and COLOR_GLSL or nil,
 			ColorFormat = "r8g8b8a8_srgb",
 			MinHeight = -11000,
@@ -511,7 +649,7 @@ local function get_blank(self)
 	return self.Blank
 end
 
-local function bake(self, item, heights, imagery, bathymetry)
+local function bake(self, item, heights, imagery, bathymetry, land)
 	local request = item.request
 	local domain = item.domain
 	local info = FloatArray(GRID * (GRID + 1) * 4)
@@ -544,7 +682,7 @@ local function bake(self, item, heights, imagery, bathymetry)
 	if bathymetry then fill_sea(height_pixels, height_width, heights, bathymetry) end
 
 	local blank = get_blank(self)
-	local textures = {info_texture, height_texture, blank}
+	local textures = {info_texture, height_texture, blank, blank}
 	local uploads = {{info_texture, info}, {height_texture, height_pixels}}
 	local water = self.Water and self.Water:PlanMosaic(heights)
 
@@ -560,6 +698,20 @@ local function bake(self, item, heights, imagery, bathymetry)
 		info[o + 13] = water.height
 		textures[4] = acquire_texture(self, width, height, "r32g32_sfloat", NEAREST)
 		uploads[#uploads + 1] = {textures[4], pixels}
+	end
+
+	if land then
+		local width, height = pool_size(land.width), pool_size(land.height)
+		local pixels = get_scratch("land", width * height)
+		self.Land:FillMosaic(land, pixels, width)
+		info[o + 16] = land.scale
+		info[o + 17] = land.offset_x
+		info[o + 18] = land.offset_y
+		info[o + 19] = 1
+		info[o + 20] = land.width
+		info[o + 21] = land.height
+		textures[5] = acquire_texture(self, width, height, "r8_unorm", NEAREST)
+		uploads[#uploads + 1] = {textures[5], pixels}
 	end
 
 	if imagery then
@@ -658,7 +810,11 @@ local function try_resolve(self, item)
 	-- heights that cannot be had even at zoom 0 wait for the failed tiles' retry, a chunk without imagery is grey
 	if not heights or imagery == nil or bathymetry == nil then return false end
 
-	bake(self, item, heights, imagery or nil, bathymetry or nil)
+	local land = self.Land and self.Land:PlanMosaic(heights)
+
+	if land == nil and self.Land then return false end
+
+	bake(self, item, heights, imagery or nil, bathymetry or nil, land or nil)
 	return true
 end
 

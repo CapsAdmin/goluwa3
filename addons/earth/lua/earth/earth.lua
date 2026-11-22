@@ -10,6 +10,7 @@ local imagery_sources = import("lua/earth/imagery_sources.lua")
 local cloud_cover = import("lua/earth/cloud_cover.lua")
 local buildings = import("lua/earth/buildings.lua")
 local water_bodies = import("lua/earth/water_bodies.lua")
+local land_cover = import("lua/earth/land_cover.lua")
 local geo = import("lua/earth/geo.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -180,6 +181,8 @@ end
 -- Layers, Terrain (any Terrain config), Clouds (cloud layers whose cover comes from a weather model, see cloud_cover.lua),
 -- Buildings (blocks extruded from Overture's footprints around the camera, see buildings.lua),
 -- Water (Overture's lakes, ponds and rivers carved into the terrain and filled with water volumes, see water_bodies.lua),
+-- Land (what the ground is from Overture's land cover, land use and land, picking the layers and the fine relief, see
+-- land_cover.lua),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
@@ -202,6 +205,11 @@ function earth.Start(config)
 	if config.Water then
 		water_bodies.Start(earth.source, earth.terrain)
 		attribution[#attribution + 1] = water_bodies.ATTRIBUTION
+	end
+
+	if config.Land then
+		land_cover.Start(earth.source, earth.terrain)
+		attribution[#attribution + 1] = land_cover.ATTRIBUTION
 	end
 
 	local lines = attribution
@@ -256,6 +264,8 @@ function earth.Recenter(lat, lon)
 		water_bodies.SetSource(earth.source, earth.terrain)
 	end
 
+	if earth.config.Land then land_cover.SetSource(earth.source, earth.terrain) end
+
 	local view = View.GetActive()
 
 	if view then
@@ -273,6 +283,7 @@ function earth.Stop()
 	cloud_cover.Stop()
 	buildings.Stop()
 	water_bodies.Stop()
+	land_cover.Stop()
 
 	if earth.terrain then
 		earth.terrain:Stop()

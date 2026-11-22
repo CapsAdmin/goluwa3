@@ -19,11 +19,19 @@ end
 earth.Start{
 	lat = tonumber(os.getenv("EARTH_LAT")),
 	lon = tonumber(os.getenv("EARTH_LON")),
-	Layers = {layer("grass", 3), layer("sand", 4), layer("rock", 11), layer("snow", 7)},
+	Layers = {
+		layer("grass", 3),
+		layer("sand", 4),
+		layer("rock", 11),
+		layer("snow", 7),
+		layer("dirt", 3),
+		layer("gravel", 2.5),
+	},
 	Terrain = {Levels = tonumber(os.getenv("LEVELS")) or 15},
 	Clouds = true,
 	Buildings = true,
 	Water = true,
+	Land = os.getenv("EARTH_LAND") ~= "0",
 }
 weather.SetTimeScale(0)
 

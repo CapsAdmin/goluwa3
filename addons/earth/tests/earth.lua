@@ -9,6 +9,8 @@ local TileSet = import("lua/earth/tile_set.lua")
 local EarthSource = import("lua/earth/source.lua")
 local building_mesh = import("lua/earth/building_mesh.lua")
 local water_grid = import("lua/earth/water_grid.lua")
+local land_grid = import("lua/earth/land_grid.lua")
+local mvt = import("goluwa/codecs/mvt.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local LAT, LON = 46.5935, 7.9091
 
@@ -297,6 +299,45 @@ T.Test("earth water grids leave lakes whose ground is uneven or at the sea", fun
 	T(#meta.boxes)["=="](0)
 	meta = build_lake(0.1)
 	T(#meta.boxes)["=="](0)
+end)
+
+T.Test("earth land grids draw land use and land over the land cover, smaller polygons over larger", function()
+	local function square(x0, y0, x1, y1, properties)
+		return {
+			type = mvt.POLYGON,
+			properties = properties,
+			rings = {{x0, y0, x1, y0, x1, y1, x0, y1}},
+		}
+	end
+
+	local meta, grid = land_grid.Build{
+		land_cover = {extent = 4096, features = {square(0, 0, 4096, 4096, {subtype = "crop"})}},
+		land_use = {
+			extent = 4096,
+			features = {
+				square(1024, 1024, 1536, 1536, {subtype = "park", class = "park"}),
+				square(0, 0, 2048, 2048, {subtype = "residential", class = "residential"}),
+				square(0, 0, 2048, 2048, {subtype = "developed", class = "industrial"}),
+			},
+		},
+		land = {
+			extent = 4096,
+			features = {square(1200, 1200, 1300, 1300, {subtype = "forest", class = "wood"})},
+		},
+	}
+	local size = land_grid.SIZE
+
+	local function class_at(x, y)
+		return land_grid.CLASSES[grid[math.floor(y / 4096 * size) * size + math.floor(x / 4096 * size)]]
+	end
+
+	T(meta.land)["=="](true)
+	T(class_at(3000, 3000))["=="]("crop")
+	T(class_at(500, 500))["=="]("urban")
+	T(class_at(1400, 1400))["=="]("grass")
+	T(class_at(1250, 1250))["=="]("forest")
+	meta = land_grid.Build{}
+	T(meta.land)["=="](false)
 end)
 
 local function solid_tile(r, g, b)
