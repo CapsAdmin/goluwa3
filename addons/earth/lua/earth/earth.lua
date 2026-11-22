@@ -6,6 +6,7 @@ local TileSet = import("lua/earth/tile_set.lua")
 local EarthSource = import("lua/earth/source.lua")
 local mapterhorn = import("lua/earth/mapterhorn.lua")
 local cloud_cover = import("lua/earth/cloud_cover.lua")
+local buildings = import("lua/earth/buildings.lua")
 local geo = import("lua/earth/geo.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -129,6 +130,7 @@ end
 
 -- config: lat, lon (the world origin, the weather's location when not given; the weather's location follows the origin),
 -- Layers, Terrain (any Terrain config), Clouds (cloud layers whose cover comes from a weather model, see cloud_cover.lua),
+-- Buildings (blocks extruded from Overture's footprints around the camera, see buildings.lua),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
@@ -141,6 +143,11 @@ function earth.Start(config)
 	if config.Clouds then
 		cloud_cover.Start(earth.source)
 		attribution[#attribution + 1] = cloud_cover.ATTRIBUTION
+	end
+
+	if config.Buildings then
+		buildings.Start(earth.source)
+		attribution[#attribution + 1] = buildings.ATTRIBUTION
 	end
 
 	event.AddListener("DrawHUD", "earth_attribution", function()
@@ -174,6 +181,8 @@ function earth.Recenter(lat, lon)
 
 	if earth.config.Clouds then cloud_cover.SetSource(earth.source) end
 
+	if earth.config.Buildings then buildings.SetSource(earth.source) end
+
 	local view = View.GetActive()
 
 	if view then
@@ -189,6 +198,7 @@ end
 function earth.Stop()
 	finish_recenter()
 	cloud_cover.Stop()
+	buildings.Stop()
 
 	if earth.terrain then
 		earth.terrain:Stop()

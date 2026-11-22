@@ -640,7 +640,10 @@ end
 
 -- the height above sea level at a world x, z from the finest decoded tiles there, nil when none are
 function EarthSource:SampleLocalHeight(x, z)
-	local lat, lon = geo.WorldToLatLon(self.Anchor, x, z)
+	return self:SampleLatLonHeight(geo.WorldToLatLon(self.Anchor, x, z))
+end
+
+function EarthSource:SampleLatLonHeight(lat, lon)
 	local h = sample_set(self.Heights, lat, lon)
 
 	if self.Bathymetry and (h == nil or h == 0) then
