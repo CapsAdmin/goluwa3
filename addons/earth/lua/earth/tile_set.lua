@@ -51,9 +51,55 @@ local DECODE_JOB = [=[
 		return {width = image.width, height = image.height}, heights
 	end
 
-	local image = import("goluwa/codecs/jpg.lua").DecodeBuffer(Buffer.New(data, #data))
+	local image, pixels
+
+	if data:sub(1, 8) == "\137PNG\r\n\26\n" then
+		image = import("goluwa/codecs/png.lua").DecodeBuffer(Buffer.New(data, #data))
+		assert(image.depth == 8, "photo tiles are 8 bit")
+		local row_bytes = image.width * 4
+		local flipped = ffi.new("uint8_t[?]", row_bytes * image.height)
+		local source = ffi.cast("const uint8_t *", image.data)
+
+		-- the png decoder writes the rows bottom up
+		for y = 0, image.height - 1 do
+			ffi.copy(flipped + y * row_bytes, source + (image.height - 1 - y) * row_bytes, row_bytes)
+		end
+
+		pixels = flipped
+	else
+		image = import("goluwa/codecs/jpg.lua").DecodeBuffer(Buffer.New(data, #data))
+		pixels = ffi.cast("uint8_t *", image.buffer.Buffer)
+	end
+
 	local count = image.width * image.height * 4
-	local pixels = ffi.cast("uint8_t *", image.buffer.Buffer)
+
+	-- a service outside its data answers a blank tile: one colour, or mostly white, or black around the data's edge
+	if kind == "photo" then
+		local white, black = 0, 0
+		local low_r, low_g, low_b, high_r, high_g, high_b = 255, 255, 255, 0, 0, 0
+
+		for i = 0, count - 1, 4 do
+			local r, g, b = pixels[i], pixels[i + 1], pixels[i + 2]
+
+			if r >= 250 and g >= 250 and b >= 250 then white = white + 1 end
+
+			if r <= 6 and g <= 6 and b <= 6 then black = black + 1 end
+
+			low_r, low_g, low_b = math.min(low_r, r), math.min(low_g, g), math.min(low_b, b)
+			high_r, high_g, high_b = math.max(high_r, r), math.max(high_g, g), math.max(high_b, b)
+		end
+
+		local pixel_count = count / 4
+
+		if
+			white > pixel_count * 0.25 or
+			black > pixel_count * 0.02 or
+			math.max(high_r - low_r, high_g - low_g, high_b - low_b) <= 2
+		then
+			return {width = image.width, height = image.height, blank = true}
+		end
+	end
+
 	local tone = _G.earth_tone_lut
 
 	if not tone then
@@ -154,7 +200,8 @@ end
 
 -- config: name (the cache folder), url(z, x, y) or fetch(set, tile, done) (see UrlFetch, done also takes "unavailable":
 -- the tile exists at no zoom this deep there, it is not cached), extension, tile_size, max_zoom,
--- kind ("terrarium" or "image"), host_limit (requests at once to its host), max_resident (decoded tiles kept in memory),
+-- kind ("terrarium", "image" or "photo": an image whose blank tiles count as missing), bounds ({south, west, north,
+-- east}: it has no tiles outside), min_zoom, host_limit (requests at once to its host), max_resident (decoded tiles kept in memory),
 -- missing_is_sea (a tile that does not exist is open sea rather than a hole),
 -- native_zoom(lat, lon) (the zoom whose pixels match the resolution of the source data there, max_zoom by default)
 function TileSet.New(config)
@@ -165,6 +212,9 @@ function TileSet.New(config)
 	self.Extension = config.extension
 	self.TileSize = config.tile_size
 	self.MaxZoom = config.max_zoom
+	self.MinZoom = config.min_zoom or 0
+	self.Bounds = config.bounds
+	self.Attribution = config.attribution
 	self.Kind = config.kind
 	self.HostLimit = config.host_limit or 6
 	self.MaxResident = config.max_resident or 512
@@ -261,6 +311,13 @@ function TileSet:Decode(tile, path)
 			llog("earth: decoding %s failed: %s", path, tostring(job.err))
 			os.remove(path)
 			self:Finish(tile, "failed")
+			return
+		end
+
+		if job.meta.blank then
+			os.remove(path)
+			fs.write_file(path .. ".missing", "")
+			self:Finish(tile, "missing")
 			return
 		end
 

@@ -202,3 +202,79 @@ T.Test("earth building blocks stand on the ground under them to their height", f
 	T(math.abs(vertices[0].position[1] - (100 - drop - building_mesh.FOOTING)))["<"](0.1)
 	T(roof.normal[1])["=="](1)
 end)
+
+local function solid_tile(r, g, b)
+	local pixels = ffi.new("uint8_t[?]", 256 * 256 * 3)
+
+	for i = 0, 256 * 256 - 1 do
+		pixels[i * 3], pixels[i * 3 + 1], pixels[i * 3 + 2] = r, g, b
+	end
+
+	local file = png.Encode(256, 256, "rgb")
+	file:write(pixels)
+	return file:getData()
+end
+
+T.Test3D("earth imagery falls through to the next source where one answers blank tiles", function()
+	local directory = vfs.GetStorageDirectory("temp") .. "earth_test_imagery_" .. os.time() .. "/"
+	local heights = TileSet.New{
+		name = "synthetic_heights",
+		directory = directory .. "heights/",
+		fetch = function(_, tile, done)
+			done("ok", synthetic_tile(tile.z, tile.x, tile.y))
+		end,
+		extension = "png",
+		tile_size = 256,
+		max_zoom = 15,
+		kind = "terrarium",
+	}
+	local regional = TileSet.New{
+		name = "blank_regional",
+		directory = directory .. "regional/",
+		fetch = function(_, tile, done)
+			done("ok", solid_tile(255, 255, 255))
+		end,
+		extension = "img",
+		tile_size = 256,
+		max_zoom = 18,
+		kind = "photo",
+		bounds = {LAT - 1, LON - 1, LAT + 1, LON + 1},
+	}
+	local worldwide = TileSet.New{
+		name = "worldwide",
+		directory = directory .. "worldwide/",
+		fetch = function(_, tile, done)
+			done("ok", solid_tile(40, 90, 30))
+		end,
+		extension = "img",
+		tile_size = 256,
+		max_zoom = 14,
+		kind = "image",
+	}
+	local source = EarthSource.New{Anchor = {LAT, LON}, Heights = heights, Imagery = {regional, worldwide}}
+	local chunk
+
+	source:RequestChunk({min_x = 0, min_z = 0, size = 512, samples = 17, color_size = 32}, function(result)
+		chunk = result
+	end)
+
+	T.WaitUntilReal(
+		function()
+			source:Update()
+			source:Submit()
+			return chunk
+		end,
+		30,
+		"the chunk to bake"
+	)
+
+	local used = source:GetImageryInUse(60)
+	T(#used)["=="](1)
+	T(used[1])["=="](worldwide)
+	source:ReleaseChunk(chunk)
+	source:Finish()
+	heights:Clear()
+	regional:Clear()
+	worldwide:Clear()
+	fs.remove_directory_recursive(directory)
+end)

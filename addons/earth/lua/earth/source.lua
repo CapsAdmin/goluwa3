@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local Texture = import("goluwa/render/texture.lua")
 local geo = import("lua/earth/geo.lua")
+local system = import("goluwa/system.lua")
 local noise = import("goluwa/terrain/noise.lua")
 local EarthSource = setmetatable({}, {__index = ShaderSource})
 EarthSource.__index = EarthSource
@@ -146,7 +147,8 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 }
 ]=]
 
--- config: Anchor ({lat, lon}), Heights and Imagery (TileSets, Imagery optional), Layers, Bathymetry (a TileSet whose
+-- config: Anchor ({lat, lon}), Heights (a TileSet), Imagery (TileSets in the order they are tried: a chunk takes the
+-- first whose bounds hold it at a zoom it serves, the next where its tiles are missing; optional), Layers, Bathymetry (a TileSet whose
 -- heights fill the sea where Heights has none, optional: with it a missing height tile is sea and a height of exactly 0
 -- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
 -- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples)
@@ -168,6 +170,7 @@ function EarthSource.New(config)
 	self.Anchor = geo.NewAnchor(config.Anchor[1], config.Anchor[2])
 	self.Heights = config.Heights
 	self.Imagery = config.Imagery
+	self.ImageryUse = {}
 	self.Bathymetry = config.Bathymetry
 	self.BathymetryMaxZoom = config.BathymetryMaxZoom or 10
 	self.Blank = Texture.New{
@@ -497,6 +500,9 @@ local function bake(self, item, heights, imagery, bathymetry)
 	request.uploads = uploads
 	request.height_zoom = heights.zoom
 	request.imagery_zoom = imagery and imagery.zoom
+
+	if imagery then self.ImageryUse[imagery.set] = system.GetElapsedTime() end
+
 	local callback = item.callback
 
 	ShaderSource.RequestChunk(self, request, function(chunk)
@@ -510,6 +516,61 @@ local function bake(self, item, heights, imagery, bathymetry)
 	end)
 end
 
+local function inside(domain, bounds)
+	for k = 1, GRID * GRID do
+		local lat, lon = domain.lats[k], domain.lons[k]
+
+		if lat < bounds[1] or lon < bounds[2] or lat > bounds[3] or lon > bounds[4] then
+			return false
+		end
+	end
+
+	return true
+end
+
+-- plans the chunk's imagery from the first source from index on whose bounds hold it and that serves its zoom; the last
+-- source is taken whatever its bounds and zooms, false when there is no source after index
+local function choose_imagery(self, item, index)
+	local chain = self.Imagery
+	local request = item.request
+
+	for i = index, #chain do
+		local set = chain[i]
+		local zoom = geo.GetZoomFor(item.domain.center_lat, request.size / request.color_size, set.TileSize, set.MaxZoom)
+
+		if
+			i == #chain or
+			zoom >= set.MinZoom and
+			(
+				not set.Bounds or
+				inside(item.domain, set.Bounds)
+			)
+		then
+			local _, mosaic = choose_zoom(set, item.domain, request, request.color_size)
+			item.imagery = mosaic
+			item.imagery_index = i
+			return true
+		end
+	end
+
+	return false
+end
+
+-- the imagery mosaic once its tiles are in: missing tiles move it down the chain, at the last source to coarser zooms
+local function resolve_imagery(self, item)
+	while item.imagery_index < #self.Imagery do
+		local state = mosaic_state(item.imagery)
+
+		if state == "ready" then return item.imagery end
+
+		if state == "loading" then return nil end
+
+		choose_imagery(self, item, item.imagery_index + 1)
+	end
+
+	return resolve_mosaic(item, "imagery")
+end
+
 -- returns true when the item was baked (or dropped)
 local function try_resolve(self, item)
 	if item.request.cancelled then return true end
@@ -518,7 +579,7 @@ local function try_resolve(self, item)
 	local imagery = false
 	local bathymetry = false
 
-	if item.imagery then imagery = resolve_mosaic(item, "imagery") end
+	if item.imagery then imagery = resolve_imagery(self, item) end
 
 	if item.bathymetry then bathymetry = resolve_mosaic(item, "bathymetry") end
 
@@ -552,10 +613,7 @@ function EarthSource:RequestChunk(request, callback)
 		)
 	end
 
-	if self.Imagery and request.color_size then
-		local _, imagery = choose_zoom(self.Imagery, domain, request, request.color_size)
-		item.imagery = imagery
-	end
+	if self.Imagery and request.color_size then choose_imagery(self, item, 1) end
 
 	if not try_resolve(self, item) then self.Waiting[#self.Waiting + 1] = item end
 end
@@ -565,7 +623,11 @@ function EarthSource:Update()
 
 	if self.Bathymetry then self.Bathymetry:Update() end
 
-	if self.Imagery then self.Imagery:Update() end
+	if self.Imagery then
+		for _, set in ipairs(self.Imagery) do
+			set:Update()
+		end
+	end
 
 	local waiting = self.Waiting
 	local resolved = 0
@@ -602,6 +664,20 @@ end
 function EarthSource:GetPendingCount()
 	local batches, chunks = ShaderSource.GetPendingCount(self)
 	return batches, chunks + #self.Waiting
+end
+
+-- the imagery sets a chunk was baked from in the last seconds
+function EarthSource:GetImageryInUse(seconds)
+	local now = system.GetElapsedTime()
+	local used = {}
+
+	for _, set in ipairs(self.Imagery or {}) do
+		if self.ImageryUse[set] and now - self.ImageryUse[set] < seconds then
+			used[#used + 1] = set
+		end
+	end
+
+	return used
 end
 
 function EarthSource:GetWaitingCount()

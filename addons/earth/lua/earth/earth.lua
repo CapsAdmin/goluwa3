@@ -1,10 +1,12 @@
 local Terrain = import("goluwa/terrain/terrain.lua")
 local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local TileSet = import("lua/earth/tile_set.lua")
 local EarthSource = import("lua/earth/source.lua")
 local mapterhorn = import("lua/earth/mapterhorn.lua")
+local imagery_sources = import("lua/earth/imagery_sources.lua")
 local cloud_cover = import("lua/earth/cloud_cover.lua")
 local buildings = import("lua/earth/buildings.lua")
 local geo = import("lua/earth/geo.lua")
@@ -18,6 +20,31 @@ earth.ATTRIBUTION = {
 	"Elevation: Mapterhorn (https://mapterhorn.com/attribution); sea floor: Terrain Tiles on AWS (Mapzen; ETOPO1, GEBCO, and others)",
 	"Imagery: Sentinel-2 cloudless - https://s2maps.eu by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016)",
 }
+-- regional photos are used from these zooms on (a WMS renders every tile it is asked for, so not for the far rings)
+local REGIONAL_TILE_MIN_ZOOM = 10
+local REGIONAL_EXPORT_MIN_ZOOM = 14
+local REGIONAL_MAX_ZOOM = 18
+local MERCATOR_EXTENT = 20037508.342789244
+
+local function regional_url(source, z, x, y)
+	local n = 2 ^ z
+	local url = source.url:gsub("{z}", z):gsub("{x}", x):gsub("{y}", y):gsub("{ty}", n - 1 - y):gsub("{size}", 256)
+
+	if source.kind == "wms" then
+		local size = 2 * MERCATOR_EXTENT / n
+		local west, north = -MERCATOR_EXTENT + x * size, MERCATOR_EXTENT - y * size
+		url = url:gsub(
+			"{bbox}",
+			string.format("%.3f,%.3f,%.3f,%.3f", west, north - size, west + size, north)
+		)
+	elseif source.kind == "wms4326" then
+		local north, west = geo.FromMercator(x, y, z, 1)
+		local south, east = geo.FromMercator(x + 1, y + 1, z, 1)
+		url = url:gsub("{bbox4326}", string.format("%.8f,%.8f,%.8f,%.8f", south, west, north, east))
+	end
+
+	return url
+end
 
 function earth.GetTileSets()
 	if not earth.Heights then
@@ -60,9 +87,29 @@ function earth.GetTileSets()
 			kind = "image",
 			host_limit = 6,
 		}
+		earth.ImageryChain = {}
+
+		for _, source in ipairs(imagery_sources) do
+			earth.ImageryChain[#earth.ImageryChain + 1] = TileSet.New{
+				name = "photo_" .. source.name,
+				url = function(z, x, y)
+					return regional_url(source, z, x, y)
+				end,
+				extension = "img",
+				tile_size = 256,
+				min_zoom = source.kind == "xyz" and REGIONAL_TILE_MIN_ZOOM or REGIONAL_EXPORT_MIN_ZOOM,
+				max_zoom = REGIONAL_MAX_ZOOM,
+				kind = "photo",
+				host_limit = 4,
+				bounds = source.bounds,
+				attribution = source.attribution,
+			}
+		end
+
+		earth.ImageryChain[#earth.ImageryChain + 1] = earth.Imagery
 	end
 
-	return earth.Heights, earth.Imagery, earth.Bathymetry
+	return earth.Heights, earth.ImageryChain, earth.Bathymetry
 end
 
 local function start_terrain(lat, lon)
@@ -150,15 +197,30 @@ function earth.Start(config)
 		attribution[#attribution + 1] = buildings.ATTRIBUTION
 	end
 
+	local lines = attribution
+	local next_refresh = 0
+
 	event.AddListener("DrawHUD", "earth_attribution", function()
+		local now = system.GetElapsedTime()
+
+		-- the regional photo services credited are those the terrain was baked from lately
+		if now >= next_refresh then
+			next_refresh = now + 2
+			lines = table.copy(attribution)
+
+			for _, set in ipairs(earth.source:GetImageryInUse(60)) do
+				if set.Attribution then lines[#lines + 1] = "Imagery: " .. set.Attribution end
+			end
+		end
+
 		local font = fonts.GetFont()
 		local _, h = render2d.GetSize()
 		render2d.SetTexture(nil)
 		render2d.SetColor(1, 1, 1, 0.6)
 
-		for i, line in ipairs(attribution) do
+		for i, line in ipairs(lines) do
 			local _, text_h = font:GetTextSize(line)
-			font:DrawText(line, 8, h - (#attribution - i + 1) * (text_h + 2) - 6, 0)
+			font:DrawText(line, 8, h - (#lines - i + 1) * (text_h + 2) - 6, 0)
 		end
 	end)
 
