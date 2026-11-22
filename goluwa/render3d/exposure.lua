@@ -1,3 +1,4 @@
+local lens = import("goluwa/render3d/lens.lua")
 local exposure = {}
 local KEY = 0.18
 local LOG2_10 = math.log(10) / math.log(2)
@@ -304,6 +305,8 @@ exposure.camera_block = {
 	{"camera_iso", "float"},
 	{"camera_aperture", "float"},
 	{"camera_shutter", "float"},
+	{"camera_aperture_min", "float"},
+	{"camera_aperture_max", "float"},
 }
 
 function exposure.WriteCameraBlock(block)
@@ -311,6 +314,8 @@ function exposure.WriteCameraBlock(block)
 	block.camera_iso = state["camera.iso"]
 	block.camera_aperture = state["camera.aperture"]
 	block.camera_shutter = state["camera.shutter"]
+	block.camera_aperture_min = not state["eye.enabled"] and lens.GetApertureMin() or APERTURE_MIN
+	block.camera_aperture_max = not state["eye.enabled"] and lens.GetApertureMax() or APERTURE_MAX
 	return block
 end
 
@@ -335,11 +340,11 @@ function exposure.GetCameraSettingsGLSL(block_name)
 				t = clamp(n * n / light, ]] .. SHUTTER_MIN .. [[, ]] .. SHUTTER_MAX .. [[);
 			} else if (]] .. b .. [[.camera_mode == 2) {
 				t = ]] .. b .. [[.camera_shutter;
-				n = clamp(sqrt(light * t), ]] .. APERTURE_MIN .. [[, ]] .. APERTURE_MAX .. [[);
+				n = clamp(sqrt(light * t), ]] .. b .. [[.camera_aperture_min, ]] .. b .. [[.camera_aperture_max);
 			} else {
-				n = clamp(8.0 * exp2((ev - ]] .. log2(64 * 125) .. [[) / 4.0), ]] .. APERTURE_MIN .. [[, ]] .. APERTURE_MAX .. [[);
+				n = clamp(8.0 * exp2((ev - ]] .. log2(64 * 125) .. [[) / 4.0), ]] .. b .. [[.camera_aperture_min, ]] .. b .. [[.camera_aperture_max);
 				t = clamp(n * n / light, ]] .. SHUTTER_MIN .. [[, ]] .. SHUTTER_MAX .. [[);
-				n = clamp(sqrt(light * t), ]] .. APERTURE_MIN .. [[, ]] .. APERTURE_MAX .. [[);
+				n = clamp(sqrt(light * t), ]] .. b .. [[.camera_aperture_min, ]] .. b .. [[.camera_aperture_max);
 			}
 
 			return vec3(clamp(]] .. ISO_BASE .. [[.0 * n * n / (t * light), ]] .. ISO_MIN .. [[.0, ]] .. ISO_MAX .. [[.0), n, t);

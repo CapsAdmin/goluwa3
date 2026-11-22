@@ -9,15 +9,17 @@ local exposure_model = import("goluwa/render3d/exposure.lua")
 local eye_glare = import("goluwa/render3d/eye_glare.lua")
 local eye_psf = import("goluwa/render3d/eye_psf.lua")
 local Texture = import("goluwa/render/texture.lua")
+local lens = import("goluwa/render3d/lens.lua")
+local lens_flare = import("goluwa/render3d/passes/lens_flare.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local TILE_SCALE = 1 / 16
 local SPREAD_WINDOW = 16
 local COMPACT_SPREAD = 6
 local MAX_DEGREES = 10
 local HISTORY_WEIGHT = 0.9
-local SPREAD_ENTRIES = 256
-local SPREAD_MIN_DEGREES = 0.05
-local SPREAD_MAX_DEGREES = 30
+local SPREAD_ENTRIES = lens_flare.STAR_SPREAD_ENTRIES
+local SPREAD_MIN_DEGREES = lens_flare.STAR_SPREAD_MIN_DEGREES
+local SPREAD_MAX_DEGREES = lens_flare.STAR_SPREAD_MAX_DEGREES
 pvars.StartGroup("Post", "Eye effects", {store = false})
 render3d.starburst_enabled = pvars.Setup2{
 	key = "r_eye_starburst",
@@ -28,6 +30,10 @@ pvars.EndGroup()
 local textures
 
 local function get_textures()
+	local built = lens_flare.GetLens()
+
+	if built then return lens_flare.GetStarTextures() end
+
 	if textures then return textures end
 
 	local function make(width, height, format, data)
@@ -64,7 +70,9 @@ local function get_textures()
 end
 
 function render3d.IsStarburstEnabled()
-	return exposure_model.IsEye() and render3d.starburst_enabled:Get()
+	if exposure_model.IsEye() then return render3d.starburst_enabled:Get() end
+
+	return lens_flare.GetLens() ~= nil and lens.Get("lens.starburst")
 end
 
 local is_enabled = render3d.IsStarburstEnabled
@@ -177,7 +185,7 @@ return {
 				sum *= compact;
 				weight *= compact;
 				imageStore(out_sum, pos, vec4(sum, weight));
-				imageStore(out_centroid, pos, vec4(weight > 0.0 ? weighted_position / (weight / compact) : vec2(0.0), weight, 0.0));
+				imageStore(out_centroid, pos, vec4(weight > 0.0 ? weighted_position / (weight / compact) : vec2(0.0), weight, spread));
 			}
 		]],
 	},
@@ -223,6 +231,32 @@ return {
 					return render3d.pipelines.starburst:GetFramebuffer((system.GetFrameNumber() + 1) % 2 + 1):GetAttachment(1)
 				end,
 			},
+			{
+				binding_index = 9,
+				get_texture = function()
+					return (lens_flare.GetSourceTextures())
+				end,
+			},
+			{
+				binding_index = 10,
+				get_texture = function()
+					return select(2, lens_flare.GetSourceTextures())
+				end,
+			},
+			{
+				binding_index = 11,
+				get_texture = function()
+					local dirt = lens_flare.GetLens() and lens_flare.GetDirtTextures()
+					return dirt and dirt.modulation
+				end,
+			},
+			{
+				binding_index = 12,
+				get_texture = function()
+					local dirt = lens_flare.GetLens() and lens_flare.GetDirtTextures()
+					return dirt and dirt.spread
+				end,
+			},
 		},
 		uniform_buffers = {
 			{
@@ -231,9 +265,15 @@ return {
 				block = {
 					render3d.camera_block,
 					render3d.prev_camera_block,
+					exposure_model.camera_block,
+					lens.block,
 					{"history_weight", "float"},
 					{"pixels_per_degree", "float"},
+					{"pixels_per_mm", "float"},
+					{"lens", "int"},
 					{"strength", "float"},
+					{"has_sources", "int"},
+					{"has_dirt", "int"},
 				},
 				write = function(self, block)
 					local frame = system.GetFrameNumber()
@@ -249,6 +289,18 @@ return {
 					last_frame, last_width, last_height = frame, size.x, size.y
 					block.pixels_per_degree = exposure_model.GetPixelsPerDegree(size.y) / 2
 					block.strength = render3d.bloom_strength:Get()
+					exposure_model.WriteCameraBlock(block)
+					local built = lens_flare.GetLens()
+					block.lens = built and 1 or 0
+					block.has_sources = lens_flare.GetSourceTextures() and 1 or 0
+					block.has_dirt = built and lens_flare.GetDirtTextures() and 1 or 0
+
+					if built then
+						block.strength = block.strength * lens.Get("lens.starburst_intensity")
+						lens_flare.WriteLensBlock(self, block, built)
+						block.pixels_per_mm = 0.5 * size:GetLength() / 2 / built.image_radius
+					end
+
 					return block
 				end,
 			},
@@ -273,7 +325,30 @@ return {
 			const float TURN_STILL_PIXELS = 0.35;
 			#define TRAVEL_STILL_METERS (0.004 * star_data.view_scale)
 			const vec2 JITTER_SIGN = vec2(-1.0, -1.0);
-		]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. screen_reconstruct.GetViewRayFromUVGLSL("star_data") .. [[
+			const float LENS_REFERENCE_MM = ]] .. string.format("%.3f", eye_psf.PUPIL_DIAMETER * 1000) .. [[;
+			const float LENS_ANCHOR_DEGREES = ]] .. string.format("%.6f", lens.GetStarAnchorDegrees()) .. [[;
+			const float LENS_FAR_DEGREES = ]] .. string.format("%.3f", lens.STAR_FAR_DEGREES) .. [[;
+			const int LENS_SOURCES = ]] .. lens_flare.SOURCES .. [[;
+			layout(set = 0, binding = 9) uniform sampler2D lens_source_position_tex;
+			layout(set = 0, binding = 10) uniform sampler2D lens_source_energy_tex;
+			layout(set = 0, binding = 11) uniform sampler2D dirt_modulation_tex;
+			layout(set = 0, binding = 12) uniform sampler2D dirt_spread_tex;
+		]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. screen_reconstruct.GetViewRayFromUVGLSL("star_data") .. exposure_model.GetCameraSettingsGLSL("star_data") .. lens.GetGLSL("star_data") .. [[
+			float dirt_degrees_per_pixel;
+
+			vec3 dirt_star(vec2 offset) {
+				float degrees = length(offset) * dirt_degrees_per_pixel;
+				float angle = atan(offset.y, offset.x) / 6.2831853 + 0.5;
+				vec3 spread = texture(dirt_spread_tex, vec2((log(degrees) - SPREAD_LOG_MIN) / SPREAD_LOG_RANGE, 0.5)).rgb;
+				vec3 scaled_log = log(min(degrees / CHANNEL_RATIO, vec3(LENS_ANCHOR_DEGREES)));
+				vec3 modulation = vec3(
+					texture(dirt_modulation_tex, vec2(angle, (scaled_log.r - PSF_LOG_MIN) / PSF_LOG_RANGE)).r,
+					texture(dirt_modulation_tex, vec2(angle, (scaled_log.g - PSF_LOG_MIN) / PSF_LOG_RANGE)).r,
+					texture(dirt_modulation_tex, vec2(angle, (scaled_log.b - PSF_LOG_MIN) / PSF_LOG_RANGE)).r
+				);
+				return pow(radians(dirt_degrees_per_pixel), 2.0) * spread * max(modulation - 1.0, vec3(0.0));
+			}
+
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_star);
@@ -283,12 +358,29 @@ return {
 				float log_pre_exposure = log2(pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r));
 				float exposure = texture(exposure_tex, vec2(0.5)).r / exp2(log_pre_exposure);
 				float adapting_log10 = (texture(exposure_tex, vec2(0.5)).b - 3.0) * 0.30103;
-				float pupil_scale = (4.9 - 3.0 * tanh(0.4 * (adapting_log10 + 1.0))) / PUPIL_REFERENCE_MM;
+				float modulation_scale = (4.9 - 3.0 * tanh(0.4 * (adapting_log10 + 1.0))) / PUPIL_REFERENCE_MM;
+				float degrees_per_pixel = 1.0 / star_data.pixels_per_degree;
+				vec4 ramp = vec4(0.2, 0.8, 0.7 * MAX_DEGREES, MAX_DEGREES);
+				float modulation_max = 1e9;
+				float strength = star_data.strength;
+				float blade_strength = 1.0;
+
+				if (star_data.lens != 0) {
+					float n = camera_settings(texture(exposure_tex, vec2(0.5)).r).y;
+					modulation_scale = 1.0;
+					degrees_per_pixel = degrees(1.0 / (star_data.pixels_per_mm * LENS_REFERENCE_MM * lens_aperture(n)));
+					ramp = vec4(2.0 * degrees_per_pixel, 6.0 * degrees_per_pixel, 0.5 * LENS_ANCHOR_DEGREES, 0.7 * LENS_ANCHOR_DEGREES);
+					modulation_max = LENS_ANCHOR_DEGREES;
+					dirt_degrees_per_pixel = degrees(1.0 / (star_data.pixels_per_mm * star_data.lens_effective_focal));
+
+					if (star_data.lens_curvature < 1.0) blade_strength = (1.0 - lens_curvature_at(n)) / (1.0 - star_data.lens_curvature);
+				}
+
 				ivec2 tiles = textureSize(tile_sum_tex, 0);
 				vec2 per_tile = vec2(size) / vec2(tiles);
 				ivec2 home = ivec2(vec2(pos) / per_tile);
-				int reach = int(ceil(MAX_DEGREES * star_data.pixels_per_degree / min(per_tile.x, per_tile.y)));
-				float solid_angle = pow(radians(1.0 / star_data.pixels_per_degree), 2.0);
+				int reach = int(ceil(ramp.w / degrees_per_pixel / min(per_tile.x, per_tile.y)));
+				float solid_angle = pow(radians(degrees_per_pixel), 2.0);
 				vec3 star = vec3(0.0);
 
 				for (int ty = -reach; ty <= reach; ty++) {
@@ -301,25 +393,57 @@ return {
 
 						if (tile_sum.a * exposure < SOURCE_THRESHOLD) continue;
 
-						vec2 offset = vec2(pos) + 0.5 - (texelFetch(tile_centroid_tex, tile, 0).xy * vec2(size) + JITTER_SIGN * 0.5 * star_data.jitter);
-						float degrees = length(offset) / star_data.pixels_per_degree;
-						float ramp = smoothstep(0.2, 0.8, degrees) * (1.0 - smoothstep(0.7 * MAX_DEGREES, MAX_DEGREES, degrees));
+						vec4 tile_center = texelFetch(tile_centroid_tex, tile, 0);
+						vec2 offset = vec2(pos) + 0.5 - (tile_center.xy * vec2(size) + JITTER_SIGN * 0.5 * star_data.jitter);
+						float degrees = length(offset) * degrees_per_pixel;
+						float fade = smoothstep(ramp.x, ramp.y, degrees) * (1.0 - smoothstep(ramp.z, ramp.w, degrees));
 
-						if (ramp <= 0.0) continue;
+						if (star_data.lens != 0) fade /= max(tile_center.w, 1.0);
+
+						if (fade <= 0.0) continue;
 
 						float angle = atan(offset.y, offset.x) / 6.2831853 + 0.5;
 						vec3 spread = texture(spread_tex, vec2((log(degrees) - SPREAD_LOG_MIN) / SPREAD_LOG_RANGE, 0.5)).rgb;
-						vec3 scaled_log = log(degrees * pupil_scale / CHANNEL_RATIO);
+						vec3 scaled_log = log(min(degrees * modulation_scale / CHANNEL_RATIO, vec3(modulation_max)));
 						vec3 modulation = vec3(
 							texture(modulation_tex, vec2(angle, (scaled_log.r - PSF_LOG_MIN) / PSF_LOG_RANGE)).r,
 							texture(modulation_tex, vec2(angle, (scaled_log.g - PSF_LOG_MIN) / PSF_LOG_RANGE)).r,
 							texture(modulation_tex, vec2(angle, (scaled_log.b - PSF_LOG_MIN) / PSF_LOG_RANGE)).r
 						);
-						star += tile_sum.rgb * solid_angle * spread * max(modulation - 1.0, vec3(0.0)) * ramp;
+						star += tile_sum.rgb * solid_angle * spread * max(modulation - 1.0, vec3(0.0)) * fade * blade_strength;
+
+						if (star_data.has_dirt != 0) star += tile_sum.rgb * dirt_star(offset) * fade;
 					}
 				}
 
-				star *= star_data.strength;
+				if (star_data.lens != 0 && star_data.has_sources != 0) {
+					for (int s = 0; s < LENS_SOURCES; s++) {
+						vec3 energy = texelFetch(lens_source_energy_tex, ivec2(s, 0), 0).rgb;
+
+						if (luminance(energy) * exposure < SOURCE_THRESHOLD) continue;
+
+						vec4 source = texelFetch(lens_source_position_tex, ivec2(s, 0), 0);
+						vec2 offset = vec2(pos) + 0.5 - (source.xy * vec2(size) + JITTER_SIGN * 0.5 * star_data.jitter);
+						float degrees = length(offset) * degrees_per_pixel;
+						float fade = smoothstep(ramp.z, ramp.w, degrees) * (1.0 - smoothstep(0.7 * LENS_FAR_DEGREES, LENS_FAR_DEGREES, degrees)) / max(source.z, 1.0);
+
+						if (fade <= 0.0) continue;
+
+						float angle = atan(offset.y, offset.x) / 6.2831853 + 0.5;
+						vec3 spread = texture(spread_tex, vec2((log(degrees) - SPREAD_LOG_MIN) / SPREAD_LOG_RANGE, 0.5)).rgb;
+						vec3 scaled_log = log(min(degrees / CHANNEL_RATIO, vec3(modulation_max)));
+						vec3 modulation = vec3(
+							texture(modulation_tex, vec2(angle, (scaled_log.r - PSF_LOG_MIN) / PSF_LOG_RANGE)).r,
+							texture(modulation_tex, vec2(angle, (scaled_log.g - PSF_LOG_MIN) / PSF_LOG_RANGE)).r,
+							texture(modulation_tex, vec2(angle, (scaled_log.b - PSF_LOG_MIN) / PSF_LOG_RANGE)).r
+						);
+						star += energy * solid_angle * spread * max(modulation - 1.0, vec3(0.0)) * fade * blade_strength;
+
+						if (star_data.has_dirt != 0) star += energy * dirt_star(offset) * fade;
+					}
+				}
+
+				star *= strength;
 
 				if (star_data.history_weight > 0.0) {
 					vec4 previous_clip = star_data.prev_projection * mat4(mat3(star_data.prev_view)) * vec4(get_view_ray((vec2(pos) + 0.5) / vec2(size)), 1.0);

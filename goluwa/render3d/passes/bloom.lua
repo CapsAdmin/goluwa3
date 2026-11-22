@@ -6,6 +6,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local eye_glare = import("goluwa/render3d/eye_glare.lua")
+local lens_flare = import("goluwa/render3d/passes/lens_flare.lua")
 local LEVELS = 10
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local ENERGY_PER_OCTAVE = 0.0191 * math.log(2)
@@ -38,11 +39,11 @@ render3d.eye_chromatic_halo = pvars.Setup2{
 pvars.EndGroup()
 
 function render3d.GetBloomThreshold()
-	return exposure_model.IsEye() and 0 or render3d.bloom_threshold:Get()
+	return (exposure_model.IsEye() or lens_flare.GetLens()) and 0 or render3d.bloom_threshold:Get()
 end
 
 function render3d.GetBloomFloor()
-	return exposure_model.IsEye() and 0 or render3d.bloom_floor:Get()
+	return (exposure_model.IsEye() or lens_flare.GetLens()) and 0 or render3d.bloom_floor:Get()
 end
 
 render3d.bloom_threshold_glsl = [[
@@ -174,6 +175,7 @@ local downsample_glsl = [[
 ]]
 local upsample_glsl = [[
 	layout(set = 0, binding = 2) uniform sampler2D merge_tex;
+	layout(set = 0, binding = 6) uniform sampler2D lens_weights_tex;
 
 	void main() {
 		ivec2 pos = get_screen_pos();
@@ -194,7 +196,16 @@ local upsample_glsl = [[
 			bloom_sample(uv + t * vec2(1.0, -1.0)) +
 			bloom_sample(uv + t * vec2(-1.0, 1.0)) +
 			bloom_sample(uv + t * vec2(1.0, 1.0));
-		imageStore(out_bloom, pos, vec4(sum / 16.0 * compute.source_weight.rgb + texelFetch(merge_tex, pos, 0).rgb * compute.merge_weight.rgb, 1.0));
+		vec3 source_weight = compute.source_weight.rgb;
+		vec3 merge_weight = compute.merge_weight.rgb;
+
+		if (compute.lens_weights != 0) {
+			merge_weight = texelFetch(lens_weights_tex, ivec2(compute.level, 0), 0).rgb;
+
+			if (compute.top != 0) source_weight = texelFetch(lens_weights_tex, ivec2(compute.level + 1, 0), 0).rgb;
+		}
+
+		imageStore(out_bloom, pos, vec4(sum / 16.0 * source_weight + texelFetch(merge_tex, pos, 0).rgb * merge_weight, 1.0));
 	}
 ]]
 
@@ -210,6 +221,9 @@ local block = {
 	{"source_weight", "vec4"},
 	{"merge_weight", "vec4"},
 	{"threshold", "float"},
+	{"lens_weights", "int"},
+	{"level", "int"},
+	{"top", "int"},
 }
 
 local function build_pass(name, scale, shader, sampled_images, write)
@@ -302,9 +316,13 @@ return function()
 					binding_index = 2,
 					get_texture = get_pipeline_texture("bloom_down" .. i),
 				},
+				{binding_index = 6, get_texture = lens_flare.GetBloomWeightsTexture},
 			},
 			function(block)
 				local weights = render3d.GetBloomWeights()
+				block.lens_weights = lens_flare.GetBloomWeightsTexture() and 1 or 0
+				block.level = i
+				block.top = i == LEVELS - 1 and 1 or 0
 
 				for channel = 0, 2 do
 					block.source_weight[channel] = i == LEVELS - 1 and weights[channel + 1][LEVELS] or 1

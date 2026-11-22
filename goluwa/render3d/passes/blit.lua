@@ -10,6 +10,8 @@ local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local grade = import("goluwa/render3d/grade.lua")
 local afterimage = import("goluwa/render3d/passes/afterimage.lua")
+local lens_flare = import("goluwa/render3d/passes/lens_flare.lua")
+local lens = import("goluwa/render3d/lens.lua")
 import("goluwa/render3d/passes/bloom.lua")
 local assets = import("goluwa/assets.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
@@ -494,16 +496,27 @@ glare_pass = {
 		{binding_index = 2, get_texture = get_exposure_feedback_texture},
 		{binding_index = 3, get_texture = get_previous_exposure_texture},
 		{binding_index = 4, get_texture = get_star_texture},
+		{binding_index = 5, get_texture = lens_flare.GetGhostTexture},
+		{binding_index = 6, get_texture = lens_flare.GetTracedGhostTexture},
+		{binding_index = 7, get_texture = lens_flare.GetBloomWeightsTexture},
 	},
 	block = {
 		{"bloom_strength", "vec4"},
 		{"has_star", "int"},
+		{"has_ghosts", "int"},
+		{"has_traced_ghosts", "int"},
+		{"lens_bloom", "int"},
+		{"bloom_scale", "float"},
 		{"floor", "float"},
 	},
 	write = function(self, block)
 		write_bloom_strength(block.bloom_strength)
 		block.floor = render3d.GetBloomFloor()
 		block.has_star = get_star_texture() and 1 or 0
+		block.has_ghosts = lens_flare.GetGhostTexture() and 1 or 0
+		block.has_traced_ghosts = lens_flare.GetTracedGhostTexture() and 1 or 0
+		block.lens_bloom = lens_flare.GetBloomWeightsTexture() and 1 or 0
+		block.bloom_scale = render3d.bloom_strength:Get()
 		return block
 	end,
 	shader = [[
@@ -512,6 +525,9 @@ glare_pass = {
 		layout(set = 0, binding = 2) uniform sampler2D exposure_tex;
 		layout(set = 0, binding = 3) uniform sampler2D prev_exposure_tex;
 		layout(set = 0, binding = 4) uniform sampler2D star_tex;
+		layout(set = 0, binding = 5) uniform sampler2D ghost_tex;
+		layout(set = 0, binding = 6) uniform sampler2D traced_ghost_tex;
+		layout(set = 0, binding = 7) uniform sampler2D lens_bloom_tex;
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
 		void main() {
 			ivec2 pos = get_screen_pos();
@@ -522,11 +538,16 @@ glare_pass = {
 			vec2 uv = get_screen_uv(pos, size);
 			vec2 half_texel = 0.5 / vec2(textureSize(bloom_tex, 0));
 			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
-			vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength.rgb * exposure;
+			vec3 strength = compute.lens_bloom != 0 ? min(texelFetch(lens_bloom_tex, ivec2(0, 0), 0).rgb * compute.bloom_scale, vec3(1.0)) : compute.bloom_strength.rgb;
+			vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * strength * exposure;
 
 			if (compute.floor > 0.0) glare *= glare / (glare + compute.floor);
 
 			if (compute.has_star != 0) glare += texture(star_tex, edge_clamp_uv(uv, textureSize(star_tex, 0))).rgb * exposure;
+
+			if (compute.has_ghosts != 0) glare += texture(ghost_tex, edge_clamp_uv(uv, textureSize(ghost_tex, 0))).rgb * exposure;
+
+			if (compute.has_traced_ghosts != 0) glare += texture(traced_ghost_tex, edge_clamp_uv(uv, textureSize(traced_ghost_tex, 0))).rgb * exposure;
 
 			imageStore(out_glare, pos, vec4(glare, 1.0));
 		}
@@ -549,6 +570,11 @@ local compute_shader = [[
 	layout(set = 0, binding = 8) uniform sampler2D afterimage_tex;
 	layout(set = 0, binding = 9) uniform sampler2D afterimage_bleach_tex;
 	layout(set = 0, binding = 10) uniform sampler2D afterimage_source_tex;
+	layout(set = 0, binding = 13) uniform sampler2D lens_warp_tex;
+	layout(set = 0, binding = 14) uniform sampler2D lens_vignette_tex;
+	layout(set = 0, binding = 16) uniform sampler2D lens_bloom_tex;
+	const float LENS_WARP_ENTRIES = ]] .. lens.WARP_ENTRIES .. [[.0;
+	const vec2 LENS_VIGNETTE_SIZE = vec2(]] .. lens.VIGNETTE_FIELDS .. [[.0, ]] .. lens.VIGNETTE_APERTURES .. [[.0);
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
 
 	float effective_paper_white;
@@ -576,7 +602,7 @@ local compute_shader = [[
 
 	]] .. ROD_RESPONSE_GLSL .. render3d.bloom_threshold_glsl .. [[
 
-	]] .. exposure_model.GetCameraSettingsGLSL("compute") .. [[
+	]] .. exposure_model.GetCameraSettingsGLSL("compute") .. lens.GetGLSL("lens_data") .. [[
 
 	uint pcg_hash(uint v) {
 		uint state = v * 747796405u + 2891336453u;
@@ -601,8 +627,36 @@ local compute_shader = [[
 		}
 
 		vec2 uv = get_screen_uv(pos, size);
-		vec4 scene = texture(source_tex, uv);
-		vec3 col = scene.rgb;
+		vec2 glare_uv = uv;
+		float lens_field = length((uv - 0.5) * vec2(size)) / (0.5 * length(vec2(size)));
+		vec4 scene;
+
+		if (compute.debug_passthrough == 0 && lens_data.lens_warp != 0) {
+			vec3 ratio = texture(lens_warp_tex, vec2((lens_field * (LENS_WARP_ENTRIES - 1.0) + 0.5) / LENS_WARP_ENTRIES, 0.5)).rgb;
+
+			ratio *= exp2((lens_data.lens_distortion - 1.0) * log2(ratio.g));
+
+			ratio = ratio.g * exp2(lens_data.lens_lateral_color * log2(ratio / ratio.g));
+
+			glare_uv = 0.5 + (uv - 0.5) * ratio.g;
+			scene = texture(source_tex, glare_uv);
+			scene.r = texture(source_tex, 0.5 + (uv - 0.5) * ratio.r).r;
+			scene.b = texture(source_tex, 0.5 + (uv - 0.5) * ratio.b).b;
+		} else {
+			scene = texture(source_tex, uv);
+		}
+
+		float vignette = 1.0;
+
+		if (compute.debug_passthrough == 0 && lens_data.lens_vignette != 0 && compute.has_exposure_tex != 0) {
+			float n = lens_aperture(camera_settings(texture(exposure_tex, vec2(0.5)).r).y);
+			float aperture = clamp(log2(n / lens_data.lens_aperture_min) / log2(LENS_APERTURE_MAX / lens_data.lens_aperture_min), 0.0, 1.0);
+			float ideal_field = length((glare_uv - 0.5) * vec2(size)) / (0.5 * length(vec2(size)));
+			vignette = texture(lens_vignette_tex, (vec2(min(ideal_field, 1.0), aperture) * (LENS_VIGNETTE_SIZE - 1.0) + 0.5) / LENS_VIGNETTE_SIZE).r;
+			vignette *= texture(lens_warp_tex, vec2((min(lens_field, 1.0) * (LENS_WARP_ENTRIES - 1.0) + 0.5) / LENS_WARP_ENTRIES, 0.5)).a;
+		}
+
+		vec3 col = scene.rgb * vignette;
 		float glare_keep = compute.has_fields != 0 ? scene.a : 1.0;
 
 		if (compute.debug_passthrough == 0 && compute.eye_defocus != 0 && compute.has_exposure_tex != 0) {
@@ -653,8 +707,9 @@ local compute_shader = [[
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
 		if (compute.debug_passthrough == 0 && compute.has_bloom_tex != 0) {
-			vec3 bloomed = scene.rgb * bloom_threshold_weight(scene.rgb, exposure, compute.bloom_threshold);
-			col = max(col - compute.bloom_strength.rgb * bloomed + texelFetch(glare_tex, pos, 0).rgb * glare_keep / exposure, vec3(0.0));
+			vec3 bloomed = scene.rgb * vignette * bloom_threshold_weight(scene.rgb, exposure, compute.bloom_threshold);
+			vec3 bloom_share = lens_data.lens_bloom != 0 ? min(texelFetch(lens_bloom_tex, ivec2(0, 0), 0).rgb * lens_data.bloom_scale, vec3(1.0)) : compute.bloom_strength.rgb;
+			col = max(col - bloom_share * bloomed + texture(glare_tex, glare_uv).rgb * glare_keep / exposure, vec3(0.0));
 		}
 
 		if (compute.debug_passthrough == 0 && compute.has_afterimage != 0) col = apply_afterimage(col, texture_catmull_rom(afterimage_tex, uv).rgb, texture_catmull_rom(afterimage_bleach_tex, uv).rgb, texture_catmull_rom(afterimage_source_tex, uv), exposure, compute.afterimage_intensity);
@@ -807,7 +862,19 @@ local r = {
 	white_balance_feedback_pass,
 }
 
+for _, pass in ipairs(lens_flare.psf_passes) do
+	r[#r + 1] = pass
+end
+
+for _, pass in ipairs(lens_flare.bloom_passes) do
+	r[#r + 1] = pass
+end
+
 for _, pass in ipairs(import("goluwa/render3d/passes/bloom.lua")()) do
+	r[#r + 1] = pass
+end
+
+for _, pass in ipairs(lens_flare.passes) do
 	r[#r + 1] = pass
 end
 
@@ -882,6 +949,56 @@ for _, pass in ipairs{
 			},
 			{binding_index = 11, get_texture = grade.GetLutTexture3D},
 			{binding_index = 12, get_texture = grade.GetLutTexture1D},
+			{
+				binding_index = 13,
+				get_texture = function()
+					local built = lens_flare.GetLens()
+					return built and lens_flare.GetTextures(built).warp
+				end,
+			},
+			{
+				binding_index = 14,
+				get_texture = function()
+					local built = lens_flare.GetLens()
+					return built and lens_flare.GetTextures(built).vignette
+				end,
+			},
+			{binding_index = 16, get_texture = lens_flare.GetBloomWeightsTexture},
+		},
+		uniform_buffers = {
+			{
+				name = "lens_data",
+				binding_index = 15,
+				block = {
+					lens.block,
+					{"lens_warp", "int"},
+					{"lens_distortion", "float"},
+					{"lens_lateral_color", "float"},
+					{"lens_vignette", "int"},
+					{"lens_bloom", "int"},
+					{"bloom_scale", "float"},
+				},
+				write = function(self, block)
+					local built = lens_flare.GetLens()
+
+					if built then lens_flare.WriteLensBlock(self, block, built) end
+
+					block.lens_distortion = built and lens.Get("lens.distortion") or 0
+					block.lens_lateral_color = built and lens.Get("lens.lateral_color") or 0
+					block.lens_warp = built and
+						(
+							block.lens_distortion ~= 0 or
+							block.lens_lateral_color ~= 0
+						)
+						and
+						1 or
+						0
+					block.lens_vignette = built and lens.Get("lens.vignetting") and 1 or 0
+					block.lens_bloom = lens_flare.GetBloomWeightsTexture() and 1 or 0
+					block.bloom_scale = render3d.bloom_strength:Get()
+					return block
+				end,
+			},
 		},
 		block = {
 			{"has_source_tex", "int"},
