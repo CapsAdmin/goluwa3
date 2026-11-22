@@ -1,11 +1,16 @@
 local fs = import("goluwa/filesystem/fs.lua")
 local pmtiles = import("goluwa/codecs/pmtiles.lua")
 local TileSet = import("lua/earth/tile_set.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 -- a remote pmtiles archive read with range requests: its header and directories are kept on disk, every read is pinned to
 -- the ETag of the first one, so an archive replaced under its url fails instead of mixing releases
 local Archive = {}
 Archive.__index = Archive
 local MAX_LEAF_DEPTH = 4
+local DECODE_JOB = [[
+	local input = ...
+	return import("goluwa/codecs/pmtiles.lua").DecodeDirectory(input.data, input.compression)
+]]
 
 -- config: url, directory (the disk cache), host_limit, on_changed (called when the archive was replaced)
 function Archive.New(config)
@@ -112,31 +117,48 @@ function Archive:WithLeaf(offset, length, callback)
 	end
 
 	local path = self.directory .. "leaf_" .. offset .. "_" .. length .. ".bin"
-	local cached = fs.read_file(path)
-
-	if cached then
-		leaf = {directory = pmtiles.DecodeDirectory(cached, self.header.internal_compression)}
-		self.leaves[offset] = leaf
-		return callback(leaf.directory)
-	end
-
 	leaf = {waiters = {callback}}
 	self.leaves[offset] = leaf
 
-	self:RangeRequest(self.header.leaf_offset + offset, length, function(body, reason)
-		local waiters = leaf.waiters
-		leaf.waiters = nil
-
-		if body then
-			fs.write_file(path, body)
-			leaf.directory = pmtiles.DecodeDirectory(body, self.header.internal_compression)
-		else
+	-- a leaf holds thousands of entries, inflated and read on the thread pool
+	local function decode(body, reason)
+		if not body then
 			self.leaves[offset] = nil
+			local waiters = leaf.waiters
+			leaf.waiters = nil
+
+			for _, waiter in ipairs(waiters) do
+				waiter(nil, reason)
+			end
+
+			return
 		end
 
-		for _, waiter in ipairs(waiters) do
-			waiter(leaf.directory, reason)
-		end
+		thread_pool.Run(
+			DECODE_JOB,
+			{data = body, compression = self.header.internal_compression},
+			math.huge
+		):OnDone(function(job)
+			local waiters = leaf.waiters
+			leaf.waiters = nil
+			leaf.directory = job.meta
+
+			if not job.meta then self.leaves[offset] = nil end
+
+			for _, waiter in ipairs(waiters) do
+				waiter(leaf.directory, job.err)
+			end
+		end)
+	end
+
+	local cached = fs.read_file(path)
+
+	if cached then return decode(cached) end
+
+	self:RangeRequest(self.header.leaf_offset + offset, length, function(body, reason)
+		if body then fs.write_file(path, body) end
+
+		decode(body, reason)
 	end)
 end
 
