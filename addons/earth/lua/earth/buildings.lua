@@ -71,6 +71,8 @@ local FloatArray = ffi.typeof("float[?]")
 local COLLIDER_RADIUS = 100
 local COLLIDER_KEEP_RADIUS = 150
 local COLLIDER_CELL = 32
+-- the most colliders made in one update, the rest come in the next ones
+local COLLIDER_BUDGET = 8
 
 local function cell_key(cx, cz)
 	return (cx + 32768) * 65536 + cz + 32768
@@ -322,9 +324,15 @@ end
 
 local anchors = {}
 local keep = {}
+local missing = {}
+
+local function by_distance(a, b)
+	return a.distance < b.distance
+end
 
 local function update_colliders(camera)
 	list.clear(anchors)
+	list.clear(missing)
 	anchors[1] = camera
 
 	for _, body in ipairs(RigidBody.Instances) do
@@ -362,7 +370,7 @@ local function update_colliders(camera)
 										keep[part] = true
 
 										if not colliders[part] and distance < COLLIDER_RADIUS * COLLIDER_RADIUS then
-											colliders[part] = create_collider(tile, part)
+											missing[#missing + 1] = {tile = tile, part = part, distance = distance}
 										end
 									end
 								end
@@ -378,6 +386,18 @@ local function update_colliders(camera)
 					colliders[part] = nil
 				end
 			end
+		end
+	end
+
+	-- the buildings nearest to something get theirs first
+	table.sort(missing, by_distance)
+
+	for i = 1, math.min(#missing, COLLIDER_BUDGET) do
+		local entry = missing[i]
+		local colliders = entry.tile.collision.colliders
+
+		if not colliders[entry.part] then
+			colliders[entry.part] = create_collider(entry.tile, entry.part)
 		end
 	end
 end
