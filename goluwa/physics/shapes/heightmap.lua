@@ -229,10 +229,23 @@ function META:BuildHeightmapCache()
 	return cache
 end
 
+-- from the samples alone: the broadphase asks for it as soon as the body is tracked, long before anything touches it
 function META:GetLocalBounds()
 	if self.LocalBounds then return self.LocalBounds end
 
-	self.LocalBounds = self:BuildHeightmapCache().bounds
+	local samples = self.Samples
+	local min_y, max_y = math.huge, -math.huge
+
+	for i = 0, self.SamplesX * self.SamplesZ - 1 do
+		local height = samples[i]
+
+		if height < min_y then min_y = height end
+
+		if height > max_y then max_y = height end
+	end
+
+	local half_x, half_z = self.Size.x * 0.5, self.Size.y * 0.5
+	self.LocalBounds = AABB(-half_x, min_y, -half_z, half_x, max_y, half_z)
 	return self.LocalBounds
 end
 
