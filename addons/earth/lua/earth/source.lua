@@ -4,6 +4,7 @@ local Texture = import("goluwa/render/texture.lua")
 local geo = import("lua/earth/geo.lua")
 local system = import("goluwa/system.lua")
 local noise = import("goluwa/terrain/noise.lua")
+local water_grid = import("lua/earth/water_grid.lua")
 local EarthSource = setmetatable({}, {__index = ShaderSource})
 EarthSource.__index = EarthSource
 local GRID = 9
@@ -26,8 +27,11 @@ local LINEAR = {
 }
 -- texture0: the chunk's map, GRID x GRID texels of (height mosaic x, y, imagery mosaic x, y) in mosaic pixels over the
 -- chunk's domain and one more row: (origin x, z, grid step, the spacing of the finest height data there),
--- (height mosaic pixel size, the height mosaic's width and height in texels: the texture is a pooled size at least that);
--- texture1: the height mosaic (meters), texture2: the imagery mosaic
+-- (height mosaic pixel size, the height mosaic's width and height in texels: the texture is a pooled size at least that),
+-- (water mosaic texels per height mosaic texel, water mosaic offset x, y, 1 when there is a water mosaic),
+-- (the water mosaic's width and height in texels);
+-- texture1: the height mosaic (meters), texture2: the imagery mosaic, texture3: the water mosaic (signed distance to the
+-- shore, water level; see water_grid.lua)
 local HEADER = noise.WORLD .. [=[
 vec4 earth_info(int x, int y) {
 	return texelFetch(TEXTURE(terrain_bake.texture0), ivec2(x, y), 0);
@@ -106,22 +110,49 @@ float earth_mosaic_bilinear(vec2 m) {
 	);
 }
 
-// relief finer than the data: noise below the data's own spacing, stronger on steep ground, none at the sea
+vec2 earth_water_texel(ivec2 c, ivec2 last) {
+	return texelFetch(TEXTURE(terrain_bake.texture3), clamp(c, ivec2(0), last), 0).rg;
+}
+
+// the signed distance to the shore and the water level at a height mosaic position, far from water without a mosaic
+vec2 earth_water(vec2 m) {
+	vec4 water = earth_info(2, ]=] .. GRID .. [=[);
+
+	if (water.w == 0.0) return vec2(]=] .. water_grid.FAR .. [=[.0, 0.0);
+
+	ivec2 last = ivec2(earth_info(3, ]=] .. GRID .. [=[).xy) - 1;
+	vec2 t = m * water.x + water.yz - 0.5;
+	ivec2 i = ivec2(floor(t));
+	vec2 f = t - vec2(i);
+	return mix(
+		mix(earth_water_texel(i, last), earth_water_texel(i + ivec2(1, 0), last), f.x),
+		mix(earth_water_texel(i + ivec2(0, 1), last), earth_water_texel(i + ivec2(1, 1), last), f.x),
+		f.y
+	);
+}
+
+]=] .. water_grid.GLSL .. [=[
+
+// relief finer than the data: noise below the data's own spacing, stronger on steep ground, none at the sea or near water;
+// then the ground is carved under lakes and rivers
 float terrain_height(vec2 p) {
 	vec2 m = earth_map(p).xy;
 	float h = earth_mosaic_height(m);
 	float spacing = earth_info(0, ]=] .. GRID .. [=[).w;
+	vec2 water = earth_water(m);
 
-	if (h <= 0.0 || spacing < 4.0) return h;
+	if (h > 0.0 && spacing >= 4.0) {
+		float pixel = earth_info(1, ]=] .. GRID .. [=[).x;
+		vec2 slope = vec2(
+			earth_mosaic_bilinear(m + vec2(1.0, 0.0)) - earth_mosaic_bilinear(m - vec2(1.0, 0.0)),
+			earth_mosaic_bilinear(m + vec2(0.0, 1.0)) - earth_mosaic_bilinear(m - vec2(0.0, 1.0))
+		) / (2.0 * pixel);
+		float wavelength = spacing * 2.0;
+		float detail = pn_fbm_lod(p / wavelength + vec2(31.7, -12.3), 4, wavelength, terrain_tile_step());
+		h += detail * spacing * (0.04 + 0.3 * min(length(slope), 1.0)) * smoothstep(0.0, 4.0, h) * earth_water_noise(water.x);
+	}
 
-	float pixel = earth_info(1, ]=] .. GRID .. [=[).x;
-	vec2 slope = vec2(
-		earth_mosaic_bilinear(m + vec2(1.0, 0.0)) - earth_mosaic_bilinear(m - vec2(1.0, 0.0)),
-		earth_mosaic_bilinear(m + vec2(0.0, 1.0)) - earth_mosaic_bilinear(m - vec2(0.0, 1.0))
-	) / (2.0 * pixel);
-	float wavelength = spacing * 2.0;
-	float detail = pn_fbm_lod(p / wavelength + vec2(31.7, -12.3), 4, wavelength, terrain_tile_step());
-	return h + detail * spacing * (0.04 + 0.3 * min(length(slope), 1.0)) * smoothstep(0.0, 4.0, h);
+	return earth_carve(h, water.x, water.y);
 }
 ]=]
 local SPLAT_GLSL = [=[
@@ -151,7 +182,8 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 -- first whose bounds hold it at a zoom it serves, the next where its tiles are missing; optional), Layers, Bathymetry (a TileSet whose
 -- heights fill the sea where Heights has none, optional: with it a missing height tile is sea and a height of exactly 0
 -- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
--- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples)
+-- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples);
+-- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua)
 function EarthSource.New(config)
 	local self = setmetatable(
 		ShaderSource.New{
@@ -489,11 +521,26 @@ local function bake(self, item, heights, imagery, bathymetry)
 
 	local textures = {info_texture, height_texture, self.Blank}
 	local uploads = {{info_texture, info}, {height_texture, height_pixels}}
+	local water = self.Water and self.Water:PlanMosaic(heights)
+
+	if water then
+		local width, height = pool_size(water.width), pool_size(water.height)
+		local pixels = FloatArray(width * height * 2)
+		self.Water:FillMosaic(water, pixels, width)
+		info[o + 8] = water.scale
+		info[o + 9] = water.offset_x
+		info[o + 10] = water.offset_y
+		info[o + 11] = 1
+		info[o + 12] = water.width
+		info[o + 13] = water.height
+		textures[4] = acquire_texture(self, width, height, "r32g32_sfloat", NEAREST)
+		uploads[#uploads + 1] = {textures[4], pixels}
+	end
 
 	if imagery then
 		local width, height = pool_size(imagery.width), pool_size(imagery.height)
 		textures[3] = acquire_texture(self, width, height, "r8g8b8a8_srgb", LINEAR)
-		uploads[3] = {textures[3], compose(imagery, 4, width, height)}
+		uploads[#uploads + 1] = {textures[3], compose(imagery, 4, width, height)}
 	end
 
 	request.textures = textures
@@ -666,22 +713,52 @@ function EarthSource:GetPendingCount()
 	return batches, chunks + #self.Waiting
 end
 
+-- a GRID x GRID domain over a latitude, longitude box {south, west, north, east}
+local function latlon_domain(box)
+	local lats, lons = {}, {}
+
+	for j = 0, GRID - 1 do
+		for i = 0, GRID - 1 do
+			lats[j * GRID + i + 1] = box.south + (box.north - box.south) * j / (GRID - 1)
+			lons[j * GRID + i + 1] = box.west + (box.east - box.west) * i / (GRID - 1)
+		end
+	end
+
+	return {lats = lats, lons = lons, center_lat = (box.south + box.north) / 2}
+end
+
+-- the height data over a latitude, longitude box at a zoom, or the finest coarser one that has it: state = {south,
+-- west, north, east, zoom} is kept by the caller between calls; nil while its tiles load, false when not even zoom 0
+-- has them, else {pixels (float string, -32768 where there is no land data), x0, y0 (in global mercator pixels),
+-- width, height, zoom, tile_size}
+function EarthSource:RequestHeights(state)
+	if not state.domain then
+		state.domain = latlon_domain(state)
+		state.heights = plan_mosaic(self.Heights, state.domain, state.zoom)
+	end
+
+	local mosaic = resolve_mosaic(state, "heights")
+
+	if not mosaic then return mosaic end
+
+	return {
+		pixels = ffi.string(compose(mosaic, 4), mosaic.width * mosaic.height * 4),
+		x0 = mosaic.x0,
+		y0 = mosaic.y0,
+		width = mosaic.width,
+		height = mosaic.height,
+		zoom = mosaic.zoom,
+		tile_size = mosaic.set.TileSize,
+	}
+end
+
 -- a photo over a latitude, longitude box for colouring things on the ground: state = {south, west, north, east, meters
 -- (the pixel size wanted)} is kept by the caller between calls; nil while its tiles load, false when no source of the
 -- imagery chain has the box this sharp, else {pixels (rgba string), x0, y0 (in global mercator pixels), width, height,
 -- zoom, tile_size, meters}
 function EarthSource:RequestPhoto(state)
 	if not state.domain then
-		local lats, lons = {}, {}
-
-		for j = 0, GRID - 1 do
-			for i = 0, GRID - 1 do
-				lats[j * GRID + i + 1] = state.south + (state.north - state.south) * j / (GRID - 1)
-				lons[j * GRID + i + 1] = state.west + (state.east - state.west) * i / (GRID - 1)
-			end
-		end
-
-		state.domain = {lats = lats, lons = lons, center_lat = (state.south + state.north) / 2}
+		state.domain = latlon_domain(state)
 		state.index = 0
 	end
 

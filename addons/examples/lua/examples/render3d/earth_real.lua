@@ -23,6 +23,7 @@ earth.Start{
 	Terrain = {Levels = tonumber(os.getenv("LEVELS")) or 15},
 	Clouds = true,
 	Buildings = true,
+	Water = true,
 }
 weather.SetTimeScale(0)
 

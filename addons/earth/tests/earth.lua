@@ -8,6 +8,7 @@ local geo = import("lua/earth/geo.lua")
 local TileSet = import("lua/earth/tile_set.lua")
 local EarthSource = import("lua/earth/source.lua")
 local building_mesh = import("lua/earth/building_mesh.lua")
+local water_grid = import("lua/earth/water_grid.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local LAT, LON = 46.5935, 7.9091
 
@@ -204,6 +205,98 @@ T.Test("earth building blocks stand on the ground under them to their height", f
 	T(roof.vertex_color[3])["=="](1)
 	T(vertices[0].vertex_color[3])["=="](1)
 	T(roof.vertex_color[0] > 0 and roof.vertex_color[0] <= 1)["=="](true)
+end)
+
+-- a square lake from texel 400 to 600 of a tile whose height data has one pixel per grid texel: inside_height under
+-- the lake (or inside_height(x, y)), 8 around it
+local function build_lake(inside_height)
+	local size, margin = water_grid.SIZE, water_grid.MARGIN
+	local width = size + margin * 2
+	local dem = ffi.new("float[?]", width * width)
+
+	for y = 0, width - 1 do
+		for x = 0, width - 1 do
+			local inside = x >= 400 + margin and x < 600 + margin and y >= 400 + margin and y < 600 + margin
+			dem[y * width + x] = inside and
+				(
+					type(inside_height) == "function" and
+					inside_height(x, y) or
+					inside_height
+				)
+				or
+				8
+		end
+	end
+
+	local a, b = 400 + margin, 600 + margin
+	local tx, ty = geo.ToMercator(LAT, LON, 13, 1)
+	tx, ty = math.floor(tx), math.floor(ty)
+	local meta, grid = water_grid.Build{
+		zoom = 13,
+		x = tx,
+		y = ty,
+		features = {
+			{kind = "lake", medium = "lake", id = "lake", rings = {{a, a, b, a, b, b, a, b}}},
+		},
+		dem = {
+			pixels = ffi.string(dem, width * width * 4),
+			x0 = tx * size - margin,
+			y0 = ty * size - margin,
+			width = width,
+			height = width,
+			zoom = 13,
+			tile_size = size,
+		},
+	}
+	return meta, grid, width
+end
+
+T.Test("earth water grids level a lake, carve under it and cover it with boxes", function()
+	local margin = water_grid.MARGIN
+	local meta, grid, width = build_lake(5)
+	T(meta.levels.lake)["=="](5)
+	T(meta.water)["=="](true)
+	local center = (500 + margin) * width + 500 + margin
+	T(grid[center] < 0)["=="](true)
+	T(grid[center + width * width])["=="](5)
+	T(grid[(100 + margin) * width + 100 + margin] > water_grid.NOISE_FADE)["=="](true)
+	T(water_grid.Carve(5, grid[center], 5) <= 5 - water_grid.MAX_DEPTH + 0.01)["=="](true)
+	T(water_grid.Carve(8, water_grid.FAR, 5))["=="](8)
+	T(water_grid.Carve(4, water_grid.RING / 2, 5))["=="](5 + water_grid.LIFT)
+	local shore = grid[(500 + margin) * width + 400 + margin]
+	T(shore < 0 and shore > -2 * geo.GetPixelSize(LAT, 13, water_grid.SIZE))["=="](true)
+	local covered = 0
+
+	for y = 400, 599 do
+		for x = 400, 599 do
+			for _, box in ipairs(meta.boxes) do
+				if x >= box.x0 and x < box.x1 and y >= box.y0 and y < box.y1 then
+					covered = covered + 1
+
+					break
+				end
+			end
+		end
+	end
+
+	T(covered)["=="](200 * 200)
+
+	for _, box in ipairs(meta.boxes) do
+		T(box.level)["=="](5)
+	end
+
+	T(#meta.boxes <= 9)["=="](true)
+end)
+
+T.Test("earth water grids leave lakes whose ground is uneven or at the sea", function()
+	local margin = water_grid.MARGIN
+	local meta = build_lake(function(x)
+		return 2 + (x - margin - 400) * 0.05
+	end)
+	T(meta.levels.lake)["=="](nil)
+	T(#meta.boxes)["=="](0)
+	meta = build_lake(0.1)
+	T(#meta.boxes)["=="](0)
 end)
 
 local function solid_tile(r, g, b)
