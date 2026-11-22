@@ -4,13 +4,14 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local overture_base = import("lua/earth/overture_base.lua")
+local overture_tiles = import("lua/earth/overture_tiles.lua")
 local land_grid = import("lua/earth/land_grid.lua")
 -- what the ground is around the camera (land_grid.lua): EarthSource bakes the land mosaic this hands it into the layers
 -- and the relief finer than the height data
 local land_cover = {}
 land_cover.ATTRIBUTION = "Land cover: ESA WorldCover 2021 (CC BY 4.0), Overture Maps Foundation (OpenStreetMap contributors ODbL)"
-local ZOOM = overture_base.ZOOM
+local ZOOM = 13
+local base = overture_tiles.Get("base", ZOOM)
 local RADIUS = 6000
 local KEEP_RADIUS = 9000
 local MAX_BUILDING = 2
@@ -19,11 +20,13 @@ local MAX_MOSAIC = 256
 -- chunks so large that their mosaic would skip more land texels than this get none
 local MAX_MOSAIC_STEP = 16
 local SIZE = land_grid.SIZE
-local tile_key = overture_base.GetKey
+local function tile_key(x, y)
+	return base:GetKey(x, y)
+end
 
 -- the terrain bakes the tile's area again
 local function invalidate(tile)
-	local min_x, min_z, max_x, max_z = overture_base.GetWorldBox(land_cover.source, tile)
+	local min_x, min_z, max_x, max_z = base:GetWorldBox(land_cover.source, tile)
 
 	if min_x then land_cover.terrain:Invalidate(min_x, min_z, max_x, max_z) end
 end
@@ -32,7 +35,7 @@ local function build_tile(tile)
 	tile.state = "building"
 	land_cover.building = land_cover.building + 1
 
-	thread_pool.Run(land_grid.JOB, {mvt = fs.read_file(overture_base.GetPath(tile.x, tile.y))}, math.huge):OnDone(function(job)
+	thread_pool.Run(land_grid.JOB, {mvt = fs.read_file(base:GetPath(tile.x, tile.y))}, math.huge):OnDone(function(job)
 		land_cover.building = land_cover.building - 1
 
 		if tile.removed then return end
@@ -62,7 +65,7 @@ end
 local function load_tile(tile)
 	tile.state = "loading"
 
-	overture_base.Fetch(tile.x, tile.y, function(err)
+	base:Fetch(tile.x, tile.y, function(err)
 		if tile.removed then return end
 
 		if err then
@@ -81,7 +84,7 @@ end
 
 local function update()
 	local camera = render3d.GetCamera():GetPosition()
-	local wanted = overture_base.GetTilesAround(
+	local wanted = base:GetTilesAround(
 		land_cover.source,
 		camera.x,
 		camera.z,

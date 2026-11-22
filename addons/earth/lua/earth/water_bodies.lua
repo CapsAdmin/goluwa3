@@ -10,13 +10,14 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local water = import("goluwa/render3d/water.lua")
 local geo = import("lua/earth/geo.lua")
-local overture_base = import("lua/earth/overture_base.lua")
+local overture_tiles = import("lua/earth/overture_tiles.lua")
 local water_grid = import("lua/earth/water_grid.lua")
 -- Overture's lakes, ponds and rivers around the camera: the terrain is carved under them (EarthSource bakes the water
 -- mosaic this hands it) and the nearest are filled with water volumes, boxes of one level each
 local water_bodies = {}
 water_bodies.ATTRIBUTION = "Water: Overture Maps Foundation (OpenStreetMap contributors ODbL)"
-local ZOOM = overture_base.ZOOM
+local ZOOM = 13
+local base = overture_tiles.Get("base", ZOOM)
 local RADIUS = 5000
 local KEEP_RADIUS = 8000
 local VOLUME_RADIUS = 2000
@@ -29,11 +30,13 @@ local MAX_MOSAIC_STEP = 4
 local SIZE, MARGIN = water_grid.SIZE, water_grid.MARGIN
 local WIDTH = SIZE + MARGIN * 2
 local FloatArray = ffi.typeof("float[?]")
-local tile_key = overture_base.GetKey
+local function tile_key(x, y)
+	return base:GetKey(x, y)
+end
 
 -- the terrain bakes the tile's area again
 local function invalidate(tile)
-	local min_x, min_z, max_x, max_z = overture_base.GetWorldBox(water_bodies.source, tile)
+	local min_x, min_z, max_x, max_z = base:GetWorldBox(water_bodies.source, tile)
 
 	if min_x then water_bodies.terrain:Invalidate(min_x, min_z, max_x, max_z) end
 end
@@ -114,7 +117,7 @@ local function build_input(tile)
 	end
 
 	return {
-		mvt = fs.read_file(overture_base.GetPath(tile.x, tile.y)),
+		mvt = fs.read_file(base:GetPath(tile.x, tile.y)),
 		zoom = ZOOM,
 		x = tile.x,
 		y = tile.y,
@@ -149,7 +152,7 @@ end
 local function load_tile(tile)
 	tile.state = "loading"
 
-	overture_base.Fetch(tile.x, tile.y, function(err)
+	base:Fetch(tile.x, tile.y, function(err)
 		if tile.removed then return end
 
 		if err then
@@ -217,7 +220,7 @@ end
 
 local function update()
 	local camera = render3d.GetCamera():GetPosition()
-	local wanted = overture_base.GetTilesAround(
+	local wanted = base:GetTilesAround(
 		water_bodies.source,
 		camera.x,
 		camera.z,

@@ -1,9 +1,6 @@
 local ffi = require("ffi")
-local vfs = import("goluwa/vfs.lua")
-local fs = import("goluwa/filesystem/fs.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local deflate = import("goluwa/codecs/deflate.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -11,13 +8,12 @@ local Material = import("goluwa/render3d/material.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local geo = import("lua/earth/geo.lua")
-local Archive = import("lua/earth/pmtiles_archive.lua")
+local overture_tiles = import("lua/earth/overture_tiles.lua")
 local building_mesh = import("lua/earth/building_mesh.lua")
 -- Overture's buildings (OpenStreetMap, Microsoft's and Google's machine learned footprints, Esri) as blocks: the
 -- footprints of the zoom 14 tiles around the camera extruded to their height, or their floors, or a guess by class
 local buildings = {}
 buildings.ATTRIBUTION = "Buildings: Overture Maps Foundation (OpenStreetMap contributors ODbL, Microsoft, Google, Esri)"
-buildings.RELEASE = "2026-10-21.0"
 local ZOOM = 14
 local RADIUS = 3000
 local KEEP_RADIUS = 4500
@@ -32,22 +28,12 @@ local VertexType = Polygon3D.VertexType
 local VERTEX_SIZE = ffi.sizeof(VertexType(1))
 local Index32Array = ffi.typeof("uint32_t[?]")
 local FloatArray = ffi.typeof("float[?]")
-local directory = vfs.GetStorageDirectory("cache") .. "earth/overture/" .. buildings.RELEASE .. "/buildings/"
+local tiles_source = overture_tiles.Get("buildings", ZOOM)
 local wall_material
 local roof_material
 
-local function get_archive()
-	buildings.archive = buildings.archive or
-		Archive.New{
-			url = "https://tiles.overturemaps.org/" .. buildings.RELEASE .. "/buildings.pmtiles",
-			directory = directory,
-			host_limit = 4,
-		}
-	return buildings.archive
-end
-
 local function get_path(tile)
-	return string.format("%s%d/%d/%d.mvt", directory, ZOOM, tile.x, tile.y)
+	return tiles_source:GetPath(tile.x, tile.y)
 end
 
 local function create_primitive(
@@ -183,39 +169,19 @@ local function remove_tile(tile)
 end
 
 local function load_tile(tile)
-	local path = get_path(tile)
-
-	if fs.is_file(path) then
-		tile.state = "fetched"
-		return
-	end
-
 	tile.state = "loading"
-	local archive = get_archive()
 
-	archive:Fetch(
-		ZOOM,
-		tile.x,
-		tile.y,
-		function(result, body)
-			if tile.removed then return end
+	tiles_source:Fetch(tile.x, tile.y, function(err)
+		if tile.removed then return end
 
-			if result == "missing" then
-				body = ""
-			elseif result ~= "ok" then
-				llog("earth: buildings %d/%d failed: %s", tile.x, tile.y, tostring(body))
-				tile.state = "failed"
-				return
-			elseif archive.header.tile_compression == "gzip" then
-				local out, size = deflate.Decode(body, "gzip")
-				body = ffi.string(out.Buffer, size)
-			end
-
-			fs.create_directory_recursive(path:match("^(.*/)"))
-			fs.write_file(path, body)
-			tile.state = "fetched"
+		if err then
+			llog("earth: buildings %d/%d failed: %s", tile.x, tile.y, err)
+			tile.state = "failed"
+			return
 		end
-	)
+
+		tile.state = "fetched"
+	end)
 end
 
 local function nearest_first(a, b)
