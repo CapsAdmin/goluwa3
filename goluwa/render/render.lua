@@ -428,6 +428,7 @@ function render.BeginFrame()
 	if render.cmd then return false end
 
 	run_flush_callbacks("begin_frame")
+	render.RetireDetached()
 	render.frame_serial = (render.frame_serial or 0) + 1
 	render.GetDevice():BeginRecordingFrame()
 	render.cmd = assert(render.target:BeginFrame())
@@ -1141,6 +1142,31 @@ function render.SubmitAndWait(cmd)
 	render.AddWaitTime(started)
 	startup.Add("gpu: SubmitAndWait", started)
 	queue:RetireFence(fence)
+end
+
+do
+	local detached = {}
+	local free_fences = {}
+
+	-- submits cmd without waiting for it: it runs before anything submitted later, and is removed (and keep, what it
+	-- uses, let go) once it ran (render.RetireDetached, every frame)
+	function render.SubmitDetached(cmd, keep)
+		local fence = table.remove(free_fences) or Fence.New(render.GetDevice())
+
+		if not RENDER_NOOP then fence:Reset() end
+
+		render.GetQueue():SubmitNoWait(cmd, fence)
+		detached[#detached + 1] = {cmd = cmd, fence = fence, keep = keep}
+	end
+
+	function render.RetireDetached()
+		while detached[1] and (RENDER_NOOP or detached[1].fence:IsSignaled()) do
+			local entry = table.remove(detached, 1)
+			render.GetQueue():RetireFence(entry.fence)
+			entry.cmd:Remove()
+			free_fences[#free_fences + 1] = entry.fence
+		end
+	end
 end
 
 function render.Submit(cmd, fence)
