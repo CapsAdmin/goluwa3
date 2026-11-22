@@ -1,9 +1,7 @@
 local ffi = require("ffi")
-local vfs = import("goluwa/vfs.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
-local deflate = import("goluwa/codecs/deflate.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local planet = import("goluwa/planet.lua")
@@ -12,14 +10,13 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local water = import("goluwa/render3d/water.lua")
 local geo = import("lua/earth/geo.lua")
-local Archive = import("lua/earth/pmtiles_archive.lua")
+local overture_base = import("lua/earth/overture_base.lua")
 local water_grid = import("lua/earth/water_grid.lua")
 -- Overture's lakes, ponds and rivers around the camera: the terrain is carved under them (EarthSource bakes the water
 -- mosaic this hands it) and the nearest are filled with water volumes, boxes of one level each
 local water_bodies = {}
 water_bodies.ATTRIBUTION = "Water: Overture Maps Foundation (OpenStreetMap contributors ODbL)"
-water_bodies.RELEASE = "2026-10-21.0"
-local ZOOM = 13
+local ZOOM = overture_base.ZOOM
 local RADIUS = 5000
 local KEEP_RADIUS = 8000
 local VOLUME_RADIUS = 2000
@@ -32,42 +29,13 @@ local MAX_MOSAIC_STEP = 4
 local SIZE, MARGIN = water_grid.SIZE, water_grid.MARGIN
 local WIDTH = SIZE + MARGIN * 2
 local FloatArray = ffi.typeof("float[?]")
-local directory = vfs.GetStorageDirectory("cache") .. "earth/overture/" .. water_bodies.RELEASE .. "/base/"
+local tile_key = overture_base.GetKey
 
-local function get_archive()
-	water_bodies.archive = water_bodies.archive or
-		Archive.New{
-			url = "https://tiles.overturemaps.org/" .. water_bodies.RELEASE .. "/base.pmtiles",
-			directory = directory,
-			host_limit = 4,
-		}
-	return water_bodies.archive
-end
-
-local function get_path(tile)
-	return string.format("%s%d/%d/%d.mvt", directory, ZOOM, tile.x, tile.y)
-end
-
-local function tile_key(x, y)
-	return y * 2 ^ ZOOM + x % 2 ^ ZOOM
-end
-
--- the world box a tile covers, for the terrain to bake again
+-- the terrain bakes the tile's area again
 local function invalidate(tile)
-	local terrain = water_bodies.terrain
-	local source = water_bodies.source
-	local min_x, min_z, max_x, max_z = math.huge, math.huge, -math.huge, -math.huge
+	local min_x, min_z, max_x, max_z = overture_base.GetWorldBox(water_bodies.source, tile)
 
-	for _, corner in ipairs{{0, 0}, {1, 0}, {0, 1}, {1, 1}} do
-		local x, z = source:LatLonToWorld(geo.FromMercator(tile.x + corner[1], tile.y + corner[2], ZOOM, 1))
-
-		if x then
-			min_x, min_z = math.min(min_x, x), math.min(min_z, z)
-			max_x, max_z = math.max(max_x, x), math.max(max_z, z)
-		end
-	end
-
-	if min_x < max_x then terrain:Invalidate(min_x, min_z, max_x, max_z) end
+	if min_x then water_bodies.terrain:Invalidate(min_x, min_z, max_x, max_z) end
 end
 
 -- the world placement of a box: the center of its top (at its level, under which the planet's surface drops away),
@@ -146,7 +114,7 @@ local function build_input(tile)
 	end
 
 	return {
-		mvt = fs.read_file(get_path(tile)),
+		mvt = fs.read_file(overture_base.GetPath(tile.x, tile.y)),
 		zoom = ZOOM,
 		x = tile.x,
 		y = tile.y,
@@ -179,38 +147,19 @@ local function build_tile(tile)
 end
 
 local function load_tile(tile)
-	if fs.is_file(get_path(tile)) then
-		tile.state = "fetched"
-		return
-	end
-
 	tile.state = "loading"
-	local archive = get_archive()
 
-	archive:Fetch(
-		ZOOM,
-		tile.x,
-		tile.y,
-		function(result, body)
-			if tile.removed then return end
+	overture_base.Fetch(tile.x, tile.y, function(err)
+		if tile.removed then return end
 
-			if result == "missing" then
-				body = ""
-			elseif result ~= "ok" then
-				llog("earth: water %d/%d failed: %s", tile.x, tile.y, tostring(body))
-				tile.state = "failed"
-				return
-			elseif archive.header.tile_compression == "gzip" then
-				local out, size = deflate.Decode(body, "gzip")
-				body = ffi.string(out.Buffer, size)
-			end
-
-			local path = get_path(tile)
-			fs.create_directory_recursive(path:match("^(.*/)"))
-			fs.write_file(path, body)
-			tile.state = "fetched"
+		if err then
+			llog("earth: water %d/%d failed: %s", tile.x, tile.y, err)
+			tile.state = "failed"
+			return
 		end
-	)
+
+		tile.state = "fetched"
+	end)
 end
 
 local function remove_tile(tile)
@@ -267,41 +216,16 @@ local function update_volumes(camera)
 end
 
 local function update()
-	local source = water_bodies.source
 	local camera = render3d.GetCamera():GetPosition()
-	local lat, lon = source:WorldToLatLon(camera.x, camera.z)
-	local cx, cy = geo.ToMercator(lat, lon, ZOOM, 1)
-	local tile_size = geo.GetPixelSize(lat, ZOOM, 1)
-	local reach = math.ceil(RADIUS / tile_size) + 1
-	local tiles = water_bodies.tiles
-
-	for key, tile in pairs(tiles) do
-		local dx = math.max(math.abs(tile.x + 0.5 - cx) - 0.5, 0) * tile_size
-		local dy = math.max(math.abs(tile.y + 0.5 - cy) - 0.5, 0) * tile_size
-
-		if dx * dx + dy * dy > KEEP_RADIUS * KEEP_RADIUS then
-			tiles[key] = nil
-			remove_tile(tile)
-		end
-	end
-
-	local wanted = {}
-
-	for ty = math.floor(cy) - reach, math.floor(cy) + reach do
-		for tx = math.floor(cx) - reach, math.floor(cx) + reach do
-			local dx = math.max(math.abs(tx + 0.5 - cx) - 0.5, 0) * tile_size
-			local dy = math.max(math.abs(ty + 0.5 - cy) - 0.5, 0) * tile_size
-			local distance = dx * dx + dy * dy
-
-			if distance <= RADIUS * RADIUS and ty >= 0 and ty < 2 ^ ZOOM then
-				local key = tile_key(tx, ty)
-				tiles[key] = tiles[key] or {x = tx % 2 ^ ZOOM, y = ty, state = "new"}
-				wanted[#wanted + 1] = {tile = tiles[key], distance = distance}
-			end
-		end
-	end
-
-	table.sort(wanted, nearest_first)
+	local wanted = overture_base.GetTilesAround(
+		water_bodies.source,
+		camera.x,
+		camera.z,
+		water_bodies.tiles,
+		RADIUS,
+		KEEP_RADIUS,
+		remove_tile
+	)
 
 	for _, entry in ipairs(wanted) do
 		local tile = entry.tile
