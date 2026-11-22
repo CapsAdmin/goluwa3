@@ -77,6 +77,7 @@ earth.Start{
 	Land = os.getenv("EARTH_LAND") ~= "0",
 	Roads = os.getenv("EARTH_ROADS") ~= "0",
 	Canopy = os.getenv("EARTH_CANOPY") ~= "0",
+	Weather = os.getenv("EARTH_WEATHER") ~= "0",
 	Objects = os.getenv("EARTH_OBJECTS") ~= "0" and
 		{
 			Trees = {
@@ -98,5 +99,9 @@ end
 
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
-water.SetOcean{WindSpeed = 8, WindDirection = 0}
+water.SetOcean{
+	WindSpeed = 8,
+	WindDirection = 0,
+	WindFromClimate = os.getenv("EARTH_WEATHER") ~= "0",
+}
 return earth

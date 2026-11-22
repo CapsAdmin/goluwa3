@@ -16,6 +16,7 @@ local canopy_tiles = import("lua/earth/canopy_tiles.lua")
 local land_grid = import("lua/earth/land_grid.lua")
 local road_grid = import("lua/earth/road_grid.lua")
 local objects = import("lua/earth/objects.lua")
+local weather_feed = import("lua/earth/weather_feed.lua")
 local geo = import("lua/earth/geo.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -221,9 +222,10 @@ end
 -- Water (Overture's lakes, ponds and rivers carved into the terrain and filled with water volumes, see water_bodies.lua),
 -- Land (what the ground is from Overture's land cover, land use and land, picking the layers and the fine relief, see
 -- land_grid.lua), Roads (Overture's roads, paths and railways flattened into and painted on the terrain, see road_grid.lua),
--- Canopy (Meta's canopy height map lowers the coarse height data under trees and puts forest floor under them, see
--- canopy_tiles.lua), Objects (power lines and towers, lamps, signals, mapped trees, fences and walls around the camera:
--- {Trees = model paths, Canopy (trees at the canopy map's peaks too), TreeHeight}, see objects.lua),
+-- Weather (rain, snow, wetness, wind, temperature, haze, fog and the ocean's swell over the origin from Open-Meteo, see
+-- weather_feed.lua), Canopy (Meta's canopy height map lowers the coarse height data under trees and puts forest floor
+-- under them, see canopy_tiles.lua), Objects (power lines and towers, lamps, signals, mapped trees, fences and walls
+-- around the camera: {Trees = model paths, Canopy (trees at the canopy map's peaks too), TreeHeight}, see objects.lua),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
@@ -256,6 +258,11 @@ function earth.Start(config)
 	if config.Roads then
 		earth.Roads:Start(earth.source, earth.terrain, "Roads")
 		attribution[#attribution + 1] = road_grid.ATTRIBUTION
+	end
+
+	if config.Weather then
+		weather_feed.Start(earth.source.Anchor.lat, earth.source.Anchor.lon)
+		attribution[#attribution + 1] = weather_feed.ATTRIBUTION
 	end
 
 	if config.Canopy then
@@ -326,7 +333,11 @@ function earth.Recenter(lat, lon)
 
 	if earth.config.Roads then earth.Roads:SetSource(earth.source, earth.terrain) end
 
-	if earth.config.Canopy then earth.Canopy:SetSource(earth.source, earth.terrain) end
+	if earth.config.Weather then weather_feed.Start(lat, lon) end
+
+	if earth.config.Canopy then
+		earth.Canopy:SetSource(earth.source, earth.terrain)
+	end
 
 	if earth.config.Objects then objects.SetSource(earth.source) end
 
@@ -350,6 +361,7 @@ function earth.Stop()
 	earth.LandCover:Stop()
 	earth.Roads:Stop()
 	earth.Canopy:Stop()
+	weather_feed.Stop()
 	objects.Stop()
 
 	if earth.terrain then
