@@ -2050,6 +2050,10 @@ do
 				return p[index], p[index + 1], 0, 1
 			end
 
+			if self.format == "r32_sfloat" then
+				return ffi.cast(FloatPointer, self.pixels)[y * self.width + x], 0, 0, 1
+			end
+
 			if self.format == "r16_sfloat" then
 				return math.half2float(ffi.cast(HalfPointer, self.pixels)[y * self.width + x]),
 				0,
