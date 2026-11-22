@@ -130,10 +130,15 @@ vec2 earth_road(vec2 m) {
 	return vec2((d * 2.0 - 1.0) * ]=] .. road_grid.RANGE .. [=[.0, floor(class_value * 255.0 + 0.5));
 }
 
-// how much of a texel of the given size a road covers, by its distance and class
-float earth_road_cover(vec2 road, float texel) {
+// how much of a texel of the given size a road takes, by its distance and class
+float earth_road_area(vec2 road, float texel) {
 	int id = int(road.y) % ]=] .. road_grid.UNPAVED .. [=[;
-	return (1.0 - smoothstep(-0.5 * texel, 0.5 * texel, road.x)) * min(2.0 * EARTH_ROAD_HALF_WIDTH[id] / texel, 1.0) * EARTH_ROAD_COVER[id];
+	return (1.0 - smoothstep(-0.5 * texel, 0.5 * texel, road.x)) * min(2.0 * EARTH_ROAD_HALF_WIDTH[id] / texel, 1.0);
+}
+
+// how much of a texel the road's colour covers the photo
+float earth_road_cover(vec2 road, float texel) {
+	return earth_road_area(road, texel) * EARTH_ROAD_COVER[int(road.y) % ]=] .. road_grid.UNPAVED .. [=[];
 }
 
 // the tallest canopy in a texel and the canopy around it blurred to the height data's scale, meters, at a height mosaic
@@ -359,15 +364,20 @@ void earth_layers(vec2 p, float h, vec3 n, out vec4 a, out vec4 b) {
 	a *= 1.0 - bed;
 	b *= 1.0 - bed;
 	b.z += bed;
-	// paved roads have no layer, so they are the photo's and the road's colour alone; unpaved ones are dirt
+	// roads take their whole area from the layers scatter grows on: paved ones are gravel (under the road's colour),
+	// unpaved ones dirt
 	vec2 road = earth_road(m);
 
 	if (road.y > 0.0) {
-		float cover = earth_road_cover(road, terrain_bake_step());
-		a *= 1.0 - cover;
-		b *= 1.0 - cover;
+		float area = earth_road_area(road, terrain_bake_step());
+		a *= 1.0 - area;
+		b *= 1.0 - area;
 
-		if (road.y >= ]=] .. road_grid.UNPAVED .. [=[.0) b.z += cover;
+		if (road.y >= ]=] .. road_grid.UNPAVED .. [=[.0) {
+			b.z += area;
+		} else {
+			b.w += area;
+		}
 	}
 }
 
