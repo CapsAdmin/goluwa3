@@ -47,14 +47,7 @@ local function with_list(callback)
 
 	local path = mapterhorn.Directory .. "download_urls.json"
 	local cached = fs.read_file(path)
-	local age = cached and
-		os.time() - (
-			fs.get_last_modified and
-			fs.get_last_modified(path) or
-			0
-		)
-		or
-		math.huge
+	local age = cached and os.time() - fs.get_attributes(path).last_modified or math.huge
 
 	if cached and age < LIST_MAX_AGE then
 		list = parse_list(cached)
