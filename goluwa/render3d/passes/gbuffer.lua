@@ -835,6 +835,8 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			init_surface_features(surface, displacement.uv);
 			surface.alpha = alpha;
 			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos);
+
+			if (VertexTint) surface.albedo *= in_vertex_color.rgb;
 			surface.N = dot(displacement.normal, displacement.normal) > 0.0 ? displacement.normal : get_normal(displacement.uv, tbn);
 			SurfaceWeather weather;
 			prepare_surface_weather(surface, weather);
