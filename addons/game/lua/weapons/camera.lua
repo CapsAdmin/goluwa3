@@ -36,7 +36,32 @@ return {
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local input = import("goluwa/input.lua")
 local render2d = RENDER_2D and import("goluwa/render2d/render2d.lua")
+local render = import("goluwa/render/render.lua")
+local exposure = import("goluwa/render3d/exposure.lua")
+local lens = import("goluwa/render3d/lens.lua")
 local META = objects.CreateTemplate("weapon_camera")
+local ZOOM_RATE = 10 / math.pi
+
+local function get_lens()
+	if exposure.IsEye() then return nil end
+
+	return lens.GetBuilt()
+end
+
+local function zoom(player_input, factor)
+	local built = get_lens()
+	local fov
+
+	if built then
+		local size = render.GetRenderImageSize()
+		local focal_length = lens.GetFocalLengthForFOV(built, player_input.FOV, size.x, size.y) * factor
+		fov = lens.GetFOVForFocalLength(built, focal_length, size.x, size.y)
+	else
+		fov = player_input.FOV / factor
+	end
+
+	player_input:SetFOV(math.clamp(fov, player_input.MinFOV, player_input.MaxFOV))
+end
 
 function META:OnWeaponMouseLook(player_input, mouse_delta)
 	if not input.IsMouseDown("button_2") then return end
@@ -45,13 +70,7 @@ function META:OnWeaponMouseLook(player_input, mouse_delta)
 	rotation:RotateRoll(-mouse_delta.x)
 	self.roll = (self.roll or 0) - mouse_delta.x
 	player_input:SetRotation(rotation)
-	player_input:SetFOV(
-		math.clamp(
-			player_input.FOV + mouse_delta.y * 10 * (player_input.FOV / math.pi),
-			player_input.MinFOV,
-			player_input.MaxFOV
-		)
-	)
+	zoom(player_input, math.exp(-mouse_delta.y * ZOOM_RATE))
 	return true
 end
 
@@ -65,6 +84,14 @@ end
 
 function META:OnWeaponEquip()
 	if RENDER_2D then render2d.SetHudHidden("weapon_camera", true) end
+
+	local built = get_lens()
+	local player_input = self.Owner:GetParent().player_input
+
+	if built and player_input then
+		local size = render.GetRenderImageSize()
+		player_input:SetFOV(lens.GetFOVForFocalLength(built, built.focal_length, size.x, size.y))
+	end
 end
 
 function META:OnRemove()
