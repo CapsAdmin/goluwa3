@@ -7,6 +7,9 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local assets = import("goluwa/assets.lua")
 local Texture = RENDER_2D and import("goluwa/render/texture.lua")
+local VertexBuffer = RENDER_2D and import("goluwa/render/vertex_buffer.lua")
+local EasyPipeline = RENDER_2D and import("goluwa/render/easy_pipeline.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local tiles = {}
 local VertexType = Polygon3D.VertexType
 local Index16Array = ffi.typeof("uint16_t[?]")
@@ -156,6 +159,7 @@ local function get_template(cells, step, host, shell)
 		vertices = vertices,
 		vertex_count = vertex_count,
 		index_count = index_count,
+		uniform_extras = vertex_layout.GetUniformExtras(vertices, vertex_count),
 		topology = shell and
 			{
 				vertices = topology_vertices,
@@ -315,6 +319,146 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode, shell)
 			chunk.max_height + (shell or 0) * 1.1,
 			request.size + (shell or 0) * 1.1
 		)
+	)
+	return polygon
+end
+
+do
+	local pipeline
+	local job = {}
+
+	local function get_pipeline()
+		if pipeline then return pipeline end
+
+		pipeline = EasyPipeline.Compute{
+			name = "terrain_tile_vertices",
+			LocalSize = {x = 64, y = 1, z = 1},
+			block = {
+				{"heights", "uint64_t"},
+				{"vertices", "uint64_t"},
+				{"samples", "int"},
+				{"step", "float"},
+				{"skirt_depth", "float"},
+				{"shell", "int"},
+			},
+			write = function(self, block)
+				block.heights = job.heights
+				block.vertices = job.vertices
+				block.samples = job.samples
+				block.step = job.step
+				block.skirt_depth = job.skirt_depth
+				block.shell = job.shell
+				return block
+			end,
+			shader = [[
+				layout(buffer_reference, scalar) readonly buffer TileHeights { float h[]; };
+				layout(buffer_reference, scalar) buffer TileVertices { float v[]; };
+				]] .. vertex_layout.BuildGlslAccessors("tile_vertices", "TileVertices", true) .. [[
+
+				// the heights have a border of one sample around the tile's samples
+				float tile_height(TileHeights heights, int x, int z) {
+					return heights.h[(z + 1) * (compute.samples + 2) + x + 1];
+				}
+
+				void main() {
+					int samples = compute.samples;
+					int cells = samples - 1;
+					int grid_count = samples * samples;
+					int skirt_end = grid_count + samples * 4;
+					int count = skirt_end + (compute.shell != 0 ? grid_count : 0);
+					int i = int(gl_GlobalInvocationID.x);
+
+					if (i >= count) return;
+
+					int x;
+					int z;
+					float drop = 0.0;
+					float side = -1.0;
+
+					if (i < grid_count) {
+						x = i % samples;
+						z = i / samples;
+					} else if (i < skirt_end) {
+						int edge = (i - grid_count) / samples;
+						int k = (i - grid_count) % samples;
+						x = edge < 2 ? k : (edge == 2 ? 0 : cells);
+						z = edge == 0 ? 0 : (edge == 1 ? cells : k);
+						drop = compute.skirt_depth;
+
+						if (compute.shell != 0) side = -2.0;
+					} else {
+						x = (i - skirt_end) % samples;
+						z = (i - skirt_end) / samples;
+						side = -2.0;
+					}
+
+					TileHeights heights = TileHeights(compute.heights);
+					float step = compute.step;
+					int x0 = max(x - 1, 0);
+					int x1 = min(x + 1, cells);
+					int z0 = max(z - 1, 0);
+					int z1 = min(z + 1, cells);
+					float nx = (tile_height(heights, x0, z) - tile_height(heights, x1, z)) / (float(x1 - x0) * step);
+					float nz = (tile_height(heights, x, z0) - tile_height(heights, x, z1)) / (float(z1 - z0) * step);
+					TileVertices vertices = TileVertices(compute.vertices);
+					uint vertex = uint(i);
+					tile_vertices_set_position(vertices, vertex, vec3(float(x) * step, tile_height(heights, x, z) - drop, float(z) * step));
+					tile_vertices_set_normal(vertices, vertex, normalize(vec3(nx, 1.0, nz)));
+					tile_vertices_set_uv(vertices, vertex, vec2(float(x), float(z)) / float(cells));
+					tile_vertices_set_tangent(vertices, vertex, vec4(1.0, 0.0, 0.0, side));
+				}
+			]],
+		}
+		return pipeline
+	end
+
+	local function get_vertex_count(samples, shell)
+		return samples * samples * (shell and 2 or 1) + samples * 4
+	end
+
+	-- a tile's vertex buffer that only the gpu fills (RecordGpuMesh); its chunk keeps it
+	function tiles.NewGpuVertexBuffer(samples, shell)
+		return VertexBuffer.New(
+			get_vertex_count(samples, shell),
+			vertex_layout.GetAttributes(0, "core"),
+			"terrain tile vertices",
+			"device"
+		)
+	end
+
+	-- records writing a tile's vertices (the layout of BuildPolygon at stride 1) from its baked heights, (samples + 2)^2
+	-- floats with a border of one sample, at heights_address; the caller orders it after the heights and before use
+	function tiles.RecordGpuMesh(cmd, heights_address, vertex_buffer, samples, step, skirt_depth, shell)
+		job.heights = heights_address
+		job.vertices = vertex_buffer.buffer:GetDeviceAddress()
+		job.samples = samples
+		job.step = step
+		job.skirt_depth = skirt_depth
+		job.shell = shell and 1 or 0
+		get_pipeline():Dispatch(cmd, math.ceil(get_vertex_count(samples, shell) / 64), 1, 1)
+	end
+end
+
+-- the polygon of a chunk whose vertices the bake wrote on the gpu (chunk.vertex_buffer)
+function tiles.BuildGpuPolygon(chunk, skirt_depth, shell)
+	local request = chunk.request
+	local cells = request.samples - 1
+	local template = get_template(cells, request.size / cells, false, shell > 0)
+	local polygon = Polygon3D.New()
+	polygon:SetGridCells(cells)
+	polygon.TopologySource = template.topology
+	polygon:UseVertexBuffer(
+		chunk.vertex_buffer,
+		template.indices,
+		AABB(
+			-shell * 1.1,
+			chunk.min_height - skirt_depth,
+			-shell * 1.1,
+			request.size + shell * 1.1,
+			chunk.max_height + shell * 1.1,
+			request.size + shell * 1.1
+		),
+		template.uniform_extras
 	)
 	return polygon
 end

@@ -5,6 +5,7 @@ local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local TerrainSource = import("goluwa/terrain/source.lua")
 local planet = import("goluwa/planet.lua")
+local tiles = import("goluwa/terrain/tiles.lua")
 local ShaderSource = setmetatable({}, {__index = TerrainSource})
 ShaderSource.__index = ShaderSource
 local FloatArray = ffi.typeof("float[?]")
@@ -332,6 +333,13 @@ do
 			chunk.layers, layer_ids = self.SelectChunkLayers(request)
 		end
 
+		-- request.gpu_mesh ({skirt_depth, shell (whether the tile may get one)}): the tile's vertices are written on the
+		-- gpu from the baked heights into chunk.vertex_buffer, with chunk.gpu_shell the shell they were made for
+		if request.gpu_mesh and request.samples then
+			chunk.gpu_shell = request.gpu_mesh.shell and tiles.GetShell(chunk.layers or self:GetLayers()) or 0
+			chunk.vertex_buffer = tiles.NewGpuVertexBuffer(request.samples, chunk.gpu_shell > 0)
+		end
+
 		local wants_splat = request.splat_size and self.HasSplat
 		local wants_splat2 = request.splat_size and self.HasSplat2 and layer_ids and layer_ids[5]
 		local wants_color = request.color_size and self.HasColor
@@ -451,6 +459,12 @@ function ShaderSource:RecycleTexture(texture)
 end
 
 function ShaderSource:ReleaseChunk(chunk)
+	if chunk.vertex_buffer then
+		chunk.vertex_buffer.buffer:Remove()
+		chunk.vertex_buffer:Remove()
+		chunk.vertex_buffer = nil
+	end
+
 	if chunk.height_texture then
 		chunk.height_texture:Remove()
 		chunk.height_texture = nil
@@ -500,7 +514,7 @@ function ShaderSource:Submit()
 		batch.staging = Buffer.New{
 			device = render.GetDevice(),
 			size = bytes,
-			usage = "transfer_dst",
+			usage = {"transfer_dst", "storage_buffer", "shader_device_address"},
 			-- read back on the cpu: uncached memory makes every read a slow uncached access
 			properties = {"host_visible", "host_coherent", "host_cached"},
 		}
@@ -524,6 +538,33 @@ function ShaderSource:Submit()
 				width = samples,
 				height = samples,
 			}
+		end
+
+		local meshes = false
+
+		for i, chunk in ipairs(batch.chunks) do
+			if chunk.vertex_buffer and offsets[i] then
+				if not meshes then
+					meshes = true
+					cmd:PipelineBarrier{srcStage = "transfer", dstStage = "compute", memoryBarrier = true}
+				end
+
+				local request = chunk.request
+				tiles.RecordGpuMesh(
+					cmd,
+					batch.staging:GetDeviceAddress() + offsets[i],
+					chunk.vertex_buffer,
+					request.samples,
+					request.size / (request.samples - 1),
+					request.gpu_mesh.skirt_depth,
+					chunk.gpu_shell > 0
+				)
+			end
+		end
+
+		-- tiles only use their vertices once the cpu saw this batch's fence, so the writes only have to be made available
+		if meshes then
+			cmd:PipelineBarrier{srcStage = "compute", dstStage = "bottom_of_pipe", memoryBarrier = true}
 		end
 	end
 

@@ -261,6 +261,7 @@ function Terrain:BuildTileRequest(level, chunk_x, chunk_z)
 		color_size = self.ColorSize and
 			math.max(math.floor(self.ColorSize / detail_divisor), self.Samples - 1) or
 			nil,
+		gpu_mesh = {skirt_depth = self:GetLevelSkirtDepth(level), shell = level < self.ShellLevels},
 	}
 end
 
@@ -352,8 +353,10 @@ function Terrain:CreateTile(want, chunk)
 	primitive_entity:AddComponent("transform")
 	local primitive = primitive_entity:AddComponent("visual_primitive")
 	local layers = chunk.layers or self.Source:GetLayers()
-	local shell = level < self.ShellLevels and tiles.GetShell(layers) or 0
-	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level), 1, nil, shell)
+	local shell = chunk.gpu_shell or level < self.ShellLevels and tiles.GetShell(layers) or 0
+	local polygon = chunk.vertex_buffer and
+		tiles.BuildGpuPolygon(chunk, self:GetLevelSkirtDepth(level), shell) or
+		tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level), 1, nil, shell)
 	primitive:SetPolygon3D(polygon)
 	primitive:SetMaterial(tiles.CreateMaterial(chunk, layers, self.ScatterSet, self.Source, shell))
 	visual:BuildAABB()
