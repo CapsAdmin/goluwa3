@@ -1333,6 +1333,9 @@ function scatter.Preload(component)
 	scatter.preload_version = scatter.preload_version + 1
 end
 
+-- the scene changes almost every frame while things stream in, so a surface keeps its record between collections
+local surface_records = setmetatable({}, {__mode = "k"})
+
 local function collect_surfaces()
 	local out = {}
 	local have = {}
@@ -1347,7 +1350,19 @@ local function collect_surfaces()
 				for _, entry in ipairs(component:GetRenderEntries()) do
 					if component:GetResolvedMaterial(entry) == material then
 						have[entry] = true
-						out[#out + 1] = {component = component, entry = entry, material = material, set = set}
+						local record = surface_records[entry]
+
+						if
+							not record or
+							record.component ~= component or
+							record.material ~= material or
+							record.set ~= set
+						then
+							record = {component = component, entry = entry, material = material, set = set}
+							surface_records[entry] = record
+						end
+
+						out[#out + 1] = record
 					end
 				end
 			end
