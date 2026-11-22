@@ -68,6 +68,7 @@ clouds.LAYER_DEFAULTS = {
 	evolution = 0.6,
 	system_scale = 0,
 	system_amount = 0,
+	map_channel = 0,
 }
 
 local function create_layer(params)
@@ -130,6 +131,18 @@ end
 
 function clouds.GetLayers()
 	return clouds.layers
+end
+
+-- a coverage map: an rgba texture over the square of size from min_x, min_z in world xz; a layer with map_channel 1..4
+-- takes its large scale coverage from that channel inside it (fading to its own coverage at the edges), and its weather
+-- map's variation still adds the smaller shapes. nil clears it
+function clouds.SetCoverageMap(texture, min_x, min_z, size)
+	clouds.coverage_map = texture and {texture = texture, min_x = min_x, min_z = min_z, size = size} or nil
+	clouds.layers_changed = true
+end
+
+function clouds.GetCoverageMap()
+	return clouds.coverage_map
 end
 
 function clouds.GetCover()
@@ -555,6 +568,9 @@ function clouds.GetBlockLayout()
 		{"cloud_layer_offset", "vec4", clouds.MAX_LAYERS},
 		{"cloud_layer_offset2", "vec4", clouds.MAX_LAYERS},
 		{"cloud_layer_vary", "vec4", clouds.MAX_LAYERS},
+		{"cloud_layer_map", "vec4", clouds.MAX_LAYERS},
+		{"cloud_coverage_map_tex", "int"},
+		{"cloud_coverage_map_rect", "vec4"},
 		{"cloud_light_direction", "vec4"},
 		{"cloud_light_illuminance", "vec4"},
 	}
@@ -601,6 +617,18 @@ function clouds.WriteBlock(self, block)
 		vary[1] = layer.flat and 0 or layer.base_variation
 		vary[2] = layer.system_scale
 		vary[3] = layer.system_amount
+		block.cloud_layer_map[k][0] = layer.map_channel - 1
+	end
+
+	local map = clouds.coverage_map
+	block.cloud_coverage_map_tex = map and self:GetTextureIndex(map.texture) or -1
+
+	if map then
+		local rect = block.cloud_coverage_map_rect
+		rect[0] = map.min_x
+		rect[1] = map.min_z
+		rect[2] = 1 / map.size
+		rect[3] = 0
 	end
 
 	local dir = clouds.light_direction
@@ -813,12 +841,12 @@ function clouds.GetGLSL(block)
 			return bottom * top;
 		}
 
-		// a layer's coverage: its weather map, plus with system_scale the same map read twice at incommensurate rotated scales, so cloud systems far larger than the map do not repeat
+		// a layer's coverage: its weather map, plus with system_scale the same map read twice at incommensurate rotated scales, so cloud systems far larger than the map do not repeat; inside the coverage map its channel replaces both large scale terms
 		float cloud_coverage(int i, vec2 xz, vec4 weather) {
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 			vec4 scale = CLOUD_BLOCK.cloud_layer_scale[i];
 			vec4 vary = CLOUD_BLOCK.cloud_layer_vary[i];
-			float coverage = shape.z + (weather.r - 0.5) * scale.w;
+			float coverage = shape.z;
 
 			if (vary.z > 0.0) {
 				vec2 a = vec2(xz.x * 0.8 - xz.y * 0.6, xz.x * 0.6 + xz.y * 0.8) / vary.z + vec2(0.37, 0.71);
@@ -827,7 +855,17 @@ function clouds.GetGLSL(block)
 				coverage += (system - 0.5) * vary.w;
 			}
 
-			return saturate(coverage);
+			int channel = int(CLOUD_BLOCK.cloud_layer_map[i].x);
+
+			if (channel >= 0 && CLOUD_BLOCK.cloud_coverage_map_tex >= 0) {
+				vec4 rect = CLOUD_BLOCK.cloud_coverage_map_rect;
+				vec2 uv = (xz - rect.xy) * rect.z;
+				vec2 edge = abs(uv - 0.5) * 2.0;
+				float inside = 1.0 - smoothstep(0.9, 1.0, max(edge.x, edge.y));
+				coverage = mix(coverage, textureLod(TEXTURE(CLOUD_BLOCK.cloud_coverage_map_tex), uv, 0.0)[channel], inside);
+			}
+
+			return saturate(coverage + (weather.r - 0.5) * scale.w);
 		}
 
 		// a resolved cloud is about a hundred times denser than the unresolved average, so blending the two densities keeps the resolved speckle until the weight is 1; a march picks one of them for its whole ray instead, with the weight as the chance, so the frames average their transmittances
