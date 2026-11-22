@@ -176,6 +176,7 @@ local function start_terrain(lat, lon)
 				ColorSize = 128,
 				ShadowLevels = 4,
 				BuildsPerFrame = 4,
+				Physics = {chunk_size = 64, samples = 65, radius = 2},
 			},
 			config.Terrain or {},
 			{Source = earth.source}
