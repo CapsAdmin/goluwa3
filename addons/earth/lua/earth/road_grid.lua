@@ -229,6 +229,6 @@ end
 road_grid.JOB = [[
 	local input = ...
 	local mvt = import("goluwa/codecs/mvt.lua")
-	return import("lua/earth/road_grid.lua").Build(mvt.Decode(input.mvt), input.x, input.y, input.zoom)
+	return import("lua/earth/road_grid.lua").Build(mvt.Decode(input.data), input.x, input.y, input.zoom)
 ]]
 return road_grid

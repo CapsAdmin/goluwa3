@@ -159,6 +159,6 @@ end
 
 land_grid.JOB = [[
 	local input = ...
-	return import("lua/earth/land_grid.lua").Build(import("goluwa/codecs/mvt.lua").Decode(input.mvt))
+	return import("lua/earth/land_grid.lua").Build(import("goluwa/codecs/mvt.lua").Decode(input.data))
 ]]
 return land_grid

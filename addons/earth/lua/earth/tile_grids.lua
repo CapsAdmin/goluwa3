@@ -4,18 +4,17 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local overture_tiles = import("lua/earth/overture_tiles.lua")
--- grids made from Overture's tiles around the camera on the thread pool, which EarthSource bakes from as a mosaic over
--- each chunk (land_grid.lua, road_grid.lua)
+-- grids made from map tiles around the camera on the thread pool (Overture's: land_grid.lua, road_grid.lua; the canopy
+-- map's: canopy_tiles.lua), which EarthSource bakes from as a mosaic over each chunk
 local tile_grids = {}
 local META = {}
 META.__index = META
 local UPDATE_INTERVAL = 0.25
 local MAX_MOSAIC = 256
 
--- config: Name, Theme and Zoom (the Overture tiles), Size (grid texels across a tile), Bytes (per texel), Job (a
--- thread pool job given {mvt, x, y, zoom} returning meta {any (whether the grid has anything)} and the grid's bytes,
--- rows from the tile's north), Radius and KeepRadius (meters around the camera tiles are made and kept within),
+-- config: Name, Tiles (a tile source: overture_tiles.Get, canopy_tiles.Get), Size (grid texels across a tile), Bytes
+-- (per texel), Job (a thread pool job given {data (the tile's file), x, y, zoom} returning meta {any (whether the grid
+-- has anything)} and the grid's bytes, rows from the tile's north), Radius and KeepRadius (meters around the camera tiles are made and kept within),
 -- MaxBuilding (jobs at once), MaxMosaicStep (chunks so large that their mosaic would skip more texels than this get none)
 function tile_grids.New(config)
 	return setmetatable(
@@ -28,8 +27,8 @@ function tile_grids.New(config)
 			KeepRadius = config.KeepRadius,
 			MaxBuilding = config.MaxBuilding or 2,
 			MaxMosaicStep = config.MaxMosaicStep,
-			tiles_source = overture_tiles.Get(config.Theme, config.Zoom),
-			Zoom = config.Zoom,
+			tiles_source = config.Tiles,
+			Zoom = config.Tiles.Zoom,
 		},
 		META
 	)
@@ -50,7 +49,7 @@ function META:BuildTile(tile)
 	thread_pool.Run(
 		self.Job,
 		{
-			mvt = fs.read_file(self.tiles_source:GetPath(tile.x, tile.y)),
+			data = fs.read_file(self.tiles_source:GetPath(tile.x, tile.y)),
 			x = tile.x,
 			y = tile.y,
 			zoom = self.Zoom,

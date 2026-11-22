@@ -11,6 +11,7 @@ local cloud_cover = import("lua/earth/cloud_cover.lua")
 local buildings = import("lua/earth/buildings.lua")
 local water_bodies = import("lua/earth/water_bodies.lua")
 local tile_grids = import("lua/earth/tile_grids.lua")
+local overture_tiles = import("lua/earth/overture_tiles.lua")
 local land_grid = import("lua/earth/land_grid.lua")
 local road_grid = import("lua/earth/road_grid.lua")
 local objects = import("lua/earth/objects.lua")
@@ -121,8 +122,7 @@ end
 
 earth.LandCover = tile_grids.New{
 	Name = "land",
-	Theme = "base",
-	Zoom = 13,
+	Tiles = overture_tiles.Get("base", 13),
 	Size = land_grid.SIZE,
 	Bytes = 1,
 	Job = land_grid.JOB,
@@ -132,8 +132,7 @@ earth.LandCover = tile_grids.New{
 }
 earth.Roads = tile_grids.New{
 	Name = "roads",
-	Theme = "transportation",
-	Zoom = 14,
+	Tiles = overture_tiles.Get("transportation", 14),
 	Size = road_grid.SIZE,
 	Bytes = 2,
 	Job = road_grid.JOB,
