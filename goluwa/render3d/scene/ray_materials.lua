@@ -705,6 +705,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	}]])
 ray_materials.MaterialEntry = MaterialEntry
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
+local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
 local OpticalHeader = ffi.typeof(
 	"struct {int32_t glass; int32_t media; int32_t volumes; int32_t water_first; int32_t water_count; int32_t fog_first; int32_t fog_count; int32_t layer;}"
@@ -919,23 +920,36 @@ do
 			not state or
 			state.buffer:GetSize() < OPTICAL_PREFIX_SIZE + count * MATERIAL_ENTRY_SIZE
 		then
-			if state then state.buffer:Remove() end
-
 			local capacity = math.max(count, 1) * 2
-			state = {
-				buffer = render.CreateBuffer{
-					byte_size = OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE,
-					buffer_usage = {"storage_buffer"},
-					memory_property = {"host_visible", "host_coherent"},
-					label = "ray_materials",
-					data = ffi.new("uint8_t[?]", OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE),
-				},
-				written = 0,
-				generation = 0,
-				releases = -1,
-				users = setmetatable({}, WEAK_KEYS),
+			local buffer = render.CreateBuffer{
+				byte_size = OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE,
+				buffer_usage = {"storage_buffer"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "ray_materials",
+				data = ffi.new("uint8_t[?]", OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE),
 			}
-			material_states[frame] = state
+			local entries = MaterialEntryArray(capacity)
+
+			-- the entries written so far move to the larger buffer from the host copy (the buffer's own memory is slow to
+			-- read), so growing does not write every material again
+			if state then
+				ffi.copy(entries, state.entries, state.written * MATERIAL_ENTRY_SIZE)
+				ffi.copy(ray_materials.GetMaterialEntries(buffer), entries, state.written * MATERIAL_ENTRY_SIZE)
+				state.buffer:Remove()
+				state.buffer = buffer
+				state.entries = entries
+				state.volume_frame = nil
+			else
+				state = {
+					buffer = buffer,
+					entries = entries,
+					written = 0,
+					generation = 0,
+					releases = -1,
+					users = setmetatable({}, WEAK_KEYS),
+				}
+				material_states[frame] = state
+			end
 		end
 
 		local generation = Material.ray_material_generation
@@ -991,7 +1005,8 @@ do
 
 		local written = state.written
 		local stamp = state.generation
-		local out = ray_materials.GetMaterialEntries(state.buffer)
+		local out = state.entries
+		local first, last
 
 		for i = 1, count do
 			local material = materials[i]
@@ -1003,6 +1018,8 @@ do
 				released and
 				released[i]
 			then
+				first = first or i - 1
+				last = i - 1
 				local entry = out[i - 1]
 				local color = material:GetColorMultiplier()
 				entry.albedo[0] = color.r
@@ -1212,6 +1229,14 @@ do
 					entry.terrain_tex2 = -1
 				end
 			end
+		end
+
+		if first then
+			ffi.copy(
+				ray_materials.GetMaterialEntries(state.buffer) + first,
+				out + first,
+				(last - first + 1) * MATERIAL_ENTRY_SIZE
+			)
 		end
 
 		state.written = count
