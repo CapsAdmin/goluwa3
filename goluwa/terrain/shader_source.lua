@@ -248,7 +248,7 @@ do
 		nearest
 	)
 		local texture = make_bake_texture(self, size, format, batch.cmd, nearest)
-		local source_textures = self.Textures
+		local source_textures = bake.source_textures
 		local textures = source_textures
 		bake.textures = source_textures
 		bake.origin_x = origin_x
@@ -295,6 +295,7 @@ do
 				callbacks = {},
 				height_textures = {},
 				fields = {},
+				upload_staging = {},
 			}
 			self.batch = batch
 		end
@@ -302,6 +303,14 @@ do
 		local chunk = {request = request}
 		local min_x, min_z, size = request.min_x, request.min_z, request.size
 		bake.tile_step = size / ((request.samples or 2) - 1)
+		bake.source_textures = request.textures or self.Textures
+
+		-- request.uploads ({texture, data}) are copied in the batch before its bakes read them
+		if request.uploads then
+			for _, upload in ipairs(request.uploads) do
+				batch.upload_staging[#batch.upload_staging + 1] = upload[1]:RecordUpload(batch.cmd, upload[2])
+			end
+		end
 
 		if request.samples then
 			local step = size / (request.samples - 1)
@@ -531,6 +540,10 @@ function ShaderSource:CompleteBatch(batch)
 
 	for _, field in ipairs(batch.fields) do
 		self:RecycleTexture(field)
+	end
+
+	for _, staging in ipairs(batch.upload_staging) do
+		staging:Remove()
 	end
 
 	for i, chunk in ipairs(batch.chunks) do
