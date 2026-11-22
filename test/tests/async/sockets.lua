@@ -287,6 +287,41 @@ T.Test("sockets HTTP chunked body receiving", function()
 	T(#final_body)["=="](1000)
 end)
 
+T.Test("http chunked bodies split at any byte decode whole", function()
+	local parts = {}
+
+	for i = 1, 40 do
+		parts[i] = string.rep(string.char(65 + i % 26), i * 37)
+	end
+
+	local wire = {"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"}
+
+	for _, part in ipairs(parts) do
+		wire[#wire + 1] = string.format("%x\r\n%s\r\n", #part, part)
+	end
+
+	wire[#wire + 1] = "0\r\n\r\n"
+	local raw = table.concat(wire)
+
+	for _, step in ipairs{1, 3, 7, 64, 100000} do
+		local client = HTTPClient.New()
+		local body
+
+		function client:OnReceiveBody(received)
+			body = received
+		end
+
+		client:InitializeHTTPParser()
+
+		for i = 1, #raw, step do
+			client:WriteHTTP(raw:sub(i, i + step - 1))
+		end
+
+		T(body)["=="](table.concat(parts))
+		client:Remove()
+	end
+end)
+
 T.Test("bindings.socket.poll supports per-socket readiness masks", function()
 	local results, count = ljsocket.poll({}, 0)
 	T(type(results))["=="]("table")

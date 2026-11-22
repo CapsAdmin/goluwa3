@@ -1,3 +1,5 @@
+local ffi = require("ffi")
+local string_buffer = require("string.buffer")
 local callback = import("goluwa/callback.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
@@ -77,29 +79,76 @@ function http.MixinHTTP(META)
 	function META:InitializeHTTPParser()
 		self.http = {
 			raw_header = "",
-			raw_body = "",
+			raw_body = string_buffer.new(),
 			stage = "header",
 		}
 	end
 
 	do
-		local function decode_chunk(str)
-			local hex_num, rest = str:match("^([abcdefABCDEF0123456789]+)\r\n(.*)")
+		-- chunked bodies are parsed as they come in: what is pending stays in a buffer and is read from its front, so a
+		-- large body (or one large chunk) is not copied again for every piece received; returns whether the last chunk
+		-- came, or nil and an error
+		local function decode_chunks(state, data, out)
+			-- what follows the last chunk is its trailer, which nothing reads
+			if state.chunked_done then return true end
 
-			if not hex_num then return nil end
+			local pending = state.chunk_pending
 
-			local num = tonumber(hex_num, 16)
+			if not pending then
+				pending = string_buffer.new()
+				state.chunk_pending = pending
+			end
 
-			if not num then return nil end
+			pending:put(data)
 
-			if #rest < num + 2 then return nil end
+			while true do
+				local left = state.chunk_left
 
-			local chunk = rest:sub(1, num)
-			local suffix = rest:sub(num + 1, num + 2)
+				if left then
+					if left > 0 then
+						local n = math.min(left, #pending)
 
-			if suffix ~= "\r\n" then return nil end
+						if n == 0 then return false end
 
-			return chunk, rest:sub(num + 3), num == 0
+						out[#out + 1] = pending:get(n)
+						state.chunk_left = left - n
+
+						if left > n then return false end
+					end
+
+					if #pending < 2 then return false end
+
+					pending:skip(2)
+					state.chunk_left = nil
+				else
+					local ptr, len = pending:ref()
+					local line_end
+
+					for i = 0, math.min(len, 256) - 2 do
+						if ptr[i] == 13 and ptr[i + 1] == 10 then
+							line_end = i
+
+							break
+						end
+					end
+
+					if not line_end then
+						if len >= 256 then return nil, "chunk size line too long" end
+
+						return false
+					end
+
+					local size = tonumber(ffi.string(ptr, line_end):match("^%x+") or "", 16)
+
+					if not size then return nil, "bad chunk size" end
+
+					pending:skip(line_end + 2)
+
+					if size == 0 then return true end
+
+					state.chunk_left = size
+				end
+			end
 		end
 
 		function META:WriteHTTP(chunk, is_response)
@@ -179,27 +228,14 @@ function http.MixinHTTP(META)
 
 			if state.stage == "body" then
 				if state.header["transfer-encoding"] == "chunked" then
-					state.remaining_chunk = state.remaining_chunk or ""
-					local decoded = ""
-					local remaining = state.remaining_chunk .. chunk
+					local parts = {}
+					local done, err = decode_chunks(state, chunk, parts)
 
-					while true do
-						local decoded_chunk, rest, done = decode_chunk(remaining)
+					if done == nil then return self:Error(err) end
 
-						if done then
-							state.chunked_done = true
-							decoded = decoded .. decoded_chunk
+					if done then state.chunked_done = true end
 
-							break
-						end
-
-						if not decoded_chunk or rest == "" then break end
-
-						decoded = decoded .. decoded_chunk
-						remaining = rest
-					end
-
-					state.remaining_chunk = remaining
+					local decoded = table.concat(parts)
 					self:WriteBody(decoded)
 					state.current_body_chunk = decoded
 				else
@@ -249,7 +285,7 @@ function http.MixinHTTP(META)
 	end
 
 	function META:WriteBody(data)
-		self.http.raw_body = self.http.raw_body .. data
+		self.http.raw_body:put(data)
 	end
 
 	function META:GetWrittenBodySize()
@@ -257,7 +293,7 @@ function http.MixinHTTP(META)
 	end
 
 	function META:GetWrittenBodyString()
-		return self.http.raw_body
+		return self.http.raw_body:tostring()
 	end
 
 	function META:OnHTTPEvent(what) end
