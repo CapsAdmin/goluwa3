@@ -447,6 +447,8 @@ function Terrain:Invalidate(min_x, min_z, max_x, max_z)
 	end
 
 	if self.Physics then self.Physics:Invalidate(box) end
+
+	event.Call("TerrainInvalidated", self, box)
 end
 
 function Terrain:CreateBVHEntity(tile)
