@@ -331,13 +331,13 @@ T.Test("earth land grids draw land use and land over the land cover, smaller pol
 		return land_grid.CLASSES[grid[math.floor(y / 4096 * size) * size + math.floor(x / 4096 * size)]]
 	end
 
-	T(meta.land)["=="](true)
+	T(meta.any)["=="](true)
 	T(class_at(3000, 3000))["=="]("crop")
 	T(class_at(500, 500))["=="]("urban")
 	T(class_at(1400, 1400))["=="]("grass")
 	T(class_at(1250, 1250))["=="]("forest")
 	meta = land_grid.Build{}
-	T(meta.land)["=="](false)
+	T(meta.any)["=="](false)
 end)
 
 local function solid_tile(r, g, b)

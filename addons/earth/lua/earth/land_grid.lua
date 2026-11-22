@@ -3,6 +3,7 @@ local mvt = import("goluwa/codecs/mvt.lua")
 -- what the ground of one map tile is, from Overture's land cover (ESA WorldCover, everywhere), land use and land
 -- (OpenStreetMap, where mapped, drawn over it): a grid of land classes over the tile, 0 where nothing says
 local land_grid = {}
+land_grid.ATTRIBUTION = "Land cover: ESA WorldCover 2021 (CC BY 4.0), Overture Maps Foundation (OpenStreetMap contributors ODbL)"
 land_grid.SIZE = 512
 land_grid.CLASSES = {
 	"forest",
@@ -109,7 +110,7 @@ local function drawn_first(a, b)
 	return a.area > b.area
 end
 
--- layers: a decoded tile (mvt.Decode); returns meta {land (whether any texel has a class)} and a blob of SIZE^2 bytes,
+-- layers: a decoded tile (mvt.Decode); returns meta {any (whether any texel has a class)} and a blob of SIZE^2 bytes,
 -- rows from the tile's north; land cover first, then land use and land, larger polygons before the smaller ones inside
 -- them
 function land_grid.Build(layers)
@@ -153,7 +154,7 @@ function land_grid.Build(layers)
 		mvt.FillRings(grid, size, size, feature.rings, feature.class)
 	end
 
-	return {land = features[1] ~= nil}, grid
+	return {any = features[1] ~= nil}, grid
 end
 
 land_grid.JOB = [[

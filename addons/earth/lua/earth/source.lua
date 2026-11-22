@@ -315,7 +315,7 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 -- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
 -- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples);
 -- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua),
--- source.Land to one that says what their ground is (land_cover.lua)
+-- source.Land to a tile grid (tile_grids.lua) of land_grid.lua
 function EarthSource.New(config)
 	local six = config.Layers and config.Layers[5] ~= nil
 	local layer_ids = {0, 1, 2, 3, 4, 5}
