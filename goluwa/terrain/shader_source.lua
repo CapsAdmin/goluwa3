@@ -21,6 +21,7 @@ local BakeConstants = ffi.typeof([[
 		int texture1;
 		int texture2;
 		int texture3;
+		int texture4;
 		int layer0;
 		int layer1;
 		int layer2;
@@ -48,6 +49,7 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	int texture1;
 	int texture2;
 	int texture3;
+	int texture4;
 	int layer0;
 	int layer1;
 	int layer2;
@@ -216,6 +218,7 @@ do
 			textures[2] and pipeline:GetTextureIndex(textures[2]) or -1,
 			textures[3] and pipeline:GetTextureIndex(textures[3]) or -1,
 			textures[4] and pipeline:GetTextureIndex(textures[4]) or -1,
+			textures[5] and pipeline:GetTextureIndex(textures[5]) or -1,
 			layer_ids[1] or -1,
 			layer_ids[2] or -1,
 			layer_ids[3] or -1,
