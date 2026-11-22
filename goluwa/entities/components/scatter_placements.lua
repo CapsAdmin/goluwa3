@@ -93,6 +93,5 @@ META.OnDeserialized = META.Refresh
 META.OnRemove = META.Unplace
 META.RECORD_SIZE = ffi.sizeof(Record)
 META.Record = Record
-META.WriteMatrix = write_matrix
 META.RecordArray = ffi.typeof("$[?]", Record)
 return META:Register()

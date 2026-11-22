@@ -444,23 +444,26 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		end
 
 		if physics_entries[1] then
-			local ScatterPlacements = import("goluwa/entities/components/scatter_placements.lua")
-			local record = ScatterPlacements.RecordArray(1)
+			local scatter = import("goluwa/render3d/scatter.lua")
 			local matrix = ffi.new("float[16]")
-			local words = ffi.cast("uint32_t *", matrix)
 			local rotation_matrix = Matrix44()
 			local folder = add_folder(level_guid, "Vegetation Physics")
 
 			for index, entry in ipairs(physics_entries) do
 				local position = units.ToEngine(entry.position)
 				local up = entry.terrain_normal
-				local r = record[0]
-				r.x, r.y, r.z, r.scale, r.yaw = position.x, position.y, position.z, entry.scale, entry.yaw
-				r.nx, r.ny, r.nz = 0, 1, 0
-
-				if up then r.nx, r.ny, r.nz = up.x, up.y, up.z end
-
-				ScatterPlacements.WriteMatrix(matrix, words, 0, r)
+				scatter.WritePlacement(
+					matrix,
+					0,
+					position.x,
+					position.y,
+					position.z,
+					entry.scale,
+					entry.yaw,
+					up and up.x or 0,
+					up and up.y or 1,
+					up and up.z or 0
+				)
 				rotation_matrix:Identity()
 				rotation_matrix.m00, rotation_matrix.m01, rotation_matrix.m02 = matrix[0] / entry.scale, matrix[1] / entry.scale, matrix[2] / entry.scale
 				rotation_matrix.m10, rotation_matrix.m11, rotation_matrix.m12 = matrix[4] / entry.scale, matrix[5] / entry.scale, matrix[6] / entry.scale
