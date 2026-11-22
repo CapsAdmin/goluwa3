@@ -270,7 +270,7 @@ local function build_mesh(
 	dedupe,
 	split
 )
-	local allow_shared = not (self.Dynamic or mode)
+	local allow_shared = not self.Dynamic and mode ~= "host"
 	local uniform
 
 	if split then
