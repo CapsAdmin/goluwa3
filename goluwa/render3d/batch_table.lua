@@ -202,9 +202,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		local started = startup.Start()
 		local batch_at = self.batch_at
 		local check_addresses = self.address_release_serial ~= release_serial
-		local addresses = ffi.cast(UInt64Ptr, self.records)
-		local stride = self.record_size / 8
-		local offset = ffi.offsetof(self.record_type, "addresses") / 8
+		local records = self.records
 		local expected = {}
 
 		for i = 1, count do
@@ -229,10 +227,9 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 					expected[mesh] = pair
 				end
 
-				local base = (i - 1) * stride + offset
-				stale = addresses[base] ~= pair[1] or
-					addresses[base + 1] ~= pair[2] or
-					addresses[base + 2] ~= pair[3]
+				-- records are not a multiple of 8 bytes, so each one's addresses are read through its own field
+				local addresses = ffi.cast(UInt64Ptr, records[i - 1].addresses)
+				stale = addresses[0] ~= pair[1] or addresses[1] ~= pair[2] or addresses[2] ~= pair[3]
 			end
 
 			if stale then write_batch_record(self, pipeline, context, i, batch, serial) end
