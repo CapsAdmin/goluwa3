@@ -77,11 +77,11 @@ function object_features.NewPlacer(input)
 	return place
 end
 
--- input: mvt (the tile's bytes), x, y, zoom, anchor_lat, anchor_lon, dem (EarthSource:RequestHeights over the tile);
--- returns meta {origin_x, origin_z (the line mesh's origin in the world), points ({[kind] = {x, y, z, yaw, ...}} in the
--- world), vertices, indices} and a blob of the line mesh's vertices then indices
+-- input: data (the tile's mvt), x, y, zoom, anchor_lat, anchor_lon, dem (EarthSource:RequestHeights over the tile);
+-- returns meta {origin_x, origin_z (the line mesh's origin in the world), points ({[kind] = {x, y, z, yaw, scale (0 for
+-- the kind's own range), ...}} in the world), vertices, indices} and a blob of the line mesh's vertices then indices
 function object_features.Build(input)
-	local layers = mvt.Decode(input.mvt)
+	local layers = mvt.Decode(input.data)
 	local origin_x, origin_z = geo.LatLonToWorld(
 		geo.NewAnchor(input.anchor_lat, input.anchor_lon),
 		geo.FromMercator(input.x + 0.5, input.y + 0.5, input.zoom, 1)
@@ -96,6 +96,7 @@ function object_features.Build(input)
 		list[#list + 1] = y
 		list[#list + 1] = z
 		list[#list + 1] = hash(x, z) * math.pi * 2
+		list[#list + 1] = 0
 	end
 
 	local mesh = tint_mesh.New()
@@ -240,6 +241,59 @@ function object_features.Build(input)
 	blob
 end
 
+-- the trees of a canopy tile (canopy_tiles.lua): one at each peak of the tallest canopy at least MIN_TREE meters tall,
+-- scaled to its height (tree_height: the models' own); the same input with sink (how much the bake lowers the ground
+-- by the blurred canopy, 0 where the height data is fine) and output as Build
+object_features.MIN_TREE = 4
+
+function object_features.BuildCanopyTrees(input)
+	local size = #input.data > 0 and math.floor(math.sqrt(#input.data / 2)) or 0
+	local grid = ffi.cast("const uint8_t *", input.data)
+	local place = object_features.NewPlacer(input)
+	local layer = {extent = size}
+	local list = {}
+
+	for y = 1, size - 2 do
+		for x = 1, size - 2 do
+			local v = grid[(y * size + x) * 2]
+
+			if v >= object_features.MIN_TREE then
+				local peak = true
+
+				for dy = -1, 1 do
+					for dx = -1, 1 do
+						local w = grid[((y + dy) * size + x + dx) * 2]
+
+						if (dx ~= 0 or dy ~= 0) and (w > v or w == v and (dy < 0 or dy == 0 and dx < 0)) then
+							peak = false
+						end
+					end
+				end
+
+				if peak then
+					local jx, jy = hash(x, y) - 0.5, hash(y, x) - 0.5
+					local wx, wy, wz = place(layer, x + 0.5 + jx * 0.8, y + 0.5 + jy * 0.8)
+
+					if wx then
+						local blurred = grid[(y * size + x) * 2 + 1]
+						list[#list + 1] = wx
+						list[#list + 1] = wy - math.min(input.sink * blurred, math.max(wy - 0.5, 0))
+						list[#list + 1] = wz
+						list[#list + 1] = hash(wx, wz) * math.pi * 2
+						list[#list + 1] = v / input.tree_height
+					end
+				end
+			end
+		end
+	end
+
+	return {origin_x = 0, origin_z = 0, points = {tree = list}, vertices = 0, indices = 0},
+	ffi.new("uint8_t[1]")
+end
+
+object_features.CANOPY_JOB = [[
+	return import("lua/earth/object_features.lua").BuildCanopyTrees(...)
+]]
 object_features.JOB = [[
 	return import("lua/earth/object_features.lua").Build(...)
 ]]

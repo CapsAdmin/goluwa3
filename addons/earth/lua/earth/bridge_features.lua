@@ -52,7 +52,7 @@ local function cut(line, from, to)
 end
 
 function bridge_features.Build(input)
-	local layers = mvt.Decode(input.mvt)
+	local layers = mvt.Decode(input.data)
 	local layer = layers.segment
 	local origin_x, origin_z = geo.LatLonToWorld(
 		geo.NewAnchor(input.anchor_lat, input.anchor_lon),

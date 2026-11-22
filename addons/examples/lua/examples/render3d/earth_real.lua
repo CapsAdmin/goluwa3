@@ -27,7 +27,8 @@ local function is_grass(definition)
 	return definition.model:find("/grass/", 1, true) ~= nil
 end
 
--- meadows on grass, woods on the forest floor, scree on rock and a dense even crop on fields
+-- meadows on grass, undergrowth on the forest floor (the trees are the canopy map's, placed by the earth's objects),
+-- scree on rock and a dense even crop on fields
 local scatter_set = os.getenv("EARTH_SCATTER") ~= "0" and
 	foliage_sets.Combine(
 		{Name = "earth"},
@@ -39,12 +40,12 @@ local scatter_set = os.getenv("EARTH_SCATTER") ~= "0" and
 					return not is_tree(definition)
 				end,
 			},
-			{set = foliage_sets.foliage_tropical, layers = {0, 1, 0, 0}},
 			{
-				set = foliage_sets.foliage_meadow,
+				set = foliage_sets.foliage_tropical,
 				layers = {0, 1, 0, 0},
-				only = is_tree,
-				override = {density = 0.0025, cluster = {scale = 40, amount = 0.4}},
+				only = function(definition)
+					return not is_tree(definition)
+				end,
 			},
 			{set = foliage_sets.foliage_rocky, layers = {0, 0, 1, 0}},
 			{
@@ -75,6 +76,7 @@ earth.Start{
 	Water = true,
 	Land = os.getenv("EARTH_LAND") ~= "0",
 	Roads = os.getenv("EARTH_ROADS") ~= "0",
+	Canopy = os.getenv("EARTH_CANOPY") ~= "0",
 	Objects = os.getenv("EARTH_OBJECTS") ~= "0" and
 		{
 			Trees = {
@@ -83,6 +85,8 @@ earth.Start{
 				foliage.GetModelPath("trees", "palm_a"),
 				foliage.GetModelPath("trees", "palm_b"),
 			},
+			Canopy = os.getenv("EARTH_CANOPY") ~= "0",
+			TreeHeight = 12,
 		} or
 		nil,
 }

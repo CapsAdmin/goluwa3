@@ -9,6 +9,10 @@ local road_grid = import("lua/earth/road_grid.lua")
 local EarthSource = setmetatable({}, {__index = ShaderSource})
 EarthSource.__index = EarthSource
 local GRID = 9
+-- the share of the canopy's height the coarse surface model's ground is lowered by: radar sees into the crowns, so a
+-- surface model's forest stands lower than its trees
+local CANOPY_SINK = 0.6
+EarthSource.CANOPY_SINK = CANOPY_SINK
 local MAX_MOSAIC = 1024
 -- a height mosaic texel with no land data (the tile does not exist: open sea)
 local NO_DATA = -32768
@@ -34,7 +38,9 @@ local LINEAR = {
 -- 1 when there is a land mosaic), (the land mosaic's width and height in texels), the same two for the road mosaic;
 -- texture1: the height mosaic (meters), texture2: the imagery mosaic, texture3: the water mosaic (signed distance to the
 -- shore, water level; see water_grid.lua), texture4: the land mosaic (land_grid.lua's classes over 255), texture5: the
--- road mosaic (road_grid.lua's distance and class over 255)
+-- road mosaic (road_grid.lua's distance and class over 255), texture6: the canopy mosaic (canopy_tiles.lua's tallest and
+-- blurred canopy in meters over 255); a second extra row: (canopy mosaic texels per height mosaic texel, offset x, y, 1
+-- when there is one), (its width and height in texels)
 local HEADER = noise.WORLD .. road_grid.GLSL .. [=[
 vec4 earth_info(int x, int y) {
 	return texelFetch(TEXTURE(terrain_bake.texture0), ivec2(x, y), 0);
@@ -130,6 +136,28 @@ float earth_road_cover(vec2 road, float texel) {
 	return (1.0 - smoothstep(-0.5 * texel, 0.5 * texel, road.x)) * min(2.0 * EARTH_ROAD_HALF_WIDTH[id] / texel, 1.0) * EARTH_ROAD_COVER[id];
 }
 
+// the tallest canopy in a texel and the canopy around it blurred to the height data's scale, meters, at a height mosaic
+// position, 0 without a canopy mosaic
+vec2 earth_canopy(vec2 m) {
+	vec4 canopy = earth_info(0, ]=] .. (
+		GRID + 1
+	) .. [=[);
+
+	if (canopy.w == 0.0) return vec2(0.0);
+
+	ivec2 last = ivec2(earth_info(1, ]=] .. (
+		GRID + 1
+	) .. [=[).xy) - 1;
+	vec2 t = m * canopy.x + canopy.yz - 0.5;
+	ivec2 i = ivec2(floor(t));
+	vec2 f = t - vec2(i);
+	vec2 c00 = texelFetch(TEXTURE(terrain_bake.texture6), clamp(i, ivec2(0), last), 0).rg;
+	vec2 c10 = texelFetch(TEXTURE(terrain_bake.texture6), clamp(i + ivec2(1, 0), ivec2(0), last), 0).rg;
+	vec2 c01 = texelFetch(TEXTURE(terrain_bake.texture6), clamp(i + ivec2(0, 1), ivec2(0), last), 0).rg;
+	vec2 c11 = texelFetch(TEXTURE(terrain_bake.texture6), clamp(i + ivec2(1, 1), ivec2(0), last), 0).rg;
+	return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y) * 255.0;
+}
+
 // the land classes of the four land mosaic texels around a world position and their bilinear weights, class 0 without
 // a land mosaic; the position is moved by a little noise first, so the polygons' straight edges do not show
 void earth_land(vec2 p, out ivec4 classes, out vec4 weights) {
@@ -195,8 +223,9 @@ vec2 earth_water(vec2 m) {
 // sand, rock, wetland, snow)
 const float EARTH_LAND_RELIEF[11] = float[](1.0, 1.0, 1.0, 0.7, 0.25, 0.25, 1.0, 0.6, 1.5, 0.3, 1.0);
 
-// relief finer than the data: noise below the data's own spacing, stronger on steep ground and by the land class, none
-// at the sea, near water or on roads (whose ground is the data's, blending to the relief beside over a shoulder); then
+// coarse height data is a surface model, with the trees in it: it is lowered by a share of the canopy blurred to its
+// scale (not near water, whose levels come from the data as it is); then relief finer than the data: noise below the
+// data's own spacing, stronger on steep ground and by the land class, none at the sea, near water or on roads (whose ground is the data's, blending to the relief beside over a shoulder); then
 // the ground is carved under lakes and rivers
 float terrain_height(vec2 p) {
 	vec2 m = earth_map(p).xy;
@@ -206,6 +235,8 @@ float terrain_height(vec2 p) {
 	vec2 water = earth_water(m);
 
 	if (h > 0.0 && spacing >= 4.0) {
+		ground -= min(]=] .. CANOPY_SINK .. [=[ * earth_canopy(m).y * earth_water_noise(water.x), max(ground - 0.5, 0.0));
+		h = ground;
 		float pixel = earth_info(1, ]=] .. GRID .. [=[).x;
 		vec2 slope = vec2(
 			earth_mosaic_bilinear(m + vec2(1.0, 0.0)) - earth_mosaic_bilinear(m - vec2(1.0, 0.0)),
@@ -234,7 +265,8 @@ float terrain_height(vec2 p) {
 ]=]
 -- the earth's eight layers: grass, forest floor, rock, crop (the four a scatter set reads, so it can grow meadows,
 -- woods, scree and fields apart), then sand, snow, dirt and gravel; a land class says which, the photo says how green
--- the ground is within it, and without a class the photo's colour decides alone. Under water the bed is dirt
+-- the ground is within it, and without a class the photo's colour decides alone. Under the canopy map's trees the
+-- ground is forest floor, under water the bed is dirt
 local LAYERS_GLSL = [=[
 // layers 1 to 4 in a, 5 to 8 in b; veg is how green the photo is, snow how snow-like
 void earth_class_layers(int land_class, float veg, float snow, float sandy, float low, out vec4 a, out vec4 b) {
@@ -304,6 +336,14 @@ void earth_layers(vec2 p, float h, vec3 n, out vec4 a, out vec4 b) {
 		}
 	}
 
+	// under trees the ground is forest floor, whatever the class says
+	vec2 m = earth_map(p).xy;
+	float cover = smoothstep(2.0, 6.0, earth_canopy(m).x);
+	float moved = cover * (a.x + a.w + b.z);
+	a.x *= 1.0 - cover;
+	a.w *= 1.0 - cover;
+	b.z *= 1.0 - cover;
+	a.y += moved;
 	// steep ground, and grey ground without a class, is rock whatever else
 	float rock = max(
 		smoothstep(0.3, 0.5, 1.0 - n.y),
@@ -315,7 +355,6 @@ void earth_layers(vec2 p, float h, vec3 n, out vec4 a, out vec4 b) {
 	float sum = max(dot(a, vec4(1.0)) + dot(b, vec4(1.0)), 0.0001);
 	a /= sum;
 	b /= sum;
-	vec2 m = earth_map(p).xy;
 	float bed = 1.0 - smoothstep(-1.0, 0.5, earth_water(m).x);
 	a *= 1.0 - bed;
 	b *= 1.0 - bed;
@@ -368,7 +407,8 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 -- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
 -- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples);
 -- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua),
--- source.Land and source.Roads to tile grids (tile_grids.lua) of land_grid.lua and road_grid.lua
+-- source.Land, source.Roads and source.Canopy to tile grids (tile_grids.lua) of land_grid.lua, road_grid.lua and
+-- canopy_tiles.lua
 function EarthSource.New(config)
 	assert(not config.Layers or #config.Layers == 8, "the earth has eight layers")
 	local layer_ids = {0, 1, 2, 3, 4, 5, 6, 7}
@@ -702,10 +742,10 @@ local function get_blank(self)
 	return self.Blank
 end
 
-local function bake(self, item, heights, imagery, bathymetry, land, roads)
+local function bake(self, item, heights, imagery, bathymetry, land, roads, canopy)
 	local request = item.request
 	local domain = item.domain
-	local info = FloatArray(GRID * (GRID + 1) * 4)
+	local info = FloatArray(GRID * (GRID + 2) * 4)
 
 	for k = 1, GRID * GRID do
 		local o = (k - 1) * 4
@@ -728,14 +768,14 @@ local function bake(self, item, heights, imagery, bathymetry, land, roads)
 	info[o + 4] = geo.GetPixelSize(domain.center_lat, heights.zoom, heights.set.TileSize)
 	info[o + 5] = heights.width
 	info[o + 6] = heights.height
-	local info_texture = acquire_texture(self, GRID, GRID + 1, "r32g32b32a32_sfloat", NEAREST)
+	local info_texture = acquire_texture(self, GRID, GRID + 2, "r32g32b32a32_sfloat", NEAREST)
 	local height_texture = acquire_texture(self, height_width, height_height, "r32_sfloat", NEAREST)
 	local height_pixels = compose(heights, 4, height_width, height_height, "heights")
 
 	if bathymetry then fill_sea(height_pixels, height_width, heights, bathymetry) end
 
 	local blank = get_blank(self)
-	local textures = {info_texture, height_texture, blank, blank, blank}
+	local textures = {info_texture, height_texture, blank, blank, blank, blank}
 	local uploads = {{info_texture, info}, {height_texture, height_pixels}}
 	local water = self.Water and self.Water:PlanMosaic(heights)
 
@@ -765,6 +805,21 @@ local function bake(self, item, heights, imagery, bathymetry, land, roads)
 		info[o + 21] = land.height
 		textures[5] = acquire_texture(self, width, height, "r8_unorm", NEAREST)
 		uploads[#uploads + 1] = {textures[5], pixels}
+	end
+
+	if canopy then
+		local width, height = pool_size(canopy.width), pool_size(canopy.height)
+		local pixels = get_scratch("canopy", width * height * 2)
+		self.Canopy:FillMosaic(canopy, pixels, width)
+		local c = GRID * (GRID + 1) * 4
+		info[c] = canopy.scale
+		info[c + 1] = canopy.offset_x
+		info[c + 2] = canopy.offset_y
+		info[c + 3] = 1
+		info[c + 4] = canopy.width
+		info[c + 5] = canopy.height
+		textures[7] = acquire_texture(self, width, height, "r8g8_unorm", NEAREST)
+		uploads[#uploads + 1] = {textures[7], pixels}
 	end
 
 	if roads then
@@ -885,7 +940,20 @@ local function try_resolve(self, item)
 
 	if roads == nil and self.Roads then return false end
 
-	bake(self, item, heights, imagery or nil, bathymetry or nil, land or nil, roads or nil)
+	local canopy = self.Canopy and self.Canopy:PlanMosaic(heights)
+
+	if canopy == nil and self.Canopy then return false end
+
+	bake(
+		self,
+		item,
+		heights,
+		imagery or nil,
+		bathymetry or nil,
+		land or nil,
+		roads or nil,
+		canopy or nil
+	)
 	return true
 end
 

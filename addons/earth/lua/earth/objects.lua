@@ -14,6 +14,8 @@ local geo = import("lua/earth/geo.lua")
 local overture_tiles = import("lua/earth/overture_tiles.lua")
 local object_features = import("lua/earth/object_features.lua")
 local bridge_features = import("lua/earth/bridge_features.lua")
+local canopy_tiles = import("lua/earth/canopy_tiles.lua")
+local EarthSource = import("lua/earth/source.lua")
 local prop_models = import("lua/earth/prop_models.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
 -- the things around the camera that stand at a point or run along a line (object_features.lua) and the bridges of
@@ -94,7 +96,7 @@ local function place_points(tile, points)
 			local scale = settings.scale or {1, 1}
 			local groups = {}
 
-			for i = 1, #list, 4 do
+			for i = 1, #list, 5 do
 				local index = math.floor(hash(list[i], list[i + 2]) * #protos) + 1
 				groups[index] = groups[index] or {}
 				local group = groups[index]
@@ -105,14 +107,14 @@ local function place_points(tile, points)
 				local matrices = FloatArray(#group * 16)
 
 				for n, i in ipairs(group) do
-					local x, y, z, yaw = list[i], list[i + 1], list[i + 2], list[i + 3]
+					local x, y, z, yaw, size = list[i], list[i + 1], list[i + 2], list[i + 3], list[i + 4]
 					scatter.WritePlacement(
 						matrices,
 						(n - 1) * 16,
 						x,
 						y,
 						z,
-						math.lerp(hash(z, x), scale[1], scale[2]),
+						size > 0 and size or math.lerp(hash(z, x), scale[1], scale[2]),
 						yaw,
 						0,
 						1,
@@ -149,6 +151,14 @@ local function build_input(tile)
 	end
 
 	local dem = source:RequestHeights(tile.height_state)
+	local state = tile.height_state
+	local lat, lon = (state.north + state.south) / 2, (state.west + state.east) / 2
+	-- as in the bake: height data coarser than 4 m is a surface model, lowered under the canopy
+	tile.coarse = geo.GetPixelSize(
+			lat,
+			math.min(source.Heights.NativeZoom(lat, lon), source.Heights.MaxZoom),
+			source.Heights.TileSize
+		) >= 4
 
 	if dem == nil then return end
 
@@ -158,13 +168,15 @@ local function build_input(tile)
 	end
 
 	return {
-		mvt = fs.read_file(tile.source.tiles:GetPath(tile.x, tile.y)),
+		data = fs.read_file(tile.source.tiles:GetPath(tile.x, tile.y)),
 		x = tile.x,
 		y = tile.y,
 		zoom = tile.source.tiles.Zoom,
 		anchor_lat = source.Anchor.lat,
 		anchor_lon = source.Anchor.lon,
 		dem = dem,
+		sink = tile.coarse and EarthSource.CANOPY_SINK or 0,
+		tree_height = objects.config.TreeHeight,
 	}
 end
 
@@ -226,7 +238,7 @@ end
 local function update()
 	local camera = render3d.GetCamera():GetPosition()
 
-	for i, source in ipairs(SOURCES) do
+	for i, source in ipairs(objects.sources) do
 		local tiles = objects.tiles[i]
 		local wanted = source.tiles:GetTilesAround(
 			objects.source,
@@ -251,14 +263,27 @@ local function update()
 	end
 end
 
--- config: Trees (model paths a mapped tree is one of, picked by its position; none places no trees)
+-- config: Trees (model paths a mapped tree is one of, picked by its position; none places no trees), Canopy (trees at
+-- the peaks of the canopy height map too, canopy_tiles.lua), TreeHeight (the tree models' height, which a canopy tree is
+-- scaled to its own from)
 function objects.Start(source, config)
 	objects.Stop()
 	objects.source = source
 	objects.config = config
+	objects.sources = table.shallow_copy(SOURCES)
+
+	if config.Canopy then
+		objects.sources[#objects.sources + 1] = {
+			tiles = canopy_tiles.Get(),
+			job = object_features.CANOPY_JOB,
+			radius = 1500,
+			keep_radius = 2500,
+		}
+	end
+
 	objects.tiles = {}
 
-	for i in ipairs(SOURCES) do
+	for i in ipairs(objects.sources) do
 		objects.tiles[i] = {}
 	end
 

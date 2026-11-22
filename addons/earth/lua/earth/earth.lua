@@ -12,6 +12,7 @@ local buildings = import("lua/earth/buildings.lua")
 local water_bodies = import("lua/earth/water_bodies.lua")
 local tile_grids = import("lua/earth/tile_grids.lua")
 local overture_tiles = import("lua/earth/overture_tiles.lua")
+local canopy_tiles = import("lua/earth/canopy_tiles.lua")
 local land_grid = import("lua/earth/land_grid.lua")
 local road_grid = import("lua/earth/road_grid.lua")
 local objects = import("lua/earth/objects.lua")
@@ -140,6 +141,16 @@ earth.Roads = tile_grids.New{
 	KeepRadius = 4500,
 	MaxMosaicStep = 4,
 }
+earth.Canopy = tile_grids.New{
+	Name = "canopy",
+	Tiles = canopy_tiles.Get(),
+	Size = canopy_tiles.SIZE,
+	Bytes = 2,
+	Job = canopy_tiles.GRID_JOB,
+	Radius = 4000,
+	KeepRadius = 6000,
+	MaxMosaicStep = 8,
+}
 
 local function start_terrain(lat, lon)
 	weather.SetLocation(lat, lon)
@@ -210,8 +221,9 @@ end
 -- Water (Overture's lakes, ponds and rivers carved into the terrain and filled with water volumes, see water_bodies.lua),
 -- Land (what the ground is from Overture's land cover, land use and land, picking the layers and the fine relief, see
 -- land_grid.lua), Roads (Overture's roads, paths and railways flattened into and painted on the terrain, see road_grid.lua),
--- Objects (power lines and towers, lamps, signals, mapped trees, fences and walls around the camera: {Trees = model
--- paths}, see objects.lua),
+-- Canopy (Meta's canopy height map lowers the coarse height data under trees and puts forest floor under them, see
+-- canopy_tiles.lua), Objects (power lines and towers, lamps, signals, mapped trees, fences and walls around the camera:
+-- {Trees = model paths, Canopy (trees at the canopy map's peaks too), TreeHeight}, see objects.lua),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
@@ -244,6 +256,11 @@ function earth.Start(config)
 	if config.Roads then
 		earth.Roads:Start(earth.source, earth.terrain, "Roads")
 		attribution[#attribution + 1] = road_grid.ATTRIBUTION
+	end
+
+	if config.Canopy then
+		earth.Canopy:Start(earth.source, earth.terrain, "Canopy")
+		attribution[#attribution + 1] = canopy_tiles.ATTRIBUTION
 	end
 
 	if config.Objects then
@@ -309,6 +326,8 @@ function earth.Recenter(lat, lon)
 
 	if earth.config.Roads then earth.Roads:SetSource(earth.source, earth.terrain) end
 
+	if earth.config.Canopy then earth.Canopy:SetSource(earth.source, earth.terrain) end
+
 	if earth.config.Objects then objects.SetSource(earth.source) end
 
 	local view = View.GetActive()
@@ -330,6 +349,7 @@ function earth.Stop()
 	water_bodies.Stop()
 	earth.LandCover:Stop()
 	earth.Roads:Stop()
+	earth.Canopy:Stop()
 	objects.Stop()
 
 	if earth.terrain then
