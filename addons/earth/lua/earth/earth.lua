@@ -90,6 +90,8 @@ function earth.GetTileSets()
 			tile_size = 256,
 			max_zoom = 14,
 			kind = "image",
+			-- the mosaic is hazy, with thin cloud left in it, which reads as a pale teal over green land
+			dehaze = {air = {190, 195, 190}, strength = 0.65, floor = 0.45, radius = 3, blur = 6},
 			host_limit = 6,
 		}
 		earth.ImageryChain = {}

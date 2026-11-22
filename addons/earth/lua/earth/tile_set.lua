@@ -12,7 +12,8 @@ local RETRY_DELAYS = {1, 4, 15}
 local FAILED_RETRY_SECONDS = 60
 local DECODE_JOB = [=[
 	local ffi = require("ffi")
-	local kind, path = (...):match("^(%w+)\n(.*)$")
+	local input = ...
+	local kind, path, dehaze = input.kind, input.path, input.dehaze
 	local Buffer = import("goluwa/structs/buffer.lua")
 	local file = assert(io.open(path, "rb"))
 	local data = file:read("*a")
@@ -97,6 +98,50 @@ local DECODE_JOB = [=[
 			math.max(high_r - low_r, high_g - low_g, high_b - low_b) <= 2
 		then
 			return {width = image.width, height = image.height, blank = true}
+		end
+	end
+
+	-- haze and thin cloud taken out by the dark channel prior: where even the darkest channel around a pixel is far from
+	-- black, the pixel is that much the haze's colour (air), which is taken back out; the haze's colour is fixed per source
+	-- (not estimated per tile) so neighbouring tiles agree
+	if dehaze then
+		local width, height = image.width, image.height
+		local n = width * height
+		local air_r, air_g, air_b = dehaze.air[1], dehaze.air[2], dehaze.air[3]
+		local dark = ffi.new("float[?]", n)
+		local pass = ffi.new("float[?]", n)
+
+		for i = 0, n - 1 do
+			local o = i * 4
+			dark[i] = math.min(pixels[o] / air_r, pixels[o + 1] / air_g, pixels[o + 2] / air_b)
+		end
+
+		local function filter(src, dst, radius, step, along, across, minimum)
+			for a = 0, across - 1 do
+				for b = 0, along - 1 do
+					local value = minimum and math.huge or 0
+
+					for k = math.max(b - radius, 0), math.min(b + radius, along - 1) do
+						local v = src[a * (step == 1 and along or 1) + k * step]
+						value = minimum and math.min(value, v) or value + v
+					end
+
+					dst[a * (step == 1 and along or 1) + b * step] = minimum and value or value / (math.min(b + radius, along - 1) - math.max(b - radius, 0) + 1)
+				end
+			end
+		end
+
+		filter(dark, pass, dehaze.radius, 1, width, height, true)
+		filter(pass, dark, dehaze.radius, width, height, width, true)
+		filter(dark, pass, dehaze.blur, 1, width, height, false)
+		filter(pass, dark, dehaze.blur, width, height, width, false)
+
+		for i = 0, n - 1 do
+			local o = i * 4
+			local t = 1 / math.max(1 - dehaze.strength * dark[i], dehaze.floor)
+			pixels[o] = math.min(math.max((pixels[o] - air_r) * t + air_r + 0.5, 0), 255)
+			pixels[o + 1] = math.min(math.max((pixels[o + 1] - air_g) * t + air_g + 0.5, 0), 255)
+			pixels[o + 2] = math.min(math.max((pixels[o + 2] - air_b) * t + air_b + 0.5, 0), 255)
 		end
 	end
 
@@ -203,7 +248,9 @@ end
 -- kind ("terrarium", "image" or "photo": an image whose blank tiles count as missing), bounds ({south, west, north,
 -- east}: it has no tiles outside), min_zoom, host_limit (requests at once to its host), max_resident (decoded tiles kept in memory),
 -- missing_is_sea (a tile that does not exist is open sea rather than a hole),
--- native_zoom(lat, lon) (the zoom whose pixels match the resolution of the source data there, max_zoom by default)
+-- native_zoom(lat, lon) (the zoom whose pixels match the resolution of the source data there, max_zoom by default),
+-- dehaze ({air (the haze's sRGB colour, 0-255), strength, floor (the least transmission), radius (texels of the dark
+-- channel's minimum), blur}: haze taken out of photos as they are decoded)
 function TileSet.New(config)
 	local self = setmetatable({}, TileSet)
 	self.Name = config.name
@@ -216,6 +263,7 @@ function TileSet.New(config)
 	self.Bounds = config.bounds
 	self.Attribution = config.attribution
 	self.Kind = config.kind
+	self.Dehaze = config.dehaze
 	self.HostLimit = config.host_limit or 6
 	self.MaxResident = config.max_resident or 512
 	self.MissingIsSea = config.missing_is_sea or false
@@ -304,7 +352,7 @@ function TileSet:Finish(tile, state)
 end
 
 function TileSet:Decode(tile, path)
-	thread_pool.Run(DECODE_JOB, self.Kind .. "\n" .. path, math.huge):OnDone(function(job)
+	thread_pool.Run(DECODE_JOB, {kind = self.Kind, path = path, dehaze = self.Dehaze}, math.huge):OnDone(function(job)
 		if self.Tiles[tile.key] ~= tile then return end
 
 		if job.err or not job.meta then
