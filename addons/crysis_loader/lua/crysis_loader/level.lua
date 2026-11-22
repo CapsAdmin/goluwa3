@@ -1190,8 +1190,8 @@ local function rebuild_terrain_height_cache(terrain)
 	terrain.height_sample_height = height
 	terrain.height_sample_max_x = width - 1
 	terrain.height_sample_max_y = height - 1
-	terrain.height_world_to_sample_x = width > 1 and ((width - 1) / math.max(terrain.world_size or 0, 1)) or 0
-	terrain.height_world_to_sample_y = height > 1 and ((height - 1) / math.max(terrain.world_size or 0, 1)) or 0
+	terrain.height_world_to_sample_x = width / math.max(terrain.world_size or 0, 1)
+	terrain.height_world_to_sample_y = height / math.max(terrain.world_size or 0, 1)
 
 	if not terrain.height_data or sample_count <= 0 then
 		terrain.height_samples = nil
@@ -1501,31 +1501,13 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	local sample_x = (-world_z) * (terrain.height_world_to_sample_x or 0)
 	local sample_y = world_x * (terrain.height_world_to_sample_y or 0)
 
-	if sample_x < 0 or sample_x > width - 1 or sample_y < 0 or sample_y > height - 1 then
+	if sample_x < 0 or sample_x > width or sample_y < 0 or sample_y > height then
 		return 0
 	end
 
 	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
-
-function level.SampleRenderedTerrainHeight(terrain, world_x, world_z)
-	local world_size = math.max(terrain.world_size or 0, 1)
-	local width = terrain.height_sample_width or
-		terrain.height_samples_width or
-		terrain.height_samples_per_side
-	local height = terrain.height_sample_height or
-		terrain.height_samples_height or
-		terrain.height_samples_per_side or
-		width
-	local u = -world_z / world_size
-	local v = world_x / world_size
-
-	if u < 0 or u > 1 or v < 0 or v > 1 then return 0 end
-
-	return sample_terrain_height_raw(terrain, u * width, v * height) / 65535 * terrain.heightmap_max_height
-end
-
 local loaded_levels = {}
 local libraries_by_game = {}
 

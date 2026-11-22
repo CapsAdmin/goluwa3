@@ -341,8 +341,8 @@ T.Test("Cry terrain height drops to zero outside the heightmap", function()
 		height_data_offset = 1,
 		height_sample_width = 2,
 		height_sample_height = 2,
-		height_world_to_sample_x = 0.1,
-		height_world_to_sample_y = 0.1,
+		height_world_to_sample_x = 0.2,
+		height_world_to_sample_y = 0.2,
 	}
 	T(crylevel.SampleTerrainHeight(terrain, 5, -5))["~"](100, 0.001)
 	T(crylevel.SampleTerrainHeight(terrain, 0, 0))["~"](100, 0.001)
@@ -352,12 +352,6 @@ T.Test("Cry terrain height drops to zero outside the heightmap", function()
 	T(crylevel.SampleTerrainHeight(terrain, 5, 0.01))["=="](0)
 	T(crylevel.SampleTerrainHeight(terrain, 5, -10.01))["=="](0)
 	T(crylevel.SampleTerrainHeight(terrain, 1000, 1000))["=="](0)
-	T(crylevel.SampleRenderedTerrainHeight(terrain, 5, -5))["~"](100, 0.001)
-	T(crylevel.SampleRenderedTerrainHeight(terrain, 0, 0))["~"](100, 0.001)
-	T(crylevel.SampleRenderedTerrainHeight(terrain, -0.01, -5))["=="](0)
-	T(crylevel.SampleRenderedTerrainHeight(terrain, 10.01, -5))["=="](0)
-	T(crylevel.SampleRenderedTerrainHeight(terrain, 5, 0.01))["=="](0)
-	T(crylevel.SampleRenderedTerrainHeight(terrain, 5, -10.01))["=="](0)
 end)
 
 T.Test("Cry cover parser reads the terrain texture quadtree", function()
