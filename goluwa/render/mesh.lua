@@ -146,6 +146,17 @@ function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count,
 	return self
 end
 
+-- a mesh over a vertex buffer that is kept by the caller (removing the mesh leaves it)
+function Mesh.FromVertexBuffer(vertex_buffer, index_buffer, name)
+	local self = Mesh:CreateObject()
+	self.debug_name = name
+	self.vertex_buffer = vertex_buffer
+	self.index_buffer = index_buffer
+	self.mode = "triangle_list"
+	assert_indices_reach_vertices(self)
+	return self
+end
+
 local mesh_content_cache = table.weak("v")
 
 local function sample_bytes(ptr, size)

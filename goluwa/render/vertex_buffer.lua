@@ -45,7 +45,9 @@ function VertexBuffer.New(vertices, vertex_attributes, name, mode)
 		local count = vertices
 		self.vertex_count = count
 		self.byte_size = self.stride * count
-		self.data = ffi.new("uint8_t[?]", self.byte_size)
+
+		-- "device": only the gpu has the vertices (a pass writes them), there is no cpu copy
+		if mode ~= "device" then self.data = ffi.new("uint8_t[?]", self.byte_size) end
 	elseif type(vertices) == "cdata" then
 		local cdata_size = ffi.sizeof(vertices)
 		self.vertex_count = cdata_size / self.stride
@@ -123,10 +125,13 @@ function VertexBuffer.New(vertices, vertex_attributes, name, mode)
 
 	if mode ~= "host" and render.IsReady() then
 		self.buffer = render.CreateBuffer{
-			buffer_usage = {"vertex_buffer", "storage_buffer", "shader_device_address"},
+			buffer_usage = mode == "device" and
+				{"vertex_buffer", "storage_buffer", "shader_device_address", "transfer_src"} or
+				{"vertex_buffer", "storage_buffer", "shader_device_address"},
 			data_type = "float",
 			data = self.data,
 			byte_size = self.byte_size,
+			memory_property = mode == "device" and {"device_local"} or nil,
 			name = name,
 		}
 	end

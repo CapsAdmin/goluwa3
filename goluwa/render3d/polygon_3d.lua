@@ -373,6 +373,19 @@ function Polygon3D:UploadVertexArray(
 	end
 end
 
+-- draws vertices that a gpu pass writes into vertex_buffer (core layout, kept by the caller), every vertex with the
+-- same extras (a vertex_layout.GetUniformExtras string)
+function Polygon3D:UseVertexBuffer(vertex_buffer, index_buffer, aabb, uniform_extras)
+	self:SetAABB(aabb)
+	self.indices = nil
+	self.mesh = Mesh.FromVertexBuffer(vertex_buffer, index_buffer, "gpu vertices")
+	self.mesh:SetExtras(
+		vertex_extras.GetShared(uniform_extras, vertex_buffer:GetVertexCount()),
+		vertex_layout.EXTRAS_BINDING,
+		false
+	)
+end
+
 function Polygon3D:UpdateVertexArray(vertices, vertex_count)
 	local mesh = self.mesh
 	vertex_layout.SplitInto(vertices, vertex_count, mesh.vertex_buffer.data, mesh.extras.data)
