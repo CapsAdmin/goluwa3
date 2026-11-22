@@ -11,6 +11,9 @@ local geo = import("lua/earth/geo.lua")
 local overture_tiles = import("lua/earth/overture_tiles.lua")
 local building_mesh = import("lua/earth/building_mesh.lua")
 local layer_texture = import("goluwa/terrain/layer_texture.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
+local RigidBody = import("goluwa/physics/rigid_body.lua")
+local vertex_math = import("goluwa/render3d/vertex_math.lua")
 -- Overture's buildings (OpenStreetMap, Microsoft's and Google's machine learned footprints, Esri) as blocks: the
 -- footprints of the zoom 14 tiles around the camera extruded to their height, or their floors, or a guess by class
 local buildings = {}
@@ -61,8 +64,19 @@ float layer_height(vec2 uv) {
 }
 local VertexType = Polygon3D.VertexType
 local VERTEX_SIZE = ffi.sizeof(VertexType(1))
+local VertexPointer = vertex_math.VertexPointer
 local Index32Array = ffi.typeof("uint32_t[?]")
 local FloatArray = ffi.typeof("float[?]")
+-- buildings get colliders within COLLIDER_RADIUS of the camera or a dynamic body (asleep too, or it wakes when the
+-- collider under it goes), kept to COLLIDER_KEEP_RADIUS, found through a grid of COLLIDER_CELL cells over each tile
+local COLLIDER_RADIUS = 100
+local COLLIDER_KEEP_RADIUS = 150
+local COLLIDER_CELL = 32
+
+local function cell_key(cx, cz)
+	return (cx + 32768) * 65536 + cz + 32768
+end
+
 local tiles_source = overture_tiles.Get("buildings", ZOOM)
 local wall_material
 local roof_material
@@ -127,6 +141,96 @@ local function create_tile_entity(tile, meta, blob)
 		meta.roof_indices
 	)
 	visual:BuildAABB()
+	local vertex_count = meta.wall_vertices + meta.roof_vertices
+	local index_count = meta.wall_indices + meta.roof_indices
+	local vertices = ffi.cast(VertexPointer, data)
+	local indices = ffi.cast("const uint32_t *", data + vertex_bytes)
+	local positions = FloatArray(vertex_count * 3)
+	local combined = Index32Array(index_count)
+
+	for i = 0, vertex_count - 1 do
+		local p = vertices[i].position
+		positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2] = p[0], p[1], p[2]
+	end
+
+	for i = 0, index_count - 1 do
+		combined[i] = indices[i] + (i < meta.wall_indices and 0 or meta.wall_vertices)
+	end
+
+	local ranges = Index32Array(meta.buildings * 8)
+	local bounds = FloatArray(meta.buildings * 4)
+	ffi.copy(ranges, data + vertex_bytes + index_count * 4, meta.buildings * 32)
+	ffi.copy(
+		bounds,
+		data + vertex_bytes + index_count * 4 + meta.buildings * 32,
+		meta.buildings * 16
+	)
+	local cells = {}
+	local min_x, min_z, max_x, max_z = math.huge, math.huge, -math.huge, -math.huge
+
+	for part = 0, meta.buildings - 1 do
+		min_x, min_z = math.min(min_x, bounds[part * 4]), math.min(min_z, bounds[part * 4 + 1])
+		max_x, max_z = math.max(max_x, bounds[part * 4 + 2]), math.max(max_z, bounds[part * 4 + 3])
+		local o = part * 8
+		ranges[o + 4] = ranges[o + 4] + meta.wall_vertices
+		ranges[o + 6] = ranges[o + 6] + meta.wall_indices
+
+		for cz = math.floor(bounds[part * 4 + 1] / COLLIDER_CELL), math.floor(bounds[part * 4 + 3] / COLLIDER_CELL) do
+			for cx = math.floor(bounds[part * 4] / COLLIDER_CELL), math.floor(bounds[part * 4 + 2] / COLLIDER_CELL) do
+				local key = cell_key(cx, cz)
+				cells[key] = cells[key] or {}
+				list.insert(cells[key], part)
+			end
+		end
+	end
+
+	tile.collision = {
+		positions = positions,
+		indices = combined,
+		ranges = ranges,
+		bounds = bounds,
+		cells = cells,
+		colliders = {},
+		min_x = min_x - COLLIDER_KEEP_RADIUS,
+		min_z = min_z - COLLIDER_KEEP_RADIUS,
+		max_x = max_x + COLLIDER_KEEP_RADIUS,
+		max_z = max_z + COLLIDER_KEEP_RADIUS,
+	}
+end
+
+-- a static mesh collider for one building of a built tile, a child of the tile's entity
+local function create_collider(tile, part)
+	local collision = tile.collision
+	local positions, indices, ranges = collision.positions, collision.indices, collision.ranges
+	local vertices = {}
+	local triangles = {}
+
+	for range = 0, 1 do
+		local o = part * 8 + range * 4
+		local vertex_first, vertex_count = ranges[o], ranges[o + 1]
+		local offset = #vertices - vertex_first
+
+		for i = vertex_first, vertex_first + vertex_count - 1 do
+			vertices[#vertices + 1] = Vec3(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2])
+		end
+
+		for i = ranges[o + 2], ranges[o + 2] + ranges[o + 3] - 1 do
+			triangles[#triangles + 1] = indices[i] + offset
+		end
+	end
+
+	local entity = Entity.New{Name = tile.entity:GetName() .. "_collider_" .. part, Parent = tile.entity}
+	entity:AddComponent("transform")
+	entity:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Vertices = vertices, indices = triangles},
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.8,
+		}
+	)
+	return entity
 end
 
 -- the job's input, nil while the ground under the tile or the photo over it is not loaded
@@ -219,6 +323,68 @@ local function load_tile(tile)
 	end)
 end
 
+local anchors = {}
+local keep = {}
+
+local function update_colliders(camera)
+	list.clear(anchors)
+	anchors[1] = camera
+
+	for _, body in ipairs(RigidBody.Instances) do
+		if body:IsDynamic() then anchors[#anchors + 1] = body:GetPosition() end
+	end
+
+	for _, tile in pairs(buildings.tiles) do
+		local collision = tile.collision
+
+		if collision then
+			local bounds, colliders = collision.bounds, collision.colliders
+			table.clear(keep)
+
+			for _, anchor in ipairs(anchors) do
+				local x, z = anchor.x - tile.origin_x, anchor.z - tile.origin_z
+
+				if
+					x > collision.min_x and
+					x < collision.max_x and
+					z > collision.min_z and
+					z < collision.max_z
+				then
+					for cz = math.floor((z - COLLIDER_KEEP_RADIUS) / COLLIDER_CELL), math.floor((z + COLLIDER_KEEP_RADIUS) / COLLIDER_CELL) do
+						for cx = math.floor((x - COLLIDER_KEEP_RADIUS) / COLLIDER_CELL), math.floor((x + COLLIDER_KEEP_RADIUS) / COLLIDER_CELL) do
+							local cell = collision.cells[cell_key(cx, cz)]
+
+							if cell then
+								for _, part in ipairs(cell) do
+									local o = part * 4
+									local dx = math.max(bounds[o] - x, x - bounds[o + 2], 0)
+									local dz = math.max(bounds[o + 1] - z, z - bounds[o + 3], 0)
+									local distance = dx * dx + dz * dz
+
+									if distance < COLLIDER_KEEP_RADIUS * COLLIDER_KEEP_RADIUS then
+										keep[part] = true
+
+										if not colliders[part] and distance < COLLIDER_RADIUS * COLLIDER_RADIUS then
+											colliders[part] = create_collider(tile, part)
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+
+			for part, entity in pairs(colliders) do
+				if not keep[part] then
+					entity:Remove()
+					colliders[part] = nil
+				end
+			end
+		end
+	end
+end
+
 local function nearest_first(a, b)
 	return a.distance < b.distance
 end
@@ -264,6 +430,7 @@ local function update()
 	end
 
 	table.sort(wanted, nearest_first)
+	update_colliders(camera)
 
 	for _, entry in ipairs(wanted) do
 		local tile = entry.tile

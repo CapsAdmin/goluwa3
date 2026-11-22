@@ -28,6 +28,7 @@ building_mesh.CLASS_HEIGHTS = {
 	apartments = 15,
 }
 building_mesh.DEFAULT_HEIGHT = 8
+building_mesh.PART_BYTES = 8 * 4 + 4 * 4
 -- sRGB colours a building is picked from by a hash of its id, weights first: plaster, brick, paint
 building_mesh.WALL_COLORS = {
 	{6, 0.86, 0.84, 0.80},
@@ -611,7 +612,9 @@ end
 
 -- input: path (the tile's decoded mvt), x, y, zoom, anchor_lat, anchor_lon, origin_x, origin_z (the meshes' origin in
 -- the world) and a grid of ground heights over the tile (grid_size, grid_lat0, grid_lon0, grid_dlat, grid_dlon, grid:
--- floats as a string); returns the counts and one blob of the wall then roof vertices, then the wall then roof indices
+-- floats as a string); returns the counts and one blob of the wall then roof vertices, then the wall then roof indices,
+-- then per building its wall and roof ranges (vertex first, count, index first, count; uint32) and then per building its
+-- outline's bounds (min x, min z, max x, max z; floats)
 function building_mesh.Build(input)
 	local file = assert(io.open(input.path, "rb"))
 	local data = file:read("*a")
@@ -626,7 +629,7 @@ function building_mesh.Build(input)
 
 	if photo then photo.data = ffi.cast("const uint8_t *", photo.pixels) end
 
-	local count = 0
+	local parts = {}
 	-- a building with parts in the tile is drawn as its parts, which take what they do not say from it
 	local shapes = {}
 	local parents, has_parts = {}, {}
@@ -707,6 +710,7 @@ function building_mesh.Build(input)
 					rings[r] = projected
 				end
 
+				local first = {walls.count, walls.index_count, roofs.count, roofs.index_count}
 				local base = ground - planet.GetDrop(rings[1][1] + input.origin_x, rings[1][2] + input.origin_z)
 				local top = base + height
 				local bottom = min_height > 0 and base + min_height or base - building_mesh.FOOTING
@@ -740,19 +744,54 @@ function building_mesh.Build(input)
 
 				if min_height > 0 then add_roof(walls, rings, bottom, true) end
 
-				count = count + 1
+				local min_x, min_z, max_x, max_z = math.huge, math.huge, -math.huge, -math.huge
+				local outline = rings[1]
+
+				for i = 1, #outline, 2 do
+					min_x, max_x = math.min(min_x, outline[i]), math.max(max_x, outline[i])
+					min_z, max_z = math.min(min_z, outline[i + 1]), math.max(max_z, outline[i + 1])
+				end
+
+				parts[#parts + 1] = {
+					first[1],
+					walls.count - first[1],
+					first[2],
+					walls.index_count - first[2],
+					first[3],
+					roofs.count - first[3],
+					first[4],
+					roofs.index_count - first[4],
+					min_x,
+					min_z,
+					max_x,
+					max_z,
+				}
 			end
 		end
 	end
 
 	local vertex_bytes = (walls.count + roofs.count) * VERTEX_SIZE
-	local blob = ffi.new("uint8_t[?]", vertex_bytes + (walls.index_count + roofs.index_count) * 4)
+	local index_bytes = (walls.index_count + roofs.index_count) * 4
+	local blob = ffi.new("uint8_t[?]", vertex_bytes + index_bytes + #parts * building_mesh.PART_BYTES)
 	ffi.copy(blob, walls.vertices, walls.count * VERTEX_SIZE)
 	ffi.copy(blob + walls.count * VERTEX_SIZE, roofs.vertices, roofs.count * VERTEX_SIZE)
 	ffi.copy(blob + vertex_bytes, walls.indices, walls.index_count * 4)
 	ffi.copy(blob + vertex_bytes + walls.index_count * 4, roofs.indices, roofs.index_count * 4)
+	local ranges = ffi.cast("uint32_t *", blob + vertex_bytes + index_bytes)
+	local bounds = ffi.cast("float *", ranges + #parts * 8)
+
+	for i, part in ipairs(parts) do
+		for k = 0, 7 do
+			ranges[(i - 1) * 8 + k] = part[k + 1]
+		end
+
+		for k = 0, 3 do
+			bounds[(i - 1) * 4 + k] = part[k + 9]
+		end
+	end
+
 	return {
-		buildings = count,
+		buildings = #parts,
 		wall_vertices = walls.count,
 		roof_vertices = roofs.count,
 		wall_indices = walls.index_count,
