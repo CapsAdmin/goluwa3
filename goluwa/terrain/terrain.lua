@@ -153,6 +153,7 @@ function Terrain:ReleaseChunk(key)
 		self.PendingReleases[self.ReleaseTail] = {frame = self:GetFrame(), chunk = entry.chunk}
 	else
 		entry.cancelled = true
+		entry.request.cancelled = true
 	end
 end
 
