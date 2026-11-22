@@ -221,6 +221,9 @@ function Terrain:ProcessBuildQueue()
 				end
 			end)
 		end
+
+			-- the source can run other work's callbacks (thread pool jobs) that acquire chunks, appending to the queue
+			count = #queue
 	end
 
 	self.Source:Submit()
