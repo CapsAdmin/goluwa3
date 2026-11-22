@@ -78,7 +78,8 @@ const vec3 EARTH_ROAD_UNPAVED = vec3(%f, %f, %f);
 	)
 end
 
-local function classify(p)
+-- a segment's class id, nil for what is not drawn
+function road_grid.Classify(p)
 	if p.subtype == "rail" then return RAIL_CLASSES[p.class] and CLASS.rail end
 
 	if p.subtype ~= "road" or SKIPPED_SUBCLASSES[p.subclass] or p.class == "steps" then
@@ -88,28 +89,31 @@ local function classify(p)
 	return CLASS[p.class] or CLASS.unknown
 end
 
-local function add_range(ranges, rule)
-	local a, b = rule:match('"between":%[([^,%]]+),([^%]]+)%]')
-	ranges[#ranges + 1] = {tonumber(a) or 0, tonumber(b) or 1}
+local function add_range(ranges, rule, raised)
+	local a, b = rule:match("\"between\":%[([^,%]]+),([^%]]+)%]")
+	ranges[#ranges + 1] = {tonumber(a) or 0, tonumber(b) or 1, raised = raised}
 end
 
--- the parts along a segment (fractions of its length) that are not on the ground: bridges, tunnels and levels other
--- than 0, from Overture's rules ([{values or value, between}], a rule without between holds for the whole segment)
-local function off_ground(p)
+-- the parts along a segment (fractions of its length, {from, to, raised}) that are not on the ground: bridges and levels
+-- above 0 (raised), tunnels and levels below, from Overture's rules ([{values or value, between}], a rule without between
+-- holds for the whole segment)
+function road_grid.GetOffGround(p)
 	local ranges = {}
 
 	for _, flags in ipairs{p.road_flags or "", p.rail_flags or ""} do
 		for rule in flags:gmatch("%b{}") do
-			if rule:find('"is_bridge"', 1, true) or rule:find('"is_tunnel"', 1, true) then
-				add_range(ranges, rule)
+			if rule:find("\"is_bridge\"", 1, true) then
+				add_range(ranges, rule, true)
+			elseif rule:find("\"is_tunnel\"", 1, true) then
+				add_range(ranges, rule, false)
 			end
 		end
 	end
 
 	for rule in (p.level_rules or ""):gmatch("%b{}") do
-		local level = tonumber(rule:match('"value":(%-?%d+)'))
+		local level = tonumber(rule:match("\"value\":(%-?%d+)"))
 
-		if level and level ~= 0 then add_range(ranges, rule) end
+		if level and level ~= 0 then add_range(ranges, rule, level > 0) end
 	end
 
 	return ranges
@@ -145,14 +149,14 @@ function road_grid.Build(layers, x, y, zoom)
 
 		for _, feature in ipairs(layer.features) do
 			local p = feature.properties
-			local id = feature.type == mvt.LINESTRING and classify(p)
+			local id = feature.type == mvt.LINESTRING and road_grid.Classify(p)
 
 			if id then
 				local class = road_grid.CLASSES[id]
 				local half_width = class[2]
 				local reach = (half_width + class[3] + 1) / texel_meters + 1.5
 				local value = id + (is_unpaved(p, id) and road_grid.UNPAVED or 0)
-				local ranges = off_ground(p)
+				local ranges = road_grid.GetOffGround(p)
 
 				for _, line in ipairs(feature.rings) do
 					local n = #line
