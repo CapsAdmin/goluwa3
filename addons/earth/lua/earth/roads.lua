@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
+local threads = import("goluwa/bindings/threads.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -147,7 +148,7 @@ end
 local function gather_lines(cell)
 	local min_x, min_z = cell.x * CELL - MARGIN, cell.z * CELL - MARGIN
 	local max_x, max_z = min_x + CELL + MARGIN * 2, min_z + CELL + MARGIN * 2
-	local parts = {}
+	local tiles = {}
 
 	for _, tile in pairs(roads.tiles) do
 		if
@@ -158,17 +159,17 @@ local function gather_lines(cell)
 		then
 			if tile.state ~= "decoded" and tile.state ~= "failed" then return end
 
-			for _, line in ipairs(tile.lines or {}) do
-				if
-					line.max_x >= min_x and
-					line.min_x <= max_x and
-					line.max_z >= min_z and
-					line.min_z <= max_z
-				then
-					parts[#parts + 1] = ffi.string(tile.floats + line.offset, line.floats * 4)
-				end
-			end
+			tiles[#tiles + 1] = tile
 		end
+	end
+
+	local parts = {}
+	local key = cell_key(cell.x, cell.z)
+
+	for _, tile in ipairs(tiles) do
+		local bucket = tile.cells and tile.cells[key]
+
+		if bucket then parts[#parts + 1] = table.concat(bucket) end
 	end
 
 	return table.concat(parts)
@@ -266,7 +267,8 @@ local function decode_tile(tile)
 			return
 		end
 
-		local lines = {}
+		-- each line's floats, in a bucket per cell its bounds (with the margin) touch
+		local cells = {}
 
 		if job.meta.lines > 0 then
 			local floats = ffi.cast("const float *", job.blob.ptr)
@@ -274,30 +276,31 @@ local function decode_tile(tile)
 
 			for _ = 1, job.meta.lines do
 				local count = floats[i + 1]
-				local line = {
-					offset = i,
-					floats = 2 + count * 2,
-					min_x = math.huge,
-					min_z = math.huge,
-					max_x = -math.huge,
-					max_z = -math.huge,
-				}
+				local min_x, min_z, max_x, max_z = math.huge, math.huge, -math.huge, -math.huge
 
 				for k = 0, count - 1 do
 					local x, z = floats[i + 2 + k * 2], floats[i + 3 + k * 2]
-					line.min_x, line.max_x = math.min(line.min_x, x), math.max(line.max_x, x)
-					line.min_z, line.max_z = math.min(line.min_z, z), math.max(line.max_z, z)
+					min_x, max_x = math.min(min_x, x), math.max(max_x, x)
+					min_z, max_z = math.min(min_z, z), math.max(max_z, z)
 				end
 
-				lines[#lines + 1] = line
-				i = i + line.floats
-			end
+				local data = ffi.string(floats + i, (2 + count * 2) * 4)
 
-			tile.blob = job.blob
-			tile.floats = floats
+				for cz = math.floor((min_z - MARGIN) / CELL), math.floor((max_z + MARGIN) / CELL) do
+					for cx = math.floor((min_x - MARGIN) / CELL), math.floor((max_x + MARGIN) / CELL) do
+						local key = cell_key(cx, cz)
+						cells[key] = cells[key] or {}
+						list.insert(cells[key], data)
+					end
+				end
+
+				i = i + 2 + count * 2
+			end
 		end
 
-		tile.lines = lines
+		if job.blob then threads.release_blob(job.blob) end
+
+		tile.cells = cells
 		tile.state = "decoded"
 	end)
 end
@@ -471,6 +474,7 @@ function roads.Start(source, terrain)
 			if cell.entity then cell.entity:Remove() end
 
 			cell.entity = indices > 0 and create_cell_entity(cell, job.meta, job.blob) or nil
+
 			cell.job = nil
 			cell.state = "built"
 		end
