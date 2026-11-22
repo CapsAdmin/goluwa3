@@ -487,6 +487,7 @@ local function acquire_texture(self, width, height, format, sampler)
 		mip_map_levels = 1,
 		sampler = sampler,
 		image = {usage = {"sampled", "transfer_dst"}},
+		cmd = ShaderSource.GetBatchCommandBuffer(self),
 	}
 	texture.mosaic_key = key
 	return texture
