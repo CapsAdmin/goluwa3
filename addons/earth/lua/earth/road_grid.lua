@@ -119,7 +119,8 @@ function road_grid.GetOffGround(p)
 	return ranges
 end
 
-local function is_unpaved(p, id)
+-- whether a segment's surface is unpaved, from its data or else its class
+function road_grid.IsUnpaved(p, id)
 	local surface = p.road_surface and p.road_surface:match("\"value\":\"([%w_]+)\"")
 
 	if surface then return UNPAVED_SURFACES[surface] == true end
@@ -155,7 +156,7 @@ function road_grid.Build(layers, x, y, zoom)
 				local class = road_grid.CLASSES[id]
 				local half_width = class[2]
 				local reach = (half_width + class[3] + 1) / texel_meters + 1.5
-				local value = id + (is_unpaved(p, id) and road_grid.UNPAVED or 0)
+				local value = id + (road_grid.IsUnpaved(p, id) and road_grid.UNPAVED or 0)
 				local ranges = road_grid.GetOffGround(p)
 
 				for _, line in ipairs(feature.rings) do
