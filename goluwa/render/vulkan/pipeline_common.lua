@@ -306,6 +306,10 @@ local function get_texture_index_releases(self)
 	return self.bindless.releases
 end
 
+local function get_released_texture(self, serial)
+	return bindless.GetReleased(self.bindless, serial)
+end
+
 function pipeline_common.bind_texture_registry(META)
 	function META:InitializeTextureRegistry(device)
 		local state = bindless.Get(device)
@@ -334,6 +338,7 @@ function pipeline_common.bind_texture_registry(META)
 	META.ReleaseViewIndex = release_texture_index
 	META.GetViewIndex = get_view_index
 	META.GetTextureIndexReleases = get_texture_index_releases
+	META.GetReleasedTexture = get_released_texture
 	META.GetSamplerIndex = get_sampler_index
 end
 

@@ -659,6 +659,11 @@ do
 		return self.pipeline:GetTextureIndexReleases()
 	end
 
+	-- the texture whose index was released at a serial of GetTextureIndexReleases, false once that is too long ago
+	function EasyPipeline:GetReleasedTexture(serial)
+		return self.pipeline:GetReleasedTexture(serial)
+	end
+
 	function EasyPipeline:GetCubeMapTextureIndex(texture)
 		return self.pipeline:GetCubeMapTextureIndex(texture, 1)
 	end

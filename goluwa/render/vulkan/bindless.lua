@@ -5,6 +5,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local bindless = {}
 bindless.SET_INDEX = 1
+bindless.RELEASE_LOG_SIZE = 1024
 -- a released index can still be read by frames in flight, so it is only handed out again this many frames later
 local REUSE_DELAY_FRAMES = 8
 
@@ -85,7 +86,15 @@ local function create_state(device)
 		views = create_slot(2, capacities.views, "texture view"),
 		samplers = create_slot(3, capacities.samplers, "sampler"),
 		releases = 0,
+		release_log = {},
 	}
+end
+
+-- the texture released at a release serial, false once the log has moved past it
+function bindless.GetReleased(state, serial)
+	if state.releases - serial >= bindless.RELEASE_LOG_SIZE then return false end
+
+	return state.release_log[serial % bindless.RELEASE_LOG_SIZE]
 end
 
 function bindless.Get(device)
@@ -151,11 +160,12 @@ local function clear_index(state, slot, item)
 	item.cleared = true
 end
 
-local function release_index(state, slot, index)
+local function release_index(state, slot, index, key)
 	local item = {index = index, frame = system.GetFrameNumber()}
 	slot.entries[index + 1] = nil
 	slot.pending[#slot.pending + 1] = item
 	state.releases = state.releases + 1
+	state.release_log[state.releases % bindless.RELEASE_LOG_SIZE] = key
 
 	if slot ~= state.views then
 		state.device:DeferRelease(function()
@@ -222,7 +232,7 @@ function bindless.Release(state, tex)
 
 		if by_key then
 			for _, index in pairs(by_key) do
-				release_index(state, slot, index)
+				release_index(state, slot, index, tex)
 			end
 
 			slot.registry[tex] = nil
@@ -269,28 +279,27 @@ event.AddListener("TextureViewChanged", "bindless", function(tex)
 	bindless.RefreshView(device.bindless, tex, tex:GetView())
 end)
 
-table.insert(
-	import("goluwa/render/vulkan/internal/checkpoints.lua").state_reporters,
-	function()
-		local state = render.GetDevice().bindless
+table.insert(import("goluwa/render/vulkan/internal/checkpoints.lua").state_reporters, function()
+	local state = render.GetDevice().bindless
 
-		if not state then return end
+	if not state then return end
 
-		local lines = {"bindless registry (used / free / pending release), " .. state.releases .. " releases so far:"}
+	local lines = {
+		"bindless registry (used / free / pending release), " .. state.releases .. " releases so far:",
+	}
 
-		for _, slot in ipairs{state.textures, state.cubemaps, state.views, state.samplers} do
-			lines[#lines + 1] = string.format(
-				"  %s: %d of %d used, %d free, %d pending",
-				slot.name,
-				slot.next_index - #slot.free - #slot.pending,
-				slot.capacity,
-				#slot.free,
-				#slot.pending
-			)
-		end
-
-		return table.concat(lines, "\n")
+	for _, slot in ipairs{state.textures, state.cubemaps, state.views, state.samplers} do
+		lines[#lines + 1] = string.format(
+			"  %s: %d of %d used, %d free, %d pending",
+			slot.name,
+			slot.next_index - #slot.free - #slot.pending,
+			slot.capacity,
+			#slot.free,
+			#slot.pending
+		)
 	end
-)
+
+	return table.concat(lines, "\n")
+end)
 
 return bindless

@@ -418,12 +418,16 @@ T.Test3DRayTracing("Graphics render3d radiance_cache material buffer marks mater
 	local ok, err = pcall(function()
 		local id = import("goluwa/render3d/scene/materials.lua").GetID(material)
 		local releases = 0
+		local released = {}
 		local pipeline = {
 			GetTextureIndex = function()
 				return 7
 			end,
 			GetTextureIndexReleases = function()
 				return releases
+			end,
+			GetReleasedTexture = function(_, serial)
+				return released[serial]
 			end,
 		}
 		local buffer = ray_materials.WriteMaterialBuffer(pipeline)
@@ -449,6 +453,11 @@ T.Test3DRayTracing("Graphics render3d radiance_cache material buffer marks mater
 		T(entry.double_sided)["=="](0)
 		entry.double_sided = 99
 		releases = releases + 1
+		released[releases] = {}
+		ray_materials.WriteMaterialBuffer(pipeline)
+		T(entry.double_sided)["=="](99)
+		releases = releases + 1
+		released[releases] = false
 		ray_materials.WriteMaterialBuffer(pipeline)
 		T(entry.double_sided)["=="](0)
 	end)

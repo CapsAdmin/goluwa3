@@ -894,293 +894,343 @@ function ray_materials.BindOpticalVolumes(self, desc, binding)
 	self:UpdateDescriptorSet("storage_buffer", desc, binding, 0, buffer, buffer:GetSize())
 end
 
-function ray_materials.WriteMaterialBuffer(self)
-	local frame = render.GetCurrentFrame()
-	local materials = scene_materials.list
-	local count = #materials
-	local state = material_states[frame]
+do
+	local WEAK_KEYS = {__mode = "k"}
 
-	if
-		not state or
-		state.buffer:GetSize() < OPTICAL_PREFIX_SIZE + count * MATERIAL_ENTRY_SIZE
-	then
-		if state then state.buffer:Remove() end
+	local function texture_index(self, state, i, tex)
+		local users = state.users[tex]
 
-		local capacity = math.max(count, 1) * 2
-		state = {
-			buffer = render.CreateBuffer{
-				byte_size = OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE,
-				buffer_usage = {"storage_buffer"},
-				memory_property = {"host_visible", "host_coherent"},
-				label = "ray_materials",
-				data = ffi.new("uint8_t[?]", OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE),
-			},
-			written = 0,
-			generation = 0,
-			releases = -1,
-		}
-		material_states[frame] = state
+		if not users then
+			users = {}
+			state.users[tex] = users
+		end
+
+		users[i] = true
+		return self:GetTextureIndex(tex)
 	end
 
-	local generation = Material.ray_material_generation
-	local releases = self:GetTextureIndexReleases()
-	local glass_enabled = not Material.GlassCastsShadow()
+	function ray_materials.WriteMaterialBuffer(self)
+		local frame = render.GetCurrentFrame()
+		local materials = scene_materials.list
+		local count = #materials
+		local state = material_states[frame]
 
-	if
-		state.written == count and
-		state.generation == generation and
-		state.releases == releases and
-		state.glass == glass_enabled and
-		state.medium_thickness == medium_common.assumed_thickness and
-		state.media_generation == media.generation
-	then
+		if
+			not state or
+			state.buffer:GetSize() < OPTICAL_PREFIX_SIZE + count * MATERIAL_ENTRY_SIZE
+		then
+			if state then state.buffer:Remove() end
+
+			local capacity = math.max(count, 1) * 2
+			state = {
+				buffer = render.CreateBuffer{
+					byte_size = OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE,
+					buffer_usage = {"storage_buffer"},
+					memory_property = {"host_visible", "host_coherent"},
+					label = "ray_materials",
+					data = ffi.new("uint8_t[?]", OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE),
+				},
+				written = 0,
+				generation = 0,
+				releases = -1,
+				users = setmetatable({}, WEAK_KEYS),
+			}
+			material_states[frame] = state
+		end
+
+		local generation = Material.ray_material_generation
+		local releases = self:GetTextureIndexReleases()
+		local glass_enabled = not Material.GlassCastsShadow()
+
+		if
+			state.written == count and
+			state.generation == generation and
+			state.releases == releases and
+			state.glass == glass_enabled and
+			state.medium_thickness == medium_common.assumed_thickness and
+			state.media_generation == media.generation
+		then
+			glass_count = state.glass_count or 0
+			medium_count = state.medium_count or 0
+			refresh_volumes(state)
+			return state.buffer
+		end
+
+		local rewrite_all = state.releases < 0 or
+			state.glass ~= glass_enabled or
+			state.medium_thickness ~= medium_common.assumed_thickness or
+			state.media_generation ~= media.generation
+		state.medium_thickness = medium_common.assumed_thickness
+		state.media_generation = media.generation
+		local released
+
+		-- only the materials that use a released texture are written again, all of them once the release log has moved on
+		if state.releases ~= releases and not rewrite_all then
+			released = {}
+
+			for serial = state.releases + 1, releases do
+				local tex = self:GetReleasedTexture(serial)
+
+				if tex == false then
+					rewrite_all = true
+
+					break
+				end
+
+				local users = tex and state.users[tex]
+
+				if users then
+					for i in pairs(users) do
+						released[i] = true
+					end
+
+					state.users[tex] = nil
+				end
+			end
+		end
+
+		local written = state.written
+		local stamp = state.generation
+		local out = ray_materials.GetMaterialEntries(state.buffer)
+
+		for i = 1, count do
+			local material = materials[i]
+
+			if
+				rewrite_all or
+				i > written or
+				material.ray_material_stamp > stamp or
+				released and
+				released[i]
+			then
+				local entry = out[i - 1]
+				local color = material:GetColorMultiplier()
+				entry.albedo[0] = color.r
+				entry.albedo[1] = color.g
+				entry.albedo[2] = color.b
+				local albedo = material:GetAlbedoTexture() or NULL
+				entry.albedo_tex = albedo:IsValid() and texture_index(self, state, i, albedo) or -1
+				entry.double_sided = material:GetDoubleSided() and 1 or 0
+				entry.alpha = color.a
+				entry.alpha_cutoff = material:GetAlphaCutoff()
+
+				if not material:GetAlphaTest() then
+					entry.alpha_test = 0
+				else
+					entry.alpha_test = material:HasShadowTexture() and 2 or 1
+				end
+
+				local was_glass = entry.glass
+				entry.glass = (glass_enabled and material:IsGlass()) and 1 or 0
+				state.glass_count = (state.glass_count or 0) + entry.glass - was_glass
+				entry.glass_refraction = material:GetRefraction()
+				entry.glass_covering = material:GetTranslucent() and color.a or 1
+				entry.metallic = material:GetMetallicMultiplier()
+				local metallic_texture = material:GetMetallicTexture()
+				entry.metallic_channel = 0
+
+				if not metallic_texture then
+					metallic_texture = material:GetMetallicRoughnessTexture()
+					entry.metallic_channel = material:GetMetallicRoughnessIsMR() and 0 or 2
+				end
+
+				entry.metallic_tex = metallic_texture and
+					metallic_texture:IsValid() and
+					texture_index(self, state, i, metallic_texture) or
+					-1
+				entry.roughness = material:GetRoughnessMultiplier()
+				entry.roughness_min = material:GetRoughnessMin()
+				entry.roughness_max = material:GetRoughnessMax()
+				local roughness_texture = material:GetRoughnessTexture()
+				entry.roughness_channel = 0
+
+				if not roughness_texture then
+					roughness_texture = material:GetMetallicRoughnessTexture()
+					entry.roughness_channel = 1
+				end
+
+				entry.roughness_tex = roughness_texture and
+					roughness_texture:IsValid() and
+					texture_index(self, state, i, roughness_texture) or
+					-1
+				entry.emissive[0], entry.emissive[1], entry.emissive[2] = scene_materials.GetEmissive(material)
+				entry.emissive_alpha = material:GetAlbedoAlphaIsEmissive() and 1 or 0
+				local emissive_multiplier = material:GetEmissiveMultiplier()
+				entry.emissive_scale[0] = emissive_multiplier.r * emissive_multiplier.a
+				entry.emissive_scale[1] = emissive_multiplier.g * emissive_multiplier.a
+				entry.emissive_scale[2] = emissive_multiplier.b * emissive_multiplier.a
+				local emissive_texture = material:GetEmissiveTexture()
+				entry.emissive_tex = emissive_texture and
+					emissive_texture:IsValid() and
+					not material:GetAdditive()
+					and
+					not material:GetAlbedoAlphaIsEmissive()
+					and
+					texture_index(self, state, i, emissive_texture) or
+					-1
+				entry.emissive_color = material:GetEmissiveTextureIsColor() and 1 or 0
+				entry.emissive_albedo = material:GetEmissiveAlbedoFactor()
+				entry.emissive_floor = material:GetEmissiveAlphaFloor()
+				local from_albedo = material:GetMediumPorosityFromAlbedo() > 0
+				local medium_slot = material:GetMediumSlot()
+
+				if medium_slot > 0 then
+					local slot = media.slots[medium_slot]
+					local preset = media.presets[slot.name]
+
+					for i = 0, 2 do
+						local axis = AXES[i + 1]
+						entry.medium_extinction[i] = preset.Absorption[axis] * slot.density
+						entry.medium_scattering[i] = preset.Scattering[axis] * slot.density
+						entry.medium_porous_scattering[i] = preset.PorousScattering[axis] * slot.density
+					end
+
+					entry.medium_g = preset.PhaseG
+				else
+					for i = 0, 2 do
+						entry.medium_extinction[i] = 0
+						entry.medium_scattering[i] = 0
+						entry.medium_porous_scattering[i] = 0
+					end
+
+					entry.medium_g = 0
+				end
+
+				entry.medium_porosity = material:GetMediumPorosity()
+				entry.medium_porosity_low = from_albedo and medium_common.porosity_low or 2
+				entry.medium_porosity_high = from_albedo and medium_common.porosity_high or 3
+				local body = material:GetMediumThickness()
+				entry.medium_thickness = body > 0 and
+					body or
+					(
+						medium_common.assumed_thickness > 0 and
+						medium_common.assumed_thickness or
+						3
+					)
+				entry.medium_body = body > 0 and 1 or 0
+				entry.medium_ior = material:GetEffectiveIOR()
+				entry.medium_wave_height = material:GetMediumWaveHeight()
+				entry.medium_wave_length = material:GetMediumWaveLength()
+				entry.medium_caustics = material:GetMediumCaustics()
+				entry.abbe = material:GetAbbeNumber()
+				entry.caustic = (
+						entry.glass ~= 0 and
+						material:GetCastsCaustics() and
+						not material:GetDoubleSided()
+					)
+					and
+					1 or
+					0
+				entry.transparent = material:IsTransparent() and 1 or 0
+				entry.refractive = material:IsSeeThrough() and 1 or 0
+				local normal = material:GetNormalTexture()
+				entry.normal_tex = normal and normal:IsValid() and texture_index(self, state, i, normal) or -1
+				local normal2 = material:GetNormal2Texture()
+				entry.normal2_tex = normal2 and normal2:IsValid() and texture_index(self, state, i, normal2) or -1
+				entry.normal_ssbump = material:GetNormalTextureIsSSBump() and 1 or 0
+				entry.normal_scale = material:GetNormalMapMultiplier()
+				local bump_u, bump_v = material:GetBumpTransformU(), material:GetBumpTransformV()
+				entry.bump_transform_u[0], entry.bump_transform_u[1], entry.bump_transform_u[2] = bump_u.x, bump_u.y, bump_u.z
+				entry.bump_transform_v[0], entry.bump_transform_v[1], entry.bump_transform_v[2] = bump_v.x, bump_v.y, bump_v.z
+				local albedo2 = material:GetAlbedo2Texture()
+				entry.albedo2_tex = albedo2 and albedo2:IsValid() and texture_index(self, state, i, albedo2) or -1
+				local blend_texture = material:GetBlendTexture()
+				entry.blend_tex = blend_texture and
+					blend_texture:IsValid() and
+					texture_index(self, state, i, blend_texture) or
+					-1
+				local terrain = material:GetTerrainMaterialTexture()
+
+				if terrain and terrain:IsValid() then
+					entry.terrain_tex = texture_index(self, state, i, terrain)
+
+					for layer = 1, 4 do
+						local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
+						entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and texture_index(self, state, i, tex) or -1
+					end
+
+					for layer = 1, 4 do
+						local tex = material["GetTerrainLayer" .. layer .. "NormalTexture"](material)
+						entry.terrain_layer_normal_tex[layer - 1] = tex and tex:IsValid() and texture_index(self, state, i, tex) or -1
+					end
+
+					local scales = material:GetTerrainLayerScales()
+					entry.terrain_scales[0] = scales.r
+					entry.terrain_scales[1] = scales.g
+					entry.terrain_scales[2] = scales.b
+					entry.terrain_scales[3] = scales.a
+					entry.terrain_triplanar_sharpness = material:GetTerrainTriplanarSharpness()
+					local bounds = material:GetTerrainBounds()
+					entry.terrain_bounds[0] = bounds.x
+					entry.terrain_bounds[1] = bounds.y
+					entry.terrain_bounds[2] = 1 / bounds.z
+					local detail = material:GetTerrainLayerDetailStrength()
+					local additive = material:GetTerrainLayerAdditiveDetail()
+					entry.terrain_detail[0] = detail.r
+					entry.terrain_detail[1] = detail.g
+					entry.terrain_detail[2] = detail.b
+					entry.terrain_detail[3] = detail.a
+					entry.terrain_additive_detail[0] = additive.r
+					entry.terrain_additive_detail[1] = additive.g
+					entry.terrain_additive_detail[2] = additive.b
+					entry.terrain_additive_detail[3] = additive.a
+					local terrain2 = material:GetTerrainMaterial2Texture()
+
+					if terrain2 and terrain2:IsValid() then
+						entry.terrain_tex2 = texture_index(self, state, i, terrain2)
+
+						for layer = 5, 8 do
+							local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
+							entry.terrain_layer_tex2[layer - 5] = tex and tex:IsValid() and texture_index(self, state, i, tex) or -1
+						end
+
+						for layer = 5, 8 do
+							local tex = material["GetTerrainLayer" .. layer .. "NormalTexture"](material)
+							entry.terrain_layer_normal_tex2[layer - 5] = tex and tex:IsValid() and texture_index(self, state, i, tex) or -1
+						end
+
+						local scales2 = material:GetTerrainLayerScales2()
+						entry.terrain_scales2[0] = scales2.r
+						entry.terrain_scales2[1] = scales2.g
+						entry.terrain_scales2[2] = scales2.b
+						entry.terrain_scales2[3] = scales2.a
+						local detail2 = material:GetTerrainLayerDetailStrength2()
+						local additive2 = material:GetTerrainLayerAdditiveDetail2()
+						entry.terrain_detail2[0] = detail2.r
+						entry.terrain_detail2[1] = detail2.g
+						entry.terrain_detail2[2] = detail2.b
+						entry.terrain_detail2[3] = detail2.a
+						entry.terrain_additive_detail2[0] = additive2.r
+						entry.terrain_additive_detail2[1] = additive2.g
+						entry.terrain_additive_detail2[2] = additive2.b
+						entry.terrain_additive_detail2[3] = additive2.a
+					else
+						entry.terrain_tex2 = -1
+					end
+				else
+					entry.terrain_tex = -1
+					entry.terrain_tex2 = -1
+				end
+			end
+		end
+
+		state.written = count
+		state.generation = generation
+		state.releases = releases
+		state.glass = glass_enabled
 		glass_count = state.glass_count or 0
-		medium_count = state.medium_count or 0
+		state.medium_count = 0
+
+		for i = 1, count do
+			if materials[i]:GetMediumSlot() > 0 then
+				state.medium_count = state.medium_count + 1
+			end
+		end
+
+		medium_count = state.medium_count
 		refresh_volumes(state)
 		return state.buffer
 	end
-
-	local rewrite_all = state.releases ~= releases or
-		state.glass ~= glass_enabled or
-		state.medium_thickness ~= medium_common.assumed_thickness or
-		state.media_generation ~= media.generation
-	state.medium_thickness = medium_common.assumed_thickness
-	state.media_generation = media.generation
-	local written = state.written
-	local stamp = state.generation
-	local out = ray_materials.GetMaterialEntries(state.buffer)
-
-	for i = 1, count do
-		local material = materials[i]
-
-		if rewrite_all or i > written or material.ray_material_stamp > stamp then
-			local entry = out[i - 1]
-			local color = material:GetColorMultiplier()
-			entry.albedo[0] = color.r
-			entry.albedo[1] = color.g
-			entry.albedo[2] = color.b
-			local albedo = material:GetAlbedoTexture() or NULL
-			entry.albedo_tex = albedo:IsValid() and self:GetTextureIndex(albedo) or -1
-			entry.double_sided = material:GetDoubleSided() and 1 or 0
-			entry.alpha = color.a
-			entry.alpha_cutoff = material:GetAlphaCutoff()
-
-			if not material:GetAlphaTest() then
-				entry.alpha_test = 0
-			else
-				entry.alpha_test = material:HasShadowTexture() and 2 or 1
-			end
-
-			local was_glass = entry.glass
-			entry.glass = (glass_enabled and material:IsGlass()) and 1 or 0
-			state.glass_count = (state.glass_count or 0) + entry.glass - was_glass
-			entry.glass_refraction = material:GetRefraction()
-			entry.glass_covering = material:GetTranslucent() and color.a or 1
-			entry.metallic = material:GetMetallicMultiplier()
-			local metallic_texture = material:GetMetallicTexture()
-			entry.metallic_channel = 0
-
-			if not metallic_texture then
-				metallic_texture = material:GetMetallicRoughnessTexture()
-				entry.metallic_channel = material:GetMetallicRoughnessIsMR() and 0 or 2
-			end
-
-			entry.metallic_tex = metallic_texture and
-				metallic_texture:IsValid() and
-				self:GetTextureIndex(metallic_texture) or
-				-1
-			entry.roughness = material:GetRoughnessMultiplier()
-			entry.roughness_min = material:GetRoughnessMin()
-			entry.roughness_max = material:GetRoughnessMax()
-			local roughness_texture = material:GetRoughnessTexture()
-			entry.roughness_channel = 0
-
-			if not roughness_texture then
-				roughness_texture = material:GetMetallicRoughnessTexture()
-				entry.roughness_channel = 1
-			end
-
-			entry.roughness_tex = roughness_texture and
-				roughness_texture:IsValid() and
-				self:GetTextureIndex(roughness_texture) or
-				-1
-			entry.emissive[0], entry.emissive[1], entry.emissive[2] = scene_materials.GetEmissive(material)
-			entry.emissive_alpha = material:GetAlbedoAlphaIsEmissive() and 1 or 0
-			local emissive_multiplier = material:GetEmissiveMultiplier()
-			entry.emissive_scale[0] = emissive_multiplier.r * emissive_multiplier.a
-			entry.emissive_scale[1] = emissive_multiplier.g * emissive_multiplier.a
-			entry.emissive_scale[2] = emissive_multiplier.b * emissive_multiplier.a
-			local emissive_texture = material:GetEmissiveTexture()
-			entry.emissive_tex = emissive_texture and
-				emissive_texture:IsValid() and
-				not material:GetAdditive()
-				and
-				not material:GetAlbedoAlphaIsEmissive()
-				and
-				self:GetTextureIndex(emissive_texture) or
-				-1
-			entry.emissive_color = material:GetEmissiveTextureIsColor() and 1 or 0
-			entry.emissive_albedo = material:GetEmissiveAlbedoFactor()
-			entry.emissive_floor = material:GetEmissiveAlphaFloor()
-			local from_albedo = material:GetMediumPorosityFromAlbedo() > 0
-			local medium_slot = material:GetMediumSlot()
-
-			if medium_slot > 0 then
-				local slot = media.slots[medium_slot]
-				local preset = media.presets[slot.name]
-
-				for i = 0, 2 do
-					local axis = AXES[i + 1]
-					entry.medium_extinction[i] = preset.Absorption[axis] * slot.density
-					entry.medium_scattering[i] = preset.Scattering[axis] * slot.density
-					entry.medium_porous_scattering[i] = preset.PorousScattering[axis] * slot.density
-				end
-
-				entry.medium_g = preset.PhaseG
-			else
-				for i = 0, 2 do
-					entry.medium_extinction[i] = 0
-					entry.medium_scattering[i] = 0
-					entry.medium_porous_scattering[i] = 0
-				end
-
-				entry.medium_g = 0
-			end
-
-			entry.medium_porosity = material:GetMediumPorosity()
-			entry.medium_porosity_low = from_albedo and medium_common.porosity_low or 2
-			entry.medium_porosity_high = from_albedo and medium_common.porosity_high or 3
-			local body = material:GetMediumThickness()
-			entry.medium_thickness = body > 0 and
-				body or
-				(
-					medium_common.assumed_thickness > 0 and
-					medium_common.assumed_thickness or
-					3
-				)
-			entry.medium_body = body > 0 and 1 or 0
-			entry.medium_ior = material:GetEffectiveIOR()
-			entry.medium_wave_height = material:GetMediumWaveHeight()
-			entry.medium_wave_length = material:GetMediumWaveLength()
-			entry.medium_caustics = material:GetMediumCaustics()
-			entry.abbe = material:GetAbbeNumber()
-			entry.caustic = (
-					entry.glass ~= 0 and
-					material:GetCastsCaustics() and
-					not material:GetDoubleSided()
-				)
-				and
-				1 or
-				0
-			entry.transparent = material:IsTransparent() and 1 or 0
-			entry.refractive = material:IsSeeThrough() and 1 or 0
-			local normal = material:GetNormalTexture()
-			entry.normal_tex = normal and normal:IsValid() and self:GetTextureIndex(normal) or -1
-			local normal2 = material:GetNormal2Texture()
-			entry.normal2_tex = normal2 and normal2:IsValid() and self:GetTextureIndex(normal2) or -1
-			entry.normal_ssbump = material:GetNormalTextureIsSSBump() and 1 or 0
-			entry.normal_scale = material:GetNormalMapMultiplier()
-			local bump_u, bump_v = material:GetBumpTransformU(), material:GetBumpTransformV()
-			entry.bump_transform_u[0], entry.bump_transform_u[1], entry.bump_transform_u[2] = bump_u.x, bump_u.y, bump_u.z
-			entry.bump_transform_v[0], entry.bump_transform_v[1], entry.bump_transform_v[2] = bump_v.x, bump_v.y, bump_v.z
-			local albedo2 = material:GetAlbedo2Texture()
-			entry.albedo2_tex = albedo2 and albedo2:IsValid() and self:GetTextureIndex(albedo2) or -1
-			local blend_texture = material:GetBlendTexture()
-			entry.blend_tex = blend_texture and
-				blend_texture:IsValid() and
-				self:GetTextureIndex(blend_texture) or
-				-1
-			local terrain = material:GetTerrainMaterialTexture()
-
-			if terrain and terrain:IsValid() then
-				entry.terrain_tex = self:GetTextureIndex(terrain)
-
-				for layer = 1, 4 do
-					local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
-					entry.terrain_layer_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
-				end
-
-				for layer = 1, 4 do
-					local tex = material["GetTerrainLayer" .. layer .. "NormalTexture"](material)
-					entry.terrain_layer_normal_tex[layer - 1] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
-				end
-
-				local scales = material:GetTerrainLayerScales()
-				entry.terrain_scales[0] = scales.r
-				entry.terrain_scales[1] = scales.g
-				entry.terrain_scales[2] = scales.b
-				entry.terrain_scales[3] = scales.a
-				entry.terrain_triplanar_sharpness = material:GetTerrainTriplanarSharpness()
-				local bounds = material:GetTerrainBounds()
-				entry.terrain_bounds[0] = bounds.x
-				entry.terrain_bounds[1] = bounds.y
-				entry.terrain_bounds[2] = 1 / bounds.z
-				local detail = material:GetTerrainLayerDetailStrength()
-				local additive = material:GetTerrainLayerAdditiveDetail()
-				entry.terrain_detail[0] = detail.r
-				entry.terrain_detail[1] = detail.g
-				entry.terrain_detail[2] = detail.b
-				entry.terrain_detail[3] = detail.a
-				entry.terrain_additive_detail[0] = additive.r
-				entry.terrain_additive_detail[1] = additive.g
-				entry.terrain_additive_detail[2] = additive.b
-				entry.terrain_additive_detail[3] = additive.a
-				local terrain2 = material:GetTerrainMaterial2Texture()
-
-				if terrain2 and terrain2:IsValid() then
-					entry.terrain_tex2 = self:GetTextureIndex(terrain2)
-
-					for layer = 5, 8 do
-						local tex = material["GetTerrainLayer" .. layer .. "Texture"](material)
-						entry.terrain_layer_tex2[layer - 5] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
-					end
-
-					for layer = 5, 8 do
-						local tex = material["GetTerrainLayer" .. layer .. "NormalTexture"](material)
-						entry.terrain_layer_normal_tex2[layer - 5] = tex and tex:IsValid() and self:GetTextureIndex(tex) or -1
-					end
-
-					local scales2 = material:GetTerrainLayerScales2()
-					entry.terrain_scales2[0] = scales2.r
-					entry.terrain_scales2[1] = scales2.g
-					entry.terrain_scales2[2] = scales2.b
-					entry.terrain_scales2[3] = scales2.a
-					local detail2 = material:GetTerrainLayerDetailStrength2()
-					local additive2 = material:GetTerrainLayerAdditiveDetail2()
-					entry.terrain_detail2[0] = detail2.r
-					entry.terrain_detail2[1] = detail2.g
-					entry.terrain_detail2[2] = detail2.b
-					entry.terrain_detail2[3] = detail2.a
-					entry.terrain_additive_detail2[0] = additive2.r
-					entry.terrain_additive_detail2[1] = additive2.g
-					entry.terrain_additive_detail2[2] = additive2.b
-					entry.terrain_additive_detail2[3] = additive2.a
-				else
-					entry.terrain_tex2 = -1
-				end
-			else
-				entry.terrain_tex = -1
-				entry.terrain_tex2 = -1
-			end
-		end
-	end
-
-	state.written = count
-	state.generation = generation
-	state.releases = releases
-	state.glass = glass_enabled
-	glass_count = state.glass_count or 0
-	state.medium_count = 0
-
-	for i = 1, count do
-		if materials[i]:GetMediumSlot() > 0 then
-			state.medium_count = state.medium_count + 1
-		end
-	end
-
-	medium_count = state.medium_count
-	refresh_volumes(state)
-	return state.buffer
 end
 
 return ray_materials
