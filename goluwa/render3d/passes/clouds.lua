@@ -12,6 +12,7 @@ local BINDING_OUT3 = 2
 local BINDING_DATA = 3
 local BINDING_BASE_NOISE = 4
 local BINDING_DETAIL_NOISE = 5
+local BINDING_OUT4 = 6
 local VIEW_DISTANCE = 10000000
 local TRACE_BLEND = 0.5
 
@@ -114,6 +115,13 @@ local noise_pass = {
 				return clouds.EnsureResources().weather
 			end,
 		},
+		{
+			binding_index = BINDING_OUT4,
+			dst_stage = "compute",
+			get_texture = function()
+				return clouds.EnsureResources().slice
+			end,
+		},
 	},
 	on_draw = function(self, cmd, fb, frame, desc)
 		self:UploadConstants()
@@ -125,11 +133,13 @@ local noise_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUT .. [[, rgba8) uniform writeonly image3D out_base;
 		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, rgba8) uniform writeonly image3D out_detail;
 		layout(set = 0, binding = ]] .. BINDING_OUT3 .. [[, rgba8) uniform writeonly image2D out_weather;
+		layout(set = 0, binding = ]] .. BINDING_OUT4 .. [[, r16f) uniform writeonly image2D out_slice;
 	]],
 	shader = clouds.NOISE_GLSL .. [[
 		const int BASE_SIZE = ]] .. clouds.BASE_NOISE_SIZE .. [[;
 		const int DETAIL_SIZE = ]] .. clouds.DETAIL_NOISE_SIZE .. [[;
 		const int WEATHER_SIZE = ]] .. clouds.WEATHER_SIZE .. [[;
+		const int SLICE_SIZE = ]] .. clouds.SLICE_SIZE .. [[;
 
 		float worley_channel(vec3 p, int freq, uint seed) {
 			return saturate((cloud_worley_fbm(p, ivec3(freq), seed) - 0.32) / 0.32);
@@ -181,6 +191,13 @@ local noise_pass = {
 				float veil = saturate(0.5 + 1.0 * cloud_perlin_fbm(p, ivec3(4, 4, 1), 3, 140u));
 				float base = saturate(0.5 + 1.1 * cloud_perlin_fbm(p, ivec3(8, 8, 1), 3, 150u));
 				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), base));
+			}
+
+			int slice_tiles = SLICE_SIZE / BASE_SIZE;
+
+			if (id.z < slice_tiles * slice_tiles) {
+				ivec2 pixel = id.xy + ivec2(id.z % slice_tiles, id.z / slice_tiles) * BASE_SIZE;
+				imageStore(out_slice, pixel, vec4(cloud_slice_noise((vec2(pixel) + 0.5) / float(SLICE_SIZE))));
 			}
 		}
 	]],

@@ -39,6 +39,9 @@ clouds.DETAIL_NOISE_SIZE = 128
 clouds.WEATHER_SIZE = 512
 clouds.SKY_REFRESH_INTERVAL = 2
 clouds.SKY_CHANGE_INTERVAL = 0.5
+-- the shape noise's slices repeat every SHAPE_PERIOD of its tiles, so the offsets that move it must wrap at that
+clouds.SHAPE_PERIOD = 96
+clouds.SLICE_SIZE = 512
 clouds.enabled = true
 clouds.layers = {}
 clouds.cover = 0
@@ -63,7 +66,6 @@ clouds.LAYER_DEFAULTS = {
 	detail_scale = 300,
 	variation = 0.5,
 	base_variation = 0,
-	swirl = 0,
 	wind_scale = 2.5,
 	evolution = 0.6,
 	system_scale = 0,
@@ -273,9 +275,9 @@ do
 			local rise = -layer.evolution * dt
 			layer.weather_offset.x = wrap(layer.weather_offset.x + vx, layer.weather_scale)
 			layer.weather_offset.y = wrap(layer.weather_offset.y + vz, layer.weather_scale)
-			layer.shape_offset.x = wrap(layer.shape_offset.x + vx * 0.9, layer.shape_scale)
+			layer.shape_offset.x = wrap(layer.shape_offset.x + vx * 0.9, layer.shape_scale * clouds.SHAPE_PERIOD)
 			layer.shape_offset.y = wrap(layer.shape_offset.y + rise, layer.shape_scale)
-			layer.shape_offset.z = wrap(layer.shape_offset.z + vz * 0.9, layer.shape_scale)
+			layer.shape_offset.z = wrap(layer.shape_offset.z + vz * 0.9, layer.shape_scale * clouds.SHAPE_PERIOD)
 			layer.detail_offset.x = wrap(layer.detail_offset.x + vx, layer.detail_scale)
 			layer.detail_offset.y = wrap(layer.detail_offset.y + rise * 3, layer.detail_scale)
 			layer.detail_offset.z = wrap(layer.detail_offset.z + vz, layer.detail_scale)
@@ -366,6 +368,14 @@ function clouds.EnsureResources()
 		clouds.WEATHER_SIZE,
 		"r8g8b8a8_unorm",
 		"weather",
+		"repeat",
+		"repeat"
+	)
+	t.slice = create_target(
+		clouds.SLICE_SIZE,
+		clouds.SLICE_SIZE,
+		"r16_sfloat",
+		"slice",
 		"repeat",
 		"repeat"
 	)
@@ -558,6 +568,7 @@ function clouds.GetBlockLayout()
 	return {
 		{"cloud_layer_count", "int"},
 		{"cloud_weather_tex", "int"},
+		{"cloud_slice_tex", "int"},
 		{"cloud_frame", "int"},
 		{"cloud_detail_min_mip", "int"},
 		{"cloud_layer_steps", "int"},
@@ -568,7 +579,6 @@ function clouds.GetBlockLayout()
 		{"cloud_layer_offset", "vec4", clouds.MAX_LAYERS},
 		{"cloud_layer_offset2", "vec4", clouds.MAX_LAYERS},
 		{"cloud_layer_vary", "vec4", clouds.MAX_LAYERS},
-		{"cloud_layer_map", "vec4", clouds.MAX_LAYERS},
 		{"cloud_coverage_map_tex", "int"},
 		{"cloud_coverage_map_rect", "vec4"},
 		{"cloud_light_direction", "vec4"},
@@ -580,6 +590,7 @@ function clouds.WriteBlock(self, block)
 	local layers = clouds.layers
 	block.cloud_layer_count = #layers
 	block.cloud_weather_tex = self:GetTextureIndex(clouds.EnsureResources().weather)
+	block.cloud_slice_tex = self:GetTextureIndex(clouds.textures.slice)
 	block.cloud_frame = clouds.frame or 0
 	block.cloud_detail_min_mip = detail_min_mip:Get()
 	block.cloud_layer_steps = math.max(math.floor(layer_steps:Get() * quality.Get().cloud_step_scale), 1)
@@ -613,11 +624,10 @@ function clouds.WriteBlock(self, block)
 		offset2[2] = layer.detail_offset.y
 		offset2[3] = layer.detail_offset.z
 		local vary = block.cloud_layer_vary[k]
-		vary[0] = layer.swirl
+		vary[0] = layer.map_channel - 1
 		vary[1] = layer.flat and 0 or layer.base_variation
 		vary[2] = layer.system_scale
 		vary[3] = layer.system_amount
-		block.cloud_layer_map[k][0] = layer.map_channel - 1
 	end
 
 	local map = clouds.coverage_map
@@ -706,6 +716,26 @@ clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. glsl_common.GetRemapGLSL() .. [
 		return sum / total;
 	}
 
+	// the shape noise tiles, so each place reads its own horizontal slice of it: the lookup is moved up by this gradient noise over cells of CLOUD_SLICE_CELL tiles, p 0..1 spanning the CLOUD_SHAPE_PERIOD tiles it repeats over. unlike a sideways warp it keeps vertical columns of the noise vertical
+	float cloud_slice_noise(vec2 p) {
+		const float CLOUD_SLICE_CELL = 3.0;
+		const float CLOUD_SLICE_AMOUNT = 1.5;
+		const float cells = ]] .. clouds.SHAPE_PERIOD .. [[.0 / CLOUD_SLICE_CELL;
+		vec2 q = p * cells;
+		vec2 c = floor(q);
+		vec2 f = q - c;
+		vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+		vec4 n;
+
+		for (int k = 0; k < 4; k++) {
+			vec2 o = vec2(k & 1, k >> 1);
+			uint h = pcg3d(uvec3(uvec2(mod(c + o, cells)), 7919u)).x;
+			n[k] = dot(vec2(h & 0xffffu, h >> 16u) / 32767.5 - 1.0, f - o);
+		}
+
+		return mix(mix(n.x, n.y, u.x), mix(n.z, n.w, u.x), u.y) * CLOUD_SLICE_AMOUNT;
+	}
+
 	float cloud_worley_fbm(vec3 p, ivec3 freq, uint seed) {
 		return cloud_worley(p * vec3(freq), freq, seed) * 0.625 +
 			cloud_worley(p * vec3(freq * 2), freq * 2, seed + 1u) * 0.25 +
@@ -728,11 +758,7 @@ function clouds.GetGLSL(block)
 		const int CLOUD_EMPTY_STEPS = 6;
 		const float CLOUD_LIT_TRANSMITTANCE = 0.003;
 		const float CLOUD_HIDDEN_TRANSMITTANCE = 1e-4;
-		const float CLOUD_WARP_FREQUENCY = 0.12;
-		const float CLOUD_WARP_LOD = 1.0;
-		const float CLOUD_WARP_AMOUNT = 1.6;
-		const float CLOUD_WARP_NEAR = 2.0;
-		const float CLOUD_WARP_FAR = 8.0;
+		const float CLOUD_SHAPE_PERIOD = ]] .. clouds.SHAPE_PERIOD .. [[.0;
 		const float CLOUD_FORWARD_G = ]] .. media.presets.cloud.PhaseG .. [[;
 		const float CLOUD_BACK_G = ]] .. media.presets.cloud.PhaseBackG .. [[;
 		const float CLOUD_BACK_SHARE = ]] .. media.presets.cloud.PhaseBackShare .. [[;
@@ -841,6 +867,10 @@ function clouds.GetGLSL(block)
 			return bottom * top;
 		}
 
+		float cloud_slice(vec2 xz) {
+			return textureLod(TEXTURE(CLOUD_BLOCK.cloud_slice_tex), xz / CLOUD_SHAPE_PERIOD, 0.0).r;
+		}
+
 		// a layer's coverage: its weather map, plus with system_scale the same map read twice at incommensurate rotated scales, so cloud systems far larger than the map do not repeat; inside the coverage map its channel replaces both large scale terms
 		float cloud_coverage(int i, vec2 xz, vec4 weather) {
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
@@ -855,7 +885,7 @@ function clouds.GetGLSL(block)
 				coverage += (system - 0.5) * vary.w;
 			}
 
-			int channel = int(CLOUD_BLOCK.cloud_layer_map[i].x);
+			int channel = int(vary.x);
 
 			if (channel >= 0 && CLOUD_BLOCK.cloud_coverage_map_tex >= 0) {
 				vec4 rect = CLOUD_BLOCK.cloud_coverage_map_rect;
@@ -909,18 +939,13 @@ function clouds.GetGLSL(block)
 			float far_density = far * unresolved;
 			vec3 uvw = (vec3(p.x + offset.z, alt + offset2.x, p.z + offset.w)) / scale.y;
 			float lod = log2(max(footprint * ]] .. clouds.BASE_NOISE_SIZE .. [[.0 / scale.y, 1.0));
-			float warp = max(smoothstep(CLOUD_WARP_NEAR, CLOUD_WARP_FAR, distance(p, CLOUD_BLOCK.camera_position.xyz) / scale.y), vary.x);
-
-			if (warp > 0.0) {
-				vec3 turned = vec3(uvw.x * 0.6663 - uvw.z * 0.5891, uvw.y * 0.8889 + 0.37, uvw.x * 0.5891 + uvw.z * 0.6663 + 0.53) * CLOUD_WARP_FREQUENCY;
-				uvw.xz += (textureLod(cloud_base_noise, turned, max(lod + log2(0.889 * CLOUD_WARP_FREQUENCY), CLOUD_WARP_LOD)).rg - 0.5) * (CLOUD_WARP_AMOUNT * warp);
-			}
-
+			float slice = cloud_slice(uvw.xz);
+			uvw.y += slice;
 			float heaps = style.x * (1.0 - style.z);
 			float top = 1.0;
 
 			if (heaps > 0.0) {
-				float cell = saturate((textureLod(cloud_base_noise, vec3(uvw.x, offset2.x / scale.y, uvw.z), max(lod, CLOUD_TOP_CELL_LOD)).g - 0.3) / 0.4);
+				float cell = saturate((textureLod(cloud_base_noise, vec3(uvw.x, offset2.x / scale.y + slice, uvw.z), max(lod, CLOUD_TOP_CELL_LOD)).g - 0.3) / 0.4);
 				top = mix(1.0, mix(0.3, 1.0, mix(weather.g, cell, 0.6)), heaps);
 			}
 
@@ -999,7 +1024,8 @@ function clouds.GetGLSL(block)
 			vec4 weather = textureLod(TEXTURE(CLOUD_BLOCK.cloud_weather_tex), (p.xz + offset.xy) / scale.x, 0.0);
 			float coverage = cloud_coverage(i, p.xz, weather);
 			float streaks = saturate((weather.b - 0.1) / 0.6);
-			vec3 n = textureLod(cloud_base_noise, vec3((p.xz + offset.zw) / scale.y, offset2.x / scale.y).xzy, 1.0).gba;
+			vec2 shape_uv = (p.xz + offset.zw) / scale.y;
+			vec3 n = textureLod(cloud_base_noise, vec3(shape_uv.x, offset2.x / scale.y + cloud_slice(shape_uv), shape_uv.y), 1.0).gba;
 			float field = streaks * mix(0.55, 1.0, dot(n, vec3(0.5, 0.3, 0.2)));
 			field = saturate(remap(field, 1.0 - coverage, 1.0, 0.0, 1.0));
 			field = mix(field, 0.6 + 0.4 * field, smoothstep(0.9, 1.0, coverage));

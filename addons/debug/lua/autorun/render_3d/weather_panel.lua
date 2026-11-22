@@ -82,7 +82,6 @@ local LAYER_FIELDS = {
 	{"anvil", 0, 1, 3},
 	{"variation", 0, 1, 3},
 	{"base_variation", 0, 500, 0},
-	{"swirl", 0, 2, 3},
 	{"evolution", 0, 2, 3},
 	{"wind_scale", 0, 10, 2},
 	{"weather_scale", 5000, 100000, 0},
