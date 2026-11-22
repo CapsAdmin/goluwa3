@@ -5,6 +5,7 @@ local geo = import("lua/earth/geo.lua")
 local system = import("goluwa/system.lua")
 local noise = import("goluwa/terrain/noise.lua")
 local water_grid = import("lua/earth/water_grid.lua")
+local road_grid = import("lua/earth/road_grid.lua")
 local EarthSource = setmetatable({}, {__index = ShaderSource})
 EarthSource.__index = EarthSource
 local GRID = 9
@@ -30,10 +31,11 @@ local LINEAR = {
 -- (height mosaic pixel size, the height mosaic's width and height in texels: the texture is a pooled size at least that),
 -- (water mosaic texels per height mosaic texel, water mosaic offset x, y, 1 when there is a water mosaic),
 -- (the water mosaic's width and height in texels), (land mosaic texels per height mosaic texel, land mosaic offset x, y,
--- 1 when there is a land mosaic), (the land mosaic's width and height in texels);
+-- 1 when there is a land mosaic), (the land mosaic's width and height in texels), the same two for the road mosaic;
 -- texture1: the height mosaic (meters), texture2: the imagery mosaic, texture3: the water mosaic (signed distance to the
--- shore, water level; see water_grid.lua), texture4: the land mosaic (land_grid.lua's classes over 255)
-local HEADER = noise.WORLD .. [=[
+-- shore, water level; see water_grid.lua), texture4: the land mosaic (land_grid.lua's classes over 255), texture5: the
+-- road mosaic (road_grid.lua's distance and class over 255)
+local HEADER = noise.WORLD .. road_grid.GLSL .. [=[
 vec4 earth_info(int x, int y) {
 	return texelFetch(TEXTURE(terrain_bake.texture0), ivec2(x, y), 0);
 }
@@ -102,6 +104,32 @@ int earth_land_texel(ivec2 c, ivec2 last) {
 	return int(texelFetch(TEXTURE(terrain_bake.texture4), clamp(c, ivec2(0), last), 0).r * 255.0 + 0.5);
 }
 
+// the distance to the nearest road's edge in meters (negative on it, ]=] .. road_grid.RANGE .. [=[ far from roads) and its class
+// (0 for none, plus ]=] .. road_grid.UNPAVED .. [=[ when unpaved) at a height mosaic position
+vec2 earth_road(vec2 m) {
+	vec4 road = earth_info(6, ]=] .. GRID .. [=[);
+
+	if (road.w == 0.0) return vec2(]=] .. road_grid.RANGE .. [=[.0, 0.0);
+
+	ivec2 last = ivec2(earth_info(7, ]=] .. GRID .. [=[).xy) - 1;
+	vec2 t = m * road.x + road.yz - 0.5;
+	ivec2 i = ivec2(floor(t));
+	vec2 f = t - vec2(i);
+	float d00 = texelFetch(TEXTURE(terrain_bake.texture5), clamp(i, ivec2(0), last), 0).r;
+	float d10 = texelFetch(TEXTURE(terrain_bake.texture5), clamp(i + ivec2(1, 0), ivec2(0), last), 0).r;
+	float d01 = texelFetch(TEXTURE(terrain_bake.texture5), clamp(i + ivec2(0, 1), ivec2(0), last), 0).r;
+	float d11 = texelFetch(TEXTURE(terrain_bake.texture5), clamp(i + ivec2(1, 1), ivec2(0), last), 0).r;
+	float d = mix(mix(d00, d10, f.x), mix(d01, d11, f.x), f.y);
+	float class_value = texelFetch(TEXTURE(terrain_bake.texture5), clamp(ivec2(floor(t + 0.5)), ivec2(0), last), 0).g;
+	return vec2((d * 2.0 - 1.0) * ]=] .. road_grid.RANGE .. [=[.0, floor(class_value * 255.0 + 0.5));
+}
+
+// how much of a texel of the given size a road covers, by its distance and class
+float earth_road_cover(vec2 road, float texel) {
+	int id = int(road.y) % ]=] .. road_grid.UNPAVED .. [=[;
+	return (1.0 - smoothstep(-0.5 * texel, 0.5 * texel, road.x)) * min(2.0 * EARTH_ROAD_HALF_WIDTH[id] / texel, 1.0) * EARTH_ROAD_COVER[id];
+}
+
 // the land classes of the four land mosaic texels around a world position and their bilinear weights, class 0 without
 // a land mosaic; the position is moved by a little noise first, so the polygons' straight edges do not show
 void earth_land(vec2 p, out ivec4 classes, out vec4 weights) {
@@ -168,10 +196,12 @@ vec2 earth_water(vec2 m) {
 const float EARTH_LAND_RELIEF[11] = float[](1.0, 1.0, 1.0, 0.7, 0.25, 0.25, 1.0, 0.6, 1.5, 0.3, 1.0);
 
 // relief finer than the data: noise below the data's own spacing, stronger on steep ground and by the land class, none
-// at the sea or near water; then the ground is carved under lakes and rivers
+// at the sea, near water or on roads (whose ground is the data's, blending to the relief beside over a shoulder); then
+// the ground is carved under lakes and rivers
 float terrain_height(vec2 p) {
 	vec2 m = earth_map(p).xy;
-	float h = earth_mosaic_height(m);
+	float ground = earth_mosaic_height(m);
+	float h = ground;
 	float spacing = earth_info(0, ]=] .. GRID .. [=[).w;
 	vec2 water = earth_water(m);
 
@@ -191,6 +221,12 @@ float terrain_height(vec2 p) {
 			vec4(EARTH_LAND_RELIEF[classes.x], EARTH_LAND_RELIEF[classes.y], EARTH_LAND_RELIEF[classes.z], EARTH_LAND_RELIEF[classes.w])
 		);
 		h += detail * spacing * (0.04 + 0.3 * min(length(slope), 1.0)) * relief * smoothstep(0.0, 4.0, h) * earth_water_noise(water.x);
+	}
+
+	vec2 road = earth_road(m);
+
+	if (road.y > 0.0) {
+		h = mix(ground, h, smoothstep(0.0, max(EARTH_ROAD_SHOULDER[int(road.y) % ]=] .. road_grid.UNPAVED .. [=[], 0.5), road.x));
 	}
 
 	return earth_carve(h, water.x, water.y);
@@ -279,6 +315,16 @@ void earth_layers(vec2 p, float h, vec3 n, out vec4 a, out vec4 b) {
 	float sum = max(dot(a, vec4(1.0)) + dot(b, vec4(1.0)), 0.0001);
 	a /= sum;
 	b /= sum;
+	// paved roads have no layer, so they are the photo's and the road's colour alone; unpaved ones are dirt
+	vec2 road = earth_road(earth_map(p).xy);
+
+	if (road.y > 0.0) {
+		float cover = earth_road_cover(road, terrain_bake_step());
+		a *= 1.0 - cover;
+		b *= 1.0 - cover;
+
+		if (road.y >= ]=] .. road_grid.UNPAVED .. [=[.0) b.x += cover;
+	}
 }
 ]=]
 local SPLAT4_GLSL = LAYERS_GLSL .. [=[
@@ -304,7 +350,17 @@ vec4 terrain_splat2(vec2 p, float h, vec3 n) {
 ]=]
 local COLOR_GLSL = [=[
 vec3 terrain_color(vec2 p, float h, vec3 n) {
-	return earth_photo(p);
+	vec3 c = earth_photo(p);
+	vec2 road = earth_road(earth_map(p).xy);
+
+	if (road.y > 0.0) {
+		int id = int(road.y) % ]=] .. road_grid.UNPAVED .. [=[;
+		vec3 surface = road.y >= ]=] .. road_grid.UNPAVED .. [=[.0 ? EARTH_ROAD_UNPAVED : EARTH_ROAD_COLOR[id];
+		surface *= 0.85 + 0.3 * smoothstep(0.02, 0.25, dot(c, vec3(0.3, 0.59, 0.11)));
+		c = mix(c, surface, earth_road_cover(road, terrain_bake_step()));
+	}
+
+	return c;
 }
 ]=]
 
@@ -315,7 +371,7 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 -- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
 -- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples);
 -- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua),
--- source.Land to a tile grid (tile_grids.lua) of land_grid.lua
+-- source.Land and source.Roads to tile grids (tile_grids.lua) of land_grid.lua and road_grid.lua
 function EarthSource.New(config)
 	local six = config.Layers and config.Layers[5] ~= nil
 	local layer_ids = {0, 1, 2, 3, 4, 5}
@@ -649,7 +705,7 @@ local function get_blank(self)
 	return self.Blank
 end
 
-local function bake(self, item, heights, imagery, bathymetry, land)
+local function bake(self, item, heights, imagery, bathymetry, land, roads)
 	local request = item.request
 	local domain = item.domain
 	local info = FloatArray(GRID * (GRID + 1) * 4)
@@ -682,7 +738,7 @@ local function bake(self, item, heights, imagery, bathymetry, land)
 	if bathymetry then fill_sea(height_pixels, height_width, heights, bathymetry) end
 
 	local blank = get_blank(self)
-	local textures = {info_texture, height_texture, blank, blank}
+	local textures = {info_texture, height_texture, blank, blank, blank}
 	local uploads = {{info_texture, info}, {height_texture, height_pixels}}
 	local water = self.Water and self.Water:PlanMosaic(heights)
 
@@ -712,6 +768,20 @@ local function bake(self, item, heights, imagery, bathymetry, land)
 		info[o + 21] = land.height
 		textures[5] = acquire_texture(self, width, height, "r8_unorm", NEAREST)
 		uploads[#uploads + 1] = {textures[5], pixels}
+	end
+
+	if roads then
+		local width, height = pool_size(roads.width), pool_size(roads.height)
+		local pixels = get_scratch("roads", width * height * 2)
+		self.Roads:FillMosaic(roads, pixels, width)
+		info[o + 24] = roads.scale
+		info[o + 25] = roads.offset_x
+		info[o + 26] = roads.offset_y
+		info[o + 27] = 1
+		info[o + 28] = roads.width
+		info[o + 29] = roads.height
+		textures[6] = acquire_texture(self, width, height, "r8g8_unorm", NEAREST)
+		uploads[#uploads + 1] = {textures[6], pixels}
 	end
 
 	if imagery then
@@ -814,7 +884,11 @@ local function try_resolve(self, item)
 
 	if land == nil and self.Land then return false end
 
-	bake(self, item, heights, imagery or nil, bathymetry or nil, land or nil)
+	local roads = self.Roads and self.Roads:PlanMosaic(heights)
+
+	if roads == nil and self.Roads then return false end
+
+	bake(self, item, heights, imagery or nil, bathymetry or nil, land or nil, roads or nil)
 	return true
 end
 

@@ -32,6 +32,7 @@ earth.Start{
 	Buildings = true,
 	Water = true,
 	Land = os.getenv("EARTH_LAND") ~= "0",
+	Roads = os.getenv("EARTH_ROADS") ~= "0",
 }
 weather.SetTimeScale(0)
 

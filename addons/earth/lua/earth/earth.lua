@@ -12,6 +12,7 @@ local buildings = import("lua/earth/buildings.lua")
 local water_bodies = import("lua/earth/water_bodies.lua")
 local tile_grids = import("lua/earth/tile_grids.lua")
 local land_grid = import("lua/earth/land_grid.lua")
+local road_grid = import("lua/earth/road_grid.lua")
 local geo = import("lua/earth/geo.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -126,6 +127,17 @@ earth.LandCover = tile_grids.New{
 	KeepRadius = 9000,
 	MaxMosaicStep = 16,
 }
+earth.Roads = tile_grids.New{
+	Name = "roads",
+	Theme = "transportation",
+	Zoom = 14,
+	Size = road_grid.SIZE,
+	Bytes = 2,
+	Job = road_grid.JOB,
+	Radius = 3000,
+	KeepRadius = 4500,
+	MaxMosaicStep = 4,
+}
 
 local function start_terrain(lat, lon)
 	weather.SetLocation(lat, lon)
@@ -195,7 +207,7 @@ end
 -- Buildings (blocks extruded from Overture's footprints around the camera, see buildings.lua),
 -- Water (Overture's lakes, ponds and rivers carved into the terrain and filled with water volumes, see water_bodies.lua),
 -- Land (what the ground is from Overture's land cover, land use and land, picking the layers and the fine relief, see
--- land_grid.lua),
+-- land_grid.lua), Roads (Overture's roads, paths and railways flattened into and painted on the terrain, see road_grid.lua),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
@@ -223,6 +235,11 @@ function earth.Start(config)
 	if config.Land then
 		earth.LandCover:Start(earth.source, earth.terrain, "Land")
 		attribution[#attribution + 1] = land_grid.ATTRIBUTION
+	end
+
+	if config.Roads then
+		earth.Roads:Start(earth.source, earth.terrain, "Roads")
+		attribution[#attribution + 1] = road_grid.ATTRIBUTION
 	end
 
 	local lines = attribution
@@ -279,6 +296,8 @@ function earth.Recenter(lat, lon)
 
 	if earth.config.Land then earth.LandCover:SetSource(earth.source, earth.terrain) end
 
+	if earth.config.Roads then earth.Roads:SetSource(earth.source, earth.terrain) end
+
 	local view = View.GetActive()
 
 	if view then
@@ -297,6 +316,7 @@ function earth.Stop()
 	buildings.Stop()
 	water_bodies.Stop()
 	earth.LandCover:Stop()
+	earth.Roads:Stop()
 
 	if earth.terrain then
 		earth.terrain:Stop()

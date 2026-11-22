@@ -10,6 +10,7 @@ local EarthSource = import("lua/earth/source.lua")
 local building_mesh = import("lua/earth/building_mesh.lua")
 local water_grid = import("lua/earth/water_grid.lua")
 local land_grid = import("lua/earth/land_grid.lua")
+local road_grid = import("lua/earth/road_grid.lua")
 local mvt = import("goluwa/codecs/mvt.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local LAT, LON = 46.5935, 7.9091
@@ -338,6 +339,47 @@ T.Test("earth land grids draw land use and land over the land cover, smaller pol
 	T(class_at(1250, 1250))["=="]("forest")
 	meta = land_grid.Build{}
 	T(meta.any)["=="](false)
+end)
+
+T.Test("earth road grids measure the distance to road edges and leave out bridges and sidewalks", function()
+	local function line(y, properties)
+		return {type = mvt.LINESTRING, properties = properties, rings = {{0, y, 4096, y}}}
+	end
+
+	local tx, ty = geo.ToMercator(LAT, LON, 14, 1)
+	tx, ty = math.floor(tx), math.floor(ty)
+	local meta, grid = road_grid.Build(
+		{
+			segment = {
+				extent = 4096,
+				features = {
+					line(1024, {subtype = "road", class = "primary", road_surface = '[{"value":"paved"}]'}),
+					line(2048, {subtype = "road", class = "residential", road_flags = '[{"values":["is_bridge"],"between":[0.5,1.0]}]'}),
+					line(3072, {subtype = "road", class = "footway", subclass = "sidewalk"}),
+				},
+			},
+		},
+		tx,
+		ty,
+		14
+	)
+	local size = road_grid.SIZE
+	local texel = geo.GetPixelSize(LAT, 14, size)
+
+	local function at(x, y)
+		local i = (math.floor(y / 4096 * size) * size + math.floor(x / 4096 * size)) * 2
+		return grid[i] / 255 * 2 * road_grid.RANGE - road_grid.RANGE, grid[i + 1]
+	end
+
+	local primary = road_grid.CLASSES[3]
+	T(meta.any)["=="](true)
+	local d, class = at(1000, 1024)
+	T(class)["=="](3)
+	T(math.abs(d - (texel / 2 - primary[2])) < 0.2)["=="](true)
+	T(select(2, at(1000, 1024 + 20 / texel * 4)))["=="](0)
+	T(select(2, at(1000, 2048)))["=="](6)
+	T(select(2, at(3000, 2048)))["=="](0)
+	T(select(2, at(1000, 3072)))["=="](0)
 end)
 
 local function solid_tile(r, g, b)
