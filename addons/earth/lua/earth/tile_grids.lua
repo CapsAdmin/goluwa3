@@ -115,8 +115,13 @@ function META:Update()
 		remove_tile
 	)
 
+	for _, tile in pairs(self.tiles) do
+		tile.wanted = false
+	end
+
 	for _, entry in ipairs(wanted) do
 		local tile = entry.tile
+		tile.wanted = true
 
 		if tile.state == "new" then
 			self:LoadTile(tile)
@@ -127,8 +132,8 @@ function META:Update()
 end
 
 -- the mosaic over a chunk's height mosaic: the grids' texels, every so many so it stays small; nil while a tile under it
--- is on its way, false where none has anything or the chunk is too large. Tiles not wanted yet are taken as empty, and
--- the terrain bakes them again once they are built
+-- is on its way, false where none has anything or the chunk is too large. Tiles not wanted (yet, or any more, and so
+-- not built) are taken as empty, and the terrain bakes them again once they are built
 function META:PlanMosaic(heights)
 	local size = self.Size
 	local tiles = self.tiles
@@ -149,10 +154,10 @@ function META:PlanMosaic(heights)
 			local key = tiles_source:GetKey(tx, ty)
 			local tile = tiles[key]
 
-			if not tile then
-				self.missed[key] = true
-			elseif tile.state == "built" then
+			if tile and tile.state == "built" then
 				if tile.grid then found = true end
+			elseif not tile or not tile.wanted then
+				self.missed[key] = true
 			elseif tile.state ~= "failed" then
 				return nil
 			end
@@ -260,7 +265,7 @@ function META:Stop()
 	self.terrain = nil
 end
 
--- built, pending (fetching or building) and failed tiles
+-- built, pending (wanted and fetching or building) and failed tiles
 function META:GetStats()
 	local stats = {built = 0, pending = 0, failed = 0}
 
@@ -269,8 +274,10 @@ function META:GetStats()
 			"built" or
 			tile.state == "failed" and
 			"failed" or
+			tile.wanted and
 			"pending"
-		stats[key] = stats[key] + 1
+
+		if key then stats[key] = stats[key] + 1 end
 	end
 
 	return stats
