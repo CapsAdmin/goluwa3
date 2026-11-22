@@ -283,7 +283,7 @@ do
 		return texture
 	end
 
-	function ShaderSource:RequestChunk(request, callback)
+	local function get_batch(self)
 		local batch = self.batch
 
 		if not batch then
@@ -301,6 +301,17 @@ do
 			self.batch = batch
 		end
 
+		return batch
+	end
+
+	-- the command buffer the next bakes are recorded into, for work that has to come before them (creating the
+	-- textures a request uploads, Texture.New{cmd = ...}) without waiting on the gpu
+	function ShaderSource:GetBatchCommandBuffer()
+		return get_batch(self).cmd
+	end
+
+	function ShaderSource:RequestChunk(request, callback)
+		local batch = get_batch(self)
 		local chunk = {request = request}
 		local min_x, min_z, size = request.min_x, request.min_z, request.size
 		bake.tile_step = size / ((request.samples or 2) - 1)
