@@ -1097,10 +1097,15 @@ function Terrain:Start()
 	return self
 end
 
--- stops streaming and keeps the tiles that are drawn as they are, until Stop
+-- stops streaming and removes the colliders, keeping the tiles that are drawn as they are until Stop
 function Terrain:Freeze()
 	active_terrains[self] = nil
 	event.RemoveListener("Update", self.UpdateId)
+
+	if self.Physics then
+		self.Physics:Remove()
+		self.Physics = nil
+	end
 
 	if self.holding_scene_load then
 		self.holding_scene_load = false
