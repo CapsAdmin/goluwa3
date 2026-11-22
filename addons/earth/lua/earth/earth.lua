@@ -5,6 +5,7 @@ local fonts = import("goluwa/render2d/fonts.lua")
 local TileSet = import("lua/earth/tile_set.lua")
 local EarthSource = import("lua/earth/source.lua")
 local mapterhorn = import("lua/earth/mapterhorn.lua")
+local cloud_cover = import("lua/earth/cloud_cover.lua")
 local geo = import("lua/earth/geo.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -127,7 +128,7 @@ local function update()
 end
 
 -- config: lat, lon (the world origin, the weather's location when not given; the weather's location follows the origin),
--- Layers, Terrain (any Terrain config),
+-- Layers, Terrain (any Terrain config), Clouds (cloud layers whose cover comes from a weather model, see cloud_cover.lua),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
@@ -135,6 +136,12 @@ function earth.Start(config)
 	local lat, lon = weather.GetLocation()
 	start_terrain(config.lat or lat, config.lon or lon)
 	event.AddListener("Update", "earth", update)
+	local attribution = table.copy(earth.ATTRIBUTION)
+
+	if config.Clouds then
+		cloud_cover.Start(earth.source)
+		attribution[#attribution + 1] = cloud_cover.ATTRIBUTION
+	end
 
 	event.AddListener("DrawHUD", "earth_attribution", function()
 		local font = fonts.GetFont()
@@ -142,9 +149,9 @@ function earth.Start(config)
 		render2d.SetTexture(nil)
 		render2d.SetColor(1, 1, 1, 0.6)
 
-		for i, line in ipairs(earth.ATTRIBUTION) do
+		for i, line in ipairs(attribution) do
 			local _, text_h = font:GetTextSize(line)
-			font:DrawText(line, 8, h - (#earth.ATTRIBUTION - i + 1) * (text_h + 2) - 6, 0)
+			font:DrawText(line, 8, h - (#attribution - i + 1) * (text_h + 2) - 6, 0)
 		end
 	end)
 
@@ -165,6 +172,8 @@ function earth.Recenter(lat, lon)
 	earth.previous_terrain = old_terrain
 	start_terrain(lat, lon).Root:AddComponent("visibility"):SetVisible(false)
 
+	if earth.config.Clouds then cloud_cover.SetSource(earth.source) end
+
 	local view = View.GetActive()
 
 	if view then
@@ -179,6 +188,7 @@ end
 
 function earth.Stop()
 	finish_recenter()
+	cloud_cover.Stop()
 
 	if earth.terrain then
 		earth.terrain:Stop()

@@ -21,23 +21,9 @@ earth.Start{
 	lon = tonumber(os.getenv("EARTH_LON")),
 	Layers = {layer("grass", 3), layer("sand", 4), layer("rock", 11), layer("snow", 7)},
 	Terrain = {Levels = tonumber(os.getenv("LEVELS")) or 15},
+	Clouds = true,
 }
 weather.SetTimeScale(0)
-weather.SetCloudLayers{
-	{
-		name = "low",
-		bottom = 1400,
-		thickness = 1600,
-		coverage = 0.3,
-		density = 0.07,
-		type = 1,
-		detail_scale = 250,
-		base_variation = 200,
-		variation = 0.15,
-		system_scale = 1200000,
-		system_amount = 1.1,
-	},
-}
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
 water.SetOcean{WindSpeed = 8, WindDirection = 0}
