@@ -280,7 +280,8 @@ return {
 
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 
-				float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
+				float log_pre_exposure = log2(pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r));
+				float exposure = texture(exposure_tex, vec2(0.5)).r / exp2(log_pre_exposure);
 				float adapting_log10 = (texture(exposure_tex, vec2(0.5)).b - 3.0) * 0.30103;
 				float pupil_scale = (4.9 - 3.0 * tanh(0.4 * (adapting_log10 + 1.0))) / PUPIL_REFERENCE_MM;
 				ivec2 tiles = textureSize(tile_sum_tex, 0);
@@ -329,11 +330,12 @@ return {
 						float turned = length((uv - previous_uv) * vec2(size));
 						float travelled = length(inverse(star_data.prev_view)[3].xyz - star_data.inv_view[3].xyz);
 						float still = (1.0 - smoothstep(TURN_STILL_PIXELS, 4.0 * TURN_STILL_PIXELS, turned)) * (1.0 - smoothstep(TRAVEL_STILL_METERS, 8.0 * TRAVEL_STILL_METERS, travelled));
-						star = mix(star, texture(history_tex, edge_clamp_uv(previous_uv, textureSize(history_tex, 0))).rgb, star_data.history_weight * still);
+						vec4 history = texture(history_tex, edge_clamp_uv(previous_uv, textureSize(history_tex, 0)));
+						star = mix(star, history.rgb * exp2(log_pre_exposure - history.a), star_data.history_weight * still);
 					}
 				}
 
-				imageStore(out_star, pos, vec4(star, 1.0));
+				imageStore(out_star, pos, vec4(star, log_pre_exposure));
 			}
 		]],
 	},
