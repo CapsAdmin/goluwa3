@@ -10,6 +10,31 @@ local UInt64Ptr = ffi.typeof("uint64_t *")
 local REFRESH_WINDOW = 4
 local WEAK_VALUES = {__mode = "v"}
 local WEAK_KEYS = {__mode = "k"}
+-- a mesh's addresses as of a release serial, shared by every table checking its records after the same release
+local mesh_addresses = setmetatable({}, WEAK_KEYS)
+
+local function get_mesh_addresses(mesh, release_serial)
+	local entry = mesh_addresses[mesh]
+
+	if not entry then
+		entry = {}
+		mesh_addresses[mesh] = entry
+	end
+
+	if entry.serial ~= release_serial then
+		entry.serial = release_serial
+
+		if mesh:IsValid() then
+			entry[1], entry[2], entry[3] = mesh:GetVertexBufferAddress(),
+			mesh:GetIndexBufferAddress(),
+			mesh:GetExtrasBufferAddress()
+		else
+			entry[1], entry[2], entry[3] = 0, 0, 0
+		end
+	end
+
+	return entry
+end
 
 function BatchTable.New(config)
 	return BatchTable:CreateObject{
@@ -203,30 +228,13 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		local batch_at = self.batch_at
 		local check_addresses = self.address_release_serial ~= release_serial
 		local records = self.records
-		local expected = {}
 
 		for i = 1, count do
 			local batch = batches[i]
 			local stale = batch_at[i] ~= batch
 
 			if not stale and check_addresses then
-				local mesh = batch.mesh
-				local pair = expected[mesh]
-
-				if not pair then
-					if mesh:IsValid() then
-						pair = {
-							mesh:GetVertexBufferAddress(),
-							mesh:GetIndexBufferAddress(),
-							mesh:GetExtrasBufferAddress(),
-						}
-					else
-						pair = {0, 0, 0}
-					end
-
-					expected[mesh] = pair
-				end
-
+				local pair = get_mesh_addresses(batch.mesh, release_serial)
 				-- records are not a multiple of 8 bytes, so each one's addresses are read through its own field
 				local addresses = ffi.cast(UInt64Ptr, records[i - 1].addresses)
 				stale = addresses[0] ~= pair[1] or addresses[1] ~= pair[2] or addresses[2] ~= pair[3]
