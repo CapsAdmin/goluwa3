@@ -10,7 +10,6 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Color = import("goluwa/structs/color.lua")
 local geo = import("lua/earth/geo.lua")
 local Archive = import("lua/earth/pmtiles_archive.lua")
 local building_mesh = import("lua/earth/building_mesh.lua")
@@ -26,6 +25,9 @@ local UPDATE_INTERVAL = 0.25
 local GRID_SIZE = 33
 local GRID_MARGIN = 0.1
 local MAX_BUILDING = 2
+-- the pixel size of the photo the roofs take their colour from; where no imagery source is about this sharp the roofs
+-- keep a colour picked from a palette
+local PHOTO_METERS = 1.7
 local VertexType = Polygon3D.VertexType
 local VERTEX_SIZE = ffi.sizeof(VertexType(1))
 local Index32Array = ffi.typeof("uint32_t[?]")
@@ -106,11 +108,17 @@ local function create_tile_entity(tile, meta, blob)
 	visual:BuildAABB()
 end
 
--- the job's input, nil while the ground under the tile is not loaded
+-- the job's input, nil while the ground under the tile or the photo over it is not loaded
 local function build_input(tile)
 	local source = buildings.source
 	local north, west = geo.FromMercator(tile.x - GRID_MARGIN, tile.y - GRID_MARGIN, ZOOM, 1)
 	local south, east = geo.FromMercator(tile.x + 1 + GRID_MARGIN, tile.y + 1 + GRID_MARGIN, ZOOM, 1)
+	tile.photo_state = tile.photo_state or
+		{south = south, west = west, north = north, east = east, meters = PHOTO_METERS}
+	local photo = source:RequestPhoto(tile.photo_state)
+
+	if photo == nil then return end
+
 	local dlat, dlon = (north - south) / (GRID_SIZE - 1), (east - west) / (GRID_SIZE - 1)
 	local grid = FloatArray(GRID_SIZE * GRID_SIZE)
 
@@ -139,6 +147,7 @@ local function build_input(tile)
 		grid_dlat = dlat,
 		grid_dlon = dlon,
 		grid = ffi.string(grid, GRID_SIZE * GRID_SIZE * 4),
+		photo = photo or nil,
 	}
 end
 
@@ -277,10 +286,10 @@ function buildings.Start(source)
 
 	if not wall_material then
 		wall_material = Material.New()
-		wall_material:SetColorMultiplier(Color(0.72, 0.68, 0.62, 1))
+		wall_material:SetVertexTint(true)
 		wall_material:SetRoughnessMultiplier(0.9)
 		roof_material = Material.New()
-		roof_material:SetColorMultiplier(Color(0.38, 0.36, 0.35, 1))
+		roof_material:SetVertexTint(true)
 		roof_material:SetRoughnessMultiplier(0.8)
 	end
 

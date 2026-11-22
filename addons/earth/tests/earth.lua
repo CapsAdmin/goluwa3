@@ -201,6 +201,9 @@ T.Test("earth building blocks stand on the ground under them to their height", f
 	T(math.abs(roof.position[1] - (100 - drop + 12.5)))["<"](0.1)
 	T(math.abs(vertices[0].position[1] - (100 - drop - building_mesh.FOOTING)))["<"](0.1)
 	T(roof.normal[1])["=="](1)
+	T(roof.vertex_color[3])["=="](1)
+	T(vertices[0].vertex_color[3])["=="](1)
+	T(roof.vertex_color[0] > 0 and roof.vertex_color[0] <= 1)["=="](true)
 end)
 
 local function solid_tile(r, g, b)

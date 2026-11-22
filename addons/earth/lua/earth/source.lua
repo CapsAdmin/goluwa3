@@ -666,6 +666,75 @@ function EarthSource:GetPendingCount()
 	return batches, chunks + #self.Waiting
 end
 
+-- a photo over a latitude, longitude box for colouring things on the ground: state = {south, west, north, east, meters
+-- (the pixel size wanted)} is kept by the caller between calls; nil while its tiles load, false when no source of the
+-- imagery chain has the box this sharp, else {pixels (rgba string), x0, y0 (in global mercator pixels), width, height,
+-- zoom, tile_size, meters}
+function EarthSource:RequestPhoto(state)
+	if not state.domain then
+		local lats, lons = {}, {}
+
+		for j = 0, GRID - 1 do
+			for i = 0, GRID - 1 do
+				lats[j * GRID + i + 1] = state.south + (state.north - state.south) * j / (GRID - 1)
+				lons[j * GRID + i + 1] = state.west + (state.east - state.west) * i / (GRID - 1)
+			end
+		end
+
+		state.domain = {lats = lats, lons = lons, center_lat = (state.south + state.north) / 2}
+		state.index = 0
+	end
+
+	local domain = state.domain
+	local chain = self.Imagery
+
+	while true do
+		if not state.mosaic then
+			for i = state.index + 1, #chain do
+				local set = chain[i]
+				local zoom = geo.GetZoomFor(domain.center_lat, state.meters, set.TileSize, set.MaxZoom)
+				state.index = i
+
+				if
+					zoom >= set.MinZoom and
+					(
+						not set.Bounds or
+						inside(domain, set.Bounds)
+					)
+					and
+					geo.GetPixelSize(domain.center_lat, zoom, set.TileSize) <= state.meters * 1.5
+				then
+					state.mosaic = plan_mosaic(set, domain, zoom)
+
+					break
+				end
+			end
+
+			if not state.mosaic then return false end
+		end
+
+		local mosaic = state.mosaic
+		local tiles = mosaic_state(mosaic)
+
+		if tiles == "loading" then return nil end
+
+		if tiles == "ready" then
+			return {
+				pixels = ffi.string(compose(mosaic, 4), mosaic.width * mosaic.height * 4),
+				x0 = mosaic.x0,
+				y0 = mosaic.y0,
+				width = mosaic.width,
+				height = mosaic.height,
+				zoom = mosaic.zoom,
+				tile_size = mosaic.set.TileSize,
+				meters = geo.GetPixelSize(domain.center_lat, mosaic.zoom, mosaic.set.TileSize),
+			}
+		end
+
+		state.mosaic = nil
+	end
+end
+
 -- the imagery sets a chunk was baked from in the last seconds
 function EarthSource:GetImageryInUse(seconds)
 	local now = system.GetElapsedTime()
