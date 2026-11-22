@@ -295,7 +295,8 @@ local function build_tile(tile)
 			return
 		end
 
-		create_tile_entity(tile, job.meta, job.blob)
+		if job.meta.buildings > 0 then create_tile_entity(tile, job.meta, job.blob) end
+
 		tile.state = "built"
 	end)
 end
