@@ -24,6 +24,11 @@ earth.Start{
 	Clouds = true,
 }
 weather.SetTimeScale(0)
+
+if os.getenv("EARTH_HOUR") then
+	weather.SetSolarHours(tonumber(os.getenv("EARTH_HOUR")))
+end
+
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
 water.SetOcean{WindSpeed = 8, WindDirection = 0}
