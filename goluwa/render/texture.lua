@@ -959,11 +959,11 @@ function Texture:Crop(x, y, w, h)
 	return new_tex
 end
 
-function Texture:Upload(data, keep_in_transfer_dst)
+-- records copying data (as Upload takes it) into the texture into cmd; the returned staging buffer must live until cmd has run
+function Texture:RecordUpload(cmd, data, keep_in_transfer_dst)
 	if not self.image then error("Cannot upload: texture has no image") end
 
 	local device = render.GetDevice()
-	local queue = render.GetQueue()
 	local width, height, x, y, buffer
 	local layer_count = type(data) == "table" and data.layer_count or 1
 
@@ -993,9 +993,6 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "upload staging"),
 	}
 	staging_buffer:CopyData(buffer, pixel_count * bytes_per_pixel)
-	local cmd_pool = render.GetCommandPool()
-	local cmd = cmd_pool:AllocateCommandBuffer()
-	cmd:Begin()
 	render.KeepCommandBufferResource(staging_buffer, cmd)
 	render.TransitionResourceTo(
 		self,
@@ -1042,6 +1039,13 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		)
 	end
 
+	return staging_buffer
+end
+
+function Texture:Upload(data, keep_in_transfer_dst)
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	local staging_buffer = self:RecordUpload(cmd, data, keep_in_transfer_dst)
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	cmd:Remove()
