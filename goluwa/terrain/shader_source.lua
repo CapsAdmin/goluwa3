@@ -501,7 +501,8 @@ function ShaderSource:Submit()
 			device = render.GetDevice(),
 			size = bytes,
 			usage = "transfer_dst",
-			properties = {"host_visible", "host_coherent"},
+			-- read back on the cpu: uncached memory makes every read a slow uncached access
+			properties = {"host_visible", "host_coherent", "host_cached"},
 		}
 
 		for i, texture in pairs(batch.height_textures) do
