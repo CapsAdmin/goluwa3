@@ -152,55 +152,6 @@ function water_grid.GetFeatures(layers, texel_meters)
 	return out
 end
 
--- writes index into ids under the feature's rings (even-odd, rings in grid texels)
-local function rasterize(ids, width, rings, index)
-	local min_y, max_y = math.huge, -math.huge
-
-	for _, ring in ipairs(rings) do
-		for i = 2, #ring, 2 do
-			min_y = math.min(min_y, ring[i])
-			max_y = math.max(max_y, ring[i])
-		end
-	end
-
-	local crossings = {}
-
-	for row = math.max(math.floor(min_y), 0), math.min(math.ceil(max_y), width - 1) do
-		local y = row + 0.5
-		local count = 0
-
-		for _, ring in ipairs(rings) do
-			local n = #ring
-			local px, py = ring[n - 1], ring[n]
-
-			for i = 1, n, 2 do
-				local x, ry = ring[i], ring[i + 1]
-
-				if (py <= y) ~= (ry <= y) then
-					count = count + 1
-					crossings[count] = px + (y - py) * (x - px) / (ry - py)
-				end
-
-				px, py = x, ry
-			end
-		end
-
-		for i = count + 1, #crossings do
-			crossings[i] = nil
-		end
-
-		table.sort(crossings)
-
-		for i = 1, count - 1, 2 do
-			local o = row * width
-
-			for column = math.max(math.ceil(crossings[i] - 0.5), 0), math.min(math.floor(crossings[i + 1] - 0.5), width - 1) do
-				ids[o + column] = index
-			end
-		end
-	end
-end
-
 -- chamfer distance (in texels) to the texels where dist starts at 0, carrying their source along
 local function chamfer(dist, source, width)
 	local diagonal = math.sqrt(2)
@@ -300,7 +251,7 @@ function water_grid.Build(input)
 	local ids = Int32Array(count)
 
 	for index, feature in ipairs(features) do
-		rasterize(ids, width, feature.rings, index)
+		mvt.FillRings(ids, width, width, feature.rings, index)
 	end
 
 	local dem = FloatArray(count)
