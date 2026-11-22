@@ -2,7 +2,6 @@ local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local commands = import("goluwa/cli/commands.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local event = import("goluwa/event.lua")
@@ -124,41 +123,27 @@ function world.GetHeight(x, z)
 end
 
 local function build_scatter_set()
-	local prototypes = {}
-
-	local function add(set, layers, altitude)
-		for _, definition in ipairs(set.Prototypes) do
-			local copy = {}
-
-			for key, value in pairs(definition) do
-				copy[key] = value
-			end
-
-			copy.layers = layers
-			copy.altitude = altitude(definition)
-			prototypes[#prototypes + 1] = copy
-		end
-	end
-
-	local function below_ceiling()
-		return {-1e9, SCATTER_CEILING, 4}
-	end
-
-	add(sets.foliage_meadow, {1, 0, 0, 0}, below_ceiling)
-	add(sets.foliage_forest, {0, 1, 0, 0}, below_ceiling)
-	add(sets.foliage_rocky, {0, 0.2, 1, 0}, below_ceiling)
-
-	add(sets.foliage_tropical, {0, 0, 0, 1}, function()
-		return {0.4, SCATTER_CEILING, 0.5}
-	end)
-
-	add(sets.foliage_wetland, {1, 0.3, 0, 0.3}, function(definition)
-		if definition.model:find("reeds") then return {-0.6, 2, 0.6} end
-
-		return {0, 4.5, 1}
-	end)
-
-	return ScatterSet.New{Name = "foliage_world", Prototypes = prototypes, DistanceMultiplier = 2.5}
+	local below_ceiling = {altitude = {-1e9, SCATTER_CEILING, 4}}
+	return sets.Combine(
+		{Name = "foliage_world", DistanceMultiplier = 2.5},
+		{
+			{set = sets.foliage_meadow, layers = {1, 0, 0, 0}, override = below_ceiling},
+			{set = sets.foliage_forest, layers = {0, 1, 0, 0}, override = below_ceiling},
+			{set = sets.foliage_rocky, layers = {0, 0.2, 1, 0}, override = below_ceiling},
+			{
+				set = sets.foliage_tropical,
+				layers = {0, 0, 0, 1},
+				override = {altitude = {0.4, SCATTER_CEILING, 0.5}},
+			},
+			{
+				set = sets.foliage_wetland,
+				layers = {1, 0.3, 0, 0.3},
+				override = function(definition)
+					return {altitude = definition.model:find("reeds") and {-0.6, 2, 0.6} or {0, 4.5, 1}}
+				end,
+			},
+		}
+	)
 end
 
 local function layer(name, scale)

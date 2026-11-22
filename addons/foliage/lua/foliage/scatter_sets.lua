@@ -425,4 +425,31 @@ sets.foliage_wetland = ScatterSet.New{
 		proto("tree", "trees", "birch_c", {density = 0.0006}),
 	},
 }
+
+-- a set made of other sets' prototypes: parts are {set, layers (which terrain layers they grow on), override (a table of
+-- keys, or a function given a prototype's definition that returns one), only (a function given a definition, false
+-- leaves it out)}; config is merged into the set's (Name, DensityMultiplier, ...)
+function sets.Combine(config, parts)
+	local prototypes = {}
+
+	for _, part in ipairs(parts) do
+		for _, definition in ipairs(part.set.Prototypes) do
+			if not part.only or part.only(definition) then
+				local copy = table.copy(definition)
+				copy.layers = part.layers
+				local override = type(part.override) == "function" and part.override(definition) or part.override
+
+				for key, value in pairs(override or {}) do
+					copy[key] = value
+				end
+
+				prototypes[#prototypes + 1] = copy
+			end
+		end
+	end
+
+	config.Prototypes = prototypes
+	return ScatterSet.New(config)
+end
+
 return sets
