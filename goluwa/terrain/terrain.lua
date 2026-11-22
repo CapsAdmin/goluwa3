@@ -85,6 +85,7 @@ function Terrain.New(config)
 	self.Chunks = {}
 	self.Tiles = {}
 	self.Desired = {}
+	self.DesiredOrigins = {}
 	self.BuildQueue = {}
 	self.QueuedTiles = {}
 	self.Root = nil
@@ -220,10 +221,10 @@ function Terrain:ProcessBuildQueue()
 					waiters[i](chunk)
 				end
 			end)
-		end
 
 			-- the source can run other work's callbacks (thread pool jobs) that acquire chunks, appending to the queue
 			count = #queue
+		end
 	end
 
 	self.Source:Submit()
@@ -263,7 +264,22 @@ function Terrain:BuildTileRequest(level, chunk_x, chunk_z)
 	}
 end
 
+-- the desired tiles only change when a level's origin snaps to another chunk, so the set is kept until then
 function Terrain:GatherDesiredTiles(position)
+	local origins = self.DesiredOrigins
+	local same = next(self.Desired) ~= nil
+
+	for level = 0, self.Levels - 1 do
+		local origin_x, origin_z = self:GetLevelOrigin(level, position)
+
+		if origins[level * 2 + 1] ~= origin_x or origins[level * 2 + 2] ~= origin_z then
+			origins[level * 2 + 1], origins[level * 2 + 2] = origin_x, origin_z
+			same = false
+		end
+	end
+
+	if same then return self.Desired end
+
 	local desired = {}
 	local previous_min_x, previous_min_z, previous_max_x, previous_max_z
 
