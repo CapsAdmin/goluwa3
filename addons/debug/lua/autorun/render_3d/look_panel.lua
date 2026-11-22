@@ -6,6 +6,7 @@ local ui = import("goluwa/render2d/ui/react_ui.lua")
 local pvar_node = import("goluwa/render2d/ui/pvar_node.lua")
 local grade = import("goluwa/render3d/grade.lua")
 local exposure = import("goluwa/render3d/exposure.lua")
+local lens = import("goluwa/render3d/lens.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local WIDTH = 460
 local POLL_INTERVAL = 0.1
@@ -192,6 +193,52 @@ local function build_items()
 			return pvars.Get(key)
 		end
 		add_node(lut_group, node)
+	end
+
+	local lens_options = {}
+
+	for name in pairs(lens.presets) do
+		lens_options[#lens_options + 1] = name
+	end
+
+	table.sort(lens_options)
+
+	for i, name in ipairs(lens_options) do
+		lens_options[i] = {Text = name, Value = name}
+	end
+
+	local lens_preset = {
+		Key = "lens/preset",
+		Text = "preset",
+		Description = "a lens and aperture to shoot through, every knob below at once. Changing a knob leaves the preset",
+		Type = "enum",
+		Options = lens_options,
+		Value = lens.GetPreset(),
+		GetValue = lens.GetPreset,
+		OnChange = function(_, value)
+			lens.SetPreset(value)
+		end,
+	}
+	nodes[#nodes + 1] = lens_preset
+	items[#items + 1] = {
+		Key = "lens/presets",
+		Text = "Preset",
+		Tab = "Lens",
+		Children = {lens_preset},
+	}
+	local lens_groups = {}
+
+	for _, info in ipairs(lens.fields) do
+		local group = add_group(items, lens_groups, "lens/group/", info.group, "Lens")
+		local node = pvar_node.Build(info, function(value)
+			lens.Set(info.key, value)
+		end, function()
+			return lens.Get(info.key)
+		end)
+		node.GetValue = function()
+			return lens.Get(info.key)
+		end
+		add_node(group, node)
 	end
 
 	for _, item in ipairs(eye_items) do
