@@ -520,6 +520,7 @@ do
 	end
 end
 
+local UNTILED_TEXTURE_MAP = {tile_u = 1, tile_v = 1, offset_u = 0, offset_v = 0}
 local HIDDEN_MODELS = {
 	["objects/library/alien/ship_exterior/sphere_around_ship/zero_g_sphere_half.cgf"] = true,
 }
@@ -1625,7 +1626,7 @@ function level.Load(level_dir)
 	for _, decal in ipairs(extra.decals) do
 		decal.material_path = game.ResolveMaterialPath(level_dir, decal.material_path)
 		local slots, material = Material.GetOverrideFromPath(decal.material_path)
-		decal.diffuse = (slots and slots[0] or material).cry_texture_maps.Diffuse
+		decal.diffuse = (slots and slots[0] or material).cry_texture_maps.Diffuse or UNTILED_TEXTURE_MAP
 	end
 
 	for _, road in ipairs(extra.roads) do
