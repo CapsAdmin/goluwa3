@@ -15,6 +15,7 @@ local overture_tiles = import("lua/earth/overture_tiles.lua")
 local canopy_tiles = import("lua/earth/canopy_tiles.lua")
 local land_grid = import("lua/earth/land_grid.lua")
 local road_grid = import("lua/earth/road_grid.lua")
+local roads = import("lua/earth/roads.lua")
 local objects = import("lua/earth/objects.lua")
 local weather_feed = import("lua/earth/weather_feed.lua")
 local geo = import("lua/earth/geo.lua")
@@ -223,6 +224,7 @@ end
 -- Water (Overture's lakes, ponds and rivers carved into the terrain and filled with water volumes, see water_bodies.lua),
 -- Land (what the ground is from Overture's land cover, land use and land, picking the layers and the fine relief, see
 -- land_grid.lua), Roads (Overture's roads, paths and railways flattened into and painted on the terrain, see road_grid.lua),
+-- RoadMesh (the roads near the camera as textured ribbons lying on that terrain, see roads.lua),
 -- Weather (rain, snow, wetness, wind, temperature, haze, fog and the ocean's swell over the origin from Open-Meteo, see
 -- weather_feed.lua), Canopy (Meta's canopy height map lowers the coarse height data under trees and puts forest floor
 -- under them, see canopy_tiles.lua), Objects (power lines and towers, lamps, signals, mapped trees, fences and walls
@@ -260,6 +262,8 @@ function earth.Start(config)
 		earth.Roads:Start(earth.source, earth.terrain, "Roads")
 		attribution[#attribution + 1] = road_grid.ATTRIBUTION
 	end
+
+	if config.RoadMesh then roads.Start(earth.source, earth.terrain) end
 
 	if config.Weather then
 		weather_feed.Start(earth.source.Anchor.lat, earth.source.Anchor.lon)
@@ -334,6 +338,8 @@ function earth.Recenter(lat, lon)
 
 	if earth.config.Roads then earth.Roads:SetSource(earth.source, earth.terrain) end
 
+	if earth.config.RoadMesh then roads.SetSource(earth.source, earth.terrain) end
+
 	if earth.config.Weather then weather_feed.Start(lat, lon) end
 
 	if earth.config.Canopy then
@@ -361,6 +367,7 @@ function earth.Stop()
 	water_bodies.Stop()
 	earth.LandCover:Stop()
 	earth.Roads:Stop()
+	roads.Stop()
 	earth.Canopy:Stop()
 	weather_feed.Stop()
 	objects.Stop()

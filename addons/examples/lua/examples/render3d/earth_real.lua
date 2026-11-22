@@ -76,6 +76,7 @@ earth.Start{
 	Water = true,
 	Land = os.getenv("EARTH_LAND") ~= "0",
 	Roads = os.getenv("EARTH_ROADS") ~= "0",
+	RoadMesh = os.getenv("EARTH_ROADS") ~= "0" and os.getenv("EARTH_ROAD_MESH") ~= "0",
 	Canopy = os.getenv("EARTH_CANOPY") ~= "0",
 	Weather = os.getenv("EARTH_WEATHER") ~= "0",
 	Objects = os.getenv("EARTH_OBJECTS") ~= "0" and
