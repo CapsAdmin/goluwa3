@@ -396,6 +396,7 @@ local default_passes = {
 		"goluwa/render3d/passes/volumetric_fog.lua",
 		group = "volumetrics",
 	},
+	{"mirage", "goluwa/render3d/passes/mirage.lua", group = "mirage"},
 	{"camera_medium", "goluwa/render3d/passes/camera_medium.lua"},
 	{"particles", "goluwa/render3d/passes/particles.lua", group = "particles"},
 	{"translucent", "goluwa/render3d/passes/translucent.lua", group = "translucency"},

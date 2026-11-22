@@ -48,6 +48,28 @@ function post_source.GetFogSourceTexture()
 	return post_source.GetFogSourceFramebuffer():GetAttachment(1)
 end
 
+function post_source.IsMirageActive()
+	return render3d.HasPass("mirage") and
+		render3d.IsPassEnabled("mirage") and
+		render3d.pipelines.mirage.is_enabled()
+end
+
+function post_source.GetMirageHeatTexture()
+	return render3d.pipelines.mirage_heat:GetFramebuffer():GetAttachment(1)
+end
+
+function post_source.GetMirageFramebuffer()
+	if post_source.IsMirageActive() then
+		return render3d.pipelines.mirage:GetFramebuffer()
+	end
+
+	return post_source.GetFogSourceFramebuffer()
+end
+
+function post_source.GetMirageTexture()
+	return post_source.GetMirageFramebuffer():GetAttachment(1)
+end
+
 function post_source.GetFoggedOpaqueSceneFramebuffer()
 	if
 		render3d.IsPassEnabled("camera_medium") and
@@ -56,7 +78,7 @@ function post_source.GetFoggedOpaqueSceneFramebuffer()
 		return render3d.pipelines.camera_medium:GetFramebuffer()
 	end
 
-	return post_source.GetFogSourceFramebuffer()
+	return post_source.GetMirageFramebuffer()
 end
 
 function post_source.GetFoggedOpaqueSceneTexture()

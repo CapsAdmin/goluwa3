@@ -187,7 +187,7 @@ return {
 					medium_surface.WriteBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
-					block.source_tex = self:GetTextureIndex(post_source.GetFogSourceTexture())
+					block.source_tex = self:GetTextureIndex(post_source.GetMirageTexture())
 					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					local lights = render3d.GetLights()
