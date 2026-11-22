@@ -1600,14 +1600,17 @@ list.insert(
 
 			const float WET_REACH = 0.3;
 
-			float get_height_above_water(vec3 world_pos) {
-				float above = water_data.ocean_enabled != 0 ? world_pos.y + planet_drop(world_pos.xz) - water_data.ocean_level : 1e30;
+			// the height above the nearest water surface under a point, and that surface's wave height
+			vec2 get_height_above_water(vec3 world_pos) {
+				vec2 above = vec2(water_data.ocean_enabled != 0 ? world_pos.y + planet_drop(world_pos.xz) - water_data.ocean_level : 1e30, water_data.ocean_wave_info.x);
 
 				for (int i = 0; i < optical_ranges.y; i++) {
 					vec3 local = (water_volume_to_local(i) * vec4(world_pos, 1.0)).xyz;
 					vec4 shape = water_volume_shape(i);
 
-					if (abs(local.x) < shape.x && abs(local.z) < shape.z && world_pos.y > shape.w - 1.0) above = min(above, world_pos.y - shape.w);
+					if (abs(local.x) < shape.x && abs(local.z) < shape.z && world_pos.y > shape.w - 1.0 && world_pos.y - shape.w < above.x) {
+						above = vec2(world_pos.y - shape.w, water_record(i).wave);
+					}
 				}
 
 				return above;
@@ -1634,8 +1637,8 @@ list.insert(
 				return 1.0 - smoothstep(-0.02, 0.03, world_pos.y + planet_drop(world_pos.xz) - water_data.ocean_level - (level - SWASH_LEVEL_BIAS));
 			}
 
-			float get_wetness(vec3 world_pos, float above) {
-				float reach = (WET_REACH + water_data.ocean_wave_info.x * 0.3) * mix(0.75, 1.25, value_noise2(world_pos.xz * 0.5) * 0.6 + value_noise2(world_pos.xz * 1.1 + 5.3) * 0.4);
+			float get_wetness(vec3 world_pos, float above, float wave) {
+				float reach = (WET_REACH + wave * 0.3) * mix(0.75, 1.25, value_noise2(world_pos.xz * 0.5) * 0.6 + value_noise2(world_pos.xz * 1.1 + 5.3) * 0.4);
 				return 1.0 - smoothstep(reach * 0.35, reach, above);
 			}
 
@@ -2458,10 +2461,11 @@ if (w.volume >= 0) {
 				} else {
 					if (!ocean_first) {
 						if (scene_depth > 0.0 && water_feature(WATER_SHORE_FOAM)) {
-							float above = get_height_above_water(scene_pos);
+							vec2 above_wave = get_height_above_water(scene_pos);
+							float above = above_wave.x;
 							if (above < 3.0) {
 								float swash_wet = water_data.ocean_enabled != 0 ? get_swash_wetness(scene_pos) : 0.0;
-								scene_color = apply_wetness(in_uv, scene_color, scene_pos, -ray_dir, max(get_wetness(scene_pos, above), swash_wet), 1.0 - smoothstep(0.0, 0.1, above));
+								scene_color = apply_wetness(in_uv, scene_color, scene_pos, -ray_dir, max(get_wetness(scene_pos, above, above_wave.y), swash_wet), 1.0 - smoothstep(0.0, 0.1, above));
 							}
 						}
 
