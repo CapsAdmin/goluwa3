@@ -13,6 +13,7 @@ local water_bodies = import("lua/earth/water_bodies.lua")
 local tile_grids = import("lua/earth/tile_grids.lua")
 local land_grid = import("lua/earth/land_grid.lua")
 local road_grid = import("lua/earth/road_grid.lua")
+local objects = import("lua/earth/objects.lua")
 local geo = import("lua/earth/geo.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -208,6 +209,8 @@ end
 -- Water (Overture's lakes, ponds and rivers carved into the terrain and filled with water volumes, see water_bodies.lua),
 -- Land (what the ground is from Overture's land cover, land use and land, picking the layers and the fine relief, see
 -- land_grid.lua), Roads (Overture's roads, paths and railways flattened into and painted on the terrain, see road_grid.lua),
+-- Objects (power lines and towers, lamps, signals, mapped trees, fences and walls around the camera: {Trees = model
+-- paths}, see objects.lua),
 -- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
@@ -240,6 +243,11 @@ function earth.Start(config)
 	if config.Roads then
 		earth.Roads:Start(earth.source, earth.terrain, "Roads")
 		attribution[#attribution + 1] = road_grid.ATTRIBUTION
+	end
+
+	if config.Objects then
+		objects.Start(earth.source, config.Objects)
+		attribution[#attribution + 1] = objects.ATTRIBUTION
 	end
 
 	local lines = attribution
@@ -294,9 +302,13 @@ function earth.Recenter(lat, lon)
 		water_bodies.SetSource(earth.source, earth.terrain)
 	end
 
-	if earth.config.Land then earth.LandCover:SetSource(earth.source, earth.terrain) end
+	if earth.config.Land then
+		earth.LandCover:SetSource(earth.source, earth.terrain)
+	end
 
 	if earth.config.Roads then earth.Roads:SetSource(earth.source, earth.terrain) end
+
+	if earth.config.Objects then objects.SetSource(earth.source) end
 
 	local view = View.GetActive()
 
@@ -317,6 +329,7 @@ function earth.Stop()
 	water_bodies.Stop()
 	earth.LandCover:Stop()
 	earth.Roads:Stop()
+	objects.Stop()
 
 	if earth.terrain then
 		earth.terrain:Stop()

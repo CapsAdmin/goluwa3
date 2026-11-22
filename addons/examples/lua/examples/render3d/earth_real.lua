@@ -4,6 +4,7 @@ local water = import("goluwa/render3d/water.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local foliage_sets = import("lua/foliage/scatter_sets.lua")
+local foliage = import("lua/foliage/foliage.lua")
 
 local function layer(name, scale, scatter)
 	local textures = terrain_textures[name]
@@ -74,6 +75,16 @@ earth.Start{
 	Water = true,
 	Land = os.getenv("EARTH_LAND") ~= "0",
 	Roads = os.getenv("EARTH_ROADS") ~= "0",
+	Objects = os.getenv("EARTH_OBJECTS") ~= "0" and
+		{
+			Trees = {
+				foliage.GetModelPath("trees", "oak_a"),
+				foliage.GetModelPath("trees", "oak_b"),
+				foliage.GetModelPath("trees", "palm_a"),
+				foliage.GetModelPath("trees", "palm_b"),
+			},
+		} or
+		nil,
 }
 weather.SetTimeScale(0)
 
