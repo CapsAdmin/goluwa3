@@ -218,7 +218,7 @@ function META:UpdateBeam()
 			Parent = muzzle_transform.Owner,
 			Points = BEAM_POINTS,
 			Ribbon = true,
-			Material = Beam.CreateRibbonMaterial(BEAM_COLOR, BEAM_STRENGTH, vfx.GetTexture("trail")),
+			Material = Beam.CreateRibbonMaterial(BEAM_COLOR, BEAM_STRENGTH, vfx.GetTexture("trail"), {EmitsLight = false}),
 		}
 		self.beam = beam
 	end
