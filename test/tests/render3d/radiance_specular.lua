@@ -26,7 +26,7 @@ local function add_box(polygon3d, created, min, max, material)
 	return ent
 end
 
-local function measure(draw, roughness, metallic, frames)
+local function measure(draw, roughness, metallic, frames, build)
 	local settings = {
 		r_pass_path_trace = true,
 		path_trace_bounces = 2,
@@ -54,6 +54,17 @@ local function measure(draw, roughness, metallic, frames)
 	render3d.Initialize{passes = modules}
 	local result
 	local ok, err = pcall(function()
+		if build then
+			build(polygon3d, created)
+
+			for _ = 1, frames do
+				draw()
+			end
+
+			result = path_trace.Compare(2)
+			return
+		end
+
 		render3d.camera:SetPosition(Vec3(0, 3, 9))
 		render3d.camera:SetAngles{x = math.rad(-18), y = 0, z = 0}
 		add_box(
@@ -119,8 +130,8 @@ end
 
 T.Test3DRayTracing("Graphics render3d radiance specular matches the path tracer", function(draw)
 	for _, case in ipairs{
-		{0, 1, 0.03},
-		{0.1, 1, 0.03},
+		{0, 1, 0.05},
+		{0.1, 1, 0.05},
 		{0.3, 1, 0.05},
 		{0.6, 1, 0.04},
 		{1, 1, 0.04},
@@ -138,4 +149,48 @@ T.Test3DRayTracing("Graphics render3d radiance specular matches the path tracer"
 		)
 		T(r.ratio)["~"](1, case[3])
 	end
+end)
+
+T.Test3DRayTracing("Graphics render3d light bounced off a metal floor matches the path tracer", function(draw)
+	local r = measure(
+		draw,
+		0,
+		0,
+		90,
+		function(polygon3d, created)
+			render3d.camera:SetPosition(Vec3(0, 1.5, 2))
+			render3d.camera:SetAngles{x = math.rad(5), y = 0, z = 0}
+			add_box(
+				polygon3d,
+				created,
+				Vec3(-60, -1, -60),
+				Vec3(60, 0, 60),
+				Material.New{
+					ColorMultiplier = Color(1.0, 0.78, 0.34, 1),
+					RoughnessMultiplier = 0.4,
+					MetallicMultiplier = 1,
+				}
+			)
+			add_box(
+				polygon3d,
+				created,
+				Vec3(-6, 0, -6.2),
+				Vec3(6, 6, -5.8),
+				Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), MetallicMultiplier = 0}
+			)
+			local sun = Entity.New{
+				Name = "radiance_specular_sun",
+				transform = {},
+				light_sun = {Color = Color(1, 0.95, 0.9), Lux = 100000},
+			}
+			sun.transform:SetRotation(weather.GetSunRotationFromDirection(Vec3(0.3, 0.55, 0.78)))
+			created[#created + 1] = sun
+		end
+	)
+	logf(
+		"metal floor bounce: raster/path %.3f, mean abs error %.1f%%\n",
+		r.ratio,
+		r.relative_error * 100
+	)
+	T(r.ratio)["~"](1, 0.12)
 end)

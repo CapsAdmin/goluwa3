@@ -186,6 +186,79 @@ function ibl.GetBRDFGLSLCode()
 		]]
 end
 
+function ibl.GetHitBRDFGLSL()
+	return ibl.GetBRDFGLSLCode() .. [[
+		#ifndef IBL_HIT_BRDF_GLSL
+		#define IBL_HIT_BRDF_GLSL
+
+		// Karis' fit of the split sum terms, ray hits have no brdf lut bound
+		vec2 env_brdf_approx(float perceptual_roughness, float NoV) {
+			const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+			const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+			vec4 r = perceptual_roughness * c0 + c1;
+			float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+			return vec2(-1.04, 1.04) * a004 + r.zw;
+		}
+
+		struct hit_brdf {
+			vec3 albedo;
+			vec3 F0;
+			float dielectric_f0;
+			float metallic;
+			float alpha;
+			float perceptual_roughness;
+			float diffuse_roughness;
+			float NoV;
+			vec3 energy_compensation;
+			vec3 specular_albedo;
+			vec3 diffuse_view;
+			vec3 diffuse_light_scale;
+		};
+
+		hit_brdf hit_brdf_prepare(vec3 albedo, float metallic, float specular, float perceptual_roughness, float diffuse_roughness, float NoV) {
+			hit_brdf b;
+			b.albedo = albedo;
+			b.dielectric_f0 = 0.04 * specular;
+			b.metallic = metallic;
+			b.F0 = mix(vec3(b.dielectric_f0), albedo, metallic);
+			b.alpha = perceptual_roughness * perceptual_roughness;
+			b.perceptual_roughness = perceptual_roughness;
+			b.diffuse_roughness = diffuse_roughness;
+			b.NoV = max(NoV, 1e-4);
+			vec2 env = env_brdf_approx(perceptual_roughness, b.NoV);
+			b.energy_compensation = GGXEnergyCompensation(b.F0, env);
+			b.specular_albedo = (b.F0 * env.x + F90(b.F0) * env.y) * b.energy_compensation;
+			b.diffuse_view = max(1.0 - b.specular_albedo, vec3(0.0)) * (1.0 - metallic);
+			vec3 average = 0.1739 * (GGXSpecularAlbedo(b.F0, env_brdf_approx(perceptual_roughness, 0.2634)) + GGXSpecularAlbedo(b.F0, env_brdf_approx(perceptual_roughness, 0.9647))) + 0.3261 * (GGXSpecularAlbedo(b.F0, env_brdf_approx(perceptual_roughness, 0.5744)) + GGXSpecularAlbedo(b.F0, env_brdf_approx(perceptual_roughness, 0.8186)));
+			b.diffuse_light_scale = 1.0 / max(1.0 - average, vec3(0.001));
+			return b;
+		}
+
+		vec3 hit_brdf_light(hit_brdf b, vec3 N, vec3 V, vec3 L, float lobe_alpha) {
+			float NoL = dot(N, L);
+
+			if (NoL <= 0.0) return vec3(0.0);
+
+			vec3 H = normalize(V + L);
+			vec3 specular = D_GGXAlpha(max(b.alpha, lobe_alpha), saturate(dot(N, H))) * V_SmithGGXCorrelated(b.alpha, b.NoV, NoL) * F_Surface(b.F0, b.dielectric_f0, b.metallic, saturate(dot(L, H))) * b.energy_compensation;
+			vec3 diffuse_light = max(1.0 - GGXSpecularAlbedo(b.F0, env_brdf_approx(b.perceptual_roughness, NoL)), vec3(0.0)) * b.diffuse_light_scale;
+			return (specular + Fd_EON(b.albedo, b.diffuse_roughness, NoL, b.NoV, dot(L, V)) * b.diffuse_view * diffuse_light) * NoL;
+		}
+
+		vec3 hit_brdf_ambient_diffuse(hit_brdf b) {
+			return EON_directional_albedo(b.albedo, b.diffuse_roughness, b.NoV) * b.diffuse_view;
+		}
+
+		// the specular lobe reads irradiance (E/pi) around its dominant direction (Frostbite's fit)
+		vec3 hit_brdf_specular_direction(hit_brdf b, vec3 N, vec3 V) {
+			vec3 R = reflect(-V, N);
+			return normalize(mix(N, R, (1.0 - b.alpha) * (sqrt(1.0 - b.alpha) + b.alpha)));
+		}
+
+		#endif
+	]]
+end
+
 ibl.ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE = 16
 
 function ibl.GetPrefilterMipCount(size)

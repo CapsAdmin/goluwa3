@@ -245,7 +245,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			shared and
 			"" or
 			gi.GetCommonGLSL() .. clouds.GetShadowGLSL("radiance_cache_data") .. scene_lights.GetLightGLSLCode()
-		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. ibl.GetEONGLSL() .. (
+		) .. ray_materials.GetMaterialGLSL() .. ray_materials.GetAlphaTestGLSL() .. ibl.GetEONGLSL() .. ibl.GetHitBRDFGLSL() .. (
 			shared and
 			"" or
 			optical_rays.GetGLSL()
@@ -393,6 +393,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			vec3 surface = P + hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
 			vec3 albedo = ray_material_albedo(material, P);
 			float hit_roughness = material.roughness;
+			float metallic = material.metallic;
 			float transmission = saturate(material.transmission);
 
 			#if RT_HIT_TEXTURES
@@ -419,23 +420,25 @@ function scene_hits.GetGLSL(block_name, shared)
 
 				if (material.roughness_tex >= 0) hit_roughness *= mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.roughness_tex), 0), cone_width))[material.roughness_channel]);
 
+				if (material.metallic_tex >= 0) metallic *= textureLod(TEXTURE(material.metallic_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.metallic_tex), 0), cone_width))[material.metallic_channel];
+
 				if (transmission > 0.0 && material.transmission_tex >= 0) transmission = saturate(material.transmission * luminance(textureLod(TEXTURE(material.transmission_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.transmission_tex), 0), cone_width)).rgb));
 			}
 			#endif
 
 			albedo = ray_medium_albedo(material, albedo);
 			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive) : vec3(0.0);
-			hit_roughness = clamp(hit_roughness, 0.045, 1.0);
-			float hit_NoV = max(dot(hit_N, -dir), 1e-4);
+			metallic = saturate(metallic);
+			hit_brdf brdf = hit_brdf_prepare(albedo, metallic, material.specular, clamp(hit_roughness, 0.045, 1.0), material.diffuse_roughness, dot(hit_N, -dir));
 			vec3 sun_L = normalize(radiance_cache_data.radiance_cache_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
-			vec3 transmitted = transmission * material.transmission_color * albedo;
+			vec3 transmitted = transmission * material.transmission_color * albedo * (1.0 - metallic);
 			vec3 back_surface = P - hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
 			vec3 sun_surface = sun_NoL > 0.0 ? surface : back_surface;
 
 			if (RT_HIT_SUN != 0 && (sun_NoL > 0.0 || transmission > 0.0) && (RT_HIT_SHADOWS == 0 || scene_hit_visible(sun_surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
 				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-				vec3 response = sun_NoL > 0.0 ? Fd_EON(albedo, material.diffuse_roughness, sun_NoL, hit_NoV, dot(sun_L, -dir)) * sun_NoL : transmitted * transmission_phase(-dir, sun_L, -sun_NoL, material.transmission_scattering) * -sun_NoL;
+				vec3 response = sun_NoL > 0.0 ? hit_brdf_light(brdf, hit_N, -dir, sun_L, brdf.alpha + ]] .. string.format("%.9e", atmosphere.SUN_ANGULAR_RADIUS * 0.5) .. [[) : transmitted * transmission_phase(-dir, sun_L, -sun_NoL, material.transmission_scattering) * -sun_NoL;
 				vec3 sun_radiance = response * radiance_cache_data.radiance_cache_sun_radiance.rgb * get_cloud_shadow(P) * radiance_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);
 
 				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
@@ -478,7 +481,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 						if (NoL <= 0.0) continue;
 
-						vec3 contribution = Fd_EON(albedo, material.diffuse_roughness, NoL, hit_NoV, dot(L, -dir)) * light.color.rgb * light.color.a * attenuation * NoL;
+						vec3 contribution = hit_brdf_light(brdf, hit_N, -dir, L, brdf.alpha) * light.color.rgb * light.color.a * attenuation;
 						float weight = max(max(contribution.r, contribution.g), contribution.b);
 
 						if (weight <= 0.0) continue;
@@ -537,7 +540,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					if (NoL <= 0.0) continue;
 
-					vec3 contribution = Fd_EON(albedo, material.diffuse_roughness, NoL, hit_NoV, dot(L, -dir)) * light.color.rgb * light.color.a * attenuation * NoL;
+					vec3 contribution = hit_brdf_light(brdf, hit_N, -dir, L, brdf.alpha) * light.color.rgb * light.color.a * attenuation;
 					float light_weight = scene_hit_light_weight(contribution, P, i);
 
 					if (light_weight == 0.0) continue;
@@ -553,7 +556,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			}
 			#endif
 
-			radiance += EON_directional_albedo(albedo, material.diffuse_roughness, hit_NoV) * caustic_world_irradiance(P, hit_N) / 3.14159265359;
+			radiance += (hit_brdf_ambient_diffuse(brdf) + brdf.specular_albedo) * caustic_world_irradiance(P, hit_N) / 3.14159265359;
 
 			#if !RT_HIT_PROBES
 			return radiance;
@@ -571,7 +574,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			#ifdef SCENE_HIT_SCREEN_GI
 			vec3 screen_gi;
 
-			if (scene_hit_screen_gi(P, hit_N, t, screen_gi)) return radiance + EON_directional_albedo(albedo, material.diffuse_roughness, hit_NoV) * screen_gi;
+			if (scene_hit_screen_gi(P, hit_N, t, screen_gi)) return radiance + (hit_brdf_ambient_diffuse(brdf) + brdf.specular_albedo) * screen_gi;
 			#endif
 
 			#ifdef SCENE_HIT_GI_SHARE
@@ -579,15 +582,22 @@ function scene_hits.GetGLSL(block_name, shared)
 			#endif
 
 			float weight;
-			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, scene_instance_alpha_tested(hit_instance) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight);
+			vec3 specular_direction = hit_brdf_specular_direction(brdf, hit_N, -dir);
+			vec4 specular_gi;
+			vec4 gi = gi_sample_irradiance_pair(P, hit_N, hit_N, specular_direction, -dir, false, scene_instance_alpha_tested(hit_instance) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight, specular_gi);
 
-			if (!gi_covers(P, weight)) gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, hit_N) * scene_hit_open_sky(surface, hit_N, P);
+			if (!gi_covers(P, weight)) {
+				float open_sky = scene_hit_open_sky(surface, hit_N, P);
+				gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, hit_N) * open_sky;
+				specular_gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, specular_direction) * open_sky;
+			}
 
 			#ifdef SCENE_HIT_GI_SHARE
 			gi.rgb /= SCENE_HIT_GI_SHARE;
+			specular_gi.rgb /= SCENE_HIT_GI_SHARE;
 			#endif
 
-			return radiance + EON_directional_albedo(albedo, material.diffuse_roughness, hit_NoV) * gi.rgb;
+			return radiance + hit_brdf_ambient_diffuse(brdf) * gi.rgb + brdf.specular_albedo * specular_gi.rgb;
 		}
 
 		vec3 scene_radiance_through_air(vec3 radiance, vec3 origin, vec3 dir, float hit_t, float max_distance) {

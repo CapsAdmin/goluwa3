@@ -430,26 +430,6 @@ vec3 ray_medium_albedo(ray_material material, vec3 albedo) {
 	return mix(medium_scatter_color(material.medium_extinction, scattering, material.medium_g, material.medium_thickness) * MEDIUM_BOUNCE_SHARE, albedo, porosity);
 }
 
-float ray_bounce_share(ray_material material) {
-	float metallic = material.metallic;
-
-	if (material.metallic_tex >= 0) {
-		metallic *= texture_average(material.metallic_tex)[material.metallic_channel];
-	}
-
-	metallic = clamp(metallic, 0.0, 1.0);
-
-	if (metallic <= 0.0) return 1.0;
-
-	float roughness = material.roughness;
-
-	if (material.roughness_tex >= 0) {
-		roughness *= mix(material.roughness_min, material.roughness_max, texture_average(material.roughness_tex)[material.roughness_channel]);
-	}
-
-	return mix(1.0, smoothstep(0.1, 0.9, roughness), metallic);
-}
-
 vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 			ray_material material = ray_materials[tri.material];
 			vec3 emission = material.emissive * albedo * EMISSIVE_REFERENCE_LUMINANCE;
@@ -521,6 +501,10 @@ function ray_materials.GetHitAlbedoGLSL()
 			float ray_hit_transmission(ray_material material, vec3 P, uint instance, uint primitive) {
 				return saturate(material.transmission);
 			}
+
+			float ray_hit_metallic(ray_material material, vec3 P, uint instance, uint primitive) {
+				return saturate(material.metallic);
+			}
 		]]
 	end
 
@@ -553,6 +537,17 @@ function ray_materials.GetHitAlbedoGLSL()
 			ivec2 size = textureSize(TEXTURE(material.roughness_tex), 0);
 			float lod = max(log2(float(max(size.x, size.y)) / RAY_HIT_ALBEDO_UV_TEXELS), 0.0);
 			return material.roughness * mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), coord, lod)[material.roughness_channel]);
+		}
+
+		float ray_hit_metallic(ray_material material, vec3 P, uint instance, uint primitive) {
+			if (material.terrain_tex >= 0 || material.metallic_tex < 0) return saturate(material.metallic);
+
+			vec3 weights;
+			scene_uv uv;
+			vec2 coord = ray_hit_coord(P, instance, primitive, weights, uv);
+			ivec2 size = textureSize(TEXTURE(material.metallic_tex), 0);
+			float lod = max(log2(float(max(size.x, size.y)) / RAY_HIT_ALBEDO_UV_TEXELS), 0.0);
+			return saturate(material.metallic * textureLod(TEXTURE(material.metallic_tex), coord, lod)[material.metallic_channel]);
 		}
 
 		float ray_hit_transmission(ray_material material, vec3 P, uint instance, uint primitive) {
