@@ -164,9 +164,14 @@ T.Test("Graphics render3d gbuffer packs every field into its own slot", function
 		T(field.target ~= nil)["=="](true)
 
 		for i = 1, #field.swizzle do
-			local slot = field.target.texture .. "." .. field.swizzle:sub(i, i) .. "." .. tostring(field.nibble or "")
-			T(slots[slot])["=="](nil)
-			slots[slot] = field.name
+			local first = field.shift or 0
+			local last = field.bits and first + field.bits - 1 or 15
+
+			for bit = first, last do
+				local slot = field.target.texture .. "." .. field.swizzle:sub(i, i) .. "." .. bit
+				T(slots[slot])["=="](nil)
+				slots[slot] = field.name
+			end
 		end
 	end
 end)

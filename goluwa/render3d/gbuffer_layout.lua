@@ -21,11 +21,12 @@ local VELOCITY_TARGET = {
 	format = "r16g16b16a16_sfloat",
 	channels = {{"velocity", "rg"}, {"prev_view_depth", "b"}},
 }
+local CHANNEL_BITS = 16
 local KINDS = {
-	unorm8 = {class = "8", width = 1},
-	unorm4 = {class = "8", width = 0.5},
-	unorm16 = {class = "16", width = 1},
-	octa = {class = "16", width = 2},
+	unorm4 = {bits = 4},
+	unorm8 = {bits = 8},
+	unorm16 = {width = 1},
+	octa = {width = 2},
 	velocity_alpha = {fixed = true},
 }
 
@@ -51,65 +52,68 @@ function gbuffer_layout.Pack(fields)
 	end)
 
 	local targets = {}
-	local state = {}
+	local target
+
+	local function open_channels(width)
+		if not target or target.used + width > 4 then
+			target = {used = 0, channels = {}, fields = {}}
+			table.insert(targets, target)
+		end
+
+		local swizzle = ("rgba"):sub(target.used + 1, target.used + width)
+		target.used = target.used + width
+		return swizzle
+	end
 
 	for _, entry in ipairs(keyed) do
 		local field = entry.field
 		local kind = KINDS[field.kind]
 		assert(kind, "unknown gbuffer field kind " .. tostring(field.kind))
-		local class = kind.class and state[kind.class]
-
-		if kind.class and not class then
-			class = {}
-			state[kind.class] = class
-		end
 
 		if kind.fixed then
 			field.target = VELOCITY_TARGET
 			field.swizzle = "a"
-		elseif kind.width == 0.5 and class.open then
-			field.target = class.open.target
-			field.swizzle = class.open.swizzle
-			field.nibble = 1
-			class.open = nil
-		else
-			local width = math.ceil(kind.width)
-			local target = class.target
-
-			if not target or target.used + width > 4 then
-				target = {used = 0, class = kind.class, channels = {}, fields = {}}
-				class.target = target
-				table.insert(targets, target)
-			end
-
-			local swizzle = ("rgba"):sub(target.used + 1, target.used + width)
-			target.used = target.used + width
-			table.insert(target.fields, field)
+		elseif kind.width then
+			field.swizzle = open_channels(kind.width)
 			field.target = target
-			field.swizzle = swizzle
+			field.shift = nil
+			field.bits = nil
+			table.insert(target.fields, field)
+			table.insert(target.channels, {field.name, field.swizzle})
+		else
+			local channel
 
-			if kind.width == 0.5 then
-				field.nibble = 0
-				class.open = {target = target, swizzle = swizzle}
-				table.insert(target.channels, {false, swizzle, packed = true})
-			else
-				field.nibble = nil
-				table.insert(target.channels, {field.name, swizzle})
+			if target then
+				for _, candidate in ipairs(target.channels) do
+					if candidate.packed and candidate.bits + kind.bits <= CHANNEL_BITS then
+						channel = candidate
+
+						break
+					end
+				end
 			end
+
+			if not channel then
+				channel = {false, open_channels(1), packed = true, bits = 0, fields = {}}
+				table.insert(target.channels, channel)
+			end
+
+			field.target = target
+			field.swizzle = channel[2]
+			field.shift = channel.bits
+			field.bits = kind.bits
+			channel.bits = channel.bits + kind.bits
+			table.insert(channel.fields, field)
+			table.insert(target.fields, field)
 		end
 	end
 
 	for i, target in ipairs(targets) do
 		target.texture = "packed" .. (i - 1)
+		target.format = target.used > 2 and "r16g16b16a16_unorm" or "r16g16_unorm"
 
 		for _, channel in ipairs(target.channels) do
 			if channel.packed then channel[1] = target.texture .. "_" .. channel[2] end
-		end
-
-		if target.class == "16" then
-			target.format = target.used > 2 and "r16g16b16a16_unorm" or "r16g16_unorm"
-		else
-			target.format = "r8g8b8a8_unorm"
 		end
 	end
 
@@ -217,36 +221,36 @@ do
 	for _, target in ipairs(gbuffer_layout.targets) do
 		for _, channel in ipairs(target.channels) do
 			if channel.packed then
-				local variable = "gbuffer_" .. channel[1]
-				table.insert(
-					lines,
-					string.format("float %s_low = 0.0;\nfloat %s_high = 0.0;", variable, variable)
-				)
+				local terms = {}
+
+				for _, field in ipairs(channel.fields) do
+					local variable = "gbuffer_packed_" .. field.name
+					table.insert(lines, string.format("float %s = 0.0;", variable))
+					table.insert(
+						lines,
+						string.format("void set_%s(float v) { %s = v; }", field.name, variable)
+					)
+					table.insert(
+						terms,
+						string.format(
+							"(uint(clamp(%s, 0.0, 1.0) * %d.0 + 0.5) << %du)",
+							variable,
+							2 ^ field.bits - 1,
+							field.shift
+						)
+					)
+				end
+
 				table.insert(
 					flush,
 					string.format(
-						"\tset_%s((floor(clamp(%s_high, 0.0, 1.0) * 15.0 + 0.5) * 16.0 + floor(clamp(%s_low, 0.0, 1.0) * 15.0 + 0.5)) / 255.0);",
+						"\tset_%s(float(%s) / %d.0);",
 						channel[1],
-						variable,
-						variable
+						table.concat(terms, " | "),
+						2 ^ CHANNEL_BITS - 1
 					)
 				)
 			end
-		end
-	end
-
-	for _, field in ipairs(gbuffer_layout.fields) do
-		if field.nibble then
-			table.insert(
-				lines,
-				string.format(
-					"void set_%s(float v) { gbuffer_%s_%s_%s = v; }",
-					field.name,
-					field.target.texture,
-					field.swizzle,
-					field.nibble == 1 and "high" or "low"
-				)
-			)
 		end
 	end
 
@@ -317,15 +321,18 @@ do
 					field.swizzle
 				)
 			)
-		elseif field.nibble then
+		elseif field.bits then
 			table.insert(
 				decoders,
 				string.format(
-					"float %s(COORD c) { float raw = floor(gbuffer_fetch_nearest(%s, c).%s * 255.0 + 0.5); float v = (%s) / 15.0; return %s; }",
+					"float %s(COORD c) { uint raw = uint(gbuffer_fetch_nearest(%s, c).%s * %d.0 + 0.5); float v = float(bitfieldExtract(raw, %d, %d)) / %d.0; return %s; }",
 					accessor,
 					fetch,
 					field.swizzle,
-					field.nibble == 1 and "floor(raw / 16.0)" or "mod(raw, 16.0)",
+					2 ^ CHANNEL_BITS - 1,
+					field.shift,
+					field.bits,
+					2 ^ field.bits - 1,
 					field.decode or "v"
 				)
 			)
@@ -392,6 +399,7 @@ do
 		local lines = {}
 		local total = 0
 		local free = 0
+		local free_bits = 0
 		local by_channel = {}
 
 		for _, field in ipairs(gbuffer_layout.fields) do
@@ -431,6 +439,11 @@ do
 					text = "fixed"
 				end
 
+				if channel.packed and channel.bits < CHANNEL_BITS then
+					free_bits = free_bits + CHANNEL_BITS - channel.bits
+					text = text .. string.format(", %d of %d bits free", CHANNEL_BITS - channel.bits, CHANNEL_BITS)
+				end
+
 				table.insert(lines, string.format("    %-4s %s: %s", channel[2], channel[1], text))
 			end
 
@@ -443,12 +456,13 @@ do
 		table.insert(
 			lines,
 			string.format(
-				"%d targets of %d, %d bytes per pixel plus depth %s, %d free channels in packed targets",
+				"%d targets of %d, %d bytes per pixel plus depth %s, %d free channels and %d free bits in packed targets",
 				#gbuffer_layout.targets,
 				MAX_TARGETS,
 				total,
 				gbuffer_layout.DEPTH_FORMAT,
-				free
+				free,
+				free_bits
 			)
 		)
 		return table.concat(lines, "\n")
