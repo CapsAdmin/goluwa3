@@ -146,17 +146,12 @@ return {
 			shadow_N = normalize((dot(s.geometric_N, L) < 0.0 ? -s.geometric_N : s.geometric_N) + L);
 		}
 	]],
-	direct_layer = [[
-		diffuse_weight *= 1.0 - s.transmission;
-	]],
 	direct = [[
 		if (s.transmission > 0.0) {
 			diffuse += s.transmission * s.transmission_color * s.albedo * (1.0 - s.metallic) * transmission_phase(s.V, L, saturate(-dot(s.N, L)), s.transmission_scattering) * saturate(-dot(s.N, L)) * radiance;
 		}
 	]],
 	indirect = [[
-		ambient_diffuse *= 1.0 - s.transmission;
-
 		if (s.transmission > 0.0) {
 			vec3 front_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, s.N) * sky_visibility;
 			vec3 back_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, -s.N) * sky_visibility;

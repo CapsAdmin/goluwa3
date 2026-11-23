@@ -140,9 +140,8 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float specular = luminance(specular_albedo);
 				float diffuse = luminance(v.albedo * v.diffuse_view);
 				float transmitted = v.transmission * luminance(v.transmission_color * v.albedo) * (1.0 - v.metallic);
-				float reflected = (1.0 - v.transmission) * diffuse;
 				v.specular_chance = diffuse + transmitted <= 0.0 ? 1.0 : clamp(specular / max(specular + diffuse + transmitted, 1e-6), 0.1, 0.9);
-				v.transmission_chance = v.transmission > 0.0 ? clamp(transmitted / max(transmitted + reflected, 1e-6), 0.1, 0.9) : 0.0;
+				v.transmission_chance = v.transmission > 0.0 ? clamp(transmitted / max(transmitted + diffuse, 1e-6), 0.1, 0.9) : 0.0;
 			}
 
 			vec3 pt_origin(pt_vertex v, vec3 L) {
@@ -169,7 +168,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float G1 = 2.0 * v.NoV / (v.NoV + sqrt(a2 + (1.0 - a2) * v.NoV * v.NoV));
 				pdf = v.specular_chance * G1 * D / (4.0 * v.NoV) + (1.0 - v.specular_chance) * (1.0 - v.transmission_chance) * NoL / PT_PI;
 				vec3 Fr = D * V_SmithGGXCorrelated(v.alpha, v.NoV, NoL) * F_Schlick(v.F0, LoH) * v.energy_compensation;
-				vec3 Fd = Fd_EON(v.albedo, v.perceptual_roughness, NoL, v.NoV, dot(L, v.V)) * v.diffuse_view * GGXDiffuseCoupling(v.F0, textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(NoL, v.perceptual_roughness), 0.0).rg, v.average_env_brdf) * (1.0 - v.transmission);
+				vec3 Fd = Fd_EON(v.albedo, v.perceptual_roughness, NoL, v.NoV, dot(L, v.V)) * v.diffuse_view * GGXDiffuseCoupling(v.F0, textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(NoL, v.perceptual_roughness), 0.0).rg, v.average_env_brdf);
 				return Fr + Fd;
 			}
 
