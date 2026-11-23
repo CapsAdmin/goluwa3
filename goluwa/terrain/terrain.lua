@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local event = import("goluwa/event.lua")
@@ -130,6 +131,69 @@ function Terrain:AcquireChunk(request, callback, priority)
 	end
 
 	return key
+end
+
+do
+	local FloatArray = ffi.typeof("float[?]")
+	local HeightField = {}
+	HeightField.__index = HeightField
+
+	function HeightField:GetHeight(x, z)
+		local samples = self.samples
+		local fx = math.clamp((x - self.min_x) / self.step, 0, samples - 1.0001)
+		local fz = math.clamp((z - self.min_z) / self.step, 0, samples - 1.0001)
+		local ix, iz = math.floor(fx), math.floor(fz)
+		fx, fz = fx - ix, fz - iz
+		local heights = self.heights
+		local i = iz * samples + ix
+		local a = heights[i] + (heights[i + 1] - heights[i]) * fx
+		local b = heights[i + samples] + (heights[i + samples + 1] - heights[i + samples]) * fx
+		return a + (b - a) * fz
+	end
+
+	function HeightField:GetNormal(x, z)
+		local e = self.step
+		local dx = self:GetHeight(x + e, z) - self:GetHeight(x - e, z)
+		local dz = self:GetHeight(x, z + e) - self:GetHeight(x, z - e)
+		return Vec3(-dx, 2 * e, -dz):GetNormalized()
+	end
+
+	-- bakes the height function over a square on the gpu and calls back with a field the cpu can sample, a few frames later
+	function Terrain:RequestHeightField(min_x, min_z, size, samples, callback)
+		local released = false
+		local key
+		key = self:AcquireChunk(
+			{
+				min_x = min_x,
+				min_z = min_z,
+				size = size,
+				generation = self.Generation,
+				samples = samples,
+			},
+			function(chunk)
+				local heights = FloatArray(samples * samples)
+				ffi.copy(heights, chunk.heights, samples * samples * 4)
+
+				if key then self:ReleaseChunk(key) else released = true end
+
+				callback(
+					setmetatable(
+						{
+							min_x = min_x,
+							min_z = min_z,
+							step = size / (samples - 1),
+							samples = samples,
+							heights = heights,
+						},
+						HeightField
+					)
+				)
+			end,
+			-1
+		)
+
+		if released then self:ReleaseChunk(key) end
+	end
 end
 
 function Terrain:SetChunkPriority(key, priority)
