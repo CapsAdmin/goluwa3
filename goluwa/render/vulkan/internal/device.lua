@@ -339,7 +339,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 			storageBuffer8BitAccess = 0,
 			uniformAndStorageBuffer8BitAccess = 0,
 			storagePushConstant8 = 0,
-			shaderBufferInt64Atomics = 0,
+			shaderBufferInt64Atomics = availableVulkan12Features.shaderBufferInt64Atomics,
 			shaderSharedInt64Atomics = 0,
 			shaderFloat16 = 0,
 			shaderInt8 = 0,

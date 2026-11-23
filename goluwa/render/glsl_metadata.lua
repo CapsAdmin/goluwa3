@@ -642,6 +642,7 @@ local function build_shader_header(
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_shader_atomic_int64 : require
 
 	layout(set = 1, binding = 0) uniform sampler2D textures[%d];
 	layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
