@@ -92,9 +92,11 @@ earth.Start{
 		} or
 		nil,
 }
-weather.SetTimeScale(0)
+weather.SetTimeScale(1)
+weather.SetTime(os.time())
 
 if os.getenv("EARTH_HOUR") then
+	weather.SetTimeScale(0)
 	weather.SetSolarHours(tonumber(os.getenv("EARTH_HOUR")))
 end
 
