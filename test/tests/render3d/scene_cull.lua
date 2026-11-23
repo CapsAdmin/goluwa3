@@ -16,6 +16,9 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local event = import("goluwa/event.lua")
+local meshes = import("goluwa/render3d/scene/meshes.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local ffi = require("ffi")
 local cube
 
@@ -404,6 +407,132 @@ T.Test3D("Graphics render3d a row with a surface overlay draws through the overl
 	T(scene_draw.GetDrawnVariants(0)[overlay])["=="](false)
 	entity:Remove()
 end)
+
+do
+	-- a stream instance i stands at STREAM_POSITIONS[i] with the dither fade of STREAM_FADES[i]
+	local STREAM_POSITIONS = {{0, 0, -5}, {0, 0, 20}, {60, 0, -5}, {2, 0, -8}}
+	local STREAM_FADES = {0, 0, 0, 0.5}
+	local producer
+
+	local function get_producer()
+		if producer then return producer end
+
+		local positions, fades = {}, {}
+
+		for i, p in ipairs(STREAM_POSITIONS) do
+			positions[i] = string.format("vec3(%f, %f, %f)", p[1], p[2], p[3])
+			fades[i] = string.format("%f", STREAM_FADES[i])
+		end
+
+		producer = EasyPipeline.Compute{
+			name = "scene_cull_test_stream_producer",
+			DescriptorSetCount = 1,
+			LocalSize = {x = 64, y = 1, z = 1},
+			block = {
+				{"streams", "uint64_t"},
+				{"stream", "int"},
+			},
+			write = function(self, block)
+				block.streams = self.streams
+				block.stream = self.stream
+				return block
+			end,
+			custom_declarations = [[
+				#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+				#extension GL_EXT_buffer_reference : require
+				#extension GL_EXT_scalar_block_layout : require
+			]] .. scene_draw.STREAM_GLSL,
+			shader = [[
+				const vec3 positions[]] .. #positions .. [[] = vec3[](]] .. table.concat(positions, ", ") .. [[);
+				const float fades[]] .. #fades .. [[] = float[](]] .. table.concat(fades, ", ") .. [[);
+
+				void main() {
+					uint i = gl_GlobalInvocationID.x;
+
+					if (i >= ]] .. #positions .. [[u) return;
+
+					mat4 world = mat4(1.0);
+					world[0][3] = fades[i];
+					world[3] = vec4(positions[i], 1.0);
+					scene_stream_append(compute.streams, uint(compute.stream), 0u, world);
+					scene_stream_append(compute.streams, uint(compute.stream), 1u, world);
+				}
+			]],
+		}
+		return producer
+	end
+
+	T.Test3D("Graphics render3d a stream of gpu written instances is culled, faded and cast into shadows like rows", function(draw)
+		configure_camera()
+		local polygon3d = get_cube()
+		local mesh = polygon3d:GetMesh()
+		local mesh_row = meshes.Get(mesh)
+		meshes.EnsureRaster(mesh_row)
+		local stream = scene_draw.CreateStream{
+			parts = {
+				{
+					mesh = mesh,
+					material = Material.New(),
+					polygon3d = polygon3d,
+					mesh_row = mesh_row,
+				},
+			},
+			bounds = {0, 0, 0, 0.9},
+			room = 16,
+			shadow_room = 16,
+		}
+
+		event.AddListener("PreSceneBuild", "scene_cull_test_stream", function(cmd)
+			local pipeline = get_producer()
+			pipeline.streams = scene_draw.BeginStreams(cmd)
+			pipeline.stream = stream.index
+			pipeline:Dispatch(cmd, 1, 1, 1, 1)
+		end)
+
+		draw_frames(draw, 8)
+		local result = scene_draw.ReadBackCull(0)
+		local drawn = result.by_group[stream.parts[1].group.id] or {}
+		local fades = {}
+
+		for _, entry in ipairs(drawn) do
+			fades[#fades + 1] = entry.fade
+		end
+
+		table.sort(fades)
+		T(#drawn)["=="](2)
+		T(fades[1])["=="](0)
+		T(fades[2])["=="](0.5)
+		local view, shadow = scene_draw.GetStreamDemand(stream)
+		T(view)["=="](4)
+		T(shadow)["=="](4)
+		local planes = ffi.new("float[24]")
+
+		local function set(i, x, y, z, d)
+			planes[i * 4], planes[i * 4 + 1], planes[i * 4 + 2], planes[i * 4 + 3] = x, y, z, d
+		end
+
+		set(0, 1, 0, 0, 10)
+		set(1, -1, 0, 0, 10)
+		set(2, 0, 1, 0, 10)
+		set(3, 0, -1, 0, 10)
+		set(4, 0, 0, -1, 1000)
+		set(5, 0, 0, 1, 30)
+		local buffers = scene_draw.NewShadowBuffers()
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		local count = scene_draw.CullShadow(cmd, buffers, planes, Vec3(0, 0, 0), 0.01, Matrix44())
+		cmd:End()
+		render.SubmitAndWait(cmd)
+		T(scene_draw.ReadBackShadowCull(buffers, count).streamed)["=="](3)
+		scene_draw.RemoveShadowBuffers(buffers)
+		cmd:Remove()
+		event.RemoveListener("PreSceneBuild", "scene_cull_test_stream")
+		draw_frames(draw, 1)
+		scene_draw.RemoveStream(stream)
+		draw_frames(draw, 2)
+		T(scene_draw.ReadBackCull(0).streamed)["=="](0)
+	end)
+end
 
 T.Slow(T.Test3D, "Graphics render3d every shader feature compiles on its own in the multi draw variants", function(draw)
 	local pipelines = {}

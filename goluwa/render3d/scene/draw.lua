@@ -16,6 +16,7 @@ local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local vk = import("goluwa/bindings/vk.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
 local cluster_format = import("goluwa/render3d/cluster_lod/format.lua")
@@ -31,7 +32,7 @@ draw.SHAPE_IDS = 3
 local SHAPES = 4
 local VARIANTS = SHAPES * shader_features.COUNT
 local GROUPS = VARIANTS * 2
-local ARGS_REMAP = 22
+local ARGS_REMAP = 23
 local CLUSTER_COMMANDS = 32768
 draw.VARIANTS = VARIANTS
 local DEAD_MESH = {
@@ -90,7 +91,9 @@ end
 
 local CHANGE_LOG_SIZE = 65536
 local MIN_GROUP_ROOM = 4
-local GroupRecord = ffi.typeof("struct { uint32_t mesh_row, base, room, set; }")
+local GroupRecord = ffi.typeof(
+	"struct { uint32_t mesh_row, base, room, set, shadow_base, shadow_room, pad[2]; }"
+)
 local groups = {}
 local group_lookup = {}
 local free_group_ids = {}
@@ -98,6 +101,10 @@ local group_table
 local slot_groups
 local group_space = 0
 local group_free_rooms = {}
+local stream_space = 0
+local stream_shadow_space = 0
+local stream_offset = 0
+local stream_groups = {}
 draw.group_serial = 0
 local group_changes = {log = {}, size = CHANGE_LOG_SIZE}
 
@@ -127,8 +134,10 @@ end
 local function write_group(group)
 	local record = group_table:Get()[group.id - 1]
 	record.mesh_row = group.mesh_row
-	record.base = group.base
+	record.base = group.base + (group.stream and stream_offset or 0)
 	record.room = group.room
+	record.shadow_base = group.stream and group.shadow_base + stream_offset or group.base
+	record.shadow_room = group.stream and group.shadow_room or group.room
 	record.set = group.set + (
 			group.mesh.vertex_buffer:GetVertexCount() > 2 ^ visibility.VERTEX_INDEX_BITS and
 			CLASSIC_ONLY or
@@ -232,6 +241,70 @@ local function release_group(group)
 	groups[group.id] = DEAD_ROW
 	free_group_ids[#free_group_ids + 1] = group.id
 	note_group_change(group.id)
+end
+
+local function acquire_stream_group(part)
+	group_table = group_table or
+		store.CreateTable{name = "draw_groups", ctype = GroupRecord, capacity = 1024}
+	local id = table.remove(free_group_ids) or #groups + 1
+	local group = setmetatable(
+		{
+			id = id,
+			mesh = part.mesh,
+			material = part.material,
+			first_polygon3d = part.polygon3d,
+			mesh_row = part.mesh_row,
+			set = part.set,
+			stream = true,
+			rows = 0,
+			room = 0,
+			base = 0,
+			shadow_room = 0,
+			shadow_base = 0,
+		},
+		ROW_META
+	)
+	groups[id] = group
+	stream_groups[group] = true
+	group_table:Reserve(id)
+	write_group(group)
+	note_group_change(id)
+	variant_rows[0][part.variant] = variant_rows[0][part.variant] + 1
+	return group
+end
+
+local function release_stream_group(group, variant)
+	group.room = 0
+	group.shadow_room = 0
+	write_group(group)
+	stream_groups[group] = nil
+	groups[group.id] = DEAD_ROW
+	free_group_ids[#free_group_ids + 1] = group.id
+	note_group_change(group.id)
+	variant_rows[0][variant] = variant_rows[0][variant] - 1
+end
+
+-- stream groups sit past every row group, so the translucent buffers, which never hold streams, stay the size of the rows
+local function fit_stream_offset()
+	if stream_offset >= group_space or not next(stream_groups) then return end
+
+	stream_offset = 2 ^ math.ceil(math.log(math.max(group_space, MIN_GROUP_ROOM) * 1.5, 2))
+
+	for group in pairs(stream_groups) do
+		write_group(group)
+	end
+end
+
+local function get_slot_space(kind)
+	if kind == 1 or not next(stream_groups) then return group_space end
+
+	return stream_offset + stream_space
+end
+
+local function get_shadow_slot_space()
+	if not next(stream_groups) then return group_space end
+
+	return stream_offset + stream_shadow_space
 end
 
 local cluster_rows = {}
@@ -464,6 +537,9 @@ local TABLE_DECLARATIONS = [[
 				uint base;
 				uint room;
 				uint set;
+				uint shadow_base;
+				uint shadow_room;
+				uvec2 pad;
 			};
 
 			#define GROUP_SOFTWARE_RASTER 0x80000000u
@@ -518,6 +594,7 @@ local DRAW_DECLARATIONS = TABLE_DECLARATIONS .. [[
 				uint64_t software_header;
 				float software_density;
 				float software_radius;
+				uint64_t streams;
 				uint remap[]] .. VARIANTS .. [[];
 				uint ids_remap[]] .. VARIANTS .. [[];
 			};
@@ -812,6 +889,107 @@ function create_cull_pipeline()
 		]],
 	}
 	return cull_pipeline
+end
+
+local stream_cull_pipeline
+
+local function get_stream_cull_pipeline()
+	if stream_cull_pipeline then return stream_cull_pipeline end
+
+	stream_cull_pipeline = EasyPipeline.Compute{
+		name = "scene_stream_cull",
+		DescriptorSetCount = math.max(render.GetSwapchainImageCount() or 1, 1),
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		descriptor_sets = {
+			{
+				type = "combined_image_sampler",
+				binding_index = 0,
+				stageFlags = "compute",
+				set_index = 0,
+			},
+		},
+		block = {
+			{"args", "uint64_t"},
+			{"camera_position", "vec3"},
+			{"culling_enabled", "int"},
+			{"frustum_planes", "vec4", 6},
+			{"view_w_row", "vec4"},
+			{"view_y_row", "vec4"},
+			{"hiz_view_projection", "mat4"},
+			{"viewport_height", "float"},
+			{"occlusion_max_mip", "int"},
+			{"occlusion_depth_bias", "float"},
+		},
+		write = function(self, block)
+			write_view(block)
+			return block
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
+		]] .. DRAW_DECLARATIONS .. draw.STREAM_GLSL,
+		shader = OCCLUSION_GLSL .. [[
+
+			bool outside_sphere(vec4 plane, vec3 center, float radius) {
+				return dot(plane.xyz, center) + plane.w < -radius;
+			}
+
+			void main() {
+				scene_stream_header h = SceneStreamHeader(ARGS.streams).h;
+
+				if (gl_WorkGroupID.x >= h.view_block_count) return;
+
+				uvec2 b = SceneStreamBlocks(h.view_blocks).b[gl_WorkGroupID.x];
+				scene_stream_record s = SceneStreamRecords(h.records).s[b.x];
+				uint i = b.y + gl_LocalInvocationID.x;
+
+				if (i >= min(SceneStreamCounts(h.counts).n[b.x * 2u], s.room)) return;
+
+				mat4 world = SceneStreamInputs(h.inputs).w[s.first + i];
+				vec3 center = mat3(world) * s.bounds.xyz + world[3].xyz;
+				float radius = s.bounds.w * sqrt(max(dot(world[0].xyz, world[0].xyz), max(dot(world[1].xyz, world[1].xyz), dot(world[2].xyz, world[2].xyz))));
+				vec3 to_camera = compute.camera_position - center;
+				bool inside = dot(to_camera, to_camera) <= radius * radius;
+				float clip_w = dot(compute.view_w_row, vec4(center, 1.0));
+				float radius_px = !inside && clip_w > 0.0 ? length(compute.view_y_row.xyz) * radius * compute.viewport_height / max(clip_w * 2.0, 1e-5) : 1e18;
+
+				if (compute.culling_enabled != 0) {
+					if (
+						outside_sphere(compute.frustum_planes[0], center, radius) ||
+						outside_sphere(compute.frustum_planes[1], center, radius) ||
+						outside_sphere(compute.frustum_planes[2], center, radius) ||
+						outside_sphere(compute.frustum_planes[3], center, radius) ||
+						outside_sphere(compute.frustum_planes[4], center, radius) ||
+						outside_sphere(compute.frustum_planes[5], center, radius)
+					) return;
+
+					if (radius_px * 2.0 < 1.0) return;
+
+					if (!inside && (s.flags & ]] .. draw.STREAM_OCCLUSION .. [[u) != 0u && is_box_occluded(center - radius, center + radius)) return;
+				}
+
+				uint area = uint(max(min(3.14159265 * radius_px * radius_px, ARGS.viewport_pixels), 1.0));
+				world[1][3] = 0.0;
+				world[2][3] = 0.0;
+				mat4 prev = world;
+				prev[0][3] = 0.0;
+
+				for (uint p = 0u; p < s.part_count; p++) {
+					uint group_id = SceneStreamParts(h.parts).p[s.first_part + p];
+					group_record group = GroupArray(ARGS.group_table).g[group_id];
+					uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+
+					if (place >= group.room) continue;
+
+					atomicAdd(CountArray(ARGS.group_areas).n[group_id], area);
+					uint at = group.base + place;
+					BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, 0xFFFFFFFFu);
+					WorldArray(ARGS.worlds).w[at] = world;
+					WorldArray(ARGS.prev_worlds).w[at] = prev;
+				}
+			}
+		]],
+	}
+	return stream_cull_pipeline
 end
 
 local cluster_pipeline
@@ -1306,6 +1484,406 @@ function draw.GetGlobalBits(kind)
 	return frame_state.global_bits[kind]
 end
 
+draw.STREAM_OCCLUSION = 1
+local MAX_STREAMS = 4096
+local MAX_STREAM_PARTS = 16384
+local STREAM_RING = 4
+local NO_SLOT = 0xFFFFFFFF
+local StreamHeader = ffi.typeof([[struct {
+	uint64_t inputs, counts, records, parts, view_blocks, shadow_blocks;
+	uint32_t view_block_count, shadow_block_count, pad[2];
+}]])
+local StreamRecord = ffi.typeof([[struct {
+	uint32_t first, room, shadow_first, shadow_room, first_part, part_count, flags, pad;
+	float bounds[4];
+}]])
+local STREAM_RING_BYTES = ffi.sizeof(StreamHeader) + ffi.sizeof(StreamRecord) * MAX_STREAMS + 4 * MAX_STREAM_PARTS
+draw.STREAM_GLSL = [[
+	struct scene_stream_header {
+		uint64_t inputs;
+		uint64_t counts;
+		uint64_t records;
+		uint64_t parts;
+		uint64_t view_blocks;
+		uint64_t shadow_blocks;
+		uint view_block_count;
+		uint shadow_block_count;
+		uvec2 pad;
+	};
+
+	struct scene_stream_record {
+		uint first;
+		uint room;
+		uint shadow_first;
+		uint shadow_room;
+		uint first_part;
+		uint part_count;
+		uint flags;
+		uint pad;
+		vec4 bounds;
+	};
+
+	layout(buffer_reference, scalar) readonly buffer SceneStreamHeader { scene_stream_header h; };
+	layout(buffer_reference, scalar) readonly buffer SceneStreamRecords { scene_stream_record s[]; };
+	layout(buffer_reference, scalar) readonly buffer SceneStreamParts { uint p[]; };
+	layout(buffer_reference, scalar) readonly buffer SceneStreamBlocks { uvec2 b[]; };
+	layout(buffer_reference, std430) buffer SceneStreamInputs { mat4 w[]; };
+	layout(buffer_reference, scalar) buffer SceneStreamCounts { uint n[]; };
+
+	uint scene_stream_append(uint64_t streams, uint stream, uint list, mat4 world) {
+		scene_stream_header header = SceneStreamHeader(streams).h;
+		scene_stream_record s = SceneStreamRecords(header.records).s[stream];
+		uint slot = atomicAdd(SceneStreamCounts(header.counts).n[stream * 2u + list], 1u);
+
+		if (slot < (list == 0u ? s.room : s.shadow_room)) {
+			SceneStreamInputs(header.inputs).w[(list == 0u ? s.first : s.shadow_first) + slot] = world;
+		}
+
+		return slot;
+	}
+]]
+local streams = {}
+local free_stream_indices = {}
+local stream_count = 0
+local input_space = 0
+local input_buffer
+local counts_buffer
+local stream_ring = {}
+local demand_ring = {}
+local stream_layout_serial = 0
+local packed_serial = -1
+local stream_frame = -1
+local last_snapshot
+local view_blocks = {}
+local shadow_blocks = {}
+
+local function build_blocks()
+	list.clear(view_blocks)
+	list.clear(shadow_blocks)
+
+	for _, stream in pairs(streams) do
+		for first = 0, stream.room - 1, LOCAL_SIZE do
+			view_blocks[#view_blocks + 1] = stream.index
+			view_blocks[#view_blocks + 1] = first
+		end
+	end
+
+	local view_block_count = #view_blocks / 2
+
+	-- buffer references assume 16 byte aligned bases, so the shadow blocks start on one
+	if #view_blocks % 4 ~= 0 then
+		view_blocks[#view_blocks + 1] = 0
+		view_blocks[#view_blocks + 1] = 0
+	end
+
+	for _, stream in pairs(streams) do
+		for first = 0, stream.shadow_room - 1, LOCAL_SIZE do
+			shadow_blocks[#shadow_blocks + 1] = stream.index
+			shadow_blocks[#shadow_blocks + 1] = first
+		end
+	end
+
+	return view_block_count
+end
+
+local function layout_changed()
+	assert(
+		stream_frame ~= render.frame_serial,
+		"streams change before draw.BeginStreams in a frame"
+	)
+	stream_layout_serial = stream_layout_serial + 1
+end
+
+-- stream inputs and slots are rewritten every frame, so a layout change packs them all again instead of keeping free rooms
+local function pack_streams()
+	if packed_serial == stream_layout_serial then return end
+
+	input_space, stream_space, stream_shadow_space = 0, 0, 0
+
+	for _, stream in pairs(streams) do
+		stream.first = input_space
+		stream.shadow_first = input_space + stream.room
+		input_space = input_space + stream.room + stream.shadow_room
+
+		for _, part in ipairs(stream.parts) do
+			local group = part.group
+			group.base, group.room = stream_space, stream.room
+			group.shadow_base, group.shadow_room = stream_shadow_space, stream.shadow_room
+			stream_space = stream_space + stream.room
+			stream_shadow_space = stream_shadow_space + stream.shadow_room
+			write_group(group)
+		end
+	end
+
+	packed_serial = stream_layout_serial
+end
+
+function draw.CreateStream(config)
+	layout_changed()
+	assert(stream_count < MAX_STREAMS, "too many draw streams")
+	local index = table.remove(free_stream_indices) or stream_count
+	stream_count = stream_count + 1
+	local stream = {
+		index = index,
+		parts = {},
+		bounds = config.bounds,
+		flags = config.occlusion and draw.STREAM_OCCLUSION or 0,
+		room = config.room,
+		shadow_room = config.shadow_room or 0,
+	}
+
+	for i, part in ipairs(config.parts) do
+		assert(
+			part.mesh.vertex_buffer:GetVertexCount() <= 2 ^ visibility.VERTEX_INDEX_BITS,
+			"stream meshes are limited to " .. 2 ^ visibility.VERTEX_INDEX_BITS .. " vertices"
+		)
+		local set, variant = get_set(part.material)
+		stream.parts[i] = {
+			mesh = part.mesh,
+			material = part.material,
+			polygon3d = part.polygon3d,
+			mesh_row = part.mesh_row,
+			set = set,
+			variant = variant,
+		}
+		stream.parts[i].group = acquire_stream_group(stream.parts[i])
+	end
+
+	streams[index] = stream
+	return stream
+end
+
+function draw.ResizeStream(stream, room, shadow_room)
+	if room == stream.room and shadow_room == stream.shadow_room then return end
+
+	layout_changed()
+	stream.room = room
+	stream.shadow_room = shadow_room
+end
+
+function draw.RemoveStream(stream)
+	layout_changed()
+
+	for _, part in ipairs(stream.parts) do
+		release_stream_group(part.group, part.variant)
+		part.group = nil
+	end
+
+	streams[stream.index] = nil
+	free_stream_indices[#free_stream_indices + 1] = stream.index
+	stream_count = stream_count - 1
+end
+
+local function refresh_stream_sets()
+	for _, stream in pairs(streams) do
+		for _, part in ipairs(stream.parts) do
+			local set, variant = get_set(part.material)
+
+			if set ~= part.set then
+				release_stream_group(part.group, part.variant)
+				part.set, part.variant = set, variant
+				part.group = acquire_stream_group(part)
+				stream_layout_serial = stream_layout_serial + 1
+			end
+		end
+	end
+end
+
+local function ensure_stream_buffers()
+	if not counts_buffer then
+		counts_buffer = render.CreateBuffer{
+			byte_size = MAX_STREAMS * 8,
+			buffer_usage = {"storage_buffer", "shader_device_address", "transfer_dst", "transfer_src"},
+			memory_property = {"device_local"},
+			label = "scene_draw.stream_counts",
+		}
+	end
+
+	if not input_buffer or input_buffer.size < input_space * 64 then
+		if input_buffer then input_buffer:Remove() end
+
+		input_buffer = render.CreateBuffer{
+			byte_size = math.max(math.ceil(input_space * 1.5), 1024) * 64,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"device_local"},
+			label = "scene_draw.stream_inputs",
+		}
+	end
+end
+
+function draw.BeginStreams(cmd)
+	if stream_frame == render.frame_serial then return last_snapshot.address end
+
+	refresh_stream_sets()
+	pack_streams()
+	ensure_stream_buffers()
+	local slot = render.frame_serial % STREAM_RING + 1
+	local ring = stream_ring[slot]
+
+	if not ring then
+		local buffer = render.CreateBuffer{
+			byte_size = STREAM_RING_BYTES,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scene_draw.streams",
+		}
+		local pointer = ffi.cast("uint8_t *", buffer:Map())
+		ring = {
+			buffer = buffer,
+			address = tonumber(buffer:GetDeviceAddress()),
+			header = ffi.cast(ffi.typeof("$ *", StreamHeader), pointer),
+			records = ffi.cast(ffi.typeof("$ *", StreamRecord), pointer + ffi.sizeof(StreamHeader)),
+			parts = ffi.cast(
+				"uint32_t *",
+				pointer + ffi.sizeof(StreamHeader) + ffi.sizeof(StreamRecord) * MAX_STREAMS
+			),
+			serial = -1,
+		}
+		stream_ring[slot] = ring
+	end
+
+	if ring.serial ~= stream_layout_serial or ring.inputs ~= input_buffer then
+		local view_block_count = build_blocks()
+		local part_at = 0
+
+		for index, stream in pairs(streams) do
+			local record = ring.records[index]
+			record.first = stream.first
+			record.room = stream.room
+			record.shadow_first = stream.shadow_first
+			record.shadow_room = stream.shadow_room
+			record.first_part = part_at
+			record.part_count = #stream.parts
+			record.flags = stream.flags
+
+			for k = 0, 3 do
+				record.bounds[k] = stream.bounds[k + 1]
+			end
+
+			for _, part in ipairs(stream.parts) do
+				assert(part_at < MAX_STREAM_PARTS, "too many draw stream parts")
+				ring.parts[part_at] = part.group.id - 1
+				part_at = part_at + 1
+			end
+		end
+
+		local blocks = math.floor((#view_blocks + #shadow_blocks) / 2)
+
+		if not ring.blocks or ring.blocks.size < blocks * 8 then
+			if ring.blocks then ring.blocks:Remove() end
+
+			ring.blocks = render.CreateBuffer{
+				byte_size = math.max(math.ceil(blocks * 1.5), 1024) * 8,
+				buffer_usage = {"storage_buffer", "shader_device_address"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "scene_draw.stream_blocks",
+			}
+			ring.blocks_pointer = ffi.cast("uint32_t *", ring.blocks:Map())
+			ring.blocks_address = tonumber(ring.blocks:GetDeviceAddress())
+		end
+
+		for i = 1, #view_blocks do
+			ring.blocks_pointer[i - 1] = view_blocks[i]
+		end
+
+		for i = 1, #shadow_blocks do
+			ring.blocks_pointer[#view_blocks + i - 1] = shadow_blocks[i]
+		end
+
+		local header = ring.header
+		header.inputs = input_buffer:GetDeviceAddress()
+		header.counts = counts_buffer:GetDeviceAddress()
+		header.records = ring.address + ffi.sizeof(StreamHeader)
+		header.parts = header.records + ffi.sizeof(StreamRecord) * MAX_STREAMS
+		header.view_blocks = ring.blocks_address
+		header.shadow_blocks = ring.blocks_address + #view_blocks * 4
+		header.view_block_count = view_block_count
+		header.shadow_block_count = #shadow_blocks / 2
+		ring.serial = stream_layout_serial
+		ring.inputs = input_buffer
+	end
+
+	cmd:PipelineBarrier{
+		srcStage = {"compute", "transfer", "draw_indirect", "vertex_shader"},
+		dstStage = {"transfer", "compute"},
+		memoryBarrier = true,
+	}
+	cmd:FillBuffer(counts_buffer, 0, MAX_STREAMS * 8, 0)
+	cmd:PipelineBarrier{srcStage = "transfer", dstStage = "compute", memoryBarrier = true}
+	stream_frame = render.frame_serial
+	last_snapshot = {
+		serial = render.frame_serial,
+		address = ring.address,
+		view_block_count = ring.header.view_block_count,
+		shadow_block_count = ring.header.shadow_block_count,
+	}
+	return ring.address
+end
+
+function draw.GetStreamStats()
+	return {
+		streams = stream_count,
+		inputs = input_space,
+		input_bytes = input_buffer and input_buffer.size or 0,
+		slots = stream_space,
+		shadow_slots = stream_shadow_space,
+		row_slots = group_space,
+		slot_offset = stream_offset,
+	}
+end
+
+function draw.GetStreamDemand(stream)
+	local entry = demand_ring[render.frame_serial % STREAM_RING + 1]
+
+	if not entry or entry.serial ~= stream_layout_serial then return nil end
+
+	return entry.counts[stream.index * 2], entry.counts[stream.index * 2 + 1]
+end
+
+local function is_streaming()
+	return stream_frame == render.frame_serial and stream_count > 0
+end
+
+local copy_stream_demand
+
+do
+	local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
+	local copy = BufferCopy()
+
+	function copy_stream_demand(cmd)
+		local slot = render.frame_serial % STREAM_RING + 1
+		local entry = demand_ring[slot]
+
+		if not entry then
+			local buffer = render.CreateBuffer{
+				byte_size = MAX_STREAMS * 8,
+				buffer_usage = {"transfer_dst"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "scene_draw.stream_demand",
+			}
+			entry = {buffer = buffer, counts = ffi.cast("uint32_t *", buffer:Map())}
+			demand_ring[slot] = entry
+		end
+
+		cmd:PipelineBarrier{srcStage = "compute", dstStage = "transfer", memoryBarrier = true}
+		copy[0].size = MAX_STREAMS * 8
+		cmd:CopyBuffer(counts_buffer, entry.buffer, copy, 1)
+		entry.serial = stream_layout_serial
+	end
+end
+
+local function get_shadow_snapshot()
+	if
+		last_snapshot and
+		render.frame_serial - last_snapshot.serial <= 1 and
+		stream_count > 0
+	then
+		return last_snapshot
+	end
+
+	return nil
+end
+
 -- without a depth pyramid the culls never sample it (occlusion_max_mip is -1), but the descriptor must still be valid
 local function bind_depth_pyramid(pipeline, slot, bound)
 	if bound then
@@ -1347,8 +1925,13 @@ function draw.Cull(
 		frame_state.drawn[1][variant] = false
 	end
 
-	if count == 0 then return end
+	local streaming = is_streaming()
+	frame_state.streaming = streaming
 
+	if count == 0 and not streaming then return end
+
+	ensure_slot_tables()
+	fit_stream_offset()
 	store.FlushStaged(cmd)
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	surface_conditions = surface_conditions or import("goluwa/render3d/surface_conditions.lua")
@@ -1361,11 +1944,16 @@ function draw.Cull(
 	local descriptor_slot = render.frame_serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 	bind_depth_pyramid(pipeline, descriptor_slot, bound)
 
+	if streaming then
+		bind_depth_pyramid(get_stream_cull_pipeline(), descriptor_slot, bound)
+	end
+
 	local seen_address = instances.GetSeenTable():GetAddress()
 	local pair_total, pair_address = get_cluster_pairs()
+	gpu_timing.BeginScope(cmd, "scene_cull")
 
 	for kind = 0, translucent_count > 0 and 1 or 0 do
-		local buffers = ensure_buffers(kind, group_space, group_count)
+		local buffers = ensure_buffers(kind, get_slot_space(kind), group_count)
 		local ring_slot = render.frame_serial % 4 + 1
 		local ring = args_ring[kind]
 
@@ -1418,6 +2006,7 @@ function draw.Cull(
 		args.pointer[20] = software_header
 		args.software[0] = software_density
 		args.software[1] = software_radius
+		args.pointer[22] = kind == 0 and streaming and last_snapshot.address or 0
 		resolve_variants(kind, args.remap, args.ids_remap)
 		state.kind = kind
 		state.args_address = args.address
@@ -1445,7 +2034,13 @@ function draw.Cull(
 			memoryBarrier = true,
 		}
 
-		pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, descriptor_slot)
+		if count > 0 then
+			pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, descriptor_slot)
+		end
+
+		if kind == 0 and streaming and last_snapshot.view_block_count > 0 then
+			get_stream_cull_pipeline():Dispatch(cmd, last_snapshot.view_block_count, 1, 1, descriptor_slot)
+		end
 
 		cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 
@@ -1464,6 +2059,10 @@ function draw.Cull(
 		frame_state.counts[kind] = count
 		frame_state.group_counts[kind] = group_count
 	end
+
+	if streaming then copy_stream_demand(cmd) end
+
+	gpu_timing.EndScope(cmd, "scene_cull")
 end
 
 local function describe_row(row)
@@ -1656,7 +2255,13 @@ local function draw_variants(gbuffer_instancing, kind, name, displaced)
 end
 
 function draw.Draw(gbuffer_instancing, name, displaced)
-	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[0] == 0 then
+	if
+		frame_state.frame ~= system.GetFrameNumber() or
+		(
+			frame_state.counts[0] == 0 and
+			not frame_state.streaming
+		)
+	then
 		return false
 	end
 
@@ -1691,6 +2296,7 @@ local SHADOW_DECLARATIONS = TABLE_DECLARATIONS .. [[
 				uint64_t group_table;
 				uint64_t group_counts;
 				uint64_t draw_groups;
+				uint64_t streams;
 			};
 
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
@@ -1807,11 +2413,11 @@ function create_shadow_pipeline()
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
 				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
 
-				if (place >= group.room) return;
+				if (place >= group.shadow_room) return;
 
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
 				// the shadow vertex stage reads only xyz of a world position, so [1][3] carries the slot for ReadBackShadowCull
-				WorldArray(ARGS.worlds).w[group.base + place] = mat4(
+				WorldArray(ARGS.worlds).w[group.shadow_base + place] = mat4(
 					vec4(t.m[0], t.m[4], t.m[8], 0.0),
 					vec4(t.m[1], t.m[5], t.m[9], float(slot)),
 					vec4(t.m[2], t.m[6], t.m[10], 0.0),
@@ -1821,6 +2427,84 @@ function create_shadow_pipeline()
 		]],
 	}
 	return shadow_pipeline
+end
+
+local shadow_stream_pipeline
+
+local function get_shadow_stream_pipeline()
+	if shadow_stream_pipeline then return shadow_stream_pipeline end
+
+	shadow_stream_pipeline = EasyPipeline.Compute{
+		name = "scene_shadow_stream_cull",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		block = {
+			{"args", "uint64_t"},
+			{"planes", "vec4", 5},
+			{"min_caster_extent", "float"},
+			{"culling_enabled", "int"},
+		},
+		write = function(self, block)
+			local v = self.shadow_state
+			block.args = v.args_address
+
+			for i = 0, 4 do
+				for k = 0, 3 do
+					block.planes[i][k] = v.planes[i * 4 + k]
+				end
+			end
+
+			block.min_caster_extent = v.min_caster_extent
+			block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
+			return block
+		end,
+		custom_declarations = SHADOW_DECLARATIONS .. draw.STREAM_GLSL,
+		shader = [[
+			void main() {
+				scene_stream_header h = SceneStreamHeader(ARGS.streams).h;
+
+				if (gl_WorkGroupID.x >= h.shadow_block_count) return;
+
+				uvec2 b = SceneStreamBlocks(h.shadow_blocks).b[gl_WorkGroupID.x];
+				scene_stream_record s = SceneStreamRecords(h.records).s[b.x];
+				uint i = b.y + gl_LocalInvocationID.x;
+
+				if (i >= min(SceneStreamCounts(h.counts).n[b.x * 2u + 1u], s.shadow_room)) return;
+
+				mat4 world = SceneStreamInputs(h.inputs).w[s.shadow_first + i];
+				vec3 center = mat3(world) * s.bounds.xyz + world[3].xyz;
+				float radius = s.bounds.w * sqrt(max(dot(world[0].xyz, world[0].xyz), max(dot(world[1].xyz, world[1].xyz), dot(world[2].xyz, world[2].xyz))));
+
+				if (compute.culling_enabled != 0) {
+					if (compute.min_caster_extent > 0.0 && radius * 2.0 < compute.min_caster_extent) return;
+
+					// vertex animation moves leaves past the bounds
+					float reach = radius * 1.25 + 0.25;
+
+					if (
+						dot(compute.planes[0].xyz, center) + compute.planes[0].w < -reach ||
+						dot(compute.planes[1].xyz, center) + compute.planes[1].w < -reach ||
+						dot(compute.planes[2].xyz, center) + compute.planes[2].w < -reach ||
+						dot(compute.planes[3].xyz, center) + compute.planes[3].w < -reach ||
+						dot(compute.planes[4].xyz, center) + compute.planes[4].w < -reach
+					) return;
+				}
+
+				world[0][3] = 0.0;
+				world[1][3] = -1.0;
+				world[2][3] = 0.0;
+
+				for (uint p = 0u; p < s.part_count; p++) {
+					uint group_id = SceneStreamParts(h.parts).p[s.first_part + p];
+					group_record group = GroupArray(ARGS.group_table).g[group_id];
+					uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+
+					if (place < group.shadow_room) WorldArray(ARGS.worlds).w[group.shadow_base + place] = world;
+				}
+			}
+		]],
+	}
+	return shadow_stream_pipeline
 end
 
 local function get_shadow_finalize_pipeline()
@@ -1847,13 +2531,13 @@ local function get_shadow_finalize_pipeline()
 				if (group_id >= uint(compute.count)) return;
 
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				uint instance_count = min(CountArray(ARGS.group_counts).n[group_id], group.room);
+				uint instance_count = min(CountArray(ARGS.group_counts).n[group_id], group.shadow_room);
 
 				if (instance_count == 0u) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
 				uint index = atomicAdd(CountArray(ARGS.counts).n[0], 1u);
-				CommandArray(ARGS.commands).c[index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
+				CommandArray(ARGS.commands).c[index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.shadow_base);
 				GroupIdArray(ARGS.draw_groups).g[index] = group_id;
 			}
 		]],
@@ -1892,12 +2576,15 @@ end
 function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_extent, light_view)
 	local tlas_table, data_table = instances.GetTables()
 	local count = #rows
+	local snapshot = get_shadow_snapshot()
 
-	if count == 0 or not slot_rows then return nil end
+	if count == 0 and not snapshot then return nil end
 
+	ensure_slot_tables()
+	fit_stream_offset()
 	store.FlushStaged(cmd)
 	local group_count = #groups
-	local slot_space = group_space
+	local slot_space = get_shadow_slot_space()
 
 	for i = #retired_shadow_buffers, 1, -1 do
 		if system.GetFrameNumber() - retired_shadow_buffers[i].frame > SHADOW_RETIRE_FRAMES then
@@ -1936,7 +2623,7 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 		end
 
 		buffers.args = render.CreateBuffer{
-			byte_size = 12 * 8,
+			byte_size = 13 * 8,
 			buffer_usage = {"storage_buffer", "shader_device_address"},
 			memory_property = {"host_visible", "host_coherent"},
 			label = "scene_draw.shadow_args",
@@ -1958,6 +2645,7 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	pointer[9] = group_table:GetAddress()
 	pointer[10] = buffers.group_counts_address
 	pointer[11] = buffers.draw_groups_address
+	pointer[12] = snapshot and snapshot.address or 0
 	local pipeline = get_shadow_pipeline()
 	local finalize = get_shadow_finalize_pipeline()
 	local v = pipeline.shadow_state or {axis_x = {0, 0, 0}, axis_y = {0, 0, 0}, planes = {}}
@@ -1998,7 +2686,15 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 		memoryBarrier = true,
 	}
 
-	pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, 1)
+	if count > 0 then
+		pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, 1)
+	end
+
+	if snapshot and snapshot.shadow_block_count > 0 then
+		local streams_pipeline = get_shadow_stream_pipeline()
+		streams_pipeline.shadow_state = v
+		streams_pipeline:Dispatch(cmd, snapshot.shadow_block_count, 1, 1, 1)
+	end
 
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 	finalize:Dispatch(cmd, math.ceil(group_count / LOCAL_SIZE), 1, 1, 1)
@@ -2024,10 +2720,18 @@ do
 
 	function draw.ReadBackCull(kind)
 		kind = kind or 0
-		local result = {by_id = {}, count = 0, slots = frame_state.counts[kind]}
+		local result = {
+			by_id = {},
+			by_group = {},
+			count = 0,
+			streamed = 0,
+			slots = frame_state.counts[kind],
+		}
 		local buffers = buffer_sets[kind]
 
-		if not buffers or result.slots == 0 then return result end
+		if not buffers or (result.slots == 0 and not frame_state.streaming) then
+			return result
+		end
 
 		local group_capacity = buffers.command_capacity
 		-- the downloads are kept in locals, a pointer cast from them alone lets them be collected
@@ -2057,7 +2761,7 @@ do
 						world[i + 1] = worlds[at * 16 + (i % 4) * 4 + math.floor(i / 4)]
 					end
 
-					result.by_id[ids[slot]] = {
+					local entry = {
 						slot = slot,
 						group = set,
 						fade = worlds[at * 16 + 3],
@@ -2065,6 +2769,15 @@ do
 						index_count = command[0],
 						first_index = command[2],
 					}
+
+					if slot == 0xFFFFFFFF then
+						local group_id = batch_ids[at * 2] + 1
+						result.by_group[group_id] = result.by_group[group_id] or {}
+						list.insert(result.by_group[group_id], entry)
+						result.streamed = result.streamed + 1
+					else
+						result.by_id[ids[slot]] = entry
+					end
 
 					result.count = result.count + 1
 				end
@@ -2075,9 +2788,9 @@ do
 	end
 
 	function draw.ReadBackShadowCull(buffers, count)
-		local result = {by_id = {}, count = 0, slots = count or 0}
+		local result = {by_id = {}, count = 0, streamed = 0, slots = count or 0}
 
-		if not buffers.commands or result.slots == 0 then return result end
+		if not buffers.commands then return result end
 
 		local drawn = ffi.cast("uint32_t *", download(buffers.counts, 4))[0]
 		local commands_data = download(buffers.commands, buffers.group_capacity * COMMAND_SIZE)
@@ -2091,7 +2804,12 @@ do
 
 			for place = 0, command[1] - 1 do
 				local slot = worlds[(command[4] + place) * 16 + 7]
-				result.by_id[ids[slot]] = {slot = slot, index_count = command[0]}
+
+				if slot < 0 then
+					result.streamed = result.streamed + 1
+				else
+					result.by_id[ids[slot]] = {slot = slot, index_count = command[0]}
+				end
 
 				result.count = result.count + 1
 			end
