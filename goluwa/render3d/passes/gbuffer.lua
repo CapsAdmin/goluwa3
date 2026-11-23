@@ -1,7 +1,7 @@
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local event = import("goluwa/event.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
-import("goluwa/render3d/scene/vegetation_bend.lua")
+import("goluwa/render3d/scene/deformed_copies.lua")
 import("goluwa/render3d/scatter.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local render3d = import("goluwa/render3d/render3d.lua")

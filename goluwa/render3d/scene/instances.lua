@@ -9,7 +9,7 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
-local vegetation_bend, parts, tessellation
+local deformed_copies, parts, tessellation
 local accel = import("goluwa/render3d/scene/accel.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local cluster_rt = import("goluwa/render3d/scene/cluster_rt.lua")
@@ -589,7 +589,7 @@ do
 				layout(scalar, set = 0, binding = 9) readonly buffer Seen { uint seen[]; };
 				layout(buffer_reference, scalar) readonly buffer ClusterJobOf { uint j[]; };
 				layout(buffer_reference, scalar) readonly buffer ClusterBLAS { uint64_t a[]; };
-				]] .. vegetation_bend.GetAssignGLSL(5, 6, 7) .. [[
+				]] .. deformed_copies.GetAssignGLSL(5, 6, 7) .. [[
 			]],
 			shader = [[
 				void main() {
@@ -673,7 +673,7 @@ do
 
 	function instances.Build(cmd)
 		instances.GetTables()
-		vegetation_bend = vegetation_bend or import("goluwa/render3d/scene/vegetation_bend.lua")
+		deformed_copies = deformed_copies or import("goluwa/render3d/scene/deformed_copies.lua")
 		parts = parts or import("goluwa/render3d/scene/parts.lua")
 		store.FlushStaged(cmd)
 		traced_tlas_buffer, traced_data_buffer = tlas_table:GetBuffer(), data_table:GetBuffer()
@@ -683,7 +683,7 @@ do
 		tessellation.BuildRT(cmd)
 		opacity_micromaps.Build(cmd)
 		parts.Update()
-		vegetation_bend.Prepare(cmd)
+		deformed_copies.Prepare(cmd)
 		row_count = tlas_table.count
 		data_table.count = row_count
 		raster_table.count = row_count
@@ -702,7 +702,7 @@ do
 			) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		local bound = bound_buffers[slot]
 		part_table:Reserve(tlas_table.capacity)
-		local pools_buffer, pools_size, slots_buffer, slots_size, counters_buffer, counters_size = vegetation_bend.GetBindings()
+		local pools_buffer, pools_size, slots_buffer, slots_size, counters_buffer, counters_size = deformed_copies.GetBindings()
 		local parts_table = parts.GetTable()
 		local seen = instances.GetSeenTable()
 		local tlas_buffer, data_buffer, mesh_buffer, pool_buffer, parts_buffer, seen_buffer = tlas_table:GetBuffer(),
@@ -760,7 +760,7 @@ do
 			slot,
 			pipeline.dynamic_offsets
 		)
-		vegetation_bend.Dispatch(cmd)
+		deformed_copies.Dispatch(cmd)
 		cmd:PipelineBarrier{
 			srcStage = "compute",
 			dstStage = "acceleration_structure_build_khr",

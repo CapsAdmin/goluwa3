@@ -11,23 +11,23 @@ local store = import("goluwa/render3d/scene/store.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local vegetation_pushers = import("goluwa/render3d/vegetation_pushers.lua")
 local deformation = import("goluwa/render3d/deformation.lua")
-local vegetation_bend = {}
+local deformed_copies = {}
 pvars.StartGroup("Rendering", "Ray traced scene", {store = false})
 local enabled = pvars.Setup2{
-	key = "r_rt_bend",
+	key = "r_rt_deform",
 	default = true,
-	help = "plants that the wind bends are bent in the ray traced scene too, each a copy of its mesh deformed by the same bending as the raster and refit every frame. off, rays see every plant at rest and a bent surface's own rays start inside or beside its resting shape, which shades it as occluded",
+	help = "what the wind deforms is deformed in the ray traced scene too, each instance near enough a copy of its mesh deformed by the same deform() as the raster and refit every frame. off, rays see it at rest and a deformed surface's own rays start inside or beside its resting shape, which shades it as occluded. skinned meshes are their own deformed copy and do not need this",
 }
 local max_distance = pvars.Setup2{
-	key = "r_rt_bend_distance",
+	key = "r_rt_deform_distance",
 	default = 80,
-	help = "the farthest, in meters, a bending plant is bent in the ray traced scene. nearer it is bent while the wind moves it by at least a pixel (a blade of grass only close by, a tree much farther), beyond that it is traced at rest",
+	help = "the farthest, in meters, a mesh the wind moves gets a deformed copy in the ray traced scene. nearer it gets one while the wind moves it by at least a pixel (a blade of grass only close by, a tree much farther), beyond that it is traced at rest",
 }
 local bend_triangles = pvars.Setup2{
-	key = "r_rt_bend_triangles",
+	key = "r_rt_deform_triangles",
 	default = 262144,
 	integer = true,
-	help = "triangles of bent copies each bending mesh may have in the ray traced scene (a small mesh gets more copies than a large one), given to its instances within r_rt_bend_distance in no particular order. instances past the copies are traced at rest. copies are made as instances ask for them, and as many as asked are bent and refit every frame",
+	help = "triangles of deformed copies each mesh the wind moves may have in the ray traced scene (a small mesh gets more copies than a large one), given to its instances within r_rt_deform_distance in no particular order. instances past the copies are traced at rest. copies are made as instances ask for them, and as many as asked are deformed and refit every frame",
 }
 pvars.EndGroup()
 local MAX_JOBS = 4096
@@ -79,7 +79,7 @@ local function get_pipeline()
 	}
 	job_data = ffi.cast(JobPtr, jobs_buffer:Map())
 	pipeline = EasyPipeline.Compute{
-		name = "vegetation_bend",
+		name = "deformed_copies",
 		DescriptorSetCount = 1,
 		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
 		descriptor_sets = {
@@ -177,12 +177,12 @@ local function get_pipeline()
 	return pipeline
 end
 
-function vegetation_bend.IsEnabled()
+function deformed_copies.IsEnabled()
 	return enabled:Get()
 end
 
 -- a positions only copy of the mesh that the bend writes and an acceleration structure over it with the mesh's indices, carrying the opacity micromap (the state of an opacity_micromaps variant) when there is one, which a refit must repeat
-function vegetation_bend.NewRecord(mesh, omm)
+function deformed_copies.NewRecord(mesh, omm)
 	local positions = render.CreateBuffer{
 		byte_size = mesh.vertex_count * 12,
 		buffer_usage = {
@@ -211,7 +211,7 @@ function vegetation_bend.NewRecord(mesh, omm)
 	}
 end
 
-function vegetation_bend.ReleaseRecord(record)
+function deformed_copies.ReleaseRecord(record)
 	accel.ReleaseBLAS(record.blas_record)
 	record.positions:Remove()
 end
@@ -228,7 +228,7 @@ local scratch_animation = Animation()
 local MIN_PIXELS = 1
 
 -- how far from the camera a part with this material and polygon is bent: while the wind moves it by at least a pixel, 0 when it does not move
-function vegetation_bend.GetRange(material, polygon)
+function deformed_copies.GetRange(material, polygon)
 	deformation.Fill(scratch_animation, material, polygon)
 
 	if not animates(scratch_animation) then return 0 end
@@ -245,7 +245,7 @@ local queued, queued_groups = 0, 0
 local queued_records = {}
 
 -- vertices of the mesh at source are bent by the material's wind for the instance whose row major 3x4 world matrix is at matrix_address, into the record's positions
-function vegetation_bend.Queue(record, source_address, matrix_address, material, polygon)
+function deformed_copies.Queue(record, source_address, matrix_address, material, polygon)
 	local frame = system.GetFrameNumber()
 
 	if frame ~= frame_stamp then
@@ -276,9 +276,9 @@ local function dispatch_queued(cmd)
 	job_count = queued
 	group_count = queued_groups
 	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
-	gpu_timing.BeginScope(cmd, "vegetation_bend")
+	gpu_timing.BeginScope(cmd, "deformed_copies")
 	pipeline:Dispatch(cmd, math.min(queued_groups, ROW), math.ceil(queued_groups / ROW), 1, 1)
-	gpu_timing.EndScope(cmd, "vegetation_bend")
+	gpu_timing.EndScope(cmd, "deformed_copies")
 
 	for i = 1, queued do
 		accel.QueueRefit(queued_records[i])
@@ -333,19 +333,19 @@ local function ensure_counters()
 		byte_size = pools.capacity * 4,
 		buffer_usage = {"storage_buffer", "transfer_dst", "transfer_src"},
 		memory_property = {"device_local"},
-		label = "vegetation_bend_counters",
+		label = "deformed_copies_counters",
 	}
 	readback_buffer = render.CreateBuffer{
 		byte_size = pools.capacity * 4 * READBACK_RING,
 		buffer_usage = {"transfer_dst"},
 		memory_property = {"host_visible", "host_coherent"},
-		label = "vegetation_bend_readback",
+		label = "deformed_copies_readback",
 	}
 	readback = ffi.cast("uint32_t *", readback_buffer:Map())
 	ffi.fill(readback, pools.capacity * 4 * READBACK_RING)
 end
 
-function vegetation_bend.GetBindings()
+function deformed_copies.GetBindings()
 	local pools, slots = get_tables()
 	ensure_counters()
 	return pools:GetBuffer(),
@@ -356,7 +356,7 @@ function vegetation_bend.GetBindings()
 	counters_buffer:GetSize()
 end
 
-function vegetation_bend.GetAssignGLSL(pools_binding, slots_binding, counters_binding)
+function deformed_copies.GetAssignGLSL(pools_binding, slots_binding, counters_binding)
 	return [[
 		struct bend_pool {
 			uint first_slot;
@@ -396,7 +396,7 @@ function vegetation_bend.GetAssignGLSL(pools_binding, slots_binding, counters_bi
 	]]
 end
 
-function vegetation_bend.GetPool(mesh_row, material, polygon, max_copies)
+function deformed_copies.GetPool(mesh_row, material, polygon, max_copies)
 	local by_material = pool_keys[mesh_row]
 	local by_polygon = by_material and by_material[material]
 	local pool = by_polygon and by_polygon[polygon]
@@ -437,17 +437,17 @@ function vegetation_bend.GetPool(mesh_row, material, polygon, max_copies)
 	return pool
 end
 
-function vegetation_bend.RefPool(pool)
+function deformed_copies.RefPool(pool)
 	pool.refs = pool.refs + 1
 end
 
-function vegetation_bend.UnrefPool(pool)
+function deformed_copies.UnrefPool(pool)
 	pool.refs = pool.refs - 1
 
 	if pool.refs > 0 then return end
 
 	for _, record in ipairs(pool.records) do
-		vegetation_bend.ReleaseRecord(record)
+		deformed_copies.ReleaseRecord(record)
 	end
 
 	local pools, slots = get_tables()
@@ -458,7 +458,7 @@ function vegetation_bend.UnrefPool(pool)
 end
 
 -- sizes every pool from what the gpu counted a few frames ago, makes or remakes the copies it asks for and clears the counters the next assignment adds to
-function vegetation_bend.Prepare(cmd)
+function deformed_copies.Prepare(cmd)
 	if not next(active) then return end
 
 	ensure_counters()
@@ -469,7 +469,7 @@ function vegetation_bend.Prepare(cmd)
 	local animating = enabled:Get()
 
 	for pool in pairs(active) do
-		local range = animating and vegetation_bend.GetRange(pool.material, pool.polygon) or 0
+		local range = animating and deformed_copies.GetRange(pool.material, pool.polygon) or 0
 		local wanted = asked[pool.id]
 		pool.used = range > 0 and
 			wanted > 0 and
@@ -481,13 +481,13 @@ function vegetation_bend.Prepare(cmd)
 
 		for k = 1, #records do
 			if records[k].blas_record.omm ~= omm then
-				vegetation_bend.ReleaseRecord(records[k])
-				records[k] = vegetation_bend.NewRecord(pool.mesh, omm)
+				deformed_copies.ReleaseRecord(records[k])
+				records[k] = deformed_copies.NewRecord(pool.mesh, omm)
 			end
 		end
 
 		for k = #records + 1, pool.used do
-			records[k] = vegetation_bend.NewRecord(pool.mesh, omm)
+			records[k] = deformed_copies.NewRecord(pool.mesh, omm)
 		end
 
 		for k = 1, #records do
@@ -509,7 +509,7 @@ function vegetation_bend.Prepare(cmd)
 end
 
 -- bends the copies the assignment filled and refits them, and reads the counters back for the sizing a few frames on
-function vegetation_bend.Dispatch(cmd)
+function deformed_copies.Dispatch(cmd)
 	if not next(active) then return end
 
 	local _, slots = get_tables()
@@ -518,7 +518,7 @@ function vegetation_bend.Dispatch(cmd)
 
 	for pool in pairs(active) do
 		for k = 1, pool.used do
-			vegetation_bend.Queue(
+			deformed_copies.Queue(
 				pool.records[k],
 				mesh_rows[pool.row].vertex_address,
 				slots_address + (pool.first + k - 1) * ffi.sizeof(BendSlot),
@@ -538,7 +538,7 @@ function vegetation_bend.Dispatch(cmd)
 	cmd:CopyBuffer(counters_buffer, readback_buffer, readback_copy, 1)
 end
 
-function vegetation_bend.GetStats()
+function deformed_copies.GetStats()
 	local count, triangles, micromapped = 0, 0, 0
 
 	for pool in pairs(active) do
@@ -553,4 +553,4 @@ function vegetation_bend.GetStats()
 	return count, triangles, micromapped
 end
 
-return vegetation_bend
+return deformed_copies

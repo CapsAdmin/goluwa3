@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local store = import("goluwa/render3d/scene/store.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local opacity_micromaps = import("goluwa/render3d/scene/opacity_micromaps.lua")
-local vegetation_bend = import("goluwa/render3d/scene/vegetation_bend.lua")
+local deformed_copies = import("goluwa/render3d/scene/deformed_copies.lua")
 local parts = {}
 local Part = ffi.typeof([[struct {
 	uint32_t trace_row;
@@ -69,8 +69,8 @@ function parts.Acquire(mesh_row, material, polygon, max_copies)
 		}
 
 		if bends then
-			part.pool = vegetation_bend.GetPool(mesh_row, material, polygon, max_copies)
-			vegetation_bend.RefPool(part.pool)
+			part.pool = deformed_copies.GetPool(mesh_row, material, polygon, max_copies)
+			deformed_copies.RefPool(part.pool)
 		end
 
 		by_polygon[polygon] = part
@@ -87,7 +87,7 @@ function parts.Release(part)
 
 	if part.refs > 0 then return end
 
-	if part.pool then vegetation_bend.UnrefPool(part.pool) end
+	if part.pool then deformed_copies.UnrefPool(part.pool) end
 
 	parts.GetTable():Free(part.id)
 	keys[part.row][part.material][part.polygon] = nil

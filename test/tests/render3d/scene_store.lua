@@ -545,7 +545,7 @@ T.Test3D("Graphics render3d scene store bends a plant in the ray traced scene th
 	pvars.SetSession("r_wind_still_pixels", 0)
 
 	local function distance_at_top(bend)
-		pvars.SetSession("r_rt_bend", bend)
+		pvars.SetSession("r_rt_deform", bend)
 
 		for _ = 1, 8 do
 			draw()
@@ -558,7 +558,7 @@ T.Test3D("Graphics render3d scene store bends a plant in the ray traced scene th
 
 	local rest = distance_at_top(false)
 	local bent = distance_at_top(true)
-	pvars.SetSession("r_rt_bend", true)
+	pvars.SetSession("r_rt_deform", true)
 	pvars.SetSession("r_wind_still_pixels", still_pixels)
 	atmosphere.SetWind(wind)
 	atmosphere.SetWindTimeScale(time_scale)

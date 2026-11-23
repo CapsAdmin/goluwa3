@@ -573,7 +573,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 						local previous = 0
 
 						if cut_material:HasVertexAnimation() then
-							previous = (pvars.Get("r_rt_bend_distance") + radius) / radius
+							previous = (pvars.Get("r_rt_deform_distance") + radius) / radius
 						end
 
 						for i = 1, #cuts do
