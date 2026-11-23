@@ -212,7 +212,7 @@ local multi_draw_block = {
 		{"batches", "uint64_t"},
 		{"instances", "uint64_t"},
 		{"prev_instances", "uint64_t"},
-		{"batch_ids", "uint64_t"},
+		{"draw_groups", "uint64_t"},
 		{"time", "float"},
 		{"prev_time", "float"},
 		{"detail_time", "float"},
@@ -223,7 +223,7 @@ local multi_draw_block = {
 		block.batches = self.draw_batches_address
 		block.instances = self.draw_instances_address
 		block.prev_instances = self.draw_prev_instances_address
-		block.batch_ids = self.draw_batch_ids_address or 0
+		block.draw_groups = self.draw_groups_address or 0
 		block.time = atmosphere.GetWindTime()
 		block.prev_time = atmosphere.GetPreviousWindTime()
 		block.detail_time = atmosphere.GetWindDetailTime()
@@ -257,7 +257,7 @@ local function build_multi_draw_pass(fragment_shader, bits, visibility_ids)
 		batches_expr = "gbuffer_draw.batches",
 		instances_expr = "gbuffer_draw.instances",
 		prev_instances_expr = "gbuffer_draw.prev_instances",
-		batch_index_expr = "(gbuffer_draw.batch_ids != 0ul ? PBRBatchIdData(gbuffer_draw.batch_ids).ids[gl_InstanceIndex].x : uint(gl_DrawID))",
+		batch_index_expr = "(gbuffer_draw.draw_groups != 0ul ? PBRDrawGroupData(gbuffer_draw.draw_groups).g[gl_DrawID] : uint(gl_DrawID))",
 		time_expr = "gbuffer_draw.time",
 		prev_time_expr = "gbuffer_draw.prev_time",
 		detail_time_expr = "gbuffer_draw.detail_time",

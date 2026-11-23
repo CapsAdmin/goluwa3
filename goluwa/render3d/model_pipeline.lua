@@ -756,7 +756,7 @@ do
 layout(buffer_reference, scalar) readonly buffer PBRBatchVertexData { float v[]; };
 ]] .. vertex_layout.BuildGlslAccessors("pbr_vertex", "PBRBatchVertexData") .. [[
 layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 worlds[]; };
-layout(buffer_reference, scalar) readonly buffer PBRBatchIdData { uvec2 ids[]; };
+layout(buffer_reference, scalar) readonly buffer PBRDrawGroupData { uint g[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchThicknessData { float t[]; };
 layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 layout(location = ]] .. (

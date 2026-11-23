@@ -37,7 +37,7 @@ visibility.CONTEXT_GLSL = [[
 		uint64_t batches;
 		uint64_t instances;
 		uint64_t prev_instances;
-		uint64_t batch_ids;
+		uint64_t draw_groups;
 		uint64_t extra0;
 		uint64_t extra1;
 		uint64_t extra2;
@@ -57,7 +57,7 @@ local Context = ffi.typeof([[struct {
 	uint64_t batches;
 	uint64_t instances;
 	uint64_t prev_instances;
-	uint64_t batch_ids;
+	uint64_t draw_groups;
 	uint64_t extra0;
 	uint64_t extra1;
 	uint64_t extra2;
@@ -137,7 +137,7 @@ function visibility.AddContext(
 	record.batches = pipeline.draw_batches_address
 	record.instances = pipeline.draw_instances_address
 	record.prev_instances = pipeline.draw_prev_instances_address
-	record.batch_ids = pipeline.draw_batch_ids_address or 0
+	record.draw_groups = pipeline.draw_groups_address or 0
 	record.time = atmosphere.GetWindTime()
 	record.prev_time = atmosphere.GetPreviousWindTime()
 	record.detail_time = atmosphere.GetWindDetailTime()
@@ -220,7 +220,7 @@ do
 				gbuffer_draw.batches = context.batches;
 				gbuffer_draw.instances = context.instances;
 				gbuffer_draw.prev_instances = context.prev_instances;
-				gbuffer_draw.batch_ids = context.batch_ids;
+				gbuffer_draw.draw_groups = context.draw_groups;
 				gbuffer_draw.time = context.time;
 				gbuffer_draw.prev_time = context.prev_time;
 				gbuffer_draw.detail_time = context.detail_time;
@@ -272,7 +272,7 @@ do
 				uint64_t batches;
 				uint64_t instances;
 				uint64_t prev_instances;
-				uint64_t batch_ids;
+				uint64_t draw_groups;
 				float time;
 				float prev_time;
 				float detail_time;
@@ -645,7 +645,7 @@ do
 					[[
 				layout(set = 0, binding = %d, rgba32ui) uniform readonly uimage2D visibility_ids;
 				layout(buffer_reference, scalar) readonly buffer VisibilityContexts { VisibilityContext c[]; };
-				layout(buffer_reference, scalar) readonly buffer VisibilityBatchIds { uvec2 ids[]; };
+				layout(buffer_reference, scalar) readonly buffer VisibilityDrawGroups { uint g[]; };
 
 				void main() {
 					ivec2 quad = ivec2(gl_GlobalInvocationID.xy);
@@ -672,7 +672,7 @@ do
 						bool animated = false;
 
 						if (context.kind == 0u) {
-							material = context.batch_ids != 0ul ? VisibilityBatchIds(context.batch_ids).ids[ids[i].y].x : ids[i].x >> 10u;
+							material = context.draw_groups != 0ul ? VisibilityDrawGroups(context.draw_groups).g[ids[i].x >> 10u] : ids[i].x >> 10u;
 							PBRBatch_vertex_animation animation = PBRBatchData(context.batches).b[material].m_vertex_animation;
 							animated = animation.MainBending > 0.0 || (animation.DetailBending != 0 && animation.BendSpeed > 0.0) || animation.PushBending > 0.0;
 						}

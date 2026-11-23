@@ -562,7 +562,7 @@ local TABLE_DECLARATIONS = [[
 			layout(buffer_reference, scalar) writeonly buffer CommandArray { draw_command c[]; };
 			layout(buffer_reference, scalar) buffer CountArray { uint n[]; };
 			layout(buffer_reference, scalar) readonly buffer GroupArray { group_record g[]; };
-			layout(buffer_reference, scalar) writeonly buffer BatchIdArray { uvec2 b[]; };
+			layout(buffer_reference, scalar) buffer GroupIdArray { uint g[]; };
 			layout(buffer_reference, std430) writeonly buffer WorldArray { mat4 w[]; };
 			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
 			layout(buffer_reference, scalar) writeonly buffer ThicknessArray { float t[]; };
@@ -583,7 +583,7 @@ local DRAW_DECLARATIONS = TABLE_DECLARATIONS .. [[
 				uint64_t slot_groups;
 				uint64_t group_table;
 				uint64_t group_counts;
-				uint64_t batch_ids;
+				uint64_t draw_groups;
 				uint64_t seen;
 				uint64_t clusters;
 				uint64_t cluster_pairs;
@@ -867,7 +867,6 @@ function create_cull_pipeline()
 				}
 
 				uint at = group.base + place;
-				BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, slot);
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
 
 				if (compute.kind != 0) {
@@ -884,7 +883,8 @@ function create_cull_pipeline()
 				}
 
 				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.dynamic, inst.overlay);
-				WorldArray(ARGS.prev_worlds).w[at] = world_from(raster.prev, 0.0, inst.dynamic, inst.overlay);
+				// a previous world's [0][3] only reaches w, which the vertex stage drops, so it carries the slot for ReadBackCull
+				WorldArray(ARGS.prev_worlds).w[at] = world_from(raster.prev, float(slot), inst.dynamic, inst.overlay);
 			}
 		]],
 	}
@@ -971,7 +971,7 @@ local function get_stream_cull_pipeline()
 				world[1][3] = 0.0;
 				world[2][3] = 0.0;
 				mat4 prev = world;
-				prev[0][3] = 0.0;
+				prev[0][3] = -1.0;
 
 				for (uint p = 0u; p < s.part_count; p++) {
 					uint group_id = SceneStreamParts(h.parts).p[s.first_part + p];
@@ -982,7 +982,6 @@ local function get_stream_cull_pipeline()
 
 					atomicAdd(CountArray(ARGS.group_areas).n[group_id], area);
 					uint at = group.base + place;
-					BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, 0xFFFFFFFFu);
 					WorldArray(ARGS.worlds).w[at] = world;
 					WorldArray(ARGS.prev_worlds).w[at] = prev;
 				}
@@ -1210,9 +1209,8 @@ local function get_cluster_pipeline()
 				}
 
 				uint at = group.base + place;
-				BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, slot);
 				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.dynamic, inst.overlay);
-				WorldArray(ARGS.prev_worlds).w[at] = world_from(RasterArray(ARGS.raster).r[id].prev, 0.0, inst.dynamic, inst.overlay);
+				WorldArray(ARGS.prev_worlds).w[at] = world_from(RasterArray(ARGS.raster).r[id].prev, float(slot), inst.dynamic, inst.overlay);
 				bool software = false;
 
 				if (
@@ -1236,6 +1234,7 @@ local function get_cluster_pipeline()
 				}
 
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + index] = draw_command(c.index_count, software ? 0u : 1u, c.first_index, 0, at);
+				GroupIdArray(ARGS.draw_groups).g[uint(compute.capacity) * set + index] = group_id;
 			}
 		]],
 	}
@@ -1284,6 +1283,7 @@ local function get_finalize_pipeline()
 				uint set = variant * 2u + (group.set & 1u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
+				GroupIdArray(ARGS.draw_groups).g[uint(compute.capacity) * set + packed_index] = group_id;
 			}
 		]],
 	}
@@ -1309,7 +1309,7 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 		buffers.counts:Remove()
 		buffers.group_counts:Remove()
 		buffers.group_areas:Remove()
-		buffers.batch_ids:Remove()
+		buffers.draw_groups:Remove()
 		buffers.worlds:Remove()
 		buffers.prev_worlds:Remove()
 
@@ -1355,11 +1355,11 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 			memory_property = {"device_local"},
 			label = name .. ".group_areas",
 		},
-		batch_ids = render.CreateBuffer{
-			byte_size = capacity * 8,
+		draw_groups = render.CreateBuffer{
+			byte_size = command_capacity * GROUPS * 4,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
-			label = name .. ".batch_ids",
+			label = name .. ".draw_groups",
 		},
 		worlds = render.CreateBuffer{
 			byte_size = capacity * 64,
@@ -1389,7 +1389,7 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 	buffers.counts_address = buffers.counts:GetDeviceAddress()
 	buffers.group_counts_address = buffers.group_counts:GetDeviceAddress()
 	buffers.group_areas_address = buffers.group_areas:GetDeviceAddress()
-	buffers.batch_ids_address = buffers.batch_ids:GetDeviceAddress()
+	buffers.draw_groups_address = buffers.draw_groups:GetDeviceAddress()
 	buffers.worlds_address = buffers.worlds:GetDeviceAddress()
 	buffers.prev_worlds_address = buffers.prev_worlds:GetDeviceAddress()
 	buffer_sets[kind] = buffers
@@ -2199,7 +2199,7 @@ function draw.Cull(
 		args.pointer[10] = slot_groups:GetAddress()
 		args.pointer[11] = group_table:GetAddress()
 		args.pointer[12] = buffers.group_counts_address
-		args.pointer[13] = buffers.batch_ids_address
+		args.pointer[13] = buffers.draw_groups_address
 		args.pointer[14] = seen_address
 		args.pointer[15] = cluster_lod.GetTable():GetAddress()
 		args.pointer[16] = pair_address
@@ -2415,47 +2415,20 @@ local function draw_variants(gbuffer_instancing, kind, name, displaced)
 			pipeline.draw_instances_address = buffers.worlds_address
 			pipeline.draw_prev_instances_address = buffers.prev_worlds_address
 			pipeline.draw_thicknesses_address = buffers.thicknesses_address
-			pipeline.draw_batch_ids_address = buffers.batch_ids_address
-			local ids = pipeline.config.visibility
-
-			if ids then
-				visibility.AddContext(
-					pipeline,
-					buffers.commands:GetDeviceAddress() + variant * 2 * group_size,
-					variant * 2
-				)
-			end
-
-			pipeline:UploadConstants()
-			cmd:SetCullMode(orientation.CULL_MODE)
 			cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-			cmd:DrawIndexedIndirectCount(
-				buffers.commands,
-				variant * 2 * group_size,
-				buffers.counts,
-				variant * 2 * 4,
-				count,
-				COMMAND_SIZE
-			)
 
-			if ids then
-				visibility.AddContext(
-					pipeline,
-					buffers.commands:GetDeviceAddress() + (variant * 2 + 1) * group_size,
-					variant * 2 + 1
-				)
+			for sided = 0, 1 do
+				local set = variant * 2 + sided
+				pipeline.draw_groups_address = buffers.draw_groups_address + set * buffers.command_capacity * 4
+
+				if pipeline.config.visibility then
+					visibility.AddContext(pipeline, buffers.commands_address + set * group_size, set)
+				end
+
 				pipeline:UploadConstants()
+				cmd:SetCullMode(sided == 0 and orientation.CULL_MODE or "none")
+				cmd:DrawIndexedIndirectCount(buffers.commands, set * group_size, buffers.counts, set * 4, count, COMMAND_SIZE)
 			end
-
-			cmd:SetCullMode("none")
-			cmd:DrawIndexedIndirectCount(
-				buffers.commands,
-				(variant * 2 + 1) * group_size,
-				buffers.counts,
-				(variant * 2 + 1) * 4,
-				count,
-				COMMAND_SIZE
-			)
 		end
 	end
 end
@@ -2487,8 +2460,6 @@ function draw.DrawTranslucent(gbuffer_instancing, name)
 end
 
 local SHADOW_DECLARATIONS = TABLE_DECLARATIONS .. [[
-			layout(buffer_reference, scalar) buffer GroupIdArray { uint g[]; };
-
 			struct shadow_args {
 				uint64_t tlas;
 				uint64_t data;
@@ -2944,11 +2915,13 @@ do
 		local commands_data = download(buffers.commands, group_capacity * GROUPS * COMMAND_SIZE)
 		local counts_data = download(buffers.counts, GROUPS * 4)
 		local worlds_data = download(buffers.worlds, buffers.capacity * 64)
-		local batch_ids_data = download(buffers.batch_ids, buffers.capacity * 8)
+		local prev_worlds_data = download(buffers.prev_worlds, buffers.capacity * 64)
+		local draw_groups_data = download(buffers.draw_groups, group_capacity * GROUPS * 4)
 		local commands = ffi.cast("uint32_t *", commands_data)
 		local counts = ffi.cast("uint32_t *", counts_data)
 		local worlds = ffi.cast("float *", worlds_data)
-		local batch_ids = ffi.cast("uint32_t *", batch_ids_data)
+		local prev_worlds = ffi.cast("float *", prev_worlds_data)
+		local draw_groups = ffi.cast("uint32_t *", draw_groups_data)
 		local ids = slot_rows:Get()
 
 		for set = 0, GROUPS - 1 do
@@ -2960,7 +2933,7 @@ do
 
 				for place = 0, instance_count - 1 do
 					local at = command[4] + place
-					local slot = batch_ids[at * 2 + 1]
+					local slot = prev_worlds[at * 16 + 3]
 					local world = {}
 
 					for i = 0, 11 do
@@ -2970,14 +2943,14 @@ do
 					local entry = {
 						slot = slot,
 						group = set,
-						group_id = batch_ids[at * 2] + 1,
+						group_id = draw_groups[set * group_capacity + packed_index] + 1,
 						fade = worlds[at * 16 + 3],
 						world = world,
 						index_count = command[0],
 						first_index = command[2],
 					}
 
-					if slot == 0xFFFFFFFF then
+					if slot < 0 then
 						result.by_group[entry.group_id] = result.by_group[entry.group_id] or {}
 						list.insert(result.by_group[entry.group_id], entry)
 						result.streamed = result.streamed + 1

@@ -1530,7 +1530,7 @@ function tessellation.Draw(pipeline, cmd)
 			group_pipeline.draw_batches_address = batches_address
 			group_pipeline.draw_instances_address = 0
 			group_pipeline.draw_prev_instances_address = 0
-			group_pipeline.draw_batch_ids_address = 0
+			group_pipeline.draw_groups_address = 0
 
 			if group_pipeline.config.visibility then
 				visibility.AddContext(

@@ -1578,7 +1578,7 @@ function cluster_stream.Draw(pipeline, cmd)
 	pipeline.draw_batches_address = batch_table:Update(pipeline, batch_list, batch_serial, system.GetFrameNumber())
 	pipeline.draw_instances_address = 0
 	pipeline.draw_prev_instances_address = 0
-	pipeline.draw_batch_ids_address = 0
+	pipeline.draw_groups_address = 0
 	pipeline:UploadConstants()
 	cmd:SetCullMode(orientation.CULL_MODE)
 	cmd:DrawIndirect(state.state_buffer, SET_FRONT * 16, 1, 16)
