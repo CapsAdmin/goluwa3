@@ -1,7 +1,6 @@
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local ffi = require("ffi")
 local render3d = import("goluwa/render3d/render3d.lua")
-local skinning = import("goluwa/render3d/skinning.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local Material = import("goluwa/render3d/material.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
@@ -236,9 +235,7 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 		lines[#lines + 1] = "\tout_instance_thickness = " .. options.instance_thickness_expr .. ";"
 	end
 
-	lines[#lines + 1] = "\tbool skinned = in_vertex_color.a < " .. skinning.MOTION_THRESHOLD .. ";"
-	lines[#lines + 1] = "\tvec3 skin_motion = skinned ? in_vertex_color.rgb : vec3(0.0);"
-	lines[#lines + 1] = "\tvec4 vertex_color = skinned ? vec4(0.0) : in_vertex_color;"
+	lines[#lines + 1] = "\tvec4 vertex_color = in_vertex_color;"
 	lines[#lines + 1] = [[
 	vec3 local_position = in_position;
 	vec3 world_position = (world * vec4(local_position, 1.0)).xyz;
@@ -248,11 +245,15 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	vec3 world_tangent = normalize(world_matrix3 * in_tangent.xyz);]]
 
 	if options.velocity then
-		lines[#lines + 1] = "\tvec3 prev_world_position = (" .. prev_world_expr .. " * vec4(in_position - skin_motion, 1.0)).xyz;"
+		lines[#lines + 1] = "\tvec3 prev_world_position = (" .. prev_world_expr .. " * vec4(" .. (
+				options.enable_vertex_animation ~= false and
+				"get_previous_local_position(in_position, uint(gl_VertexIndex))" or
+				"in_position"
+			) .. ", 1.0)).xyz;"
 	end
 
 	if options.enable_vertex_animation ~= false then
-		lines[#lines + 1] = "\tVegetationChain vertex_chain = skinned ? VegetationChain(vec4(0.0), vec3(0.0), vec3(0.0)) : VegetationChain(in_pivot, in_chain_mid, in_chain_tip);"
+		lines[#lines + 1] = "\tVegetationChain vertex_chain = VegetationChain(in_pivot, in_chain_mid, in_chain_tip);"
 		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, vertex_color, vertex_chain);"
 
 		if options.velocity then
@@ -1022,6 +1023,12 @@ do
 	end
 end
 
+local function get_previous_positions(polygon)
+	local mesh = polygon and polygon.mesh
+
+	return mesh and mesh ~= NULL and mesh.vertex_buffer.previous_positions
+end
+
 pvars.StartGroup("Rendering", "Wind", {store = false})
 local still_version = 0
 local still_pixels = pvars.Setup2{
@@ -1060,6 +1067,8 @@ do
 		{"RootPivot", "vec3", "float RootPivot[3];"},
 		{"RootMid", "vec3", "float RootMid[3];"},
 		{"RootTip", "vec3", "float RootTip[3];"},
+		{"PreviousPositionsLow", "int", "int PreviousPositionsLow;"},
+		{"PreviousPositionsHigh", "int", "int PreviousPositionsHigh;"},
 	}
 	local DETAIL_BENDING_MODES = {none = 0, leaves = 1, grass = 2}
 	local MAIN_MOTION = 0.015 * 12 * 0.45
@@ -1177,6 +1186,10 @@ do
 			block.RootTip[i] = root and root.tip[i + 1] or 0
 		end
 
+		local previous = get_previous_positions(polygon)
+		local address = previous and previous:GetDeviceAddress() or 0ULL
+		block.PreviousPositionsLow = ffi.cast("int32_t", bit.band(address, 0xFFFFFFFFULL))
+		block.PreviousPositionsHigh = ffi.cast("int32_t", bit.rshift(address, 32))
 		return block
 	end
 end
@@ -1211,7 +1224,9 @@ function model_pipeline.GetVertexAnimationUploadKey()
 
 	if not material then return render3d.GetDefaultMaterial() end
 
-	if material:HasVertexAnimation() then return nil end
+	if material:HasVertexAnimation() or get_previous_positions(render3d.GetCurrentPolygon3D()) then
+		return nil
+	end
 
 	return render3d.GetMaterialUploadKey()
 end
@@ -1237,6 +1252,17 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 			};
 
 			layout(buffer_reference, scalar) readonly buffer VegetationPushers { vec4 p[]; };
+			layout(buffer_reference, scalar) readonly buffer PreviousPositions { float p[]; };
+
+			vec3 get_previous_local_position(vec3 position, uint index) {
+				uvec2 address = uvec2(uint(vertex_animation.PreviousPositionsLow), uint(vertex_animation.PreviousPositionsHigh));
+
+				if (address == uvec2(0u)) return position;
+
+				PreviousPositions previous = PreviousPositions(packUint2x32(address));
+				uint at = index * 3u;
+				return vec3(previous.p[at], previous.p[at + 1u], previous.p[at + 2u]);
+			}
 
 			VegetationPushers get_vegetation_pushers() {
 				return VegetationPushers(packUint2x32(uvec2(uint(vertex_animation.PushersLow), uint(vertex_animation.PushersHigh))));

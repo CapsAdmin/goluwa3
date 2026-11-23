@@ -99,6 +99,86 @@ T.Test3D("animator skins a primitive on the gpu without touching the shared mesh
 	entity:Remove()
 end)
 
+T.Test3D("skinning keeps the positions of the skin before beside the skinned copy", function(draw)
+	local skeleton = create_skeleton()
+	local entity, primitive = create_animated_entity(skeleton)
+	local animator = entity:AddComponent("animator")
+	animator:Bind(skeleton)
+	animator:SetSequence("swing")
+	animator:SetPlaying(false)
+
+	local function skin(time)
+		animator:SetTime(time)
+		animator:Animate(0)
+		draw()
+		render.GetDevice():WaitIdle()
+		local vertex_buffer = primitive:GetPolygon3D().mesh.vertex_buffer
+		local current = ffi.cast("float*", vertex_buffer:GetBuffer():Map())
+		local previous = ffi.cast("float*", vertex_buffer.previous_positions:Map())
+		return {current[X], current[Y], current[Y + 1]}, {previous[0], previous[1], previous[2]}
+	end
+
+	local first, first_previous = skin(0.25)
+
+	for i = 1, 3 do
+		T(first_previous[i])["=="](first[i])
+	end
+
+	local second, second_previous = skin(0.5)
+	T(math.abs(second[1] - first[1]) + math.abs(second[2] - first[2]))[">"](0.01)
+
+	for i = 1, 3 do
+		T(second_previous[i])["=="](first[i])
+	end
+
+	animator:Unbind()
+	entity:Remove()
+end)
+
+T.Test3D("a skinned primitive has velocity while its pose changes and none once it rests", function(draw)
+	local render3d = import("goluwa/render3d/render3d.lua")
+	local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
+	local Quat = import("goluwa/structs/quat.lua")
+	local camera = render3d.GetCamera()
+	camera:SetPosition(Vec3(0, 0.5, 4))
+	camera:SetRotation(Quat():Identity())
+	local skeleton = create_skeleton()
+	local entity = create_animated_entity(skeleton)
+	local animator = entity:AddComponent("animator")
+	animator:Bind(skeleton)
+	animator:SetSequence("swing")
+	animator:SetPlaying(false)
+
+	local function largest_velocity(time)
+		animator:SetTime(time)
+		animator:Animate(0)
+		draw()
+		local velocity = gbuffer_layout.GetTexture("velocity"):Download()
+		local largest = 0
+
+		for y = 0, velocity.height - 1, 4 do
+			for x = 0, velocity.width - 1, 4 do
+				local vx, vy = velocity:GetPixelFloat(x, y)
+				largest = math.max(largest, math.abs(vx), math.abs(vy))
+			end
+		end
+
+		return largest
+	end
+
+	largest_velocity(0.25)
+	T(largest_velocity(0.5))[">"](0.001)
+
+	for _ = 1, 3 do
+		animator:Settle()
+		largest_velocity(0.5)
+	end
+
+	T(largest_velocity(0.5))["<"](1e-4)
+	animator:Unbind()
+	entity:Remove()
+end)
+
 T.Test3D("raycasts hit an animated primitive where it is posed and not where it was bound", function(draw)
 	local skeleton = create_skeleton()
 	local entity, primitive, poly = create_animated_entity(skeleton)

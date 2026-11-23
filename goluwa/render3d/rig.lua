@@ -55,7 +55,7 @@ function Rig.New(skeleton, parts)
 			count = count,
 			bind_address = part.bind_vertex_buffer:GetBuffer():GetDeviceAddress(),
 			destination_address = part.vertex_buffer:GetBuffer():GetDeviceAddress(),
-			destination_extras_address = part.extras:GetBuffer():GetDeviceAddress(),
+			previous_address = part.vertex_buffer.previous_positions:GetDeviceAddress(),
 			bones_address = skinning.GetBoneBuffer(part.skin, count):GetDeviceAddress(),
 			skin = part.skin,
 		}

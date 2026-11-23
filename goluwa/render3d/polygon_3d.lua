@@ -4,12 +4,12 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Mesh = RENDER_2D and import("goluwa/render/mesh.lua")
 local IndexBuffer = RENDER_2D and import("goluwa/render/index_buffer.lua")
+local render = RENDER_2D and import("goluwa/render/render.lua")
 local ffi = require("ffi")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local vertex_extras = import("goluwa/render3d/vertex_extras.lua")
 local tasks = import("goluwa/tasks.lua")
-local skinning = import("goluwa/render3d/skinning.lua")
 local Polygon3D = objects.CreateTemplate("render3d_polygon_3d")
 
 function Polygon3D.New()
@@ -186,8 +186,8 @@ do
 
 			for k = 1, 3 do
 				local copy = table.copy(vertices[tri * 3 + k])
-				copy.pivot = {n0, n1, n2}
-				copy.vertex_color = {0, 0, 0, skinning.MOTION_THRESHOLD - 1}
+				copy.pivot = {n0, n1, n2, 0}
+				copy.vertex_color = nil
 				vertices[tri * 3 + k] = copy
 			end
 
@@ -200,11 +200,11 @@ do
 					normal = v.normal,
 					tangent = {x = t.x, y = t.y, z = t.z, w = t.w * 2},
 					texture_blend = v.texture_blend,
-					vertex_color = {0, 0, 0, skinning.MOTION_THRESHOLD - 1},
 					pivot = {
 						n0 >= 0 and n0 + triangles or -1,
 						n1 >= 0 and n1 + triangles or -1,
 						n2 >= 0 and n2 + triangles or -1,
+						0,
 					},
 				}
 			end
@@ -223,8 +223,7 @@ do
 							uv = v.uv,
 							normal = v.normal,
 							tangent = {x = t.x, y = t.y, z = t.z, w = top and 3 or 4},
-							vertex_color = {0, 0, 0, skinning.MOTION_THRESHOLD - 1},
-							pivot = {tri, -1, -1},
+							pivot = {tri, -1, -1, 0},
 						}
 					end
 
@@ -574,7 +573,7 @@ local function pack_vertices(polygon, vertex_count)
 			vertices[idx].pivot[0] = pivot.x or pivot[1] or 0
 			vertices[idx].pivot[1] = pivot.y or pivot[2] or 0
 			vertices[idx].pivot[2] = pivot.z or pivot[3] or 0
-			vertices[idx].pivot[3] = 1
+			vertices[idx].pivot[3] = pivot.w or pivot[4] or 1
 		else
 			vertices[idx].pivot[0] = 0
 			vertices[idx].pivot[1] = 0
@@ -709,6 +708,25 @@ function Polygon3D:CloneDynamic(vertex_buffer, extras)
 	end
 
 	clone.mesh = self.mesh:CloneDynamic(vertex_buffer, extras)
+
+	if not vertex_buffer then
+		local dynamic = clone.mesh.vertex_buffer
+		local count = dynamic:GetVertexCount()
+		local positions = ffi.new("float[?]", count * 3)
+
+		for i = 0, count - 1 do
+			ffi.copy(positions + i * 3, dynamic.data + i * dynamic.stride, 12)
+		end
+
+		dynamic.previous_positions = render.CreateBuffer{
+			byte_size = count * 12,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			data = positions,
+			label = "skinned previous positions",
+		}
+	end
+
 	return clone
 end
 

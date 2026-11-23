@@ -374,10 +374,6 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 						shadow_vertex_chain_tip(extras, index)
 					);
 					vec3 world_normal = normalize(transpose(inverse(mat3(shadow_world))) * local_normal);
-					if (vertex_color.a < ]] .. skinning.MOTION_THRESHOLD .. [[.0) {
-						vertex_color = vec4(0.0);
-						vertex_chain = VegetationChain(vec4(0.0), vec3(0.0), vec3(0.0));
-					}
 
 					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color, vertex_chain);
 				}

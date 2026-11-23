@@ -8,14 +8,12 @@ local skinning = {}
 skinning.MAX_JOBS = 4096
 skinning.MAX_MATRIX_FLOATS = 12 * 65536
 skinning.RING = 4
-skinning.MOTION_MARK = -1000000
-skinning.MOTION_THRESHOLD = -500000
 local LOCAL_SIZE = 64
 local ROW = 65535
 local Job = ffi.typeof([[struct {
 	uint32_t bind[2];
 	uint32_t destination[2];
-	uint32_t destination_extras[2];
+	uint32_t previous[2];
 	uint32_t bones[2];
 	uint32_t matrices[2];
 	uint32_t morph_ranges[2];
@@ -23,6 +21,7 @@ local Job = ffi.typeof([[struct {
 	uint32_t morph_weights[2];
 	uint32_t count;
 	uint32_t group_start;
+	uint32_t first;
 }]])
 local JobPtr = ffi.typeof("$ *", Job)
 local uint64_ptr = ffi.typeof("uint64_t *")
@@ -91,6 +90,7 @@ local function get_pipeline()
 		shader = [[
 			layout(buffer_reference, scalar) readonly buffer SkinBind { float v[]; };
 			layout(buffer_reference, scalar) buffer SkinDestination { float v[]; };
+			layout(buffer_reference, scalar) buffer SkinPrevious { float v[]; };
 			struct SkinBone {
 				uint indices;
 				float w0;
@@ -110,7 +110,7 @@ local function get_pipeline()
 			struct SkinJob {
 				uvec2 bind;
 				uvec2 destination;
-				uvec2 destination_extras;
+				uvec2 previous;
 				uvec2 bones;
 				uvec2 matrices;
 				uvec2 morph_ranges;
@@ -118,6 +118,7 @@ local function get_pipeline()
 				uvec2 morph_weights;
 				uint count;
 				uint group_start;
+				uint first;
 			};
 			layout(scalar, set = 0, binding = 0) readonly buffer SkinJobs {
 				SkinJob jobs[];
@@ -184,24 +185,17 @@ local function get_pipeline()
 					}
 				}
 
-				vec3 previous = position;
-				SkinDestination extras = SkinDestination(packUint2x32(job.destination_extras));
-				bool had_previous = skin_destination_color(extras, i).w < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
 				position = m * vec4(position, 1.0);
-
-				if (had_previous) {
-					previous = skin_destination_position(destination, i);
-				} else {
-					previous = position;
-				}
-
+				vec3 previous = job.first != 0u ? position : skin_destination_position(destination, i);
+				SkinPrevious previous_positions = SkinPrevious(packUint2x32(job.previous));
+				previous_positions.v[i * 3u] = previous.x;
+				previous_positions.v[i * 3u + 1u] = previous.y;
+				previous_positions.v[i * 3u + 2u] = previous.z;
 				normal = normalize(mat3(m) * normal + 1e-20);
 				tangent = normalize(mat3(m) * tangent + 1e-20);
 				skin_destination_set_position(destination, i, position);
 				skin_destination_set_normal(destination, i, normal);
 				skin_destination_set_tangent(destination, i, vec4(tangent, skin_destination_tangent(destination, i).w));
-				vec3 motion = position - previous;
-				skin_destination_set_color(extras, i, vec4(motion, ]] .. skinning.MOTION_MARK .. [[.0));
 			}
 		]],
 	}
@@ -428,7 +422,7 @@ function skinning.Dispatch(cmd)
 				local job = b.job_data[job_base + jobs]
 				ffi.cast(uint64_ptr, job.bind)[0] = skinned.bind_address
 				ffi.cast(uint64_ptr, job.destination)[0] = skinned.destination_address
-				ffi.cast(uint64_ptr, job.destination_extras)[0] = skinned.destination_extras_address
+				ffi.cast(uint64_ptr, job.previous)[0] = skinned.previous_address
 				ffi.cast(uint64_ptr, job.bones)[0] = skinned.bones_address
 				ffi.cast(uint64_ptr, job.matrices)[0] = matrix_address
 
@@ -443,6 +437,8 @@ function skinning.Dispatch(cmd)
 				skinning.updated[tonumber(skinned.destination_address)] = true
 				job.count = skinned.count
 				job.group_start = groups
+				job.first = skinned.skinned_once and 0 or 1
+				skinned.skinned_once = true
 				groups = groups + math.ceil(skinned.count / LOCAL_SIZE)
 				jobs = jobs + 1
 			end
