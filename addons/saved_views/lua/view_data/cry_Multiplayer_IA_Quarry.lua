@@ -1,6 +1,20 @@
 return {
 	scene = "cry:Multiplayer/IA/Quarry",
 	views = {
+		terrain_overview = {
+			climate = {
+				ground_fog_visibility = 3912.023005428146,
+				wind = Vec3(3, 0, 0),
+			},
+			ev = 13.313,
+			fov = 1.5707963267949,
+			latitude = 31.957115,
+			longitude = 106.070245,
+			note = "terrain flickered through other materials with the visibility buffer on",
+			pos = Vec3(1452.632192, 185.686574, -1179.729561),
+			rot = Quat(0.149199, -0.250007, -0.039022, -0.955884),
+			time = 1795410356.9216,
+		},
 		watertower_scatter = {
 			climate = {
 				ground_fog_visibility = 3912.023005428146,
