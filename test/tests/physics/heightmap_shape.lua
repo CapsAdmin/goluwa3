@@ -144,3 +144,33 @@ T.TestPhysics("Heightmap traces hit sloped cells at the interpolated height", fu
 		T(math.abs(hit.position.y - shape:GetHeightAtLocal(probe[1], probe[2])))["<"](0.001)
 	end
 end)
+
+T.TestPhysics("Heightmap bodies are hit by zero radius sweeps", function()
+	local physics = import("goluwa/physics.lua")
+	local Entity = import("goluwa/entities/entity.lua")
+	local ent = Entity.New({Name = "sweep_heightmap"})
+	ent:AddComponent("transform")
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = HeightmapShape.New{
+				Samples = HeightmapShape.SamplesFromFunction(3, 3, function()
+					return 2
+				end),
+				SamplesX = 3,
+				SamplesZ = 3,
+				Size = Vec2(10, 10),
+			},
+			MotionType = "static",
+			GravityScale = 0,
+			WorldGeometry = true,
+		}
+	)
+	local hit = physics.Sweep(Vec3(1, 10, 1), Vec3(0, -20, 0), 0, nil, nil, {})
+	T(hit)["~="](nil)
+	T(hit.rigid_body)["=="](ent.rigid_body)
+	T(hit.position.y)[">="](1.99)
+	T(hit.position.y)["<="](2.01)
+	T(physics.Sweep(Vec3(50, 10, 1), Vec3(0, -20, 0), 0, nil, nil, {}) == nil)["=="](true)
+	ent:Remove()
+end)

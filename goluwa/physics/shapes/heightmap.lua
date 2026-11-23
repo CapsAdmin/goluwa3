@@ -5,6 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local ffi = require("ffi")
 local META = objects.CreateTemplate("physics_shape_heightmap")
 META.Base = BaseShape
@@ -453,6 +454,16 @@ function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_
 	TRACE_AGAINST_BODY_CONTEXT.best_hit = nil
 	TRACE_AGAINST_BODY_CONTEXT.best_distance = math.huge
 	return best_hit
+end
+
+function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
+	if radius > 0.001 then return nil end
+
+	local body = collider:GetBody()
+
+	if not (body and (body:IsStatic() or body:IsKinematic())) then return nil end
+
+	return sweep_helpers.TracePointAgainstBody(self, collider, origin, movement, max_fraction)
 end
 
 return META:Register()
