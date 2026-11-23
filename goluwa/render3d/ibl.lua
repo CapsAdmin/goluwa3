@@ -56,7 +56,9 @@ function ibl.GetEONGLSL()
 end
 
 function ibl.GetBRDFGLSLCode()
-	return glsl_common.GetConstantsGLSL() .. [[
+	return glsl_common.GetConstantsGLSL() .. glsl_common.GetFresnelGLSL() .. [[
+			#ifndef IBL_BRDF_GLSL
+			#define IBL_BRDF_GLSL
 
 			float pow5(float x) {
 				float x2 = x * x;
@@ -100,6 +102,12 @@ function ibl.GetBRDFGLSLCode()
 			vec3 F_Schlick(const vec3 f0, float VoH) {
 				float f = pow5(1.0 - VoH);
 				return f0 + (vec3(F90(f0)) - f0) * f;
+			}
+
+			vec3 F_Surface(vec3 f0, float dielectric_f0, float metallic, float VoH) {
+				float root = sqrt(clamp(dielectric_f0, 0.0, 0.99));
+				float exact = (fresnel_dielectric(VoH, (1.0 - root) / (1.0 + root)) - dielectric_f0) / max(1.0 - dielectric_f0, 1e-4);
+				return f0 + (vec3(F90(f0)) - f0) * mix(saturate(exact), pow5(1.0 - VoH), metallic);
 			}
 
 			vec3 F_SchlickRoughness(vec3 f0, float NdotV, float perceptual_roughness) {
@@ -173,6 +181,8 @@ function ibl.GetBRDFGLSLCode()
 				vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
 				return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(0.0, Nh.z)));
 			}
+
+			#endif
 		]]
 end
 

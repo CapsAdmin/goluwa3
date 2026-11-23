@@ -485,7 +485,7 @@ return {
 						float NoL = saturate(dot(s.N, L));
 						vec3 H = normalize(s.V + L);
 						ambient_diffuse += Fd_EON(s.albedo, s.diffuse_roughness, NoL, s.NdotV, dot(L, s.V)) * kD_ambient * GGXDiffuseCoupling(s.F0, texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NoL, s.perceptual_roughness)).rg, brdf_lut.ba) * caustic;
-						caustic_specular = D_GGXAlpha(s.roughness_alpha, saturate(dot(s.N, H))) * V_SmithGGXCorrelated(s.roughness_alpha, s.NdotV, NoL) * F_Schlick(s.F0, saturate(dot(L, H))) * GGXEnergyCompensation(s.F0, envBRDF) * caustic;
+						caustic_specular = D_GGXAlpha(s.roughness_alpha, saturate(dot(s.N, H))) * V_SmithGGXCorrelated(s.roughness_alpha, s.NdotV, NoL) * F_Surface(s.F0, 0.04 * s.specular, s.metallic, saturate(dot(L, H))) * GGXEnergyCompensation(s.F0, envBRDF) * caustic;
 					}
 				}
 

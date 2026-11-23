@@ -116,6 +116,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float perceptual_roughness;
 				float diffuse_roughness;
 				float metallic;
+				float dielectric_f0;
 				float NoV;
 				vec3 energy_compensation;
 				vec3 diffuse_view;
@@ -168,7 +169,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float a2 = v.alpha * v.alpha;
 				float G1 = 2.0 * v.NoV / (v.NoV + sqrt(a2 + (1.0 - a2) * v.NoV * v.NoV));
 				pdf = v.specular_chance * G1 * D / (4.0 * v.NoV) + (1.0 - v.specular_chance) * (1.0 - v.transmission_chance) * NoL / PT_PI;
-				vec3 Fr = D * V_SmithGGXCorrelated(v.alpha, v.NoV, NoL) * F_Schlick(v.F0, LoH) * v.energy_compensation;
+				vec3 Fr = D * V_SmithGGXCorrelated(v.alpha, v.NoV, NoL) * F_Surface(v.F0, v.dielectric_f0, v.metallic, LoH) * v.energy_compensation;
 				vec3 Fd = Fd_EON(v.albedo, v.diffuse_roughness, NoL, v.NoV, dot(L, v.V)) * v.diffuse_view * GGXDiffuseCoupling(v.F0, textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(NoL, v.perceptual_roughness), 0.0).rg, v.average_env_brdf);
 				return Fr + Fd;
 			}
@@ -570,8 +571,9 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				v.V = -dir;
 				v.albedo = albedo;
 				v.metallic = metallic;
+				v.dielectric_f0 = 0.04 * material.specular;
 				v.diffuse_roughness = material.diffuse_roughness;
-				v.F0 = mix(vec3(0.04), albedo, metallic);
+				v.F0 = mix(vec3(v.dielectric_f0), albedo, metallic);
 				v.alpha = clamp(roughness * roughness, 0.002, 1.0);
 				v.perceptual_roughness = sqrt(v.alpha);
 				pt_prepare(v);
@@ -733,6 +735,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				primary.alpha = surface.roughness_alpha;
 				primary.perceptual_roughness = surface.perceptual_roughness;
 				primary.metallic = surface.metallic;
+				primary.dielectric_f0 = 0.04 * surface.specular;
 				primary.diffuse_roughness = surface.diffuse_roughness;
 				primary.transmission = surface.transmission;
 				primary.transmission_color = surface.transmission_color;

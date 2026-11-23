@@ -58,7 +58,7 @@ Material:GetSet(
 	0.0,
 	{callback = "InvalidateEmission", requires = "EmissiveTextureIsColor"}
 )
-Material:GetSet("SpecularMultiplier", 1.0)
+Material:GetSet("SpecularMultiplier", 1.0, {callback = "InvalidateRayMaterial"})
 
 for _, feature in ipairs(surface_features.list) do
 	if feature.params then
