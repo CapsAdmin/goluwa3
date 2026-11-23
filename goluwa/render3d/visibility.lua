@@ -166,6 +166,9 @@ do
 	local VARIANTS = visibility.VARIANTS
 	local BINS = VARIANTS * 2 * visibility.KINDS
 	local MATERIAL_BINS = 256
+	local SCAN_THREADS = 1024
+	local SCAN_COUNTERS = BINS * MATERIAL_BINS / SCAN_THREADS
+	local SCAN_THREADS_PER_BIN = MATERIAL_BINS / SCAN_COUNTERS
 	local OFFSET_BYTES = 36
 	local HEADER_WORDS = BINS * MATERIAL_BINS * 2 + BINS * 5 + 4
 	local HEADER_BYTES = HEADER_WORDS * 4
@@ -592,48 +595,57 @@ do
 		}
 		bins = EasyPipeline.Compute{
 			name = "visibility_bins",
-			LocalSize = {x = BINS, y = 1, z = 1},
+			LocalSize = {x = SCAN_THREADS, y = 1, z = 1},
 			block = job_block,
 			write = write_job_block,
 			shader = JOBS_HEADER .. string.format(
 					[[
-				shared uint totals[%d];
+				shared uint partial[%d];
+
+				uint scan_start(uint thread) {
+					return thread == 0u ? 0u : partial[thread - 1u];
+				}
 
 				void main() {
 					VisibilityJobs jobs = VisibilityJobs(compute.jobs);
-					uint bin = gl_LocalInvocationID.x;
-					uint total = 0u;
+					uint thread = gl_LocalInvocationID.x;
+					uint first = thread * %du;
+					uint sum = 0u;
 
 					for (uint i = 0u; i < %du; i++) {
-						total += jobs.counts[bin * %du + i];
+						sum += jobs.counts[first + i];
 					}
 
-					totals[bin] = total;
+					partial[thread] = sum;
 					barrier();
-					uint base = 0u;
 
-					for (uint i = 0u; i < bin; i++) {
-						base += totals[i];
+					for (uint offset = 1u; offset < %du; offset <<= 1u) {
+						uint value = thread >= offset ? partial[thread - offset] : 0u;
+						barrier();
+						partial[thread] += value;
+						barrier();
 					}
 
-					jobs.totals[bin] = total;
-					jobs.bases[bin] = base;
-					jobs.args[bin * 3u] = (total + %du) / %du;
-					jobs.args[bin * 3u + 1u] = 1u;
-					jobs.args[bin * 3u + 2u] = 1u;
+					uint base = scan_start(thread);
 
 					for (uint i = 0u; i < %du; i++) {
-						jobs.cursors[bin * %du + i] = base;
-						base += jobs.counts[bin * %du + i];
+						jobs.cursors[first + i] = base;
+						base += jobs.counts[first + i];
 					}
 
-					if (bin == 0u) {
-						uint animated = 0u;
+					if (thread %% %du == 0u) {
+						uint bin = thread / %du;
+						uint start = scan_start(thread);
+						uint total = partial[thread + %du] - start;
+						jobs.totals[bin] = total;
+						jobs.bases[bin] = start;
+						jobs.args[bin * 3u] = (total + %du) / %du;
+						jobs.args[bin * 3u + 1u] = 1u;
+						jobs.args[bin * 3u + 2u] = 1u;
+					}
 
-						for (uint i = %du; i < %du; i++) {
-							animated += totals[i];
-						}
-
+					if (thread == 0u) {
+						uint animated = scan_start(%du) - scan_start(%du);
 						jobs.animate[0] = (animated * 3u + %du) / %du;
 						jobs.animate[1] = 1u;
 						jobs.animate[2] = 1u;
@@ -641,16 +653,18 @@ do
 					}
 				}
 			]],
-					BINS,
-					MATERIAL_BINS,
-					MATERIAL_BINS,
+					SCAN_THREADS,
+					SCAN_COUNTERS,
+					SCAN_COUNTERS,
+					SCAN_THREADS,
+					SCAN_COUNTERS,
+					SCAN_THREADS_PER_BIN,
+					SCAN_THREADS_PER_BIN,
+					SCAN_THREADS_PER_BIN - 1,
 					QUADS_PER_GROUP - 1,
 					QUADS_PER_GROUP,
-					MATERIAL_BINS,
-					MATERIAL_BINS,
-					MATERIAL_BINS,
-					VARIANTS,
-					VARIANTS * 2,
+					VARIANTS * 2 * SCAN_THREADS_PER_BIN,
+					VARIANTS * SCAN_THREADS_PER_BIN,
 					ANIMATE_LOCAL_SIZE - 1,
 					ANIMATE_LOCAL_SIZE
 				),
