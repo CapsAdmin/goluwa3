@@ -26,6 +26,7 @@ local ViewPriority = import("goluwa/render3d/view_priority.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local scatter = {}
 scatter.name = "gbuffer_multi_draw"
+scatter.visibility_ids = true
 scatter.MAX_SURFACES = 512
 scatter.SURFACE_RING = 4
 scatter.MAX_JOBS = 2 ^ 20

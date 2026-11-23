@@ -6,6 +6,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local system = import("goluwa/system.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
+local visibility = import("goluwa/render3d/visibility.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -15,6 +16,7 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local tessellation = {}
 tessellation.name = "gbuffer_tessellated"
+tessellation.visibility_ids = true
 tessellation.MAX_LOG = 6
 local BUCKETS = tessellation.MAX_LOG + 1
 local GROUPS = 2
@@ -650,6 +652,21 @@ local tess_block = {
 		return block
 	end,
 }
+tessellation.VISIBILITY_DECLARATIONS = [[
+	struct VisibilityTessDraw {
+		uint64_t jobs;
+		uint64_t worlds;
+		uint64_t patches;
+		float seam_band;
+	};
+	VisibilityTessDraw tess_draw;
+]]
+tessellation.VISIBILITY_PREPARE = [[
+	tess_draw.jobs = context.extra0;
+	tess_draw.worlds = context.extra1;
+	tess_draw.patches = context.extra2;
+	tess_draw.seam_band = context.extra_float;
+]]
 local TESS_EVAL_GLSL = [=[
 	int tess_fade_texture;
 
@@ -869,6 +886,8 @@ local VERTEX_MAIN = [=[
 		out_batch = batch_index;
 		out_instance = job.instance;
 		out_triangle = tri;
+		out_draw = uint(gl_DrawID);
+		out_primitive = uint(gl_VertexIndex) / 3u;
 		PBRBatchData batch_data = PBRBatchData(gbuffer_draw.batches);
 		TessVertexData data = TessVertexData(job.vertices);
 		TessVertexData extras = TessVertexData(packUint2x32(batch_data.b[batch_index].extras_address));
@@ -955,10 +974,12 @@ uint tess_batch;
 #define model (PBRBatchData(gbuffer_draw.batches).b[tess_batch].m_model)
 #define terrain_model (PBRBatchData(gbuffer_draw.batches).b[tess_batch].m_terrain_model)
 ]] .. model_pipeline.TERRAIN_RELIEF_GLSL .. string.format(
-				"layout(location = %d) flat out uint out_batch;\nlayout(location = %d) flat out uint out_instance;\nlayout(location = %d) flat out uint out_triangle;\n",
+				"layout(location = %d) flat out uint out_batch;\nlayout(location = %d) flat out uint out_instance;\nlayout(location = %d) flat out uint out_triangle;\nlayout(location = %d) flat out uint out_draw;\nlayout(location = %d) flat out uint out_primitive;\n",
 				batch_location,
 				batch_location + 1,
-				batch_location + 2
+				batch_location + 2,
+				batch_location + 3,
+				batch_location + 4
 			),
 		shader = TESS_EVAL_GLSL .. VERTEX_MAIN,
 	}
@@ -1160,6 +1181,15 @@ end
 local function get_pipeline()
 	if not render3d.HasPipelineVariants(tessellation.name) then return end
 
+	if visibility.enabled then
+		local ids = render3d.GetPipelineVariant(
+			tessellation.name,
+			draw.GetVariant(draw.SHAPE_IDS, bit.bor(draw.GetGlobalBits(0), shader_features.PARAMS))
+		)
+
+		if render3d.IsPipelineReady(ids) then return ids end
+	end
+
 	local plain = draw.GetVariant(draw.SHAPE_PLAIN, bit.bor(draw.GetGlobalBits(0), shader_features.PARAMS))
 	local pipeline = render3d.GetPipelineVariant(tessellation.name, plain)
 
@@ -1242,7 +1272,7 @@ function tessellation.Draw(pipeline, cmd)
 	local terrain = render3d.GetPipelineVariant(
 		tessellation.name,
 		draw.GetVariant(
-			draw.SHAPE_PLAIN,
+			pipeline.config.visibility and draw.SHAPE_IDS or draw.SHAPE_PLAIN,
 			bit.bor(draw.GetGlobalBits(0), shader_features.TERRAIN, shader_features.PARAMS)
 		)
 	)
@@ -1253,6 +1283,19 @@ function tessellation.Draw(pipeline, cmd)
 			group_pipeline.draw_instances_address = 0
 			group_pipeline.draw_prev_instances_address = 0
 			group_pipeline.draw_batch_ids_address = 0
+
+			if group_pipeline.config.visibility then
+				visibility.AddContext(
+					group_pipeline,
+					state.state_buffer:GetDeviceAddress() + (group - 1) * BUCKETS * 16,
+					visibility.KIND_TESSELLATION,
+					state.jobs_address,
+					state.worlds_address,
+					state.patches_address,
+					seam_band:Get()
+				)
+			end
+
 			group_pipeline:UploadConstants()
 			cmd:SetCullMode(orientation.CULL_MODE)
 			cmd:DrawIndirect(state.state_buffer, (group - 1) * BUCKETS * 16, BUCKETS, 16)

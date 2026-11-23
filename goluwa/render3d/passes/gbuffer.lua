@@ -32,7 +32,7 @@ local function get_extra_pipeline(extra)
 		shader_features.PARAMS
 	local bits = bit.bor(scene_draw.GetGlobalBits(0), param_bits)
 
-	if visibility.enabled and extra.name == "gbuffer_multi_draw" then
+	if visibility.enabled and extra.visibility_ids then
 		local pipeline = render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_IDS, bits))
 
 		if render3d.IsPipelineReady(pipeline) then return pipeline end
@@ -857,7 +857,11 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			]] .. (
 			visibility_ids and
 			[[
-			set_visibility(uvec4(uint(gbuffer_draw.context), in_draw, in_instance, uint(gl_PrimitiveID)));
+			set_visibility(uvec4(uint(gbuffer_draw.context), in_draw, in_instance, ]] .. (
+				tessellated and
+				"in_primitive" or
+				"uint(gl_PrimitiveID)"
+			) .. [[));
 			return;
 			]] or
 			""
@@ -999,12 +1003,29 @@ do
 	scene_draw.SetVariantKind(0, {"gbuffer_multi_draw"}, shader_features.ALL, true)
 
 	if visibility.enabled then
-		visibility.SetResolveSource(
-			function(bits)
-				return build_multi_draw_pass(build_ssdm_fragment_shader(false, true, false), bits)
-			end,
-			camera_block,
-			orientation.FRONT_FACE
+		visibility.SetCamera(camera_block, orientation.FRONT_FACE)
+		visibility.SetKind(
+			visibility.KIND_MULTI_DRAW,
+			{
+				indexed = true,
+				build = function(bits)
+					return build_multi_draw_pass(build_ssdm_fragment_shader(false, true, false), bits)
+				end,
+			}
+		)
+		visibility.SetKind(
+			visibility.KIND_TESSELLATION,
+			{
+				indexed = false,
+				declarations = tessellation.VISIBILITY_DECLARATIONS,
+				prepare = tessellation.VISIBILITY_PREPARE,
+				before_fragment = "tess_batch = in_batch;",
+				build = function(bits)
+					local pass = build_multi_draw_pass(build_ssdm_fragment_shader(false, true, false, true), bits)
+					pass.vertex = tessellation.CreateVertexStage({camera_block, multi_draw_block}, bits)
+					return pass
+				end,
+			}
 		)
 	end
 
@@ -1017,12 +1038,22 @@ do
 				return "tessellated" .. (features ~= "" and "," .. features or "")
 			end,
 			build = function(variant)
+				local visibility_ids = scene_draw.GetVariantShape(variant) == scene_draw.SHAPE_IDS
 				local pass = build_multi_draw_pass(
-					build_ssdm_fragment_shader(false, true, false, true),
-					scene_draw.GetVariantBits(variant)
+					build_ssdm_fragment_shader(false, true, false, true, visibility_ids),
+					scene_draw.GetVariantBits(variant),
+					visibility_ids
 				)
 				pass.name = tessellation.name
 				pass.vertex = tessellation.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
+
+				if visibility_ids then
+					pass.fragment.custom_declarations = pass.fragment.custom_declarations .. string.format(
+							"layout(location = %d) flat in uint in_primitive;\n",
+							pass.vertex.batch_location + 4
+						)
+				end
+
 				return pass
 			end,
 		}

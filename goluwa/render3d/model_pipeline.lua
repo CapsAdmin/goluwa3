@@ -1777,6 +1777,8 @@ function model_pipeline.GetPBRUniformBuffers()
 end
 
 model_pipeline.TERRAIN_RELIEF_GLSL = [=[
+#ifndef MODEL_PIPELINE_TERRAIN_RELIEF
+#define MODEL_PIPELINE_TERRAIN_RELIEF
 			bool has_terrain_layers() {
 				return TERRAIN_LAYERS != 0 && terrain_model.TerrainMaterialTexture != -1;
 			}
@@ -1931,6 +1933,7 @@ model_pipeline.TERRAIN_RELIEF_GLSL = [=[
 			return mix(base, max(base, cover_level / cover_amount), min(cover_amount, 1.0));
 		}
 
+#endif
 ]=]
 
 function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
