@@ -263,10 +263,6 @@ local function build_multi_draw_pass(fragment_shader, bits, visibility_ids)
 			pass.vertex.batch_location,
 			pass.vertex.batch_location + 1,
 			pass.vertex.batch_location + 2
-		) .. (
-			visibility_ids and
-			string.format("layout(location = %d) flat in uint in_draw;\n", pass.vertex.batch_location + 3) or
-			""
 		) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(gbuffer_draw.batches).b[in_batch]") .. [[
 layout(buffer_reference, scalar) readonly buffer PrismVertexData { float v[]; };
 layout(buffer_reference, scalar) readonly buffer PrismIndexData { uint i[]; };
@@ -867,11 +863,11 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			]] .. (
 			visibility_ids and
 			[[
-			set_visibility(uvec4(uint(gbuffer_draw.context) | (in_draw << 10u), in_instance, ]] .. (
+			set_visibility(]] .. (
 				tessellated and
-				"in_primitive, 0u" or
-				"in_vertex[0] | (in_vertex[1] << 21u), (in_vertex[1] >> 11u) | (in_vertex[2] << 10u)"
-			) .. [[));
+				"uvec4(uint(gbuffer_draw.context), in_patch, in_primitive, 0u)" or
+				"uvec4(uint(gbuffer_draw.context) | (in_draw << 10u), in_instance, in_vertex[0] | (in_vertex[1] << 21u), (in_vertex[1] >> 11u) | (in_vertex[2] << 10u))"
+			) .. [[);
 			return;
 			]] or
 			""
@@ -1010,7 +1006,8 @@ do
 
 				if visibility_ids then
 					pass.fragment.custom_declarations = pass.fragment.custom_declarations .. string.format(
-							"layout(location = %d) pervertexEXT in uint in_vertex[3];\n",
+							"layout(location = %d) flat in uint in_draw;\nlayout(location = %d) pervertexEXT in uint in_vertex[3];\n",
+							pass.vertex.batch_location + 3,
 							pass.vertex.batch_location + 4
 						)
 				end
@@ -1074,7 +1071,8 @@ do
 
 				if visibility_ids then
 					pass.fragment.custom_declarations = pass.fragment.custom_declarations .. string.format(
-							"layout(location = %d) flat in uint in_primitive;\n",
+							"layout(location = %d) flat in uint in_patch;\nlayout(location = %d) flat in uint in_primitive;\n",
+							pass.vertex.batch_location + 3,
 							pass.vertex.batch_location + 4
 						)
 				end

@@ -981,7 +981,7 @@ local VERTEX_MAIN = [=[
 		out_batch = batch_index;
 		out_instance = job.instance;
 		out_triangle = tri;
-		out_draw = uint(gl_DrawID);
+		out_patch = uint(gl_InstanceIndex);
 		out_primitive = uint(gl_VertexIndex) / 3u;
 		PBRBatchData batch_data = PBRBatchData(gbuffer_draw.batches);
 		TessVertexData data = TessVertexData(job.vertices);
@@ -1073,7 +1073,7 @@ uint tess_batch;
 #define model (PBRBatchData(gbuffer_draw.batches).b[tess_batch].m_model)
 #define terrain_model (PBRBatchData(gbuffer_draw.batches).b[tess_batch].m_terrain_model)
 ]] .. model_pipeline.TERRAIN_RELIEF_GLSL .. string.format(
-				"layout(location = %d) flat out uint out_batch;\nlayout(location = %d) flat out uint out_instance;\nlayout(location = %d) flat out uint out_triangle;\nlayout(location = %d) flat out uint out_draw;\nlayout(location = %d) flat out uint out_primitive;\n",
+				"layout(location = %d) flat out uint out_batch;\nlayout(location = %d) flat out uint out_instance;\nlayout(location = %d) flat out uint out_triangle;\nlayout(location = %d) flat out uint out_patch;\nlayout(location = %d) flat out uint out_primitive;\n",
 				batch_location,
 				batch_location + 1,
 				batch_location + 2,
