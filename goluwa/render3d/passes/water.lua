@@ -1653,7 +1653,10 @@ list.insert(
 				float no_l = max(dot(normal, sun), 0.0);
 				vec3 half_dir = normalize(view_dir + sun);
 				float sun_specular = no_l > 0.0 ? D_GGXAlpha(alpha, max(dot(normal, half_dir), 0.0)) * V_SmithGGXCorrelated(alpha, no_v, no_l) * fresnel_dielectric(max(dot(view_dir, half_dir), 0.0), 1.0 / 1.33) * no_l * get_water_sun_visibility(world_pos + normal * 0.05, sun) : 0.0;
-				vec3 sky = sample_environment_specular(water_data.env_tex, reflect(-view_dir, normal), normal, perceptual) * fresnel_dielectric(no_v, 1.0 / 1.33);
+				vec3 sky_up = sample_environment_irradiance(water_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
+				vec3 ambient = get_ambient_irradiance(world_pos + normal * 0.1, RADIANCE_CACHE_NO_VISIBILITY_RAYS, true);
+				float sky_openness = min(dot(ambient, vec3(0.2126, 0.7152, 0.0722)) / max(dot(sky_up, vec3(0.2126, 0.7152, 0.0722)), 1e-6), 1.0);
+				vec3 sky = sample_environment_specular(water_data.env_tex, reflect(-view_dir, normal), normal, perceptual) * fresnel_dielectric(no_v, 1.0 / 1.33) * sky_openness;
 				return color + (sky + get_sun_illuminance() * sun_specular) * wetness * mix(0.12, 1.0, film);
 			}
 
