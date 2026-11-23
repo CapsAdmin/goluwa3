@@ -816,7 +816,7 @@ function surface_overlays.GetPreviewGLSL(name)
 end
 
 function surface_overlays.ParseError(message)
-	local source, line, text = message:match("(%d+):(%d+): error: ([^\n]*)")
+	local source, line, text = message:match("ERROR: (%d+):(%d+): ([^\n]*)")
 	local kind = source and kinds[tonumber(source)]
 
 	if not kind then return message end

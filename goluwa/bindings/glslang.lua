@@ -146,7 +146,8 @@ do
 	local function fail(source, text)
 		local path = "./storage/logs/last_shader_error.glsl"
 		fs.write_file(path, source)
-		error("\n" .. text:gsub("(%u+): %d+:(%d+):", "%1: " .. path .. ":%2:"), 3)
+		-- only the main source string is the dumped file, other strings (#line n s) are kept for the callers that map them back
+		error("\n" .. text:gsub("(%u+): 0:(%d+):", "%1: " .. path .. ":%2:"), 3)
 	end
 
 	local options

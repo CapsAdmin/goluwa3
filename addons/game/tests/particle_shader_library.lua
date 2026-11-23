@@ -120,8 +120,8 @@ T.Test("a particle shader source defines the hook functions it wants and the res
 			) ~= nil
 	)["=="](true)
 	T(glsl:find("case " .. id .. ": shader_" .. id .. "_spawn", 1, true) == nil)["=="](true)
-	T(shader_module.ParseError("0:3: error: foo\n"))["=="]("0:3: error: foo\n")
-	T(shader_module.ParseError(id .. ":2: error: 'x' : undeclared identifier\n"))["=="]("test_visibility line 2: 'x' : undeclared identifier")
+	T(shader_module.ParseError("ERROR: 0:3: foo\n"))["=="]("ERROR: 0:3: foo\n")
+	T(shader_module.ParseError("ERROR: " .. id .. ":2: 'x' : undeclared identifier\n"))["=="]("test_visibility line 2: 'x' : undeclared identifier")
 	shader_module.Remove("test_visibility")
 	shader_module.Remove("test_update")
 end)

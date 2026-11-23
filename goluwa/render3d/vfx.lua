@@ -245,7 +245,7 @@ do
 	end
 
 	function vfx.ParseError(message)
-		local line, text = message:match("1:(%d+): error: ([^\n]*)")
+		local line, text = message:match("ERROR: 1:(%d+): ([^\n]*)")
 
 		if not line then return message end
 

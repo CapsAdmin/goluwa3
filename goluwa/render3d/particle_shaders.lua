@@ -241,7 +241,7 @@ local function get_macros(entry)
 end
 
 function shaders.ParseError(message)
-	local source, line, text = message:match("(%d+):(%d+): error: ([^\n]*)")
+	local source, line, text = message:match("ERROR: (%d+):(%d+): ([^\n]*)")
 
 	if not source then return message end
 
