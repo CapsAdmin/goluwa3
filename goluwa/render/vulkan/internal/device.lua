@@ -58,6 +58,7 @@ local RAY_REORDER_EXTENSIONS = {
 }
 local VkDeviceQueueCreateInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDeviceQueueCreateInfo)
 local UInt32Array = ffi.typeof("uint32_t[?]")
+local VkPhysicalDeviceFragmentShaderBarycentricFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR)
 local VkPhysicalDeviceComputeShaderDerivativesFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
 local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
@@ -244,6 +245,17 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 			}
 		)
 		pNextChain = dynamicRenderingFeatures
+	end
+
+	if table.has_value(available_extensions, "VK_KHR_fragment_shader_barycentric") then
+		local barycentricFeatures = VkPhysicalDeviceFragmentShaderBarycentricFeaturesBox(
+			vulkan.vk.s.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{
+				sType = "physical_device_fragment_shader_barycentric_features_khr",
+				pNext = pNextChain,
+				fragmentShaderBarycentric = 1,
+			}
+		)
+		pNextChain = barycentricFeatures
 	end
 
 	if table.has_value(available_extensions, "VK_NV_compute_shader_derivatives") then
