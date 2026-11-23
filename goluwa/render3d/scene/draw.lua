@@ -1490,14 +1490,30 @@ local MAX_STREAM_PARTS = 16384
 local STREAM_RING = 4
 local NO_SLOT = 0xFFFFFFFF
 local StreamHeader = ffi.typeof([[struct {
-	uint64_t inputs, counts, records, parts, view_blocks, shadow_blocks;
-	uint32_t view_block_count, shadow_block_count, pad[2];
+	uint64_t inputs, counts, records, parts, view_blocks, shadow_blocks, ray_parts;
+	uint32_t view_block_count, shadow_block_count, pad[4];
 }]])
 local StreamRecord = ffi.typeof([[struct {
-	uint32_t first, room, shadow_first, shadow_room, first_part, part_count, flags, pad;
+	uint32_t first, room, shadow_first, shadow_room, first_part, part_count, flags, rows, pad[4];
 	float bounds[4];
 }]])
-local STREAM_RING_BYTES = ffi.sizeof(StreamHeader) + ffi.sizeof(StreamRecord) * MAX_STREAMS + 4 * MAX_STREAM_PARTS
+local RayPart = ffi.typeof([[struct {
+	uint32_t mesh_row, material_row, record_flags, mask_flags, part;
+}]])
+local STREAM_RING_BYTES = ffi.sizeof(StreamHeader) + ffi.sizeof(StreamRecord) * MAX_STREAMS + 4 * MAX_STREAM_PARTS + ffi.sizeof(RayPart) * MAX_STREAM_PARTS
+pvars.StartGroup("Rendering", "Ray traced scene", {store = false})
+local rays_enabled = pvars.Setup2{
+	key = "r_rt_streams",
+	default = true,
+	help = "what draw streams draw (scatter) is in the ray traced scene (global illumination, reflections, fog), each instance a row written on the gpu every frame",
+}
+local ray_distance = pvars.Setup2{
+	key = "r_rt_stream_distance",
+	default = 1500,
+	min = 0,
+	help = "how far from the camera what draw streams draw is in the ray traced scene, in meters",
+}
+pvars.EndGroup()
 draw.STREAM_GLSL = [[
 	struct scene_stream_header {
 		uint64_t inputs;
@@ -1506,9 +1522,10 @@ draw.STREAM_GLSL = [[
 		uint64_t parts;
 		uint64_t view_blocks;
 		uint64_t shadow_blocks;
+		uint64_t ray_parts;
 		uint view_block_count;
 		uint shadow_block_count;
-		uvec2 pad;
+		uvec4 pad;
 	};
 
 	struct scene_stream_record {
@@ -1519,7 +1536,8 @@ draw.STREAM_GLSL = [[
 		uint first_part;
 		uint part_count;
 		uint flags;
-		uint pad;
+		uint rows;
+		uvec4 pad;
 		vec4 bounds;
 	};
 
@@ -1543,6 +1561,7 @@ draw.STREAM_GLSL = [[
 	}
 ]]
 local streams = {}
+local traced_count = 0
 local free_stream_indices = {}
 local stream_count = 0
 local input_space = 0
@@ -1595,6 +1614,19 @@ local function layout_changed()
 end
 
 -- stream inputs and slots are rewritten every frame, so a layout change packs them all again instead of keeping free rooms
+-- a freed produced range is zeroed by the next flush, so it is only freed once this frame's ranges are taken
+local ray_frees = {}
+
+local function free_ray_rows(stream)
+	if not stream.rows then return end
+
+	ray_frees[#ray_frees + 1] = {stream.rows, stream.row_count}
+	stream.rows = nil
+	stream.row_count = 0
+end
+
+local scene_parts, materials
+
 local function pack_streams()
 	if packed_serial == stream_layout_serial then return end
 
@@ -1613,6 +1645,15 @@ local function pack_streams()
 			stream_shadow_space = stream_shadow_space + stream.shadow_room
 			write_group(group)
 		end
+
+		if stream.traced and stream.row_count ~= stream.shadow_room * #stream.parts then
+			free_ray_rows(stream)
+			stream.row_count = stream.shadow_room * #stream.parts
+
+			if stream.row_count > 0 then
+				stream.rows = instances.AllocRange(stream.row_count)
+			end
+		end
 	end
 
 	packed_serial = stream_layout_serial
@@ -1630,6 +1671,8 @@ function draw.CreateStream(config)
 		flags = config.occlusion and draw.STREAM_OCCLUSION or 0,
 		room = config.room,
 		shadow_room = config.shadow_room or 0,
+		traced = config.traced and render.GetDevice().ray_tracing_supported or nil,
+		row_count = 0,
 	}
 
 	for i, part in ipairs(config.parts) do
@@ -1647,7 +1690,19 @@ function draw.CreateStream(config)
 			variant = variant,
 		}
 		stream.parts[i].group = acquire_stream_group(stream.parts[i])
+
+		if stream.traced then
+			scene_parts = scene_parts or import("goluwa/render3d/scene/parts.lua")
+			materials = materials or import("goluwa/render3d/scene/materials.lua")
+			local flags, mask = instances.GetMaterialFlags(part.material)
+			stream.parts[i].scene_part = scene_parts.Acquire(part.mesh_row, part.material, part.polygon3d)
+			stream.parts[i].material_row = materials.GetID(part.material)
+			stream.parts[i].record_flags = instances.GetRecordFlags(flags)
+			stream.parts[i].mask_flags = mask + flags * 256
+		end
 	end
+
+	if stream.traced then traced_count = traced_count + 1 end
 
 	streams[index] = stream
 	return stream
@@ -1667,7 +1722,13 @@ function draw.RemoveStream(stream)
 	for _, part in ipairs(stream.parts) do
 		release_stream_group(part.group, part.variant)
 		part.group = nil
+
+		if part.scene_part then scene_parts.Release(part.scene_part) end
 	end
+
+	free_ray_rows(stream)
+
+	if stream.traced then traced_count = traced_count - 1 end
 
 	streams[stream.index] = nil
 	free_stream_indices[#free_stream_indices + 1] = stream.index
@@ -1716,6 +1777,12 @@ function draw.BeginStreams(cmd)
 
 	refresh_stream_sets()
 	pack_streams()
+
+	for i = #ray_frees, 1, -1 do
+		instances.FreeRange(ray_frees[i][1], ray_frees[i][2], true)
+		ray_frees[i] = nil
+	end
+
 	ensure_stream_buffers()
 	local slot = render.frame_serial % STREAM_RING + 1
 	local ring = stream_ring[slot]
@@ -1737,6 +1804,10 @@ function draw.BeginStreams(cmd)
 				"uint32_t *",
 				pointer + ffi.sizeof(StreamHeader) + ffi.sizeof(StreamRecord) * MAX_STREAMS
 			),
+			ray_parts = ffi.cast(
+				ffi.typeof("$ *", RayPart),
+				pointer + ffi.sizeof(StreamHeader) + ffi.sizeof(StreamRecord) * MAX_STREAMS + 4 * MAX_STREAM_PARTS
+			),
 			serial = -1,
 		}
 		stream_ring[slot] = ring
@@ -1755,6 +1826,7 @@ function draw.BeginStreams(cmd)
 			record.first_part = part_at
 			record.part_count = #stream.parts
 			record.flags = stream.flags
+			record.rows = stream.rows or NO_SLOT
 
 			for k = 0, 3 do
 				record.bounds[k] = stream.bounds[k + 1]
@@ -1763,6 +1835,16 @@ function draw.BeginStreams(cmd)
 			for _, part in ipairs(stream.parts) do
 				assert(part_at < MAX_STREAM_PARTS, "too many draw stream parts")
 				ring.parts[part_at] = part.group.id - 1
+
+				if part.scene_part then
+					local ray_part = ring.ray_parts[part_at]
+					ray_part.mesh_row = part.mesh_row
+					ray_part.material_row = part.material_row
+					ray_part.record_flags = part.record_flags
+					ray_part.mask_flags = part.mask_flags
+					ray_part.part = part.scene_part.id
+				end
+
 				part_at = part_at + 1
 			end
 		end
@@ -1795,6 +1877,7 @@ function draw.BeginStreams(cmd)
 		header.counts = counts_buffer:GetDeviceAddress()
 		header.records = ring.address + ffi.sizeof(StreamHeader)
 		header.parts = header.records + ffi.sizeof(StreamRecord) * MAX_STREAMS
+		header.ray_parts = header.parts + 4 * MAX_STREAM_PARTS
 		header.view_blocks = ring.blocks_address
 		header.shadow_blocks = ring.blocks_address + #view_blocks * 4
 		header.view_block_count = view_block_count
@@ -1838,6 +1921,129 @@ function draw.GetStreamDemand(stream)
 	if not entry or entry.serial ~= stream_layout_serial then return nil end
 
 	return entry.counts[stream.index * 2], entry.counts[stream.index * 2 + 1]
+end
+
+local ray_pipeline
+
+local function get_ray_pipeline()
+	if ray_pipeline then return ray_pipeline end
+
+	ray_pipeline = EasyPipeline.Compute{
+		name = "scene_stream_rt",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		block = {
+			{"streams", "uint64_t"},
+			{"tlas", "uint64_t"},
+			{"data", "uint64_t"},
+			{"part_of", "uint64_t"},
+			{"camera_position", "vec3"},
+			{"distance", "float"},
+			{"frame", "int"},
+		},
+		write = function(self, block)
+			block.streams = last_snapshot.address
+			block.tlas, block.data, block.part_of = instances.GetProducedAddresses()
+			local camera = render3d.GetCamera():GetPosition()
+			block.camera_position[0] = camera.x
+			block.camera_position[1] = camera.y
+			block.camera_position[2] = camera.z
+			block.distance = ray_distance:Get()
+			block.frame = system.GetFrameNumber()
+			return block
+		end,
+		custom_declarations = [[
+			#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+			#extension GL_EXT_buffer_reference : require
+			#extension GL_EXT_scalar_block_layout : require
+		]] .. draw.STREAM_GLSL,
+		shader = [[
+			struct ray_tlas_row {
+				float m[12];
+				uint custom_and_mask;
+				uint flags;
+				uint64_t blas;
+			};
+
+			struct ray_data_row {
+				uint mesh_row;
+				uint material_row;
+				uint flags;
+				uint mask_lod;
+				vec4 bounds;
+				vec2 lod;
+				float dynamic;
+				float overlay;
+			};
+
+			struct ray_part {
+				uint mesh_row;
+				uint material_row;
+				uint record_flags;
+				uint mask_flags;
+				uint part;
+			};
+
+			layout(buffer_reference, scalar) buffer RayTlasRows { ray_tlas_row t[]; };
+			layout(buffer_reference, scalar) buffer RayDataRows { ray_data_row d[]; };
+			layout(buffer_reference, scalar) buffer RayPartOf { uint p[]; };
+			layout(buffer_reference, scalar) readonly buffer RayParts { ray_part p[]; };
+
+			void main() {
+				scene_stream_header h = SceneStreamHeader(compute.streams).h;
+
+				if (gl_WorkGroupID.x >= h.shadow_block_count) return;
+
+				uvec2 b = SceneStreamBlocks(h.shadow_blocks).b[gl_WorkGroupID.x];
+				scene_stream_record s = SceneStreamRecords(h.records).s[b.x];
+				uint i = b.y + gl_LocalInvocationID.x;
+
+				if (s.rows == 0xFFFFFFFFu || i >= min(SceneStreamCounts(h.counts).n[b.x * 2u + 1u], s.shadow_room)) return;
+
+				mat4 world = SceneStreamInputs(h.inputs).w[s.shadow_first + i];
+
+				if (distance(world[3].xyz, compute.camera_position) > compute.distance) return;
+
+				RayTlasRows tlas = RayTlasRows(compute.tlas);
+				RayDataRows data = RayDataRows(compute.data);
+				RayPartOf part_of = RayPartOf(compute.part_of);
+
+				for (uint j = 0u; j < s.part_count; j++) {
+					ray_part p = RayParts(h.ray_parts).p[s.first_part + j];
+					uint row = s.rows + i * s.part_count + j;
+					uint mask = p.mask_flags & 0xFFu;
+
+					for (uint k = 0u; k < 4u; k++) {
+						tlas.t[row].m[k] = world[k][0];
+						tlas.t[row].m[4u + k] = world[k][1];
+						tlas.t[row].m[8u + k] = world[k][2];
+					}
+
+					tlas.t[row].custom_and_mask = row | (mask << 24u);
+					tlas.t[row].flags = p.record_flags;
+					data.d[row].mesh_row = p.mesh_row;
+					data.d[row].material_row = p.material_row;
+					data.d[row].flags = (p.mask_flags >> 8u) | 32u;
+					data.d[row].mask_lod = mask;
+					data.d[row].lod = vec2(uintBitsToFloat(uint(compute.frame)), 0.0);
+					part_of.p[row] = p.part;
+				}
+			}
+		]],
+	}
+	return ray_pipeline
+end
+
+-- the producer calls this once it has appended: produced rows are shown only in the frame they are written, before the scene build
+function draw.EndStreams(cmd)
+	if stream_frame ~= render.frame_serial or traced_count == 0 or not rays_enabled:Get() then
+		return
+	end
+
+	render3d = render3d or import("goluwa/render3d/render3d.lua")
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	get_ray_pipeline():Dispatch(cmd, last_snapshot.shadow_block_count, 1, 1, 1)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 end
 
 local function is_streaming()

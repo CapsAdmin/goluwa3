@@ -248,6 +248,70 @@ local function read_results(draw, tlas_getter, origin)
 	return copy
 end
 
+T.Test3D("Graphics render3d scene store traces what a stream draws only in the frames it is appended", function(draw)
+	if not render.GetDevice().ray_tracing_supported then return end
+
+	local event = import("goluwa/event.lua")
+	local scene_draw = import("goluwa/render3d/scene/draw.lua")
+	local cube = Polygon3D.New()
+	shapes.BuildCube(cube, 1)
+	cube:BuildBoundingBox()
+	cube:Upload()
+	local mesh_row = meshes.Get(cube.mesh)
+	meshes.EnsureRaster(mesh_row)
+	local stream = scene_draw.CreateStream{
+		parts = {{mesh = cube.mesh, material = Material.New(), polygon3d = cube, mesh_row = mesh_row}},
+		bounds = {0, 0, 0, 0.9},
+		room = 4,
+		shadow_room = 4,
+		traced = true,
+	}
+	local producer = EasyPipeline.Compute{
+		name = "scene_store_test_stream_producer",
+		DescriptorSetCount = 1,
+		LocalSize = {x = 1, y = 1, z = 1},
+		block = {{"streams", "uint64_t"}, {"stream", "int"}},
+		write = function(self, block)
+			block.streams = self.streams
+			block.stream = self.stream
+			return block
+		end,
+		custom_declarations = [[
+			#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+			#extension GL_EXT_buffer_reference : require
+			#extension GL_EXT_scalar_block_layout : require
+		]] .. scene_draw.STREAM_GLSL,
+		shader = [[
+			void main() {
+				mat4 world = mat4(1.0);
+				world[3] = vec4(0.0, 0.0, -4.0, 1.0);
+				scene_stream_append(compute.streams, uint(compute.stream), 0u, world);
+				scene_stream_append(compute.streams, uint(compute.stream), 1u, world);
+			}
+		]],
+	}
+
+	event.AddListener("PreSceneBuild", "scene_store_test_stream", function(cmd)
+		producer.streams = scene_draw.BeginStreams(cmd)
+		producer.stream = stream.index
+		producer:Dispatch(cmd, 1, 1, 1, 1)
+		scene_draw.EndStreams(cmd)
+	end)
+
+	for _ = 1, 4 do
+		draw()
+	end
+
+	local hit = read_results(draw, rt.GetTLAS)
+	T(hit[1])["=="](1)
+	T(hit[2] >= stream.rows and hit[2] < stream.rows + stream.row_count)["=="](true)
+	event.RemoveListener("PreSceneBuild", "scene_store_test_stream")
+	draw()
+	T(read_results(draw, rt.GetTLAS)[1])["=="](0)
+	scene_draw.RemoveStream(stream)
+	draw()
+end)
+
 T.Test3D("Graphics render3d scene store follows a visual that moves, hides and is removed", function(draw)
 	if not render.GetDevice().ray_query_supported then return end
 

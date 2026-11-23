@@ -11,14 +11,12 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
-local instances = import("goluwa/render3d/scene/instances.lua")
 local BuddyPool = import("goluwa/render3d/buddy_pool.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local scatter_rt = import("goluwa/render3d/scatter_rt.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local ViewPriority = import("goluwa/render3d/view_priority.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
@@ -107,9 +105,6 @@ local ScatterPrototype = ffi.typeof([[struct {
 	float bounds[4];
 	uint32_t info[4];
 	uint32_t info2[4];
-	uint32_t info3[4];
-	uint32_t info4[4];
-	uint32_t info5[4];
 	float limits[4];
 }]])
 local uint64_ptr = ffi.typeof("uint64_t *")
@@ -247,9 +242,6 @@ local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. [[
 		vec4 bounds;
 		uvec4 info;
 		uvec4 info2;
-		uvec4 info3;
-		uvec4 info4;
-		uvec4 info5;
 		vec4 limits;
 	};
 
@@ -455,12 +447,6 @@ local cull_block = {
 	{"block_count", "int"},
 	{"unit_base", "int"},
 	{"block_base", "int"},
-	{"rt_distance", "float"},
-	{"frame", "int"},
-	{"rt_tlas", "uint64_t"},
-	{"rt_data", "uint64_t"},
-	{"rt_part_of", "uint64_t"},
-	{"rt_parts", "uint64_t"},
 }
 local conform_block = {
 	{"unit_offset", "int"},
@@ -497,13 +483,6 @@ local function write_cull_block(self, block)
 	block.block_count = self.block_count or 0
 	block.unit_base = self.unit_base or 0
 	block.block_base = self.block_base or 0
-	block.rt_distance = scatter_rt.GetDistance()
-	block.frame = system.GetFrameNumber()
-	local tlas, data, part_of = instances.GetProducedAddresses()
-	block.rt_tlas = tlas
-	block.rt_data = data
-	block.rt_part_of = part_of
-	block.rt_parts = scatter_rt.GetPartsAddress()
 	return block
 end
 
@@ -897,67 +876,6 @@ function create_compute_passes()
 					uint scatter_unit_counts[];
 				};
 
-				struct ScatterRtTlas {
-					float m[12];
-					uint custom_and_mask;
-					uint flags;
-					uint64_t blas;
-				};
-
-				struct ScatterRtData {
-					uint mesh_row;
-					uint material_row;
-					uint flags;
-					uint mask_lod;
-					vec4 bounds;
-					vec2 lod;
-					float dynamic;
-					float overlay;
-				};
-
-				struct ScatterRtPart {
-					uint mesh_row;
-					uint material_row;
-					uint record_flags;
-					uint mask_flags;
-					uint part;
-				};
-
-				layout(buffer_reference, scalar) buffer ScatterRtTlasRows { ScatterRtTlas t[]; };
-				layout(buffer_reference, scalar) buffer ScatterRtDataRows { ScatterRtData d[]; };
-				layout(buffer_reference, scalar) buffer ScatterRtPartOf { uint p[]; };
-				layout(buffer_reference, scalar) readonly buffer ScatterRtParts { ScatterRtPart p[]; };
-
-				void scatter_rt_emit(uint first_row, uint first_part, uint count, uint slot, mat4 world) {
-					if (count == 0u || distance(world[3].xyz, compute.camera_position) > compute.rt_distance) return;
-
-					ScatterRtTlasRows tlas = ScatterRtTlasRows(compute.rt_tlas);
-					ScatterRtDataRows data = ScatterRtDataRows(compute.rt_data);
-					ScatterRtPartOf part_of = ScatterRtPartOf(compute.rt_part_of);
-					ScatterRtParts parts = ScatterRtParts(compute.rt_parts);
-
-					for (uint j = 0u; j < count; j++) {
-						ScatterRtPart p = parts.p[first_part + j];
-						uint row = first_row + slot * count + j;
-						uint mask = p.mask_flags & 0xFFu;
-
-						for (uint k = 0u; k < 4u; k++) {
-							tlas.t[row].m[k] = world[k][0];
-							tlas.t[row].m[4u + k] = world[k][1];
-							tlas.t[row].m[8u + k] = world[k][2];
-						}
-
-						tlas.t[row].custom_and_mask = row | (mask << 24u);
-						tlas.t[row].flags = p.record_flags;
-						data.d[row].mesh_row = p.mesh_row;
-						data.d[row].material_row = p.material_row;
-						data.d[row].flags = (p.mask_flags >> 8u) | 32u;
-						data.d[row].mask_lod = mask;
-						data.d[row].lod = vec2(uintBitsToFloat(uint(compute.frame)), 0.0);
-						part_of.p[row] = p.part;
-					}
-				}
-
 				void main() {
 					uint block = gl_WorkGroupID.x;
 
@@ -997,18 +915,11 @@ function create_compute_passes()
 
 					if (proto.info.w != 0u) {
 						if (switch_distance > 0.0 && d >= switch_distance) {
-							uint slot = scene_stream_append(compute.streams, proto.info2.x, 1u, world);
-
-							if (slot < proto.info4.y) scatter_rt_emit(proto.info5.y, proto.info5.z + proto.info5.w, proto.info5.y != 0xFFFFFFFFu ? 1u : 0u, slot, world);
+							scene_stream_append(compute.streams, proto.info2.x, 1u, world);
 						} else if (mid_distance > 0.0 && d >= mid_distance) {
-							ScatterPrototype mid = scatter_prototypes[mid_index - 1u];
-							uint slot = scene_stream_append(compute.streams, mid.info.x, 1u, world);
-
-							if (slot < mid.info3.y) scatter_rt_emit(mid.info5.x, mid.info5.z, mid.info5.w, slot, world);
+							scene_stream_append(compute.streams, scatter_prototypes[mid_index - 1u].info.x, 1u, world);
 						} else {
-							uint slot = scene_stream_append(compute.streams, proto.info.x, 1u, world);
-
-							if (slot < proto.info3.y) scatter_rt_emit(proto.info5.x, proto.info5.z, proto.info5.w, slot, world);
+							scene_stream_append(compute.streams, proto.info.x, 1u, world);
 						}
 					}
 
@@ -1165,7 +1076,7 @@ local function write_surface(out, surface, pipeline)
 	out.params[0] = material:GetScatterDensity()
 end
 
-local function write_prototype(out, proto, rt)
+local function write_prototype(out, proto)
 	out.placement[0] = proto.density * proto.density_multiplier
 	out.placement[1] = proto.max_distance * proto.distance_multiplier * proto.reach
 	out.placement[2] = proto.full_density_distance * proto.distance_multiplier * proto.reach
@@ -1199,12 +1110,7 @@ local function write_prototype(out, proto, rt)
 	out.bounds[2] = billboard and proto.sized_switch or 0
 	out.bounds[3] = proto.billboard_fade
 	out.info2[0] = billboard and billboard.index or NO_STREAM
-	out.info3[1] = proto.shadow_room
-	out.info4[1] = proto.shadow_billboard_room
 
-	for i = 0, 3 do
-		out.info5[i] = rt[i + 1]
-	end
 
 	out.limits[3] = proto.align_steep
 	local mid = proto.mid
@@ -1221,16 +1127,6 @@ local function write_prototype(out, proto, rt)
 	out.info[3] = proto.shadow and 1 or 0
 end
 
-local rt_rows = setmetatable(
-	{},
-	{
-		__index = function(t, k)
-			local row = {0, 0, 0, 0}
-			t[k] = row
-			return row
-		end,
-	}
-)
 local draw_version = nil
 local layout_dirty = false
 local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
@@ -1417,6 +1313,7 @@ local function sync_stream(proto, key, source, parts, room, shadow_room)
 			bounds = proto.sphere,
 			room = room,
 			shadow_room = shadow_room,
+			traced = proto.shadow and proto.bvh,
 		}
 		stream.source = source
 		live_streams[stream] = {proto = proto, key = key}
@@ -1448,10 +1345,6 @@ local function assign_streams()
 			proto.far_capacity,
 			proto.shadow and proto.shadow_billboard_capacity or 0
 		)
-		proto.room = model and model.room or 0
-		proto.shadow_room = model and model.shadow_room or 0
-		proto.far_room = billboard and billboard.room or 0
-		proto.shadow_billboard_room = billboard and billboard.shadow_room or 0
 
 		if model then seen[model] = true end
 
@@ -2495,10 +2388,8 @@ local function pre_draw(cmd)
 
 	if layout_dirty then assign_streams() end
 
-	scatter_rt.Update(protos, rt_rows)
-
 	for i, proto in ipairs(protos) do
-		write_prototype(b.prototype_data[i - 1], proto, rt_rows[i])
+		write_prototype(b.prototype_data[i - 1], proto)
 	end
 
 	upload(cmd, b.prototypes, b.prototype_memory, ffi.sizeof(ScatterPrototype) * #protos)
@@ -2587,6 +2478,8 @@ local function pre_draw(cmd)
 		passes.cull.block_base = block_base
 		passes.cull:Dispatch(cmd, block_count, 1, 1, 1)
 	end
+
+	scene_draw.EndStreams(cmd)
 
 	barrier(cmd, b.unit_counts, "compute", "transfer", "shader_write", "transfer_read")
 	demand_copy[0].srcOffset = 0
