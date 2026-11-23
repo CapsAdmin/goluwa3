@@ -92,7 +92,7 @@ end
 local CHANGE_LOG_SIZE = 65536
 local MIN_GROUP_ROOM = 4
 local GroupRecord = ffi.typeof(
-	"struct { uint32_t mesh_row, base, room, set, shadow_base, shadow_room, pad[2]; }"
+	"struct { uint32_t mesh_row, base, room, set, shadow_base, shadow_room, owner, pad; }"
 )
 local groups = {}
 local group_lookup = {}
@@ -138,6 +138,7 @@ local function write_group(group)
 	record.room = group.room
 	record.shadow_base = group.stream and group.shadow_base + stream_offset or group.base
 	record.shadow_room = group.stream and group.shadow_room or group.room
+	record.owner = (group.owner or group).id - 1
 	record.set = group.set + (
 			group.mesh.vertex_buffer:GetVertexCount() > 2 ^ visibility.VERTEX_INDEX_BITS and
 			CLASSIC_ONLY or
@@ -539,7 +540,8 @@ local TABLE_DECLARATIONS = [[
 				uint set;
 				uint shadow_base;
 				uint shadow_room;
-				uvec2 pad;
+				uint owner;
+				uint pad;
 			};
 
 			#define GROUP_SOFTWARE_RASTER 0x80000000u
@@ -973,18 +975,15 @@ local function get_stream_cull_pipeline()
 				mat4 prev = world;
 				prev[0][3] = -1.0;
 
-				for (uint p = 0u; p < s.part_count; p++) {
-					uint group_id = SceneStreamParts(h.parts).p[s.first_part + p];
-					group_record group = GroupArray(ARGS.group_table).g[group_id];
-					uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+				uint group_id = SceneStreamParts(h.parts).p[s.first_part];
+				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
 
-					if (place >= group.room) continue;
+				if (place >= group.room) return;
 
-					atomicAdd(CountArray(ARGS.group_areas).n[group_id], area);
-					uint at = group.base + place;
-					WorldArray(ARGS.worlds).w[at] = world;
-					WorldArray(ARGS.prev_worlds).w[at] = prev;
-				}
+				atomicAdd(CountArray(ARGS.group_areas).n[group_id], area);
+				WorldArray(ARGS.worlds).w[group.base + place] = world;
+				WorldArray(ARGS.prev_worlds).w[group.base + place] = prev;
 			}
 		]],
 	}
@@ -1273,12 +1272,12 @@ local function get_finalize_pipeline()
 
 				if ((group.set & GROUP_CLUSTERED) != 0u) return;
 
-				uint instance_count = min(CountArray(ARGS.group_counts).n[group_id], group.room);
+				uint instance_count = min(CountArray(ARGS.group_counts).n[group.owner], group.room);
 
 				if (instance_count == 0u) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
-				float density = float(instance_count) * float(mesh.triangle_count) / max(float(CountArray(ARGS.group_areas).n[group_id]), 1.0);
+				float density = float(instance_count) * float(mesh.triangle_count) / max(float(CountArray(ARGS.group_areas).n[group.owner]), 1.0);
 				uint variant = density >= ARGS.ids_density && (group.set & GROUP_CLASSIC_ONLY) == 0u ? ARGS.ids_remap[GROUP_VARIANT(group)] : ARGS.remap[GROUP_VARIANT(group)];
 				uint set = variant * 2u + (group.set & 1u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
@@ -1639,12 +1638,14 @@ local function pack_streams()
 
 		for _, part in ipairs(stream.parts) do
 			local group = part.group
+			group.owner = stream.parts[1].group
 			group.base, group.room = stream_space, stream.room
 			group.shadow_base, group.shadow_room = stream_shadow_space, stream.shadow_room
-			stream_space = stream_space + stream.room
-			stream_shadow_space = stream_shadow_space + stream.shadow_room
 			write_group(group)
 		end
+
+		stream_space = stream_space + stream.room
+		stream_shadow_space = stream_shadow_space + stream.shadow_room
 
 		if stream.traced and stream.row_count ~= stream.shadow_room * #stream.parts then
 			free_ray_rows(stream)
@@ -1662,6 +1663,7 @@ end
 function draw.CreateStream(config)
 	layout_changed()
 	assert(stream_count < MAX_STREAMS, "too many draw streams")
+	assert(config.parts[1], "a draw stream needs a part")
 	local index = table.remove(free_stream_indices) or stream_count
 	stream_count = stream_count + 1
 	local stream = {
@@ -2671,13 +2673,11 @@ local function get_shadow_stream_pipeline()
 				world[1][3] = -1.0;
 				world[2][3] = 0.0;
 
-				for (uint p = 0u; p < s.part_count; p++) {
-					uint group_id = SceneStreamParts(h.parts).p[s.first_part + p];
-					group_record group = GroupArray(ARGS.group_table).g[group_id];
-					uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+				uint group_id = SceneStreamParts(h.parts).p[s.first_part];
+				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
 
-					if (place < group.shadow_room) WorldArray(ARGS.worlds).w[group.shadow_base + place] = world;
-				}
+				if (place < group.shadow_room) WorldArray(ARGS.worlds).w[group.shadow_base + place] = world;
 			}
 		]],
 	}
@@ -2708,7 +2708,7 @@ local function get_shadow_finalize_pipeline()
 				if (group_id >= uint(compute.count)) return;
 
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				uint instance_count = min(CountArray(ARGS.group_counts).n[group_id], group.shadow_room);
+				uint instance_count = min(CountArray(ARGS.group_counts).n[group.owner], group.shadow_room);
 
 				if (instance_count == 0u) return;
 

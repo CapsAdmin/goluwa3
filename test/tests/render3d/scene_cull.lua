@@ -462,7 +462,7 @@ do
 		return producer
 	end
 
-	T.Test3D("Graphics render3d a stream of gpu written instances is culled, faded and cast into shadows like rows", function(draw)
+	T.Test3D("Graphics render3d a stream of gpu written instances is culled, faded and cast into shadows like rows, its parts sharing one slot each", function(draw)
 		configure_camera()
 		local polygon3d = get_cube()
 		local mesh = polygon3d:GetMesh()
@@ -470,6 +470,12 @@ do
 		meshes.EnsureRaster(mesh_row)
 		local stream = scene_draw.CreateStream{
 			parts = {
+				{
+					mesh = mesh,
+					material = Material.New(),
+					polygon3d = polygon3d,
+					mesh_row = mesh_row,
+				},
 				{
 					mesh = mesh,
 					material = Material.New(),
@@ -502,6 +508,11 @@ do
 		T(#drawn)["=="](2)
 		T(fades[1])["=="](0)
 		T(fades[2])["=="](0.5)
+		local second = result.by_group[stream.parts[2].group.id] or {}
+		T(#second)["=="](2)
+		T(second[1].world[4] == drawn[1].world[4] or
+			second[1].world[4] == drawn[2].world[4])["=="](true)
+		T(scene_draw.GetStreamStats().slots)["=="](16)
 		local view, shadow = scene_draw.GetStreamDemand(stream)
 		T(view)["=="](4)
 		T(shadow)["=="](4)
@@ -523,7 +534,7 @@ do
 		local count = scene_draw.CullShadow(cmd, buffers, planes, Vec3(0, 0, 0), 0.01, Matrix44())
 		cmd:End()
 		render.SubmitAndWait(cmd)
-		T(scene_draw.ReadBackShadowCull(buffers, count).streamed)["=="](3)
+		T(scene_draw.ReadBackShadowCull(buffers, count).streamed)["=="](6)
 		scene_draw.RemoveShadowBuffers(buffers)
 		cmd:Remove()
 		event.RemoveListener("PreSceneBuild", "scene_cull_test_stream")
