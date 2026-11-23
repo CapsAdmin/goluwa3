@@ -453,9 +453,18 @@ local function resolve(preset)
 
 	local state = {}
 
-	for k in pairs(preset) do
-		if climate.DEFAULTS[k] == nil then
-			error("unknown climate field " .. tostring(k), 3)
+	for k, v in pairs(preset) do
+		local default = climate.DEFAULTS[k]
+
+		if default == nil then error("unknown climate field " .. tostring(k), 3) end
+
+		if type(v) ~= type(default) or getmetatable(v) ~= getmetatable(default) then
+			error(
+				(
+					"climate field %s is a %s, expected the type of %s"
+				):format(k, type(v), tostring(default)),
+				3
+			)
 		end
 	end
 
