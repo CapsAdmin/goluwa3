@@ -247,7 +247,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		pNextChain = dynamicRenderingFeatures
 	end
 
-	if table.has_value(available_extensions, "VK_KHR_fragment_shader_barycentric") then
+	local fragment_barycentric_supported = table.has_value(finalExtensions, "VK_KHR_fragment_shader_barycentric")
+	local compute_derivatives_supported = table.has_value(finalExtensions, "VK_NV_compute_shader_derivatives")
+
+	if fragment_barycentric_supported then
 		local barycentricFeatures = VkPhysicalDeviceFragmentShaderBarycentricFeaturesBox(
 			vulkan.vk.s.PhysicalDeviceFragmentShaderBarycentricFeaturesKHR{
 				sType = "physical_device_fragment_shader_barycentric_features_khr",
@@ -258,7 +261,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		pNextChain = barycentricFeatures
 	end
 
-	if table.has_value(available_extensions, "VK_NV_compute_shader_derivatives") then
+	if compute_derivatives_supported then
 		local computeDerivativesFeatures = VkPhysicalDeviceComputeShaderDerivativesFeaturesBox(
 			vulkan.vk.s.PhysicalDeviceComputeShaderDerivativesFeaturesKHR{
 				sType = "physical_device_compute_shader_derivatives_features_khr",
@@ -303,11 +306,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 
 	if physical_features.tessellationShader == 1 then
 		enabled_features[0].tessellationShader = 1
-	end
-
-	-- gl_PrimitiveID in a fragment shader declares the Geometry capability
-	if physical_features.geometryShader == 1 then
-		enabled_features[0].geometryShader = 1
 	end
 
 	if physical_features.fillModeNonSolid == 1 then
@@ -634,6 +632,9 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		ray_reorder = ray_reorder,
 		opacity_micromap_supported = opacity_micromap_supported,
 		cluster_acceleration_structure_supported = cluster_acceleration_structure_supported,
+		visibility_buffer_supported = fragment_barycentric_supported and
+			compute_derivatives_supported and
+			availableVulkan12Features.shaderBufferInt64Atomics == 1,
 		capture_pipeline_statistics = capture_pipeline_statistics,
 		pipeline_statistics_gpu = pipeline_statistics_gpu,
 		queue_family_count = #queueFamilies,

@@ -1,4 +1,5 @@
 local render3d = import("goluwa/render3d/render3d.lua")
+local render = import("goluwa/render/render.lua")
 local gbuffer_layout = {}
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
@@ -10,7 +11,19 @@ local visibility_enabled = pvars.Setup2{
 	help = "plain opaque scene geometry and scatter only rasterize triangle ids, and a compute pass shades each visible pixel once from them, set before starting (GOLUWA_PVARS)",
 }
 pvars.EndGroup()
-gbuffer_layout.visibility = visibility_enabled:Get()
+-- test processes import render3d before the device exists
+gbuffer_layout.visibility = visibility_enabled:Get() and
+	(
+		not render.IsInitialized() or
+		render.GetDevice().visibility_buffer_supported
+	)
+
+if visibility_enabled:Get() and not gbuffer_layout.visibility then
+	logn(
+		"r_visibility_buffer is on but the device lacks fragment shader barycentrics, compute shader derivatives or 64 bit buffer atomics, drawing classic"
+	)
+end
+
 -- the guaranteed minimum of vulkan's maxColorAttachments
 local MAX_TARGETS = 8
 gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
