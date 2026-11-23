@@ -234,7 +234,7 @@ local ShadowMultiDrawPushConstants = ffi.typeof([[
 		float detail_time;
 		uint64_t batches;
 		uint64_t instances;
-		int32_t batch_from_instance;
+		uint64_t draw_groups;
 	}
 ]])
 local SHADOW_MULTI_DRAW_COMMON_GLSL
@@ -296,8 +296,12 @@ do
 		float detail_time;
 		uint64_t batches;
 		uint64_t instances;
-		int batch_from_instance;
+		uint64_t draw_groups;
 	} pc;
+
+	layout(buffer_reference, scalar) readonly buffer ShadowDrawGroups {
+		uint g[];
+	};
 
 	#define SHADOW_BATCH ShadowBatchData(pc.batches).b
 ]]
@@ -331,7 +335,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 			]] .. vertex_layout.BuildGlslAccessors("shadow_vertex", "ShadowVertexData") .. [[
 
 			void main() {
-				uint batch_index = pc.batch_from_instance != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID);
+				uint batch_index = pc.draw_groups != 0ul ? ShadowDrawGroups(pc.draw_groups).g[gl_DrawID] : uint(gl_DrawID);
 				uvec4 addresses = SHADOW_BATCH[batch_index].addresses;
 
 				if (addresses.x == 0u && addresses.y == 0u) {
@@ -612,13 +616,16 @@ local function update_local_directional_perspective(self, light_position, light_
 	)
 end
 
+-- every cascade of every map culls right before it draws, and they draw one after another in submission order, so they share one set of buffers
+local scene_shadow_buffers
+
 function ShadowMap:CullScene(cascade_index)
 	local cascade = self.cascade[cascade_index]
-	cascade.scene_shadow_buffers = cascade.scene_shadow_buffers or scene_draw.NewShadowBuffers()
+	scene_shadow_buffers = scene_shadow_buffers or scene_draw.NewShadowBuffers()
 	local options = self:GetGPUCullOptions(cascade_index)
 	cascade.scene_shadow_count = scene_draw.CullShadow(
 		self.cmd,
-		cascade.scene_shadow_buffers,
+		scene_shadow_buffers,
 		cascade.frustum_planes,
 		render3d.GetCamera():GetPosition(),
 		options and options.min_caster_extent,
@@ -631,18 +638,20 @@ function ShadowMap:DrawScene(cascade_index)
 
 	if not cascade.scene_shadow_count then return end
 
-	local rows, serial = scene_draw.GetRows()
-	local buffers = cascade.scene_shadow_buffers
+	local groups, serial, changes = scene_draw.GetGroups()
+	local buffers = scene_shadow_buffers
 	self:DrawBatches(
 		cascade_index,
 		"scene",
-		rows,
+		groups,
 		serial,
 		buffers.worlds_address,
 		buffers.commands,
 		20,
-		true,
-		buffers.counts
+		buffers.draw_groups_address,
+		buffers.counts,
+		buffers.group_count,
+		changes
 	)
 end
 
@@ -984,10 +993,6 @@ function ShadowMap:OnRemove()
 	end
 
 	for _, cascade in ipairs(self.cascade or {}) do
-		if cascade.scene_shadow_buffers then
-			scene_draw.RemoveShadowBuffers(cascade.scene_shadow_buffers)
-		end
-
 		if cascade.depth_texture then cascade.depth_texture:Remove() end
 	end
 
@@ -1512,8 +1517,10 @@ function ShadowMap:DrawBatches(
 	instances_address,
 	commands,
 	stride,
-	batch_from_instance,
-	counts
+	draw_groups_address,
+	counts,
+	max_count,
+	changes
 )
 	local pipeline = self.mode == "point" and
 		self.multi_draw_pipeline or
@@ -1527,6 +1534,7 @@ function ShadowMap:DrawBatches(
 			write_record = write_shadow_batch_record,
 			write_animated = write_shadow_batch_animation,
 			animation_version = model_pipeline.GetVertexAnimationVersion,
+			changes = changes,
 		}
 		self.shadow_batch_tables[key or pipeline] = batch_table
 	end
@@ -1550,7 +1558,7 @@ function ShadowMap:DrawBatches(
 	push_constants.detail_time = atmosphere.GetWindDetailTime()
 	push_constants.batches = batch_table:Update(pipeline, batches, batch_serial, self.batch_serial, self)
 	push_constants.instances = instances_address
-	push_constants.batch_from_instance = batch_from_instance and 1 or 0
+	push_constants.draw_groups = draw_groups_address or 0
 	pipeline:Bind(self.cmd, render.GetCurrentFrame())
 	self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
 	self.cmd:SetScissor(0, 0, depth_texture:GetWidth(), depth_texture:GetHeight())
@@ -1560,7 +1568,7 @@ function ShadowMap:DrawBatches(
 	self.cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
 
 	if counts then
-		self.cmd:DrawIndexedIndirectCount(commands, 0, counts, 0, #batches, stride)
+		self.cmd:DrawIndexedIndirectCount(commands, 0, counts, 0, max_count, stride)
 	else
 		self.cmd:DrawIndexedIndirect(commands, 0, #batches, stride)
 	end
