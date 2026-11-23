@@ -122,10 +122,7 @@ radiance_cache.EMITTER_SAMPLES = pvars.Setup2{
 	integer = true,
 	help = "emitter samples each probe takes when its cascade updates, each walks the emitter light tree and traces a shadow ray, on maps with many emitters the walk is most of the probe trace. built into the shaders, read at startup",
 }:Get()
-assert(
-	radiance_cache.EMITTER_SAMPLES > 0,
-	"radiance_cache_emitter_samples must be above 0"
-)
+assert(radiance_cache.EMITTER_SAMPLES > 0, "radiance_cache_emitter_samples must be above 0")
 radiance_cache.LIGHT_SAMPLES = 2
 radiance_cache.IRRADIANCE_TEXELS = 8
 radiance_cache.GUIDE_TEXELS = 8
@@ -1690,7 +1687,7 @@ local raygen_glsl = [[
 
 layout(set = 0, binding = 4) uniform sampler2D guide;
 #define RADIANCE_CACHE_GUIDE_FETCH(texel) texelFetch(guide, texel, 0)
-]] .. radiance_cache.GetRayDirectionGLSL() .. payload_glsl .. scene_hit.GetGLSL(10) .. scene_emitters.GetDeclarationGLSL(6) .. scene_emitters.GetGLSL() .. [[
+]] .. radiance_cache.GetRayDirectionGLSL() .. payload_glsl .. scene_hit.GetGLSL(10) .. ray_materials.GetMaterialDeclarationsGLSL(9) .. scene_emitters.GetDeclarationGLSL(6) .. scene_emitters.GetGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
     vec4 cascades[RADIANCE_CACHE_CASCADES];
@@ -1779,11 +1776,12 @@ void main()
         if (dot(dir, hit_normal) > 0.0) hit_normal = -hit_normal;
 
         vec3 sun_direction = normalize(params.sun_direction.xyz);
+        float side = dot(hit_normal, sun_direction) > 0.0 ? 1.0 : (ray_materials[scene_instance_material(instance)].transmission > 0.0 ? -1.0 : 0.0);
 
-        if (dot(hit_normal, sun_direction) > 0.0) {
+        if (side != 0.0) {
             payload.hit_t = 1.0;
             payload.sun = 1u;
-            traceRayEXT(scene, shadow_flags, RADIANCE_CACHE_SCENE_MASK, 0, 0, 0, origin + dir * hit_t + hit_normal * (0.04 * params.cascades[0].w), 0.0, sun_direction, params.max_ray_distance, 0);
+            traceRayEXT(scene, shadow_flags, RADIANCE_CACHE_SCENE_MASK, 0, 0, 0, origin + dir * hit_t + hit_normal * (side * 0.04 * params.cascades[0].w), 0.0, sun_direction, params.max_ray_distance, 0);
 
             if (payload.hit_t < 0.0) sun_visible = 1u;
         }
@@ -1868,6 +1866,7 @@ function radiance_cache.GetRTPipeline()
 			{binding_index = 3, type = "combined_image_sampler", stageFlags = "all"},
 			{binding_index = 4, type = "combined_image_sampler", stageFlags = "all"},
 			{binding_index = 6, type = "storage_buffer", stageFlags = "all"},
+			{binding_index = 9, type = "storage_buffer", stageFlags = "all"},
 			{binding_index = 10, type = "storage_buffer", stageFlags = "all"},
 			{binding_index = 11, type = "storage_buffer", stageFlags = "all"},
 			{binding_index = 12, type = "storage_buffer", stageFlags = "all"},
@@ -1875,7 +1874,6 @@ function radiance_cache.GetRTPipeline()
 
 		if radiance_cache.ALPHA_TEST then
 			stages[#stages + 1] = {name = "anyhit", code = header .. build_anyhit_glsl()}
-			bindings[#bindings + 1] = {binding_index = 9, type = "storage_buffer", stageFlags = "all"}
 		end
 
 		rt_pipeline = RayTracingPipeline.New(

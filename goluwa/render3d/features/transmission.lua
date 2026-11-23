@@ -104,17 +104,7 @@ return {
 			return vec3(r, max((1.0 - 0.2126 * r - 0.0722 * b) / 0.7152, 0.0), b);
 		}
 	]],
-	common = [[
-
-		float transmission_phase(vec3 V, vec3 L, float cos_incidence, float scattering)
-		{
-			const float g = ]] .. string.format("%.4f", media.presets.leaf.PhaseG) .. [[;
-			float henyey_greenstein = phase_henyey_greenstein(-dot(V, L), g);
-			float c = saturate(cos_incidence);
-			float lobe_flux = 0.37707 + c * (0.58701 + c * (0.57085 + c * (-0.29538 + c * 0.06498)));
-			return mix(1.0 / PI, 2.0 * henyey_greenstein / lobe_flux, scattering);
-		}
-	]],
+	common = media.GetTransmissionPhaseGLSL(),
 	surface_members = [[
 
 		vec3 transmission_color;

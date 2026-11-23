@@ -14,6 +14,7 @@ local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local caustics = import("goluwa/render3d/caustics.lua")
 local ray_reorder = import("goluwa/render3d/ray_reorder.lua")
+local media = import("goluwa/render3d/media.lua")
 local scene_hits = {}
 scene_hits.RAY_QUERY = render.GetDevice().ray_query_supported
 pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
@@ -248,7 +249,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			shared and
 			"" or
 			optical_rays.GetGLSL()
-		) .. glsl_common.GetHashGLSL() .. caustics.GetHitGLSL() .. [[
+		) .. glsl_common.GetHashGLSL() .. media.GetTransmissionPhaseGLSL() .. caustics.GetHitGLSL() .. [[
 		#define SCENE_HIT_MAX_DISTANCE (]] .. block_name .. [[.hit_max_distance)
 
 		#define SCENE_HIT_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
@@ -361,6 +362,22 @@ function scene_hits.GetGLSL(block_name, shared)
 			return shade_scene_hit(origin, dir, roughness, t, hit_instance, hit_primitive, hit_barycentrics);
 		}
 
+		float scene_hit_open_sky(vec3 surface, vec3 N, vec3 P) {
+			vec3 tangent = normalize(cross(N, abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+			vec3 bitangent = cross(N, tangent);
+			float spin = fract(sin(dot(P, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 6.28318530718;
+			float open_sky = 0.0;
+
+			for (int k = 0; k < SCENE_HIT_SKY_RAYS; k++) {
+				float phi = spin + float(k) * (6.28318530718 / float(SCENE_HIT_SKY_RAYS));
+				vec3 sky_dir = normalize(N + tangent * cos(phi) + bitangent * sin(phi));
+
+				if (scene_hit_visible(surface, sky_dir, SCENE_HIT_MAX_DISTANCE)) open_sky += 1.0 / float(SCENE_HIT_SKY_RAYS);
+			}
+
+			return open_sky;
+		}
+
 		vec3 shade_scene_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics) {
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ray_material material = ray_materials[tri.material];
@@ -376,6 +393,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			vec3 surface = P + hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
 			vec3 albedo = ray_material_albedo(material, P);
 			float hit_roughness = material.roughness;
+			float transmission = saturate(material.transmission);
 
 			#if RT_HIT_TEXTURES
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
@@ -400,6 +418,8 @@ function scene_hits.GetGLSL(block_name, shared)
 				albedo = material.albedo * rgb;
 
 				if (material.roughness_tex >= 0) hit_roughness *= mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.roughness_tex), 0), cone_width))[material.roughness_channel]);
+
+				if (transmission > 0.0 && material.transmission_tex >= 0) transmission = saturate(material.transmission * luminance(textureLod(TEXTURE(material.transmission_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.transmission_tex), 0), cone_width)).rgb));
 			}
 			#endif
 
@@ -409,12 +429,16 @@ function scene_hits.GetGLSL(block_name, shared)
 			float hit_NoV = max(dot(hit_N, -dir), 1e-4);
 			vec3 sun_L = normalize(radiance_cache_data.radiance_cache_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
+			vec3 transmitted = transmission * material.transmission_color * albedo;
+			vec3 back_surface = P - hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
+			vec3 sun_surface = sun_NoL > 0.0 ? surface : back_surface;
 
-			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_hit_visible(surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
+			if (RT_HIT_SUN != 0 && (sun_NoL > 0.0 || transmission > 0.0) && (RT_HIT_SHADOWS == 0 || scene_hit_visible(sun_surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
 				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-				vec3 sun_radiance = Fd_EON(albedo, hit_roughness, sun_NoL, hit_NoV, dot(sun_L, -dir)) * radiance_cache_data.radiance_cache_sun_radiance.rgb * sun_NoL * get_cloud_shadow(P) * radiance_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);
+				vec3 response = sun_NoL > 0.0 ? Fd_EON(albedo, hit_roughness, sun_NoL, hit_NoV, dot(sun_L, -dir)) * sun_NoL : transmitted * transmission_phase(-dir, sun_L, -sun_NoL, material.transmission_scattering) * -sun_NoL;
+				vec3 sun_radiance = response * radiance_cache_data.radiance_cache_sun_radiance.rgb * get_cloud_shadow(P) * radiance_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);
 
-				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
+				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
 
 				radiance += sun_radiance;
 			}
@@ -535,6 +559,15 @@ function scene_hits.GetGLSL(block_name, shared)
 			return radiance;
 			#endif
 
+			if (transmission > 0.0) {
+				float back_weight;
+				vec3 back = gi_sample_irradiance(P, -hit_N, -dir, false, RADIANCE_CACHE_NO_VISIBILITY_RAYS, back_weight).rgb;
+
+				if (!gi_covers(P, back_weight)) back = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, -hit_N) * scene_hit_open_sky(back_surface, -hit_N, P);
+
+				radiance += transmitted * back;
+			}
+
 			#ifdef SCENE_HIT_SCREEN_GI
 			vec3 screen_gi;
 
@@ -548,21 +581,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			float weight;
 			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, scene_instance_alpha_tested(hit_instance) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight);
 
-			if (!gi_covers(P, weight)) {
-				vec3 tangent = normalize(cross(hit_N, abs(hit_N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-				vec3 bitangent = cross(hit_N, tangent);
-				float spin = fract(sin(dot(P, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 6.28318530718;
-				float open_sky = 0.0;
-
-				for (int k = 0; k < SCENE_HIT_SKY_RAYS; k++) {
-					float phi = spin + float(k) * (6.28318530718 / float(SCENE_HIT_SKY_RAYS));
-					vec3 sky_dir = normalize(hit_N + tangent * cos(phi) + bitangent * sin(phi));
-
-					if (scene_hit_visible(surface, sky_dir, SCENE_HIT_MAX_DISTANCE)) open_sky += 1.0 / float(SCENE_HIT_SKY_RAYS);
-				}
-
-				gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, hit_N) * open_sky;
-			}
+			if (!gi_covers(P, weight)) gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, hit_N) * scene_hit_open_sky(surface, hit_N, P);
 
 			#ifdef SCENE_HIT_GI_SHARE
 			gi.rgb /= SCENE_HIT_GI_SHARE;

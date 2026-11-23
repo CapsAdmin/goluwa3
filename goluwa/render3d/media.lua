@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local media = {}
 media.MOLECULAR_SCATTERING = Vec3(0.00114, 0.00191, 0.00454)
 media.PARTICLE_PHASE_G = 0.92
@@ -408,6 +409,21 @@ function media.MediumFromColor(color, extinction, albedo)
 	assert(brightest > 0, "medium color must not be black")
 	local scattering = color / brightest * extinction * albedo
 	return Vec3(extinction, extinction, extinction) - scattering, scattering
+end
+
+function media.GetTransmissionPhaseGLSL()
+	return glsl_common.GetPhaseGLSL() .. [[
+		#ifndef MEDIA_TRANSMISSION_PHASE
+		#define MEDIA_TRANSMISSION_PHASE
+		float transmission_phase(vec3 V, vec3 L, float cos_incidence, float scattering) {
+			const float g = ]] .. string.format("%.4f", media.presets.leaf.PhaseG) .. [[;
+			float henyey_greenstein = phase_henyey_greenstein(-dot(V, L), g);
+			float c = saturate(cos_incidence);
+			float lobe_flux = 0.37707 + c * (0.58701 + c * (0.57085 + c * (-0.29538 + c * 0.06498)));
+			return mix(1.0 / PI, 2.0 * henyey_greenstein / lobe_flux, scattering);
+		}
+		#endif
+	]]
 end
 
 return media

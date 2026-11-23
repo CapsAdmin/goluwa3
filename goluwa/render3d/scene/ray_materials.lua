@@ -515,6 +515,10 @@ function ray_materials.GetHitAlbedoGLSL()
 			float ray_hit_roughness(ray_material material, vec3 P, uint instance, uint primitive) {
 				return material.roughness;
 			}
+
+			float ray_hit_transmission(ray_material material, vec3 P, uint instance, uint primitive) {
+				return saturate(material.transmission);
+			}
 		]]
 	end
 
@@ -547,6 +551,17 @@ function ray_materials.GetHitAlbedoGLSL()
 			ivec2 size = textureSize(TEXTURE(material.roughness_tex), 0);
 			float lod = max(log2(float(max(size.x, size.y)) / RAY_HIT_ALBEDO_UV_TEXELS), 0.0);
 			return material.roughness * mix(material.roughness_min, material.roughness_max, textureLod(TEXTURE(material.roughness_tex), coord, lod)[material.roughness_channel]);
+		}
+
+		float ray_hit_transmission(ray_material material, vec3 P, uint instance, uint primitive) {
+			if (material.transmission <= 0.0 || material.transmission_tex < 0) return saturate(material.transmission);
+
+			vec3 weights;
+			scene_uv uv;
+			vec2 coord = ray_hit_coord(P, instance, primitive, weights, uv);
+			ivec2 size = textureSize(TEXTURE(material.transmission_tex), 0);
+			float lod = max(log2(float(max(size.x, size.y)) / RAY_HIT_ALBEDO_UV_TEXELS), 0.0);
+			return saturate(material.transmission * luminance(textureLod(TEXTURE(material.transmission_tex), coord, lod).rgb));
 		}
 
 		vec3 ray_hit_albedo_plain(ray_material material, vec3 P, uint instance, uint primitive) {

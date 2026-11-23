@@ -1,3 +1,4 @@
+local media = import("goluwa/render3d/media.lua")
 local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -229,7 +230,7 @@ local function pass_shade()
 				uvec4 radiance_cache_hits[];
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ray_materials.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		shader = "#define RADIANCE_CACHE_UNSCALED\n" .. ray_materials.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_emitters.GetGLSL() .. ray_materials.GetMaterialGLSL() .. ray_materials.GetHitAlbedoGLSL() .. ibl.GetEONGLSL() .. clouds.GetShadowGLSL("radiance_cache_data") .. (
+		shader = "#define RADIANCE_CACHE_UNSCALED\n" .. ray_materials.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_emitters.GetGLSL() .. ray_materials.GetMaterialGLSL() .. ray_materials.GetHitAlbedoGLSL() .. ibl.GetEONGLSL() .. media.GetTransmissionPhaseGLSL() .. clouds.GetShadowGLSL("radiance_cache_data") .. (
 				VISIBILITY_RAYS and
 				optical_rays.GetGLSL() or
 				optical_rays.GetStubGLSL()
@@ -239,18 +240,21 @@ local function pass_shade()
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(RADIANCE_CACHE_RAY_MAX)), ray.a));
 			}
 
-			vec3 radiance_cache_direct_light(vec3 P, vec3 N, vec3 V, vec3 albedo, float roughness, bool sun_visible, float radius, vec4 u) {
+			vec3 radiance_cache_direct_light(vec3 P, vec3 N, vec3 V, vec3 albedo, float roughness, vec3 transmitted, float transmission_scattering, bool sun_visible, float radius, vec4 u) {
 				vec3 L = normalize(radiance_cache_data.radiance_cache_sun_direction.xyz);
-				float NoL = max(dot(N, L), 0.0);
+				float sun_NoL = dot(N, L);
+				float NoL = max(sun_NoL, 0.0);
 				float NoV = max(dot(N, V), 1e-4);
 				vec3 direct = vec3(0.0);
 
 				if (RT_HIT_SUN != 0 && sun_visible) {
 					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
 					vec3 fog = radiance_cache_ground_fog_sun_transmittance(fog_altitude, L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);
-					direct += radiance_cache_data.radiance_cache_sun_radiance.rgb * Fd_EON(albedo, roughness, NoL, NoV, dot(L, V)) * NoL * get_cloud_shadow(P) * fog;
+					vec3 response = sun_NoL > 0.0 ? Fd_EON(albedo, roughness, NoL, NoV, dot(L, V)) * NoL : transmitted * transmission_phase(V, L, -sun_NoL, transmission_scattering) * -sun_NoL;
+					vec3 shadow_origin = P + N * ((sun_NoL > 0.0 ? 0.02 : -0.06) * radiance_cache_data.radiance_cache_view_scale);
+					direct += radiance_cache_data.radiance_cache_sun_radiance.rgb * response * get_cloud_shadow(P) * fog;
 
-					if (radiance_cache_data.light_transmittance != 0) direct *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(P + N * 0.02 * radiance_cache_data.radiance_cache_view_scale, L, radiance_cache_data.radiance_cache_max_distance, 0.0) : get_light_transmittance(P + N * 0.02 * radiance_cache_data.radiance_cache_view_scale, L, radiance_cache_data.radiance_cache_max_distance, 0.0);
+					if (radiance_cache_data.light_transmittance != 0) direct *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(shadow_origin, L, radiance_cache_data.radiance_cache_max_distance, 0.0) : get_light_transmittance(shadow_origin, L, radiance_cache_data.radiance_cache_max_distance, 0.0);
 				}
 
 				direct += EON_directional_albedo(albedo, roughness, NoV) * caustic_world_irradiance(P, N) / 3.14159265359;
@@ -430,12 +434,18 @@ local function pass_shade()
 				float light_radius = radiance_cache_data.radiance_cache_light_radius * radiance_cache_spacing(c);
 				vec4 u = emitter_random(hit_index, uint(radiance_cache_data.radiance_cache_frame), 0u);
 				float roughness = clamp(ray_hit_roughness(material, P, hit.y, hit.z), 0.045, 1.0);
-				vec3 radiance = radiance_cache_direct_light(surface, N, -dir, albedo, roughness, hit.w != 0u, light_radius, u);
+				vec3 transmitted = ray_hit_transmission(material, P, hit.y, hit.z) * material.transmission_color * albedo;
+				vec3 radiance = radiance_cache_direct_light(surface, N, -dir, albedo, roughness, transmitted, material.transmission_scattering, hit.w != 0u, light_radius, u);
 
 				float weight;
 				#if RT_HIT_PROBES
 				radiance_cache_contrast_reference = luminance(textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, N, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0).rgb);
 				radiance += EON_directional_albedo(albedo, roughness, max(dot(N, -dir), 1e-4)) * radiance_cache_sample_irradiance(P, N, N, -dir, false, scene_instance_alpha_tested(hit.y) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight).rgb;
+
+				if (material.transmission > 0.0) {
+					float back_weight;
+					radiance += transmitted * radiance_cache_sample_irradiance(P, -N, -N, -dir, false, RADIANCE_CACHE_NO_VISIBILITY_RAYS, back_weight).rgb;
+				}
 				#endif
 
 				store_ray(pos, vec4(radiance * glass + optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true), t));
