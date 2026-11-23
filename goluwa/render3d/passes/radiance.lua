@@ -1560,10 +1560,10 @@ local function pass_spatial()
 				vec3 V = normalize(restir_data.camera_position - P);
 				float NoV = max(dot(N, V), 1e-4);
 				vec3 albedo = gbuffer_albedo(gpos);
-				float roughness = sqrt(gbuffer_roughness(gpos));
-				vec3 response = max(EON_directional_albedo(albedo, roughness, NoV), vec3(1e-4));
+				float diffuse_roughness = gbuffer_diffuse_roughness(gpos);
+				vec3 response = max(EON_directional_albedo(albedo, diffuse_roughness, NoV), vec3(1e-4));
 				bool weigh = all(greaterThan(response, vec3(1e-3)));
-				vec3 effective = weigh && own_cosine > 0.0 ? irradiance * Fd_EON(albedo, roughness, own_cosine, NoV, dot(dir, V)) * RESTIR_PI / response : irradiance;
+				vec3 effective = weigh && own_cosine > 0.0 ? irradiance * Fd_EON(albedo, diffuse_roughness, own_cosine, NoV, dot(dir, V)) * RESTIR_PI / response : irradiance;
 				// the specular ray's hits are clamped against fireflies, and what the clamp cuts off comes from this pixel's reservoir instead: weighed by the lobe rather than the cosine it estimates the same light over the lobe, and drawn by light it finds the bright things that the ray hits rarely. clamped part plus cut part is the whole, so the mean holds without the ray's speckle. the neighbours would lower its noise a little, but carrying the lobe through their loop costs the pass a quarter of its occupancy
 				vec3 specular_N = N;
 				float specular_roughness = 0.0;
@@ -1659,7 +1659,7 @@ local function pass_spatial()
 						float weight = target_there / (target_here + target_there);
 						vec3 term = s.L * (weight * s_cosine * jacobian * q_W);
 						neighbours += term;
-						effective_neighbours += weigh ? term * Fd_EON(albedo, roughness, s_cosine, NoV, dot(s_dir, V)) * RESTIR_PI / response : term;
+						effective_neighbours += weigh ? term * Fd_EON(albedo, diffuse_roughness, s_cosine, NoV, dot(s_dir, V)) * RESTIR_PI / response : term;
 						float w = luminance(s.L) * s_cosine * weight * jacobian * q_W;
 						picked_sum += w;
 

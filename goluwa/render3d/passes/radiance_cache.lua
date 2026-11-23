@@ -433,7 +433,7 @@ local function pass_shade()
 				vec3 surface = P + N * 0.02 * radiance_cache_data.radiance_cache_view_scale;
 				float light_radius = radiance_cache_data.radiance_cache_light_radius * radiance_cache_spacing(c);
 				vec4 u = emitter_random(hit_index, uint(radiance_cache_data.radiance_cache_frame), 0u);
-				float roughness = clamp(ray_hit_roughness(material, P, hit.y, hit.z), 0.045, 1.0);
+				float roughness = material.diffuse_roughness;
 				vec3 transmitted = ray_hit_transmission(material, P, hit.y, hit.z) * material.transmission_color * albedo;
 				vec3 radiance = radiance_cache_direct_light(surface, N, -dir, albedo, roughness, transmitted, material.transmission_scattering, hit.w != 0u, light_radius, u);
 

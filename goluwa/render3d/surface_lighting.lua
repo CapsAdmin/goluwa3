@@ -657,7 +657,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				vec3 F = F_Schlick(s.F0, LoH);
 
 				vec3 Fr = (D * V_func) * F * energy_compensation;
-				vec3 Fd = Fd_EON(s.albedo, s.perceptual_roughness, NoL, s.NdotV, dot(L, s.V)) * diffuse_view * GGXDiffuseCoupling(s.F0, texture(TEXTURE(]] .. block_name .. [[.brdf_lut_tex), vec2(NoL, s.perceptual_roughness)).rg, direct_lut.ba);
+				vec3 Fd = Fd_EON(s.albedo, s.diffuse_roughness, NoL, s.NdotV, dot(L, s.V)) * diffuse_view * GGXDiffuseCoupling(s.F0, texture(TEXTURE(]] .. block_name .. [[.brdf_lut_tex), vec2(NoL, s.perceptual_roughness)).rg, direct_lut.ba);
 
 				float diffuse_weight = 1.0;
 				]] .. surface_features.GetDirectLayerGLSL() .. [[

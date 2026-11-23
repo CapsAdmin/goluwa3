@@ -3,6 +3,7 @@ local surface_features = {}
 surface_features.default_list = {
 	import("goluwa/render3d/features/core.lua"),
 	import("goluwa/render3d/features/specular.lua"),
+	import("goluwa/render3d/features/diffuse_roughness.lua"),
 	import("goluwa/render3d/features/transmission.lua"),
 	import("goluwa/render3d/features/subsurface.lua"),
 	import("goluwa/render3d/features/subsurface_color.lua"),

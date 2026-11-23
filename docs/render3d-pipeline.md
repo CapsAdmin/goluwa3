@@ -17,7 +17,7 @@ How the 3D frame is put together and the invariants that are easy to break. Pass
 
 ## Surface features and the gbuffer layout
 
-`goluwa/render3d/features/*.lua` holds surface features (core, specular, transmission, clearcoat, secondary_specular, sheen, specular_tint, medium, weather_response, and param-only ones: displacement, refraction, terrain, vegetation, scatter, detail). They are listed in `surface_features.lua`, whose header documents every key and the scope of every glsl snippet; `surface_features.New(list)` makes a registry of any list (tests use it). A feature is one table:
+`goluwa/render3d/features/*.lua` holds surface features (core, specular, diffuse_roughness, transmission, clearcoat, secondary_specular, sheen, specular_tint, medium, weather_response, and param-only ones: displacement, refraction, terrain, vegetation, scatter, detail). They are listed in `surface_features.lua`, whose header documents every key and the scope of every glsl snippet; `surface_features.New(list)` makes a registry of any list (tests use it). A feature is one table:
 
 - `params`: material parameters. They become `Material` GetSets (under the feature's `category`), fields of the factor block, and the check that skips uploads at defaults. `block = "own"` with `active(material)` gives an own uniform block uploaded only for materials it is active for; `block = false` / `"none"` keep params out of the block.
 - `fields`: what the gbuffer stores. A field with a `member` also gets its `Surface` member, default, decode and gbuffer write generated.
