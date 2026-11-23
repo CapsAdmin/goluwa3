@@ -360,7 +360,7 @@ do
 				min_filter = "linear",
 				mag_filter = "linear",
 				wrap_s = "repeat",
-				wrap_t = "clamp_to_edge",
+				wrap_t = "repeat",
 			},
 		}
 		tex:Shade(source, {custom_declarations = shared})
