@@ -1019,6 +1019,7 @@ do
 			visibility.KIND_MULTI_DRAW,
 			{
 				indexed = true,
+				second_bin_defines = "#define VERTEX_ANIMATION_OFFSET visibility_offset\n#define VERTEX_ANIMATION_PREVIOUS_OFFSET visibility_previous_offset",
 				build = function(bits)
 					return build_multi_draw_pass(build_ssdm_fragment_shader(false, true, false), bits)
 				end,
@@ -1030,6 +1031,10 @@ do
 				indexed = false,
 				declarations = tessellation.VISIBILITY_DECLARATIONS,
 				prepare = tessellation.VISIBILITY_PREPARE,
+				classify = tessellation.VISIBILITY_CLASSIFY,
+				merge_second_bin = true,
+				classify_declarations = tessellation.VISIBILITY_CLASSIFY_DECLARATIONS,
+				second_bin_defines = "#define TESS_SAMPLE_CACHED visibility_tess_cache\n#define VERTEX_ANIMATION_STATIC",
 				before_fragment = "tess_batch = in_batch;",
 				build = function(bits)
 					local pass = build_multi_draw_pass(build_ssdm_fragment_shader(false, true, false, true), bits)

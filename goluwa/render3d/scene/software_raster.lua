@@ -11,6 +11,9 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local software_raster = {}
 software_raster.CAPACITY = 32768
 software_raster.MAX_PIXELS = 4096
+software_raster.PATCH_CACHE_VERTICES = 2 ^ 20
+software_raster.PATCH_SAMPLE_WORDS = 13
+software_raster.PATCH_CACHE_OFFSET = 16 + software_raster.CAPACITY * 16
 pvars.StartGroup("Rendering", "Visibility buffer", {store = false})
 local enabled = pvars.Setup2{
 	key = "r_visibility_raster",
@@ -27,6 +30,16 @@ local radius = pvars.Setup2{
 	default = 24,
 	help = "pixels, clusters whose bounding sphere projects larger stay on the hardware rasterizer",
 }
+local patch_cache = pvars.Setup2{
+	key = "r_visibility_raster_patch_cache",
+	default = true,
+	help = "keep the evaluated lattice of patches rasterized in compute, so their resolve reads it instead of evaluating the patch again and shades whole quads of the patch at once",
+}
+local patch_cache_pixels = pvars.Setup2{
+	key = "r_visibility_raster_patch_cache_pixels",
+	default = 3,
+	help = "pixels, patches rasterized in compute keep their evaluated lattice only when their small triangles span at most this many, where shading whole quads of the patch pays for writing it",
+}
 local patch_pixels = pvars.Setup2{
 	key = "r_visibility_raster_patch_pixels",
 	default = 3,
@@ -41,7 +54,7 @@ software_raster.RECORD_GLSL = [[
 	layout(buffer_reference, scalar) buffer SoftwareRecords { software_record r[]; };
 	layout(buffer_reference, scalar) buffer SoftwareHeader { uint count; uint y; uint z; uint pad; };
 	layout(buffer_reference, scalar) buffer SoftwareDepth { uint64_t v[]; };
-	layout(buffer_reference, scalar) buffer SoftwarePatches { uint count; uint y; uint z; uint pad; uvec2 r[]; };
+	layout(buffer_reference, scalar) buffer SoftwarePatches { uint count; uint y; uint z; uint cache_cursor; uvec4 r[]; };
 ]]
 local buffers
 local depth_buffer
@@ -85,7 +98,7 @@ local function get_buffers()
 			label = "software raster header",
 		},
 		patches = render.CreateBuffer{
-			byte_size = 16 + software_raster.CAPACITY * 8,
+			byte_size = software_raster.PATCH_CACHE_OFFSET + software_raster.PATCH_CACHE_VERTICES * software_raster.PATCH_SAMPLE_WORDS * 4,
 			buffer_usage = {
 				"storage_buffer",
 				"shader_device_address",
@@ -119,10 +132,13 @@ function software_raster.Reset(cmd, worlds_address)
 end
 
 function software_raster.ResetPatches(cmd)
-	if not software_raster.IsEnabled() then return 0, 0 end
+	if not software_raster.IsEnabled() then return 0, 0, 0, 0 end
 
 	cmd:UpdateBuffer(get_buffers().patches, 0, 16, header_data)
-	return get_buffers().patches_address, patch_pixels:Get()
+	return get_buffers().patches_address,
+	patch_pixels:Get(),
+	patch_cache:Get() and software_raster.PATCH_CACHE_VERTICES or 0,
+	patch_cache_pixels:Get()
 end
 
 function software_raster.GetPatches()
@@ -430,7 +446,7 @@ function software_raster.BuildEmitPass(base)
 				uint payload = uint(value & 0xFFFFFFFFul);
 
 				if ((payload & 0x80000000u) != 0u) {
-					uvec2 software_patch = SoftwarePatches(software_emit.patches).r[(payload >> 12u) & 0x7FFFFu];
+					uvec4 software_patch = SoftwarePatches(software_emit.patches).r[(payload >> 12u) & 0x7FFFFu];
 					uint context = SoftwareContexts(software_emit.contexts).c[software_patch.y];
 
 					if (context == 0u) discard;

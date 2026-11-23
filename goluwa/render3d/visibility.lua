@@ -40,6 +40,7 @@ visibility.CONTEXT_GLSL = [[
 		uint64_t extra0;
 		uint64_t extra1;
 		uint64_t extra2;
+		uint64_t extra3;
 		float time;
 		float prev_time;
 		float detail_time;
@@ -47,7 +48,7 @@ visibility.CONTEXT_GLSL = [[
 		float extra_float;
 		uint variant;
 		uint kind;
-		uint pad;
+		uint extra_uint;
 	};
 ]]
 local Context = ffi.typeof([[struct {
@@ -59,6 +60,7 @@ local Context = ffi.typeof([[struct {
 	uint64_t extra0;
 	uint64_t extra1;
 	uint64_t extra2;
+	uint64_t extra3;
 	float time;
 	float prev_time;
 	float detail_time;
@@ -66,7 +68,7 @@ local Context = ffi.typeof([[struct {
 	float extra_float;
 	uint32_t variant;
 	uint32_t kind;
-	uint32_t pad;
+	uint32_t extra_uint;
 }]])
 local ContextPtr = ffi.typeof("$ *", Context)
 local CONTEXT_SIZE = ffi.sizeof(Context)
@@ -101,7 +103,18 @@ local function get_ring()
 	return render.frame_serial % visibility.RING
 end
 
-function visibility.AddContext(pipeline, commands_address, set, kind, extra0, extra1, extra2, extra_float)
+function visibility.AddContext(
+	pipeline,
+	commands_address,
+	set,
+	kind,
+	extra0,
+	extra1,
+	extra2,
+	extra_float,
+	extra3,
+	extra_uint
+)
 	get_buffer()
 
 	if serial ~= render.frame_serial then
@@ -134,6 +147,8 @@ function visibility.AddContext(pipeline, commands_address, set, kind, extra0, ex
 	record.extra1 = extra1 or 0
 	record.extra2 = extra2 or 0
 	record.extra_float = extra_float or 0
+	record.extra3 = extra3 or 0
+	record.extra_uint = extra_uint or 0
 	used_variants[record.kind * visibility.VARIANTS + record.variant] = true
 	count = count + 1
 
@@ -314,7 +329,7 @@ do
 			build_vertex_glsl(
 				vertex,
 				animated and
-					"#define VERTEX_ANIMATION_OFFSET visibility_offset\n#define VERTEX_ANIMATION_PREVIOUS_OFFSET visibility_previous_offset" or
+					kinds[kind].second_bin_defines or
 					"#define VERTEX_ANIMATION_STATIC",
 				kind
 			),
@@ -390,6 +405,80 @@ do
 				fragment.shader:gsub("void main%(%)", "void visibility_fragment_main()"):gsub("gl_FragCoord", "visibility_frag_coord"):gsub("gl_FrontFacing", "visibility_front_facing"):gsub("discard%s*;", "{}")
 			)
 		)
+
+		if animated and kinds[kind].merge_second_bin then
+			local stores_by_vertex = {}
+
+			for k = 0, 2 do
+				local lines_k = {}
+
+				for _, line in ipairs(store) do
+					table.insert(lines_k, (line:gsub("v%.", "v" .. k .. ".")))
+				end
+
+				table.insert(
+					stores_by_vertex,
+					string.format(
+						"\t\t\t\tvisibility_prepare(id, %du);\n\t\t\t\tvisibility_vertex_main();\n%s",
+						k,
+						table.concat(lines_k, "\n")
+					)
+				)
+			end
+
+			table.insert(
+				lines,
+				string.format(
+					[[
+			float visibility_cross(vec2 a, vec2 b) {
+				return a.x * b.y - a.y * b.x;
+			}
+
+			void main() {
+				uint quad = (gl_LocalInvocationID.y >> 1u) * 4u + (gl_LocalInvocationID.x >> 1u);
+				uint lane = (gl_LocalInvocationID.x & 1u) | ((gl_LocalInvocationID.y & 1u) << 1u);
+				uint job_index = gl_WorkGroupID.x * %du + quad;
+				VisibilityJobs jobs = VisibilityJobs(compute.jobs);
+
+				if (job_index >= jobs.totals[compute.bin]) return;
+
+				uvec2 job = jobs.jobs[jobs.bases[compute.bin] + job_index];
+				ivec2 pixel = ivec2(job.x & 0xFFFFu, job.x >> 16u) * 2 + ivec2(lane & 1u, lane >> 1u);
+				uvec4 id = ((job.y >> lane) & 1u) != 0u ? imageLoad(visibility_ids, pixel) : visibility_job_id(job);
+				VisibilityVertex v0;
+				VisibilityVertex v1;
+				VisibilityVertex v2;
+%s
+				vec2 ndc = (vec2(pixel) + 0.5) / gbuffer_data.render_size.xy * 2.0 - 1.0;
+				vec2 a0 = v0.clip.xy - ndc * v0.clip.w;
+				vec2 a1 = v1.clip.xy - ndc * v1.clip.w;
+				vec2 a2 = v2.clip.xy - ndc * v2.clip.w;
+				vec3 b = vec3(visibility_cross(a1, a2), visibility_cross(a2, a0), visibility_cross(a0, a1));
+				b /= b.x + b.y + b.z;
+%s
+				visibility_frag_coord = vec4(vec2(pixel) + 0.5, 0.0, 1.0);
+				visibility_front_facing = dot(v0.clip.xyw, cross(v1.clip.xyw, v2.clip.xyw)) %s 0.0;
+				]] .. (
+							kinds[kind].before_fragment or
+							""
+						) .. [[
+				visibility_fragment_main();
+
+				if (((job.y >> lane) & 1u) != 0u) {
+%s
+				}
+			}
+		]],
+					QUADS_PER_GROUP,
+					table.concat(stores_by_vertex, "\n"),
+					table.concat(interpolate, "\n"),
+					camera.front_face == "counter_clockwise" and "<" or ">",
+					table.concat(stores, "\n")
+				)
+			)
+			return table.concat(lines, "\n")
+		end
+
 		table.insert(
 			lines,
 			string.format(
@@ -452,6 +541,7 @@ do
 				QUADS_PER_GROUP * 3,
 				QUADS_PER_GROUP,
 				animated and
+					kind == visibility.KIND_MULTI_DRAW and
 					string.format(
 						[[
 						uint offset = ((job_slot - jobs.bases[%d]) * 3u + lane) * 3u;
@@ -526,6 +616,32 @@ do
 	local function get_job_pipelines()
 		if classify then return classify, bins, animate end
 
+		local second_bin_classify = {}
+		local classify_declarations = {}
+
+		for kind, info in pairs(kinds) do
+			if info.classify then
+				table.insert(
+					second_bin_classify,
+					string.format("if (context.kind == %du) {\n%s\n}", kind, info.classify)
+				)
+			end
+
+			if info.classify_declarations then
+				table.insert(classify_declarations, info.classify_declarations)
+			end
+		end
+
+		second_bin_classify = table.concat(second_bin_classify, "\n")
+		local merge_kinds = {"false"}
+
+		for kind, info in pairs(kinds) do
+			if info.merge_second_bin then
+				table.insert(merge_kinds, string.format("context.kind == %du", kind))
+			end
+		end
+
+		merge_kinds = table.concat(merge_kinds, " || ")
 		classify = EasyPipeline.Compute{
 			name = "visibility_classify",
 			DescriptorSetCount = get_descriptor_count(),
@@ -533,7 +649,7 @@ do
 			descriptor_sets = get_storage_descriptors(0),
 			block = job_block,
 			write = write_job_block,
-			shader = JOBS_HEADER .. visibility.CONTEXT_GLSL .. model_pipeline.BuildPBRBatchRecordGlsl() .. string.format(
+			shader = JOBS_HEADER .. visibility.CONTEXT_GLSL .. model_pipeline.BuildPBRBatchRecordGlsl() .. table.concat(classify_declarations, "\n") .. string.format(
 					[[
 				layout(set = 0, binding = %d, rgba32ui) uniform readonly uimage2D visibility_ids;
 				layout(buffer_reference, scalar) readonly buffer VisibilityContexts { VisibilityContext c[]; };
@@ -559,13 +675,6 @@ do
 					for (int i = 0; i < 4; i++) {
 						if (ids[i].x == 0u || (used & (1u << i)) != 0u) continue;
 
-						uint mask = 0u;
-
-						for (int j = i; j < 4; j++) {
-							if (all(equal(ids[j], ids[i]))) mask |= 1u << j;
-						}
-
-						used |= mask;
 						VisibilityContext context = contexts.c[ids[i].x - 1u];
 						uint material = ids[i].z >> 6u;
 						bool animated = false;
@@ -575,6 +684,16 @@ do
 							PBRBatch_vertex_animation animation = PBRBatchData(context.batches).b[material].m_vertex_animation;
 							animated = animation.MainBending > 0.0 || (animation.DetailBending != 0 && animation.BendSpeed > 0.0) || animation.PushBending > 0.0;
 						}
+						]] .. second_bin_classify .. [[
+
+						bool merge = animated && (]] .. merge_kinds .. [[);
+						uint mask = 0u;
+
+						for (int j = i; j < 4; j++) {
+							if (merge ? all(equal(ids[j].xyz, ids[i].xyz)) : all(equal(ids[j], ids[i]))) mask |= 1u << j;
+						}
+
+						used |= mask;
 
 						uint bin = ((context.kind * 2u + (animated ? 1u : 0u)) * %du + context.variant) * %du + ((material * 2654435761u) ^ (ids[i].x * 40503u)) %% %du;
 
@@ -809,9 +928,7 @@ do
 		for key in pairs(used_variants) do
 			local kind, bits = math.floor(key / VARIANTS), key % VARIANTS
 
-			for bin = kind * VARIANTS * 2 + bits, kind == visibility.KIND_MULTI_DRAW and
-				kind * VARIANTS * 2 + VARIANTS + bits or
-				kind * VARIANTS * 2 + bits, VARIANTS do
+			for bin = kind * VARIANTS * 2 + bits, kind * VARIANTS * 2 + (kinds[kind].second_bin_defines and VARIANTS or 0) + bits, VARIANTS do
 				local resolve = get_resolve_pipeline(bin)
 				resolve:BindStorageImage(cmd, slot + 2, IDS_BINDING, ids)
 

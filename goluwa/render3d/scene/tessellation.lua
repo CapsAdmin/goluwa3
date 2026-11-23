@@ -476,6 +476,8 @@ local compute_block = {
 	{"capacity", "int"},
 	{"args", "uint64_t"},
 	{"software_pixels", "float"},
+	{"software_cache", "int"},
+	{"software_cache_pixels", "float"},
 }
 
 local function write_compute_block(self, block)
@@ -490,6 +492,8 @@ local function write_compute_block(self, block)
 	block.capacity = state.triangle_capacity
 	block.args = state.state_address + STATE_ARGS_OFFSET
 	block.software_pixels = state.software_pixels or 0
+	block.software_cache = state.software_cache or 0
+	block.software_cache_pixels = state.software_cache_pixels or 0
 	return block
 end
 
@@ -648,7 +652,9 @@ local function get_compute_pipelines()
 							if (record < min(uint(compute.capacity), ]=] .. software_raster.CAPACITY .. [=[u)) {
 								uint instance = ]=] .. GROUPS * BUCKETS .. [=[u * uint(compute.capacity) + record;
 								TessPatchData(args.a[3]).p[instance] = uvec4(lo, tri, rates, 0u);
-								list.r[record] = uvec2(instance, ]=] .. visibility.TESSELLATION_SET .. [=[u + (terrain ? 1u : 0u));
+								uint vertices = ((1u << inner) + 1u) * ((1u << inner) + 2u) / 2u;
+								uint cache = span <= compute.software_cache_pixels * float(1u << inner) ? atomicAdd(list.cache_cursor, vertices) : 0xFFFFFFFFu;
+								list.r[record] = uvec4(instance, ]=] .. visibility.TESSELLATION_SET .. [=[u + (terrain ? 1u : 0u), cache != 0xFFFFFFFFu && cache + vertices <= uint(compute.software_cache) ? cache : 0xFFFFFFFFu, 0u);
 								return;
 							}
 						}
@@ -688,12 +694,28 @@ tessellation.VISIBILITY_DECLARATIONS = [[
 		float seam_band;
 	};
 	VisibilityTessDraw tess_draw;
+	uint64_t visibility_tess_cache;
+	layout(buffer_reference, scalar) readonly buffer VisibilityTessPatches { uvec4 r[]; };
 ]]
 tessellation.VISIBILITY_PREPARE = [[
 	tess_draw.jobs = context.extra0;
 	tess_draw.worlds = context.extra1;
 	tess_draw.patches = context.extra2;
 	tess_draw.seam_band = context.extra_float;
+	visibility_tess_cache = 0ul;
+
+	if (context.extra3 != 0ul && id.z >= context.extra_uint) {
+		uint cache = VisibilityTessPatches(context.extra3 + 16ul).r[id.z - context.extra_uint].z;
+		visibility_tess_cache = context.extra3 + ]] .. software_raster.PATCH_CACHE_OFFSET .. [[ul + uint64_t(cache) * ]] .. software_raster.PATCH_SAMPLE_WORDS * 4 .. [[ul;
+	}
+]]
+tessellation.VISIBILITY_CLASSIFY_DECLARATIONS = [[
+	layout(buffer_reference, scalar) readonly buffer VisibilityTessPatches { uvec4 r[]; };
+]]
+tessellation.VISIBILITY_CLASSIFY = [[
+	if (context.extra3 != 0ul && ids[i].z >= context.extra_uint) {
+		animated = VisibilityTessPatches(context.extra3 + 16ul).r[ids[i].z - context.extra_uint].z != 0xFFFFFFFFu;
+	}
 ]]
 local TESS_EVAL_GLSL = [=[
 	int tess_fade_texture;
@@ -902,6 +924,51 @@ local TESS_EVAL_GLSL = [=[
 		return result;
 	}
 
+	layout(buffer_reference, scalar) buffer TessSampleCache { uint w[]; };
+
+	vec2 tess_cache_oct_encode(vec3 n) {
+		n /= abs(n.x) + abs(n.y) + abs(n.z);
+		return n.z < 0.0 ? (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0) : n.xy;
+	}
+
+	vec3 tess_cache_oct_decode(vec2 p) {
+		vec3 n = vec3(p, 1.0 - abs(p.x) - abs(p.y));
+
+		if (n.z < 0.0) n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+
+		return normalize(n);
+	}
+
+	void tess_cache_store(uint64_t address, TessSample s) {
+		TessSampleCache c = TessSampleCache(address);
+		c.w[0] = floatBitsToUint(s.local_position.x);
+		c.w[1] = floatBitsToUint(s.local_position.y);
+		c.w[2] = floatBitsToUint(s.local_position.z);
+		c.w[3] = floatBitsToUint(s.world_position.x);
+		c.w[4] = floatBitsToUint(s.world_position.y);
+		c.w[5] = floatBitsToUint(s.world_position.z);
+		c.w[6] = packSnorm2x16(tess_cache_oct_encode(s.normal));
+		c.w[7] = packSnorm2x16(tess_cache_oct_encode(s.tangent.xyz));
+		c.w[8] = floatBitsToUint(s.tangent.w);
+		c.w[9] = floatBitsToUint(s.uv.x);
+		c.w[10] = floatBitsToUint(s.uv.y);
+		c.w[11] = floatBitsToUint(s.texture_blend);
+		c.w[12] = packUnorm4x8(s.vertex_color);
+	}
+
+	TessSample tess_cache_load(uint64_t address) {
+		TessSampleCache c = TessSampleCache(address);
+		TessSample s;
+		s.local_position = uintBitsToFloat(uvec3(c.w[0], c.w[1], c.w[2]));
+		s.world_position = uintBitsToFloat(uvec3(c.w[3], c.w[4], c.w[5]));
+		s.normal = tess_cache_oct_decode(unpackSnorm2x16(c.w[6]));
+		s.tangent = vec4(tess_cache_oct_decode(unpackSnorm2x16(c.w[7])), uintBitsToFloat(c.w[8]));
+		s.uv = uintBitsToFloat(uvec2(c.w[9], c.w[10]));
+		s.texture_blend = uintBitsToFloat(c.w[11]);
+		s.vertex_color = unpackUnorm4x8(c.w[12]);
+		return s;
+	}
+
 ]=]
 local VERTEX_MAIN = [=[
 	void main() {
@@ -940,7 +1007,11 @@ local VERTEX_MAIN = [=[
 			q = corner_index == 0 ? ivec2(r, k) : (corner_index == 1 ? ivec2(r + 1, k + 1) : ivec2(r, k + 1));
 		}
 
+		#ifdef TESS_SAMPLE_CACHED
+		TessSample sample_point = tess_cache_load(TESS_SAMPLE_CACHED + uint64_t((q.x * (q.x + 1) / 2 + q.y) * ]=] .. software_raster.PATCH_SAMPLE_WORDS * 4 .. [=[));
+		#else
 		TessSample sample_point = tess_evaluate(job, tri, rates, q, world, data, extras, height_texture, tess_draw.seam_band);
+		#endif
 		vec3 local_position = sample_point.local_position;
 		vec4 world_position = vec4(sample_point.world_position, 1.0);
 		vec4 prev_world_position = prev_world * vec4(local_position, 1.0);
@@ -1273,7 +1344,8 @@ function tessellation.PreDraw(cmd)
 	args[4] = tlas_table:GetAddress()
 	args[5] = data_table:GetAddress()
 	args[6] = instances.GetRasterTable():GetAddress()
-	args[7], state.software_pixels = software_raster.ResetPatches(cmd)
+	args[7], state.software_pixels, state.software_cache, state.software_cache_pixels = software_raster.ResetPatches(cmd)
+	state.software_patches_address = args[7]
 	update_batches(pipeline)
 	cmd:PipelineBarrier{
 		srcStage = {"draw_indirect", "vertex_shader", "compute"},
@@ -1356,6 +1428,7 @@ do
 					TessJob job = TessJobData(compute.jobs).j[patch_record.x];
 					uint tri = patch_record.y;
 					uint rates = patch_record.z;
+					uint cache = list.r[record].z;
 					int n = 1 << int((rates >> 12u) & 15u);
 					gbuffer_draw.batches = compute.batches;
 					tess_batch = job.batch;
@@ -1375,6 +1448,8 @@ do
 						while ((row + 1) * (row + 2) / 2 <= v) row++;
 
 						TessSample sample_point = tess_evaluate(job, tri, rates, ivec2(row, v - row * (row + 1) / 2), world, data, extras, height_texture, compute.seam_band);
+
+						if (cache != 0xFFFFFFFFu) tess_cache_store(compute.list + ]] .. software_raster.PATCH_CACHE_OFFSET .. [[ul + uint64_t((cache + uint(v)) * ]] .. software_raster.PATCH_SAMPLE_WORDS * 4 .. [[u), sample_point);
 						vec4 clip = gbuffer_data.projection * gbuffer_data.view * vec4(sample_point.world_position, 1.0);
 						software_q[v] = ivec2(round((clip.xy / clip.w * 0.5 + 0.5) * vec2(size) * 256.0));
 						software_z[v] = clip.z / clip.w;
@@ -1442,7 +1517,9 @@ function tessellation.Draw(pipeline, cmd)
 					state.jobs_address,
 					state.worlds_address,
 					state.patches_address,
-					seam_band:Get()
+					seam_band:Get(),
+					state.software_patches_address,
+					GROUPS * BUCKETS * state.triangle_capacity
 				)
 			end
 
