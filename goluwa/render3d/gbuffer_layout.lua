@@ -7,7 +7,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 pvars.StartGroup("Rendering", "Visibility buffer", {store = false})
 local visibility_enabled = pvars.Setup2{
 	key = "r_visibility_buffer",
-	default = false,
+	default = true,
 	help = "plain opaque scene geometry and scatter only rasterize triangle ids, and a compute pass shades each visible pixel once from them, set before starting (GOLUWA_PVARS)",
 }
 pvars.EndGroup()
