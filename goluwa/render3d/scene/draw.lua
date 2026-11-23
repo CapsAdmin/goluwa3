@@ -506,11 +506,14 @@ cluster_lod.OnReady(function(polygon3d)
 	end
 end)
 
--- Adreno indexes a constant block array with a loop counter wrongly, so planes are read with constant indices
-local OUTSIDE_PLANE_DECLARATIONS = [[
-			bool outside_plane(vec4 plane, raster_data raster) {
+local PLANE_GLSL = [[
+			bool outside_box(vec4 plane, raster_data raster) {
 				vec3 p = vec3(plane.x > 0.0 ? raster.box_max.x : raster.box_min.x, plane.y > 0.0 ? raster.box_max.y : raster.box_min.y, plane.z > 0.0 ? raster.box_max.z : raster.box_min.z);
 				return dot(plane.xyz, p) + plane.w < 0.0;
+			}
+
+			bool outside_sphere(vec4 plane, vec3 center, float radius) {
+				return dot(plane.xyz, center) + plane.w < -radius;
 			}
 ]]
 local TABLE_DECLARATIONS = [[
@@ -608,6 +611,97 @@ local DRAW_DECLARATIONS = TABLE_DECLARATIONS .. [[
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
 			#define ARGS ArgsRef(compute.args).a
 ]]
+-- Adreno indexes a constant block array with a loop counter wrongly, so planes are read with constant indices
+local VIEW_CULL_GLSL = PLANE_GLSL .. [[
+			bool outside_view_box(raster_data raster) {
+				return outside_box(compute.frustum_planes[0], raster) ||
+					outside_box(compute.frustum_planes[1], raster) ||
+					outside_box(compute.frustum_planes[2], raster) ||
+					outside_box(compute.frustum_planes[3], raster) ||
+					outside_box(compute.frustum_planes[4], raster) ||
+					outside_box(compute.frustum_planes[5], raster);
+			}
+
+			bool outside_view(vec3 center, float radius) {
+				return outside_sphere(compute.frustum_planes[0], center, radius) ||
+					outside_sphere(compute.frustum_planes[1], center, radius) ||
+					outside_sphere(compute.frustum_planes[2], center, radius) ||
+					outside_sphere(compute.frustum_planes[3], center, radius) ||
+					outside_sphere(compute.frustum_planes[4], center, radius) ||
+					outside_sphere(compute.frustum_planes[5], center, radius);
+			}
+
+			float view_depth(vec3 center) {
+				return dot(compute.view_w_row, vec4(center, 1.0));
+			}
+
+			float view_pixels(vec3 center, float radius) {
+				float depth = view_depth(center);
+				return depth > 0.0 ? length(compute.view_y_row.xyz) * radius * compute.viewport_height / max(depth * 2.0, 1e-5) : 1e18;
+			}
+
+			float view_area(float radius_pixels) {
+				return max(min(3.14159265 * radius_pixels * radius_pixels, ARGS.viewport_pixels), 1.0);
+			}
+
+			uint place(uint group_id, float area, mat4 world, mat4 prev) {
+				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+
+				if (place >= group.room) return 0xFFFFFFFFu;
+
+				uint at = group.base + place;
+				atomicAdd(CountArray(ARGS.group_areas).n[group_id], uint(area));
+				WorldArray(ARGS.worlds).w[at] = world;
+				WorldArray(ARGS.prev_worlds).w[at] = prev;
+				return at;
+			}
+]]
+local SHADOW_DECLARATIONS = TABLE_DECLARATIONS .. [[
+			struct shadow_args {
+				uint64_t tlas;
+				uint64_t data;
+				uint64_t raster;
+				uint64_t meshes;
+				uint64_t commands;
+				uint64_t worlds;
+				uint64_t slot_rows;
+				uint64_t counts;
+				uint64_t slot_groups;
+				uint64_t group_table;
+				uint64_t group_counts;
+				uint64_t draw_groups;
+				uint64_t streams;
+			};
+
+			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
+			#define ARGS ArgsRef(compute.args).a
+]]
+local SHADOW_CULL_GLSL = PLANE_GLSL .. [[
+			bool outside_shadow_box(raster_data raster) {
+				return outside_box(compute.planes[0], raster) ||
+					outside_box(compute.planes[1], raster) ||
+					outside_box(compute.planes[2], raster) ||
+					outside_box(compute.planes[3], raster) ||
+					outside_box(compute.planes[4], raster);
+			}
+
+			bool outside_shadow(vec3 center, float radius) {
+				return outside_sphere(compute.planes[0], center, radius) ||
+					outside_sphere(compute.planes[1], center, radius) ||
+					outside_sphere(compute.planes[2], center, radius) ||
+					outside_sphere(compute.planes[3], center, radius) ||
+					outside_sphere(compute.planes[4], center, radius);
+			}
+
+			// the shadow vertex stage reads only xyz of a world position, so [1][3] carries the slot for ReadBackShadowCull
+			void place_shadow(uint group_id, mat4 world) {
+				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
+
+				if (place < group.shadow_room) WorldArray(ARGS.worlds).w[group.shadow_base + place] = world;
+			}
+]]
 local SELECT_LOD_GLSL = [[
 			bool select_lod(uint level, uint last, float near_ratio, float far_ratio, float ratio, out float fade) {
 				fade = 0.0;
@@ -700,7 +794,7 @@ local view_projection_scratch = ffi.new("float[16]")
 local args_ring
 local create_cull_pipeline
 
-local function write_view(block)
+local function write_view(block, occlusion)
 	block.args = state.args_address
 	block.camera_position[0] = state.camera.x
 	block.camera_position[1] = state.camera.y
@@ -714,12 +808,15 @@ local function write_view(block)
 	block.view_y_row[0] = view_projection_scratch[1]
 	block.view_y_row[1] = view_projection_scratch[5]
 	block.view_y_row[2] = view_projection_scratch[9]
-	local hiz_vp = state.occlusion_view_projection or state.view_projection
-	hiz_vp:CopyToFloatPointer(block.hiz_view_projection)
 	block.viewport_height = state.viewport_height
 	block.culling_enabled = state.culling and 1 or 0
-	block.occlusion_max_mip = state.occlusion_max_mip or -1
-	block.occlusion_depth_bias = 0.0015
+
+	if occlusion then
+		local hiz_vp = state.occlusion_view_projection or state.view_projection
+		hiz_vp:CopyToFloatPointer(block.hiz_view_projection)
+		block.occlusion_max_mip = state.occlusion_max_mip or -1
+		block.occlusion_depth_bias = 0.0015
+	end
 end
 
 local function get_cull_pipeline()
@@ -761,7 +858,7 @@ function create_cull_pipeline()
 			{"frame", "int"},
 		},
 		write = function(self, block)
-			write_view(block)
+			write_view(block, true)
 			block.kind = state.kind
 			block.frame = system.GetFrameNumber()
 			block.count = state.count
@@ -773,8 +870,8 @@ function create_cull_pipeline()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
-		]] .. DRAW_DECLARATIONS .. OUTSIDE_PLANE_DECLARATIONS,
-		shader = [[
+		]] .. DRAW_DECLARATIONS,
+		shader = VIEW_CULL_GLSL .. [[
 
 			]] .. SELECT_LOD_GLSL .. [[
 
@@ -802,6 +899,7 @@ function create_cull_pipeline()
 				if (SeenArray(ARGS.seen).s[id] == 0x7FFFFFFFu) SeenArray(ARGS.seen).s[id] = 0u;
 
 				bool inside = all(greaterThanEqual(compute.camera_position, raster.box_min)) && all(lessThanEqual(compute.camera_position, raster.box_max));
+				float radius_pixels = inside || inst.bounds.w <= 0.0 ? 1e18 : view_pixels(inst.bounds.xyz, inst.bounds.w);
 
 				if (compute.culling_enabled != 0) {
 					if (raster.cull_distance > 0.0) {
@@ -811,24 +909,7 @@ function create_cull_pipeline()
 						if (dot(d, d) > raster.cull_distance * raster.cull_distance) return;
 					}
 
-					if (
-						outside_plane(compute.frustum_planes[0], raster) ||
-						outside_plane(compute.frustum_planes[1], raster) ||
-						outside_plane(compute.frustum_planes[2], raster) ||
-						outside_plane(compute.frustum_planes[3], raster) ||
-						outside_plane(compute.frustum_planes[4], raster) ||
-						outside_plane(compute.frustum_planes[5], raster)
-					) return;
-
-					if (!inside && compute.viewport_height > 0.0 && inst.bounds.w > 0.0) {
-						float clip_w = dot(compute.view_w_row, vec4(inst.bounds.xyz, 1.0));
-
-						if (clip_w > 0.0) {
-							float projected_radius_px = length(compute.view_y_row.xyz) * inst.bounds.w * compute.viewport_height / max(clip_w * 2.0, 1e-5);
-
-							if (projected_radius_px * 2.0 < 1.0) return;
-						}
-					}
+					if (outside_view_box(raster) || radius_pixels * 2.0 < 1.0) return;
 
 					if (!inside && (raster.flags & 2u) != 0u && is_box_occluded(raster.box_min, raster.box_max)) return;
 				}
@@ -848,30 +929,13 @@ function create_cull_pipeline()
 
 				if (group_id == 0xFFFFFFFFu) return;
 
-				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				if ((GroupArray(ARGS.group_table).g[group_id].set & GROUP_CLUSTERED) != 0u) return;
 
-				if ((group.set & GROUP_CLUSTERED) != 0u) return;
-
-				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
-
-				if (place >= group.room) return;
-
-				if (compute.kind == 0) {
-					float area = ARGS.viewport_pixels;
-					float clip_w = dot(compute.view_w_row, vec4(inst.bounds.xyz, 1.0));
-
-					if (!inside && clip_w > 0.0) {
-						float radius_px = length(compute.view_y_row.xyz) * inst.bounds.w * compute.viewport_height / max(clip_w * 2.0, 1e-5);
-						area = min(3.14159265 * radius_px * radius_px, ARGS.viewport_pixels);
-					}
-
-					atomicAdd(CountArray(ARGS.group_areas).n[group_id], uint(max(area, 1.0)));
-				}
-
-				uint at = group.base + place;
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
+				// a previous world's [0][3] only reaches w, which the vertex stage drops, so it carries the slot for ReadBackCull
+				uint at = place(group_id, view_area(radius_pixels), world_from(t.m, fade, inst.dynamic, inst.overlay), world_from(raster.prev, float(slot), inst.dynamic, inst.overlay));
 
-				if (compute.kind != 0) {
+				if (at != 0xFFFFFFFFu && compute.kind != 0) {
 					float thickness = raster.thickness;
 
 					if (thickness < 0.0) {
@@ -883,10 +947,6 @@ function create_cull_pipeline()
 
 					ThicknessArray(ARGS.thicknesses).t[at] = thickness;
 				}
-
-				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.dynamic, inst.overlay);
-				// a previous world's [0][3] only reaches w, which the vertex stage drops, so it carries the slot for ReadBackCull
-				WorldArray(ARGS.prev_worlds).w[at] = world_from(raster.prev, float(slot), inst.dynamic, inst.overlay);
 			}
 		]],
 	}
@@ -923,17 +983,13 @@ local function get_stream_cull_pipeline()
 			{"occlusion_depth_bias", "float"},
 		},
 		write = function(self, block)
-			write_view(block)
+			write_view(block, true)
 			return block
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
 		]] .. DRAW_DECLARATIONS .. draw.STREAM_GLSL,
-		shader = OCCLUSION_GLSL .. [[
-
-			bool outside_sphere(vec4 plane, vec3 center, float radius) {
-				return dot(plane.xyz, center) + plane.w < -radius;
-			}
+		shader = OCCLUSION_GLSL .. VIEW_CULL_GLSL .. [[
 
 			void main() {
 				scene_stream_header h = SceneStreamHeader(ARGS.streams).h;
@@ -951,39 +1007,19 @@ local function get_stream_cull_pipeline()
 				float radius = s.bounds.w * sqrt(max(dot(world[0].xyz, world[0].xyz), max(dot(world[1].xyz, world[1].xyz), dot(world[2].xyz, world[2].xyz))));
 				vec3 to_camera = compute.camera_position - center;
 				bool inside = dot(to_camera, to_camera) <= radius * radius;
-				float clip_w = dot(compute.view_w_row, vec4(center, 1.0));
-				float radius_px = !inside && clip_w > 0.0 ? length(compute.view_y_row.xyz) * radius * compute.viewport_height / max(clip_w * 2.0, 1e-5) : 1e18;
+				float radius_pixels = inside ? 1e18 : view_pixels(center, radius);
 
 				if (compute.culling_enabled != 0) {
-					if (
-						outside_sphere(compute.frustum_planes[0], center, radius) ||
-						outside_sphere(compute.frustum_planes[1], center, radius) ||
-						outside_sphere(compute.frustum_planes[2], center, radius) ||
-						outside_sphere(compute.frustum_planes[3], center, radius) ||
-						outside_sphere(compute.frustum_planes[4], center, radius) ||
-						outside_sphere(compute.frustum_planes[5], center, radius)
-					) return;
-
-					if (radius_px * 2.0 < 1.0) return;
+					if (outside_view(center, radius) || radius_pixels * 2.0 < 1.0) return;
 
 					if (!inside && (s.flags & ]] .. draw.STREAM_OCCLUSION .. [[u) != 0u && is_box_occluded(center - radius, center + radius)) return;
 				}
 
-				uint area = uint(max(min(3.14159265 * radius_px * radius_px, ARGS.viewport_pixels), 1.0));
 				world[1][3] = 0.0;
 				world[2][3] = 0.0;
 				mat4 prev = world;
 				prev[0][3] = -1.0;
-
-				uint group_id = SceneStreamParts(h.parts).p[s.first_part];
-				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
-
-				if (place >= group.room) return;
-
-				atomicAdd(CountArray(ARGS.group_areas).n[group_id], area);
-				WorldArray(ARGS.worlds).w[group.base + place] = world;
-				WorldArray(ARGS.prev_worlds).w[group.base + place] = prev;
+				place(SceneStreamParts(h.parts).p[s.first_part], view_area(radius_pixels), world, prev);
 			}
 		]],
 	}
@@ -1080,33 +1116,19 @@ local function get_cluster_pipeline()
 			{"frame", "int"},
 		},
 		write = function(self, block)
+			write_view(block)
 			block.frame = system.GetFrameNumber()
-			block.args = state.args_address
-			block.camera_position[0] = state.camera.x
-			block.camera_position[1] = state.camera.y
-			block.camera_position[2] = state.camera.z
 			block.count = state.cluster_pairs
 			block.capacity = state.command_capacity
 			block.cluster_capacity = CLUSTER_COMMANDS
-			ffi.copy(block.frustum_planes, state.planes, ffi.sizeof("float") * 24)
-			state.view_projection:CopyToFloatPointer(view_projection_scratch)
-			block.view_w_row[0] = view_projection_scratch[3]
-			block.view_w_row[1] = view_projection_scratch[7]
-			block.view_w_row[2] = view_projection_scratch[11]
-			block.view_w_row[3] = view_projection_scratch[15]
-			block.view_y_row[0] = view_projection_scratch[1]
-			block.view_y_row[1] = view_projection_scratch[5]
-			block.view_y_row[2] = view_projection_scratch[9]
-			block.viewport_height = state.viewport_height
 			block.lod_forced = lod.GetForcedLevel()
 			block.lod_scale = lod.GetScale()
 			block.lod_fade_width = lod.GetFadeWidth()
-			block.culling_enabled = state.culling and 1 or 0
 			block.pixel_error = cluster_lod.GetPixelError()
 			return block
 		end,
 		custom_declarations = DRAW_DECLARATIONS,
-		shader = [[
+		shader = VIEW_CULL_GLSL .. [[
 
 			]] .. SELECT_LOD_GLSL .. [[
 
@@ -1121,12 +1143,7 @@ local function get_cluster_pipeline()
 			}
 
 			float projected_error(float error, vec3 center, float radius) {
-				float depth = dot(compute.view_w_row, vec4(center, 1.0)) - radius;
-				return error * length(compute.view_y_row.xyz) * compute.viewport_height * 0.5 / max(depth, 0.0001);
-			}
-
-			bool outside_sphere(vec4 plane, vec3 center, float radius) {
-				return dot(plane.xyz, center) + plane.w < -radius;
+				return error * length(compute.view_y_row.xyz) * compute.viewport_height * 0.5 / max(view_depth(center) - radius, 0.0001);
 			}
 
 			void main() {
@@ -1149,20 +1166,10 @@ local function get_cluster_pipeline()
 				cluster_record c = ClusterArray(ARGS.clusters).c[p.y];
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
 				float scale = max(length(vec3(t.m[0], t.m[4], t.m[8])), max(length(vec3(t.m[1], t.m[5], t.m[9])), length(vec3(t.m[2], t.m[6], t.m[10]))));
+				vec3 center = transform_point(t.m, c.bounds.xyz);
+				float radius = c.bounds.w * scale;
 
-				if (compute.culling_enabled != 0) {
-					vec3 bounds_center = transform_point(t.m, c.bounds.xyz);
-					float bounds_radius = c.bounds.w * scale;
-
-					if (
-						outside_sphere(compute.frustum_planes[0], bounds_center, bounds_radius) ||
-						outside_sphere(compute.frustum_planes[1], bounds_center, bounds_radius) ||
-						outside_sphere(compute.frustum_planes[2], bounds_center, bounds_radius) ||
-						outside_sphere(compute.frustum_planes[3], bounds_center, bounds_radius) ||
-						outside_sphere(compute.frustum_planes[4], bounds_center, bounds_radius) ||
-						outside_sphere(compute.frustum_planes[5], bounds_center, bounds_radius)
-					) return;
-				}
+				if (compute.culling_enabled != 0 && outside_view(center, radius)) return;
 
 				if (projected_error(c.error * scale, transform_point(t.m, c.lod.xyz), c.lod.w * scale) > compute.pixel_error) return;
 
@@ -1181,23 +1188,15 @@ local function get_cluster_pipeline()
 					if (!select_lod(level, last, inst.lod.x, inst.lod.y, ratio, fade)) return;
 				}
 
+				float depth = view_depth(center);
+				float radius_pixels = depth > radius ? view_pixels(center, radius) : 1e18;
+				float area = view_area(radius_pixels);
+				uint at = place(group_id, area, world_from(t.m, fade, inst.dynamic, inst.overlay), world_from(RasterArray(ARGS.raster).r[id].prev, float(slot), inst.dynamic, inst.overlay));
+
+				if (at == 0xFFFFFFFFu) return;
+
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
-
-				if (place >= group.room) return;
-
-				vec3 cluster_center = transform_point(t.m, c.bounds.xyz);
-				float cluster_radius = c.bounds.w * scale;
-				float clip_w = dot(compute.view_w_row, vec4(cluster_center, 1.0));
-				float area = ARGS.viewport_pixels;
-				float radius_px = 1e30;
-
-				if (clip_w > cluster_radius) {
-					radius_px = length(compute.view_y_row.xyz) * cluster_radius * compute.viewport_height / (clip_w * 2.0);
-					area = min(3.14159265 * radius_px * radius_px, ARGS.viewport_pixels);
-				}
-
-				float density = float(c.index_count / 3u) / max(area, 1.0);
+				float density = float(c.index_count / 3u) / area;
 				uint variant = density >= ARGS.ids_density && (group.set & GROUP_CLASSIC_ONLY) == 0u ? ARGS.ids_remap[GROUP_VARIANT(group)] : ARGS.remap[GROUP_VARIANT(group)];
 				uint set = variant * 2u + (group.set & 1u);
 				uint index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
@@ -1207,9 +1206,6 @@ local function get_cluster_pipeline()
 					return;
 				}
 
-				uint at = group.base + place;
-				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.dynamic, inst.overlay);
-				WorldArray(ARGS.prev_worlds).w[at] = world_from(RasterArray(ARGS.raster).r[id].prev, float(slot), inst.dynamic, inst.overlay);
 				bool software = false;
 
 				if (
@@ -1218,8 +1214,8 @@ local function get_cluster_pipeline()
 					variant != ARGS.remap[GROUP_VARIANT(group)] &&
 					fade == 0.0 &&
 					density >= ARGS.software_density &&
-					radius_px < ARGS.software_radius &&
-					clip_w - cluster_radius > 0.01
+					radius_pixels < ARGS.software_radius &&
+					depth - radius > 0.01
 				) {
 					uint record = atomicAdd(SoftwareHeader(ARGS.software_header).count, 1u);
 					software = record < ]] .. software_raster.CAPACITY .. [[u;
@@ -1240,13 +1236,9 @@ local function get_cluster_pipeline()
 	return cluster_pipeline
 end
 
-local finalize_pipeline
-
-local function get_finalize_pipeline()
-	if finalize_pipeline then return finalize_pipeline end
-
-	finalize_pipeline = EasyPipeline.Compute{
-		name = "scene_draw_finalize",
+local function create_finalize_pipeline(name, declarations, write)
+	return EasyPipeline.Compute{
+		name = name,
 		DescriptorSetCount = 1,
 		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
 		block = {
@@ -1254,38 +1246,54 @@ local function get_finalize_pipeline()
 			{"count", "int"},
 			{"capacity", "int"},
 		},
-		write = function(self, block)
-			block.args = state.args_address
-			block.count = state.group_count
-			block.capacity = state.command_capacity
-			return block
-		end,
-		custom_declarations = DRAW_DECLARATIONS,
+		write = write,
+		custom_declarations = declarations,
 		shader = [[
-
 			void main() {
 				uint group_id = gl_GlobalInvocationID.x;
 
 				if (group_id >= uint(compute.count)) return;
 
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
-
+			#ifdef SHADOW
+				uint room = group.shadow_room;
+				uint base = group.shadow_base;
+			#else
 				if ((group.set & GROUP_CLUSTERED) != 0u) return;
 
-				uint instance_count = min(CountArray(ARGS.group_counts).n[group.owner], group.room);
+				uint room = group.room;
+				uint base = group.base;
+			#endif
+				uint instance_count = min(CountArray(ARGS.group_counts).n[group.owner], room);
 
 				if (instance_count == 0u) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
+			#ifdef SHADOW
+				uint at = atomicAdd(CountArray(ARGS.counts).n[0], 1u);
+			#else
 				float density = float(instance_count) * float(mesh.triangle_count) / max(float(CountArray(ARGS.group_areas).n[group.owner]), 1.0);
 				uint variant = density >= ARGS.ids_density && (group.set & GROUP_CLASSIC_ONLY) == 0u ? ARGS.ids_remap[GROUP_VARIANT(group)] : ARGS.remap[GROUP_VARIANT(group)];
 				uint set = variant * 2u + (group.set & 1u);
-				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
-				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
-				GroupIdArray(ARGS.draw_groups).g[uint(compute.capacity) * set + packed_index] = group_id;
+				uint at = uint(compute.capacity) * set + atomicAdd(CountArray(ARGS.counts).n[set], 1u);
+			#endif
+				CommandArray(ARGS.commands).c[at] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, base);
+				GroupIdArray(ARGS.draw_groups).g[at] = group_id;
 			}
 		]],
 	}
+end
+
+local finalize_pipeline
+
+local function get_finalize_pipeline()
+	finalize_pipeline = finalize_pipeline or
+		create_finalize_pipeline("scene_draw_finalize", DRAW_DECLARATIONS, function(self, block)
+			block.args = state.args_address
+			block.count = state.group_count
+			block.capacity = state.command_capacity
+			return block
+		end)
 	return finalize_pipeline
 end
 
@@ -2038,7 +2046,11 @@ end
 
 -- the producer calls this once it has appended: produced rows are shown only in the frame they are written, before the scene build
 function draw.EndStreams(cmd)
-	if stream_frame ~= render.frame_serial or traced_count == 0 or not rays_enabled:Get() then
+	if
+		stream_frame ~= render.frame_serial or
+		traced_count == 0 or
+		not rays_enabled:Get()
+	then
 		return
 	end
 
@@ -2461,26 +2473,6 @@ function draw.DrawTranslucent(gbuffer_instancing, name)
 	return true
 end
 
-local SHADOW_DECLARATIONS = TABLE_DECLARATIONS .. [[
-			struct shadow_args {
-				uint64_t tlas;
-				uint64_t data;
-				uint64_t raster;
-				uint64_t meshes;
-				uint64_t commands;
-				uint64_t worlds;
-				uint64_t slot_rows;
-				uint64_t counts;
-				uint64_t slot_groups;
-				uint64_t group_table;
-				uint64_t group_counts;
-				uint64_t draw_groups;
-				uint64_t streams;
-			};
-
-			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
-			#define ARGS ArgsRef(compute.args).a
-]]
 local shadow_pipeline
 local shadow_finalize_pipeline
 local create_shadow_pipeline
@@ -2528,8 +2520,8 @@ function create_shadow_pipeline()
 			block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
 			return block
 		end,
-		custom_declarations = SHADOW_DECLARATIONS .. OUTSIDE_PLANE_DECLARATIONS,
-		shader = [[
+		custom_declarations = SHADOW_DECLARATIONS,
+		shader = SHADOW_CULL_GLSL .. [[
 
 			bool select_shadow_lod(uint flags, uint level, uint last, float near_ratio, float far_ratio, float ratio) {
 				if ((flags & 128u) != 0u) return false;
@@ -2562,13 +2554,7 @@ function create_shadow_pipeline()
 				if ((raster.flags & 16u) == 0u || (inst.flags & 48u) != 0u) return;
 
 				if (compute.culling_enabled != 0) {
-					if (
-						outside_plane(compute.planes[0], raster) ||
-						outside_plane(compute.planes[1], raster) ||
-						outside_plane(compute.planes[2], raster) ||
-						outside_plane(compute.planes[3], raster) ||
-						outside_plane(compute.planes[4], raster)
-					) return;
+					if (outside_shadow_box(raster)) return;
 
 					if (compute.min_caster_extent > 0.0) {
 						vec3 half_size = 0.5 * (raster.box_max - raster.box_min);
@@ -2589,19 +2575,13 @@ function create_shadow_pipeline()
 
 				if (group_id == 0xFFFFFFFFu) return;
 
-				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
-
-				if (place >= group.shadow_room) return;
-
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
-				// the shadow vertex stage reads only xyz of a world position, so [1][3] carries the slot for ReadBackShadowCull
-				WorldArray(ARGS.worlds).w[group.shadow_base + place] = mat4(
+				place_shadow(group_id, mat4(
 					vec4(t.m[0], t.m[4], t.m[8], 0.0),
 					vec4(t.m[1], t.m[5], t.m[9], float(slot)),
 					vec4(t.m[2], t.m[6], t.m[10], 0.0),
 					vec4(t.m[3], t.m[7], t.m[11], 1.0)
-				);
+				));
 			}
 		]],
 	}
@@ -2638,7 +2618,7 @@ local function get_shadow_stream_pipeline()
 			return block
 		end,
 		custom_declarations = SHADOW_DECLARATIONS .. draw.STREAM_GLSL,
-		shader = [[
+		shader = SHADOW_CULL_GLSL .. [[
 			void main() {
 				scene_stream_header h = SceneStreamHeader(ARGS.streams).h;
 
@@ -2658,26 +2638,13 @@ local function get_shadow_stream_pipeline()
 					if (compute.min_caster_extent > 0.0 && radius * 2.0 < compute.min_caster_extent) return;
 
 					// vertex animation moves leaves past the bounds
-					float reach = radius * 1.25 + 0.25;
-
-					if (
-						dot(compute.planes[0].xyz, center) + compute.planes[0].w < -reach ||
-						dot(compute.planes[1].xyz, center) + compute.planes[1].w < -reach ||
-						dot(compute.planes[2].xyz, center) + compute.planes[2].w < -reach ||
-						dot(compute.planes[3].xyz, center) + compute.planes[3].w < -reach ||
-						dot(compute.planes[4].xyz, center) + compute.planes[4].w < -reach
-					) return;
+					if (outside_shadow(center, radius * 1.25 + 0.25)) return;
 				}
 
 				world[0][3] = 0.0;
 				world[1][3] = -1.0;
 				world[2][3] = 0.0;
-
-				uint group_id = SceneStreamParts(h.parts).p[s.first_part];
-				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
-
-				if (place < group.shadow_room) WorldArray(ARGS.worlds).w[group.shadow_base + place] = world;
+				place_shadow(SceneStreamParts(h.parts).p[s.first_part], world);
 			}
 		]],
 	}
@@ -2685,40 +2652,12 @@ local function get_shadow_stream_pipeline()
 end
 
 local function get_shadow_finalize_pipeline()
-	if shadow_finalize_pipeline then return shadow_finalize_pipeline end
-
-	shadow_finalize_pipeline = EasyPipeline.Compute{
-		name = "scene_shadow_finalize",
-		DescriptorSetCount = 1,
-		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
-		block = {
-			{"args", "uint64_t"},
-			{"count", "int"},
-		},
-		write = function(self, block)
+	shadow_finalize_pipeline = shadow_finalize_pipeline or
+		create_finalize_pipeline("scene_shadow_finalize", SHADOW_DECLARATIONS .. "#define SHADOW\n", function(self, block)
 			block.args = self.shadow_state.args_address
 			block.count = self.shadow_state.group_count
 			return block
-		end,
-		custom_declarations = SHADOW_DECLARATIONS,
-		shader = [[
-			void main() {
-				uint group_id = gl_GlobalInvocationID.x;
-
-				if (group_id >= uint(compute.count)) return;
-
-				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				uint instance_count = min(CountArray(ARGS.group_counts).n[group.owner], group.shadow_room);
-
-				if (instance_count == 0u) return;
-
-				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
-				uint index = atomicAdd(CountArray(ARGS.counts).n[0], 1u);
-				CommandArray(ARGS.commands).c[index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.shadow_base);
-				GroupIdArray(ARGS.draw_groups).g[index] = group_id;
-			}
-		]],
-	}
+		end)
 	return shadow_finalize_pipeline
 end
 
