@@ -738,6 +738,11 @@ function helpers.TracePointAgainstBody(shape, collider, origin, movement, max_fr
 		position = hit.position,
 		point = hit.position,
 		normal = hit.normal,
+		face_normal = hit.face_normal,
+		model = hit.model,
+		primitive = hit.primitive,
+		primitive_index = hit.primitive_index,
+		triangle_index = hit.triangle_index,
 	}
 end
 

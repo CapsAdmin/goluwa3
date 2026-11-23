@@ -7,6 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local META = objects.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
 local MESH_POLYGON_BVH_THRESHOLD = 12
@@ -700,6 +701,16 @@ function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_
 	end
 
 	return best_hit
+end
+
+function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
+	if radius > 0.001 then return nil end
+
+	local body = collider:GetBody()
+
+	if not (body and (body:IsStatic() or body:IsKinematic())) then return nil end
+
+	return sweep_helpers.TracePointAgainstBody(self, collider, origin, movement, max_fraction)
 end
 
 return META:Register()

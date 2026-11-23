@@ -586,7 +586,7 @@ local function test_rigid_body_sweep_untimed(origin, movement, radius, body, ign
 				hit = shape:SweepPointAgainstBody(collider, origin, movement, radius, target_state, best_fraction)
 			end
 
-			if not hit and shape_type == "mesh" then
+			if not hit and shape_type == "mesh" and radius > 0.001 then
 				hit = test_mesh_body_point_sweep(origin, movement, radius, body, collider, best_fraction)
 			end
 
