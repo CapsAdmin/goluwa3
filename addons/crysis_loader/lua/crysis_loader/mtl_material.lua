@@ -385,10 +385,12 @@ local function apply_cry_material_node(self, material_node, material_path)
 		local r, g, b = unpack_csv_numbers(params.BackDiffuse)
 		local multiplier = tonumber(params.BackDiffuseMultiplier) or 1
 		r, g, b = (r or 1) * multiplier, (g or 1) * multiplier, (b or 1) * multiplier
-		local ratio = r * 0.2126 + g * 0.7152 + b * 0.0722
+		local back = r * 0.2126 + g * 0.7152 + b * 0.0722
+		local front_r, front_g, front_b = unpack_csv_numbers(attrs.Diffuse)
+		local front = (front_r or 1) * 0.2126 + (front_g or 1) * 0.7152 + (front_b or 1) * 0.0722
 
-		if ratio > 0 then
-			self:SetDiffuseTransmission(ratio / (1 + ratio))
+		if back > 0 and front > 0 then
+			self:SetDiffuseTransmission(back / front)
 			self:SetTransmissionColor(Color(r, g, b, 1))
 		end
 

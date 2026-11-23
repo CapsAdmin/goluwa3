@@ -497,8 +497,9 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	T(material:GetSpecularMultiplier())["=="](1)
 	T(material:GetMetallicMultiplier())["=="](0)
 	T(material:GetMetallicFromRoughnessMask())["=="](false)
-	local ratio = 0.3 * 0.2126 + 0.6 * 0.7152 + 0.9 * 0.0722
-	T(math.abs(material:GetDiffuseTransmission() - ratio / (1 + ratio)))["<"](0.0001)
+	local back = 0.3 * 0.2126 + 0.6 * 0.7152 + 0.9 * 0.0722
+	local front = 0.25 * 0.2126 + 0.5 * 0.7152 + 0.75 * 0.0722
+	T(math.abs(material:GetDiffuseTransmission() - back / front))["<"](0.0001)
 	T(math.abs(material:GetTransmissionColor().r - 0.3))["<"](0.0001)
 	T(math.abs(material:GetTransmissionColor().g - 0.6))["<"](0.0001)
 	T(math.abs(material:GetTransmissionColor().b - 0.9))["<"](0.0001)
