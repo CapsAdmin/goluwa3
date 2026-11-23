@@ -8,6 +8,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local decode_pass = {
 	name = "gbuffer_decode_test",
 	ComputePass = true,
@@ -80,7 +81,10 @@ local function decode(draw, material)
 	visual_primitive:SetPolygon3D(polygon3d)
 	visual_primitive:SetMaterial(material)
 	entity.visual:BuildAABB()
+	local density = pvars.Get("r_visibility_buffer_density")
+	pvars.SetSession("r_visibility_buffer_density", 0)
 	local ok, err = pcall(draw)
+	pvars.SetSession("r_visibility_buffer_density", density)
 	local downloaded = ok and
 		render3d.pipelines.gbuffer_decode_test:GetFramebuffer(1):GetAttachment(1):Download()
 	entity:Remove()

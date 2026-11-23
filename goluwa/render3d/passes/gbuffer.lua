@@ -30,10 +30,15 @@ local function get_extra_pipeline(extra)
 	local param_bits = extra.GetSurfaceParamBits and
 		extra.GetSurfaceParamBits() or
 		shader_features.PARAMS
-	local pipeline = render3d.GetPipelineVariant(
-		extra.name,
-		scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, bit.bor(scene_draw.GetGlobalBits(0), param_bits))
-	)
+	local bits = bit.bor(scene_draw.GetGlobalBits(0), param_bits)
+
+	if visibility.enabled and extra.name == "gbuffer_multi_draw" then
+		local pipeline = render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_IDS, bits))
+
+		if render3d.IsPipelineReady(pipeline) then return pipeline end
+	end
+
+	local pipeline = render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, bits))
 
 	if render3d.IsPipelineReady(pipeline) then return pipeline end
 
@@ -943,20 +948,28 @@ do
 		[scene_draw.SHAPE_PLAIN] = "plain",
 		[scene_draw.SHAPE_RELIEF] = "relief",
 		[scene_draw.SHAPE_NEARER] = "nearer",
+		[scene_draw.SHAPE_IDS] = "ids",
 	}
 	local TERRAIN = shader_features.TERRAIN
+	local prewarm = {
+		scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0),
+		scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, 0),
+		scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, shader_features.PARAMS),
+		scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, shader_features.PARAMS),
+		scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, TERRAIN),
+		scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, TERRAIN),
+		scene_draw.GetVariant(scene_draw.SHAPE_NEARER, shader_features.ALL),
+	}
+
+	if visibility.enabled then
+		list.insert(prewarm, scene_draw.GetVariant(scene_draw.SHAPE_IDS, 0))
+		list.insert(prewarm, scene_draw.GetVariant(scene_draw.SHAPE_IDS, shader_features.PARAMS))
+	end
+
 	render3d.RegisterPipelineVariants(
 		"gbuffer_multi_draw",
 		{
-			prewarm = {
-				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0),
-				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, 0),
-				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, shader_features.PARAMS),
-				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, shader_features.PARAMS),
-				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, TERRAIN),
-				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, TERRAIN),
-				scene_draw.GetVariant(scene_draw.SHAPE_NEARER, shader_features.ALL),
-			},
+			prewarm = prewarm,
 			label = function(variant)
 				local features = shader_features.GetName(scene_draw.GetVariantBits(variant))
 				return SHAPE_NAMES[scene_draw.GetVariantShape(variant)] .. (
@@ -967,11 +980,11 @@ do
 			end,
 			build = function(variant)
 				local shape = scene_draw.GetVariantShape(variant)
-				local visibility_ids = visibility.enabled and shape == scene_draw.SHAPE_PLAIN
+				local visibility_ids = shape == scene_draw.SHAPE_IDS
 				-- snow lying on everything moves hits nearer than the triangle, so the nearer shape cannot promise depth_less
 				return build_multi_draw_pass(
 					build_ssdm_fragment_shader(
-						shape ~= scene_draw.SHAPE_PLAIN,
+						shape == scene_draw.SHAPE_RELIEF or shape == scene_draw.SHAPE_NEARER,
 						true,
 						shape == scene_draw.SHAPE_NEARER,
 						false,

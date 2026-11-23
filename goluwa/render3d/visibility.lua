@@ -7,8 +7,21 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local visibility = {}
 visibility.enabled = gbuffer_layout.visibility
+pvars.StartGroup("Rendering", "Visibility buffer", {store = false})
+local density = pvars.Setup2{
+	key = "r_visibility_buffer_density",
+	default = 0.03,
+	help = "triangles per pixel above which a group of plain scene meshes is drawn through the visibility buffer (triangles of its visible instances over the pixels of their bounding spheres), below it stays classic; each cluster of a cluster lod mesh is routed the same way by its own triangles, scatter always uses it",
+}
+pvars.EndGroup()
+
+function visibility.GetDensity()
+	return density:Get()
+end
+
 visibility.MAX_CONTEXTS = 1024
 visibility.RING = 4
 visibility.CONTEXT_GLSL = [[
@@ -645,6 +658,8 @@ do
 	end
 
 	function visibility.Resolve(cmd, framebuffer)
+		if serial ~= render.frame_serial or count == 0 then return end
+
 		local classify, bins, animate = get_job_pipelines()
 		local ids = framebuffer:GetAttachment(gbuffer_layout.attachment_index.visibility)
 		local width, height = ids:GetWidth(), ids:GetHeight()

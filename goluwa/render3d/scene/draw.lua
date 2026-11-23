@@ -26,10 +26,11 @@ local COMMAND_SIZE = 20
 draw.SHAPE_PLAIN = 0
 draw.SHAPE_RELIEF = 1
 draw.SHAPE_NEARER = 2
-local SHAPES = 3
+draw.SHAPE_IDS = 3
+local SHAPES = 4
 local VARIANTS = SHAPES * shader_features.COUNT
 local GROUPS = VARIANTS * 2
-local ARGS_REMAP = 17
+local ARGS_REMAP = 19
 local CLUSTER_COMMANDS = 32768
 local CLUSTER_GROUP = 0xFFFFFFFF
 draw.VARIANTS = VARIANTS
@@ -472,7 +473,11 @@ local DRAW_DECLARATIONS = [[
 				uint64_t seen;
 				uint64_t clusters;
 				uint64_t cluster_pairs;
+				uint64_t group_areas;
+				float viewport_pixels;
+				float ids_density;
 				uint remap[]] .. VARIANTS .. [[];
+				uint ids_remap[]] .. VARIANTS .. [[];
 			};
 
 			]] .. cluster_format.CLUSTER_GLSL .. [[
@@ -723,6 +728,18 @@ function create_cull_pipeline()
 
 				if (place >= group.room) return;
 
+				if (compute.kind == 0) {
+					float area = ARGS.viewport_pixels;
+					float clip_w = dot(compute.view_w_row, vec4(inst.bounds.xyz, 1.0));
+
+					if (!inside && clip_w > 0.0) {
+						float radius_px = length(compute.view_y_row.xyz) * inst.bounds.w * compute.viewport_height / max(clip_w * 2.0, 1e-5);
+						area = min(3.14159265 * radius_px * radius_px, ARGS.viewport_pixels);
+					}
+
+					atomicAdd(CountArray(ARGS.group_areas).n[group_id], uint(max(area, 1.0)));
+				}
+
 				uint at = group.base + place;
 				BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, slot);
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
@@ -944,7 +961,19 @@ local function get_cluster_pipeline()
 
 				if (place >= group.room) return;
 
-				uint set = ARGS.remap[group.set >> 1u] * 2u + (group.set & 1u);
+				vec3 cluster_center = transform_point(t.m, c.bounds.xyz);
+				float cluster_radius = c.bounds.w * scale;
+				float clip_w = dot(compute.view_w_row, vec4(cluster_center, 1.0));
+				float area = ARGS.viewport_pixels;
+
+				if (clip_w > cluster_radius) {
+					float radius_px = length(compute.view_y_row.xyz) * cluster_radius * compute.viewport_height / (clip_w * 2.0);
+					area = min(3.14159265 * radius_px * radius_px, ARGS.viewport_pixels);
+				}
+
+				float density = float(c.index_count / 3u) / max(area, 1.0);
+				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[group.set >> 1u] : ARGS.remap[group.set >> 1u];
+				uint set = variant * 2u + (group.set & 1u);
 				uint index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 
 				if (index >= uint(compute.cluster_capacity)) {
@@ -1000,7 +1029,9 @@ local function get_finalize_pipeline()
 				if (instance_count == 0u) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
-				uint set = ARGS.remap[group.set >> 1u] * 2u + (group.set & 1u);
+				float density = float(instance_count) * float(mesh.triangle_count) / max(float(CountArray(ARGS.group_areas).n[group_id]), 1.0);
+				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[group.set >> 1u] : ARGS.remap[group.set >> 1u];
+				uint set = variant * 2u + (group.set & 1u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
 			}
@@ -1027,6 +1058,7 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 		buffers.commands:Remove()
 		buffers.counts:Remove()
 		buffers.group_counts:Remove()
+		buffers.group_areas:Remove()
 		buffers.batch_ids:Remove()
 		buffers.worlds:Remove()
 		buffers.prev_worlds:Remove()
@@ -1067,6 +1099,12 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 			memory_property = {"device_local"},
 			label = name .. ".group_counts",
 		},
+		group_areas = render.CreateBuffer{
+			byte_size = group_capacity * 4,
+			buffer_usage = usage,
+			memory_property = {"device_local"},
+			label = name .. ".group_areas",
+		},
 		batch_ids = render.CreateBuffer{
 			byte_size = capacity * 8,
 			buffer_usage = usage,
@@ -1100,6 +1138,7 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 	buffers.commands_address = buffers.commands:GetDeviceAddress()
 	buffers.counts_address = buffers.counts:GetDeviceAddress()
 	buffers.group_counts_address = buffers.group_counts:GetDeviceAddress()
+	buffers.group_areas_address = buffers.group_areas:GetDeviceAddress()
 	buffers.batch_ids_address = buffers.batch_ids:GetDeviceAddress()
 	buffers.worlds_address = buffers.worlds:GetDeviceAddress()
 	buffers.prev_worlds_address = buffers.prev_worlds:GetDeviceAddress()
@@ -1129,7 +1168,7 @@ local function is_variant_ready(kind, variant)
 	return ready
 end
 
-local function resolve_variants(kind_index, remap)
+local function resolve_variants(kind_index, remap, ids_remap)
 	local kind = variant_kinds[kind_index]
 	local counts = variant_rows[kind_index]
 	local drawn = frame_state.drawn[kind_index]
@@ -1166,6 +1205,21 @@ local function resolve_variants(kind_index, remap)
 		end
 
 		remap[variant] = target
+		ids_remap[variant] = target
+
+		if
+			visibility.enabled and
+			kind_index == 0 and
+			counts[variant] > 0 and
+			draw.GetVariantShape(target) == draw.SHAPE_PLAIN
+		then
+			local ids = draw.GetVariant(draw.SHAPE_IDS, draw.GetVariantBits(target))
+
+			if is_variant_ready(kind, ids) then
+				ids_remap[variant] = ids
+				drawn[ids] = true
+			end
+		end
 	end
 end
 
@@ -1244,7 +1298,7 @@ function draw.Cull(
 
 		if not args then
 			args = render.CreateBuffer{
-				byte_size = ARGS_REMAP * 8 + VARIANTS * 4,
+				byte_size = ARGS_REMAP * 8 + VARIANTS * 8,
 				buffer_usage = {"storage_buffer", "shader_device_address"},
 				memory_property = {"host_visible", "host_coherent"},
 				label = "scene_draw.args",
@@ -1252,6 +1306,8 @@ function draw.Cull(
 			ring[ring_slot] = args
 			args.pointer = ffi.cast("uint64_t *", args:Map())
 			args.remap = ffi.cast("uint32_t *", args.pointer + ARGS_REMAP)
+			args.ids_remap = args.remap + VARIANTS
+			args.viewport_pixels = ffi.cast("float *", args.pointer + ARGS_REMAP - 1)
 			args.address = tonumber(args:GetDeviceAddress())
 		end
 
@@ -1272,7 +1328,11 @@ function draw.Cull(
 		args.pointer[14] = seen_address
 		args.pointer[15] = cluster_lod.GetTable():GetAddress()
 		args.pointer[16] = pair_address
-		resolve_variants(kind, args.remap)
+		args.pointer[17] = buffers.group_areas_address
+		local render_size = render3d.GetInternalRenderSize()
+		args.viewport_pixels[0] = render_size.x * render_size.y
+		args.viewport_pixels[1] = visibility.GetDensity()
+		resolve_variants(kind, args.remap, args.ids_remap)
 		state.kind = kind
 		state.args_address = args.address
 		state.camera = camera_position
@@ -1289,6 +1349,7 @@ function draw.Cull(
 		state.occlusion_view_projection = hiz and hiz.view_projection or nil
 		cmd:FillBuffer(buffers.counts, 0, buffers.counts.size, 0)
 		cmd:FillBuffer(buffers.group_counts, 0, buffers.group_counts.size, 0)
+		cmd:FillBuffer(buffers.group_areas, 0, buffers.group_areas.size, 0)
 		cmd:PipelineBarrier{
 			srcStage = {"host", "transfer", "compute"},
 			dstStage = "compute",
@@ -1437,7 +1498,11 @@ local function draw_variants(gbuffer_instancing, kind, name, displaced)
 			(
 				displaced == nil or
 				(
-					draw.GetVariantShape(variant) ~= draw.SHAPE_PLAIN or
+					(
+						draw.GetVariantShape(variant) ~= draw.SHAPE_PLAIN and
+						draw.GetVariantShape(variant) ~= draw.SHAPE_IDS
+					)
+					or
 					bit.band(draw.GetVariantBits(variant), shader_features.TERRAIN) ~= 0
 				) == displaced
 			)
