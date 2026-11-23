@@ -673,5 +673,5 @@ T.Test("convex hulls of centimeter sized parts keep their faces", function()
 		flat[i] = {pos = Vec3(math.cos(i) * scale, 0, math.sin(i) * scale)}
 	end
 
-	T(convex_hull.FromPolygon3D({Vertices = flat}).ConvexHull)["=="](nil)
+	T(convex_hull.FromPolygon3D({Vertices = flat}))["=="](nil)
 end)
