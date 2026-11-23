@@ -867,10 +867,10 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			]] .. (
 			visibility_ids and
 			[[
-			set_visibility(uvec4(uint(gbuffer_draw.context), in_draw, in_instance, ]] .. (
+			set_visibility(uvec4(uint(gbuffer_draw.context) | (in_draw << 10u), in_instance, ]] .. (
 				tessellated and
-				"in_primitive" or
-				"uint(gl_PrimitiveID)"
+				"in_primitive, 0u" or
+				"in_vertex[0] | (in_vertex[1] << 21u), (in_vertex[1] >> 11u) | (in_vertex[2] << 10u)"
 			) .. [[));
 			return;
 			]] or
@@ -996,7 +996,7 @@ do
 				local shape = scene_draw.GetVariantShape(variant)
 				local visibility_ids = shape == scene_draw.SHAPE_IDS
 				-- snow lying on everything moves hits nearer than the triangle, so the nearer shape cannot promise depth_less
-				return build_multi_draw_pass(
+				local pass = build_multi_draw_pass(
 					build_ssdm_fragment_shader(
 						shape == scene_draw.SHAPE_RELIEF or shape == scene_draw.SHAPE_NEARER,
 						true,
@@ -1007,6 +1007,15 @@ do
 					scene_draw.GetVariantBits(variant),
 					visibility_ids
 				)
+
+				if visibility_ids then
+					pass.fragment.custom_declarations = pass.fragment.custom_declarations .. string.format(
+							"layout(location = %d) pervertexEXT in uint in_vertex[3];\n",
+							pass.vertex.batch_location + 4
+						)
+				end
+
+				return pass
 			end,
 		}
 	)

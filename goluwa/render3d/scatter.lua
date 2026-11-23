@@ -1867,6 +1867,10 @@ local function rebuild_draws()
 		if proto.state == "ready" then
 			for _, part in ipairs(proto.parts) do
 				assert(#draw_batches < scatter.MAX_BATCHES, "too many scatter meshes")
+				assert(
+					part.mesh.vertex_buffer:GetVertexCount() <= 2 ^ visibility.VERTEX_INDEX_BITS,
+					"scatter meshes are limited to " .. 2 ^ visibility.VERTEX_INDEX_BITS .. " vertices"
+				)
 				local index_buffer = part.mesh.index_buffer
 				draw_batches[#draw_batches + 1] = {
 					mesh = part.mesh,

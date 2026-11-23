@@ -4,7 +4,6 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
-local index_pool = import("goluwa/render3d/index_pool.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -22,7 +21,8 @@ function visibility.GetDensity()
 	return density:Get()
 end
 
-visibility.MAX_CONTEXTS = 1024
+visibility.MAX_CONTEXTS = 1023
+visibility.VERTEX_INDEX_BITS = 21
 visibility.VARIANTS = shader_features.ALL + 1
 visibility.KIND_MULTI_DRAW = 0
 visibility.KIND_TESSELLATION = 1
@@ -203,12 +203,10 @@ do
 
 	local function build_job_glsl(kind)
 		local info = kinds[kind]
-		local words = info.indexed and 5 or 4
 		return string.format(
 			[[
 			layout(set = 0, binding = %d, rgba32ui) uniform readonly uimage2D visibility_ids;
 			layout(buffer_reference, scalar) readonly buffer VisibilityContexts { VisibilityContext c[]; };
-			layout(buffer_reference, scalar) readonly buffer VisibilityWords { uint v[]; };
 			layout(buffer_reference, scalar) buffer VisibilityOffsets { uint v[]; };
 
 			uvec4 visibility_job_id(uvec2 job) {
@@ -217,7 +215,7 @@ do
 			}
 
 			void visibility_prepare(uvec4 id, uint vertex) {
-				VisibilityContext context = VisibilityContexts(compute.contexts).c[id.x - 1u];
+				VisibilityContext context = VisibilityContexts(compute.contexts).c[(id.x & 1023u) - 1u];
 				gbuffer_draw.batches = context.batches;
 				gbuffer_draw.instances = context.instances;
 				gbuffer_draw.prev_instances = context.prev_instances;
@@ -226,22 +224,17 @@ do
 				gbuffer_draw.prev_time = context.prev_time;
 				gbuffer_draw.detail_time = context.detail_time;
 				gbuffer_draw.prev_detail_time = context.prev_detail_time;
-				gbuffer_draw.context = int(id.x);
-				VisibilityWords command = VisibilityWords(context.commands);
+				gbuffer_draw.context = int(id.x & 1023u);
 				%s
-				visibility_instance_index = int(id.z);
-				visibility_draw_id = int(id.y);
+				visibility_instance_index = int(id.y);
+				visibility_draw_id = int(id.x >> 10u);
 				%s
 			}
 		]],
 			IDS_BINDING,
 			info.indexed and
-				string.format(
-					"visibility_vertex_index = int(VisibilityWords(compute.indices).v[command.v[id.y * %du + 2u] + id.w * 3u + vertex]) + int(command.v[id.y * %du + 3u]);",
-					words,
-					words
-				) or
-				"visibility_vertex_index = int(id.w * 3u + vertex);",
+				"visibility_vertex_index = int(uint(packUint2x32(id.zw) >> (vertex * 21u)) & 0x1FFFFFu);" or
+				"visibility_vertex_index = int(id.z * 3u + vertex);",
 			info.prepare or ""
 		)
 	end
@@ -598,7 +591,6 @@ do
 	local job_block = {
 		{"jobs", "uint64_t"},
 		{"contexts", "uint64_t"},
-		{"indices", "uint64_t"},
 		{"offsets", "uint64_t"},
 		{"bin", "int"},
 		{"mode", "int"},
@@ -607,7 +599,6 @@ do
 	local function write_job_block(self, block)
 		block.jobs = jobs_address
 		block.contexts = visibility.GetContextsAddress()
-		block.indices = index_pool.GetBuffer():GetDeviceAddress()
 		block.offsets = offsets_address
 		block.bin = resolve_bin
 		block.mode = classify_mode
@@ -675,12 +666,12 @@ do
 					for (int i = 0; i < 4; i++) {
 						if (ids[i].x == 0u || (used & (1u << i)) != 0u) continue;
 
-						VisibilityContext context = contexts.c[ids[i].x - 1u];
-						uint material = ids[i].z >> 6u;
+						VisibilityContext context = contexts.c[(ids[i].x & 1023u) - 1u];
+						uint material = ids[i].y >> 6u;
 						bool animated = false;
 
 						if (context.kind == 0u) {
-							material = context.batch_ids != 0ul ? VisibilityBatchIds(context.batch_ids).ids[ids[i].z].x : ids[i].y;
+							material = context.batch_ids != 0ul ? VisibilityBatchIds(context.batch_ids).ids[ids[i].y].x : ids[i].x >> 10u;
 							PBRBatch_vertex_animation animation = PBRBatchData(context.batches).b[material].m_vertex_animation;
 							animated = animation.MainBending > 0.0 || (animation.DetailBending != 0 && animation.BendSpeed > 0.0) || animation.PushBending > 0.0;
 						}
@@ -690,12 +681,12 @@ do
 						uint mask = 0u;
 
 						for (int j = i; j < 4; j++) {
-							if (merge ? all(equal(ids[j].xyz, ids[i].xyz)) : all(equal(ids[j], ids[i]))) mask |= 1u << j;
+							if (merge ? all(equal(ids[j].xy, ids[i].xy)) : all(equal(ids[j], ids[i]))) mask |= 1u << j;
 						}
 
 						used |= mask;
 
-						uint bin = ((context.kind * 2u + (animated ? 1u : 0u)) * %du + context.variant) * %du + ((material * 2654435761u) ^ (ids[i].x * 40503u)) %% %du;
+						uint bin = ((context.kind * 2u + (animated ? 1u : 0u)) * %du + context.variant) * %du + ((material * 2654435761u) ^ ((ids[i].x & 1023u) * 40503u)) %% %du;
 
 						if (compute.mode == 0) {
 							atomicAdd(jobs.counts[bin], 1u);

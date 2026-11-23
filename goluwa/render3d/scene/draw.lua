@@ -110,6 +110,7 @@ local function note_group_change(id)
 end
 
 local SOFTWARE_RASTER = 0x80000000
+local CLASSIC_ONLY = 0x40000000
 
 local function is_software_rasterizable(material)
 	return not (
@@ -130,10 +131,14 @@ local function write_group(group)
 	record.mesh_row = group.cluster and CLUSTER_GROUP or group.mesh_row
 	record.base = group.base
 	record.room = group.room
-	record.set = group.cluster and
-		is_software_rasterizable(group.material) and
-		group.set + SOFTWARE_RASTER or
-		group.set
+	record.set = group.set + (
+			group.mesh.vertex_buffer:GetVertexCount() > 2 ^ visibility.VERTEX_INDEX_BITS and
+			CLASSIC_ONLY or
+			group.cluster and
+			is_software_rasterizable(group.material) and
+			SOFTWARE_RASTER or
+			0
+		)
 end
 
 local function acquire_group(mesh, material, polygon3d, mesh_row, set, cluster)
@@ -997,7 +1002,7 @@ local function get_cluster_pipeline()
 				}
 
 				float density = float(c.index_count / 3u) / max(area, 1.0);
-				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[(group.set & 0x7FFFFFFFu) >> 1u] : ARGS.remap[(group.set & 0x7FFFFFFFu) >> 1u];
+				uint variant = density >= ARGS.ids_density && (group.set & 0x40000000u) == 0u ? ARGS.ids_remap[(group.set & 0x3FFFFFFFu) >> 1u] : ARGS.remap[(group.set & 0x3FFFFFFFu) >> 1u];
 				uint set = variant * 2u + (group.set & 1u);
 				uint index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 
@@ -1015,7 +1020,7 @@ local function get_cluster_pipeline()
 				if (
 					ARGS.software_records != 0ul &&
 					(group.set & 0x80000000u) != 0u &&
-					variant != ARGS.remap[(group.set & 0x7FFFFFFFu) >> 1u] &&
+					variant != ARGS.remap[(group.set & 0x3FFFFFFFu) >> 1u] &&
 					fade == 0.0 &&
 					density >= ARGS.software_density &&
 					radius_px < ARGS.software_radius &&
@@ -1077,7 +1082,7 @@ local function get_finalize_pipeline()
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
 				float density = float(instance_count) * float(mesh.triangle_count) / max(float(CountArray(ARGS.group_areas).n[group_id]), 1.0);
-				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[(group.set & 0x7FFFFFFFu) >> 1u] : ARGS.remap[(group.set & 0x7FFFFFFFu) >> 1u];
+				uint variant = density >= ARGS.ids_density && (group.set & 0x40000000u) == 0u ? ARGS.ids_remap[(group.set & 0x3FFFFFFFu) >> 1u] : ARGS.remap[(group.set & 0x3FFFFFFFu) >> 1u];
 				uint set = variant * 2u + (group.set & 1u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);

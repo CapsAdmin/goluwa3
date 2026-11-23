@@ -729,6 +729,7 @@ do
 	out_instance = uint(gl_InstanceIndex);
 	out_triangle = uint(gl_VertexIndex) / 3u;
 	out_draw = uint(gl_DrawID);
+	out_vertex = uint(gl_VertexIndex);
 	PBRBatchData batch_data = PBRBatchData(]] .. options.batches_expr .. [[);
 	uvec4 addresses = batch_data.b[batch_index].addresses;
 
@@ -772,6 +773,9 @@ layout(location = ]] .. (
 layout(location = ]] .. (
 					batch_location + 3
 				) .. [[) flat out uint out_draw;
+layout(location = ]] .. (
+					batch_location + 4
+				) .. [[) flat out uint out_vertex;
 mat4 multi_draw_instance_world;
 mat4 multi_draw_instance_prev_world;
 PBRBatch_vertex_animation vertex_animation;

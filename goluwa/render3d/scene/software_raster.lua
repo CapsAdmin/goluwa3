@@ -422,6 +422,7 @@ function software_raster.BuildEmitPass(base)
 					{"depth", "uint64_t"},
 					{"contexts", "uint64_t"},
 					{"patches", "uint64_t"},
+					{"indices", "uint64_t"},
 					{"width", "int"},
 				},
 				write = function(self, block)
@@ -429,6 +430,7 @@ function software_raster.BuildEmitPass(base)
 					block.depth = depth_buffer:GetDeviceAddress()
 					block.contexts = visibility.GetSetContextsAddress()
 					block.patches = get_buffers().patches_address
+					block.indices = index_pool.GetBuffer():GetDeviceAddress()
 					block.width = frame_width
 					return block
 				end,
@@ -436,6 +438,7 @@ function software_raster.BuildEmitPass(base)
 		},
 		shader = software_raster.RECORD_GLSL .. [[
 			layout(buffer_reference, scalar) readonly buffer SoftwareContexts { uint c[]; };
+			layout(buffer_reference, scalar) readonly buffer SoftwareEmitWords { uint v[]; };
 
 			void main() {
 				ivec2 pixel = ivec2(gl_FragCoord.xy);
@@ -451,14 +454,17 @@ function software_raster.BuildEmitPass(base)
 
 					if (context == 0u) discard;
 
-					set_visibility(uvec4(context, 0u, software_patch.x, payload & 4095u));
+					set_visibility(uvec4(context, software_patch.x, payload & 4095u, 0u));
 				} else {
 					software_record record = SoftwareRecords(software_emit.records).r[payload >> 7u];
 					uint context = SoftwareContexts(software_emit.contexts).c[record.a.y >> 8u];
 
 					if (context == 0u) discard;
 
-					set_visibility(uvec4(context, record.a.w, record.a.z, payload & 127u));
+					SoftwareEmitWords indices = SoftwareEmitWords(software_emit.indices);
+					uint first = record.a.x + (payload & 127u) * 3u;
+					uint v1 = indices.v[first + 1u];
+					set_visibility(uvec4(context | (record.a.w << 10u), record.a.z, indices.v[first] | (v1 << 21u), (v1 >> 11u) | (indices.v[first + 2u] << 10u)));
 				}
 				gl_FragDepth = uintBitsToFloat(uint(value >> 32ul));
 			}

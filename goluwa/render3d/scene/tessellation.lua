@@ -704,8 +704,8 @@ tessellation.VISIBILITY_PREPARE = [[
 	tess_draw.seam_band = context.extra_float;
 	visibility_tess_cache = 0ul;
 
-	if (context.extra3 != 0ul && id.z >= context.extra_uint) {
-		uint cache = VisibilityTessPatches(context.extra3 + 16ul).r[id.z - context.extra_uint].z;
+	if (context.extra3 != 0ul && id.y >= context.extra_uint) {
+		uint cache = VisibilityTessPatches(context.extra3 + 16ul).r[id.y - context.extra_uint].z;
 		visibility_tess_cache = context.extra3 + ]] .. software_raster.PATCH_CACHE_OFFSET .. [[ul + uint64_t(cache) * ]] .. software_raster.PATCH_SAMPLE_WORDS * 4 .. [[ul;
 	}
 ]]
@@ -713,8 +713,8 @@ tessellation.VISIBILITY_CLASSIFY_DECLARATIONS = [[
 	layout(buffer_reference, scalar) readonly buffer VisibilityTessPatches { uvec4 r[]; };
 ]]
 tessellation.VISIBILITY_CLASSIFY = [[
-	if (context.extra3 != 0ul && ids[i].z >= context.extra_uint) {
-		animated = VisibilityTessPatches(context.extra3 + 16ul).r[ids[i].z - context.extra_uint].z != 0xFFFFFFFFu;
+	if (context.extra3 != 0ul && ids[i].y >= context.extra_uint) {
+		animated = VisibilityTessPatches(context.extra3 + 16ul).r[ids[i].y - context.extra_uint].z != 0xFFFFFFFFu;
 	}
 ]]
 local TESS_EVAL_GLSL = [=[
