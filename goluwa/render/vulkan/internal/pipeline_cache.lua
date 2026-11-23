@@ -11,6 +11,7 @@ local SizeBox = ffi.typeof("size_t[1]")
 local ByteArray = ffi.typeof("uint8_t[?]")
 local HeaderPtr = ffi.typeof("const $*", vulkan.vk.VkPipelineCacheHeaderVersionOne)
 local SLOW_PIPELINE_SECONDS = 0.05
+local COMPILING_NOTICE_SECONDS = 5
 
 function PipelineCache.GetTime()
 	return system.GetTime()
@@ -88,7 +89,7 @@ end
 function PipelineCache:WaitForJob(job, kind, name)
 	local start = system.GetTime()
 
-	while not job:IsDone() and system.GetTime() - start < SLOW_PIPELINE_SECONDS do
+	while not job:IsDone() and system.GetTime() - start < COMPILING_NOTICE_SECONDS do
 		thread_pool.Update()
 	end
 
