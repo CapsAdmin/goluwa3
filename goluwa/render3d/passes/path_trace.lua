@@ -120,6 +120,11 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				vec3 diffuse_view;
 				vec2 average_env_brdf;
 				float specular_chance;
+				vec3 P_back;
+				float transmission;
+				vec3 transmission_color;
+				float transmission_scattering;
+				float transmission_chance;
 			};
 
 			void pt_prepare(inout pt_vertex v) {
@@ -134,14 +139,27 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				v.average_env_brdf = brdf_lut.ba;
 				float specular = luminance(specular_albedo);
 				float diffuse = luminance(v.albedo * v.diffuse_view);
-				v.specular_chance = diffuse <= 0.0 ? 1.0 : clamp(specular / max(specular + diffuse, 1e-6), 0.1, 0.9);
+				float transmitted = v.transmission * luminance(v.transmission_color * v.albedo) * (1.0 - v.metallic);
+				float reflected = (1.0 - v.transmission) * diffuse;
+				v.specular_chance = diffuse + transmitted <= 0.0 ? 1.0 : clamp(specular / max(specular + diffuse + transmitted, 1e-6), 0.1, 0.9);
+				v.transmission_chance = v.transmission > 0.0 ? clamp(transmitted / max(transmitted + reflected, 1e-6), 0.1, 0.9) : 0.0;
+			}
+
+			vec3 pt_origin(pt_vertex v, vec3 L) {
+				return dot(L, v.Ng) < 0.0 ? v.P_back : pt_offset(v.P, v.Ng);
 			}
 
 			vec3 pt_bsdf(pt_vertex v, vec3 L, out float pdf) {
 				pdf = 0.0;
 				float NoL = dot(v.N, L);
+				float NgoL = dot(v.Ng, L);
 
-				if (NoL <= 0.0 || dot(v.Ng, L) <= 0.0) return vec3(0.0);
+				if (NoL < 0.0 && NgoL < 0.0 && v.transmission > 0.0) {
+					pdf = (1.0 - v.specular_chance) * v.transmission_chance * -NoL / PT_PI;
+					return v.transmission * v.transmission_color * v.albedo * (1.0 - v.metallic) * transmission_phase(v.V, L, -NoL, v.transmission_scattering);
+				}
+
+				if (NoL <= 0.0 || NgoL <= 0.0) return vec3(0.0);
 
 				vec3 H = normalize(v.V + L);
 				float NoH = saturate(dot(v.N, H));
@@ -149,9 +167,9 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float D = D_GGXAlpha(v.alpha, NoH);
 				float a2 = v.alpha * v.alpha;
 				float G1 = 2.0 * v.NoV / (v.NoV + sqrt(a2 + (1.0 - a2) * v.NoV * v.NoV));
-				pdf = v.specular_chance * G1 * D / (4.0 * v.NoV) + (1.0 - v.specular_chance) * NoL / PT_PI;
+				pdf = v.specular_chance * G1 * D / (4.0 * v.NoV) + (1.0 - v.specular_chance) * (1.0 - v.transmission_chance) * NoL / PT_PI;
 				vec3 Fr = D * V_SmithGGXCorrelated(v.alpha, v.NoV, NoL) * F_Schlick(v.F0, LoH) * v.energy_compensation;
-				vec3 Fd = Fd_EON(v.albedo, v.perceptual_roughness, NoL, v.NoV, dot(L, v.V)) * v.diffuse_view * GGXDiffuseCoupling(v.F0, textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(NoL, v.perceptual_roughness), 0.0).rg, v.average_env_brdf);
+				vec3 Fd = Fd_EON(v.albedo, v.perceptual_roughness, NoL, v.NoV, dot(L, v.V)) * v.diffuse_view * GGXDiffuseCoupling(v.F0, textureLod(TEXTURE(lighting_data.brdf_lut_tex), vec2(NoL, v.perceptual_roughness), 0.0).rg, v.average_env_brdf) * (1.0 - v.transmission);
 				return Fr + Fd;
 			}
 
@@ -169,7 +187,8 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 				float r = sqrt(xi.x);
 				float phi = 2.0 * PT_PI * xi.y;
-				return normalize(T * (r * cos(phi)) + B * (r * sin(phi)) + v.N * sqrt(max(1.0 - xi.x, 0.0)));
+				float side = (u - v.specular_chance) / (1.0 - v.specular_chance) < v.transmission_chance ? -1.0 : 1.0;
+				return normalize(T * (r * cos(phi)) + B * (r * sin(phi)) + v.N * (side * sqrt(max(1.0 - xi.x, 0.0))));
 			}
 
 			float pt_power_heuristic(float a, float b) {
@@ -208,6 +227,11 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				return luminance(light.color.rgb) * light.color.a * attenuation * max(reach, 0.0);
 			}
 
+			float pt_vertex_light_weight(pt_vertex v, lights_t light, vec3 axis, float one_minus_cos, float attenuation) {
+				float weight = pt_light_weight(light, v.N, axis, one_minus_cos, attenuation);
+				return v.transmission > 0.0 ? max(weight, pt_light_weight(light, -v.N, axis, one_minus_cos, attenuation)) : weight;
+			}
+
 			float pt_sphere_distance(vec3 origin, vec3 dir, vec3 center, float radius) {
 				vec3 to_center = center - origin;
 				float along = dot(to_center, dir);
@@ -216,7 +240,6 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 			vec3 pt_direct(pt_vertex v, out float light_total) {
 				vec3 radiance = vec3(0.0);
-				vec3 origin = pt_offset(v.P, v.Ng);
 				light_total = 0.0;
 				int picked = -1;
 				float picked_weight = 0.0;
@@ -236,7 +259,8 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 						if (bsdf_pdf <= 0.0) continue;
 
-						vec3 contribution = f * dot(v.N, L) * pt_sun_irradiance(light, v.P);
+						vec3 contribution = f * abs(dot(v.N, L)) * pt_sun_irradiance(light, v.P);
+						vec3 origin = pt_origin(v, L);
 
 						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !ray_shadow_visible(origin, L, lighting_data.hit_max_distance, 0u, false)) continue;
 
@@ -252,7 +276,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 					if (!get_light_vector_and_attenuation(light, v.P, axis, attenuation)) continue;
 
 					float one_minus_cos = type == 2 ? 0.0 : pt_light_one_minus_cos(light, distance(light.position.xyz, v.P));
-					float weight = pt_light_weight(light, v.N, axis, one_minus_cos, attenuation);
+					float weight = pt_vertex_light_weight(v, light, axis, one_minus_cos, attenuation);
 
 					if (weight <= 0.0) continue;
 
@@ -281,7 +305,8 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				if (bsdf_pdf <= 0.0) return radiance;
 
 				float pick = picked_weight / light_total;
-				vec3 contribution = f * dot(v.N, L) * light.color.rgb * light.color.a * picked_attenuation / pick;
+				vec3 contribution = f * abs(dot(v.N, L)) * light.color.rgb * light.color.a * picked_attenuation / pick;
+				vec3 origin = pt_origin(v, L);
 				float dist;
 
 				if (get_light_type(light) == 2) {
@@ -323,7 +348,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 					if (dist <= 0.0 || dist > scene_distance) continue;
 
 					float solid_angle = 2.0 * PT_PI * one_minus_cos;
-					float pick = light_total > 0.0 ? pt_light_weight(light, v.N, axis, one_minus_cos, attenuation) / light_total : 0.0;
+					float pick = light_total > 0.0 ? pt_vertex_light_weight(v, light, axis, one_minus_cos, attenuation) / light_total : 0.0;
 					vec3 contribution = light.color.rgb * light.color.a * attenuation / solid_angle * pt_power_heuristic(bsdf_pdf, pick / solid_angle);
 
 					if (lighting_data.optical_tint != 0) contribution *= get_optical_tint(origin, dir, dist, false);
@@ -530,7 +555,16 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				emission = ray_hit_emission(tri, albedo, P, instance, primitive);
 				albedo = ray_medium_albedo(material, albedo);
 				metallic = clamp(metallic, 0.0, 1.0);
+				v.transmission = material.transmission;
+
+				if (material.transmission_tex >= 0) v.transmission *= luminance(textureLod(TEXTURE(material.transmission_tex), coord, 0.0).rgb);
+
+				v.transmission = saturate(v.transmission);
+
+				v.transmission_color = material.transmission_color;
+				v.transmission_scattering = material.transmission_scattering;
 				v.P = P;
+				v.P_back = pt_offset(P, -Ng);
 				v.N = N;
 				v.Ng = Ng;
 				v.V = -dir;
@@ -561,7 +595,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 					if (pdf <= 0.0) break;
 
-					throughput *= f * dot(v.N, L) / pdf;
+					throughput *= f * abs(dot(v.N, L)) / pdf;
 
 					if (bounce >= 2) {
 						float survive = clamp(max(max(throughput.r, throughput.g), throughput.b), 0.05, 0.95);
@@ -571,7 +605,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 						throughput /= survive;
 					}
 
-					vec3 origin = pt_offset(v.P, v.Ng);
+					vec3 origin = pt_origin(v, L);
 					vec3 dir = L;
 					bool through_glass = false;
 					bool through_water = false;
@@ -670,7 +704,9 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				decode_surface_features(surface, in_uv, size);
 				finish_surface_features(surface);
 
-				primary.P = world_pos + surface.geometric_N * (0.001 * lighting_data.view_scale + 0.0005 * in_view_depth);
+				float surface_offset = 0.001 * lighting_data.view_scale + 0.0005 * in_view_depth;
+				primary.P = world_pos + surface.geometric_N * surface_offset;
+				primary.P_back = world_pos - surface.geometric_N * surface_offset;
 				primary.Ng = surface.geometric_N;
 
 				if (refine) {
@@ -685,6 +721,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 						vec3 Ng = -scene_hit_tri(instance, primitive).normal;
 						primary.Ng = dot(Ng, V) < 0.0 ? -Ng : Ng;
 						primary.P = pt_offset(lighting_data.camera_position.xyz - V * t, primary.Ng);
+						primary.P_back = pt_offset(lighting_data.camera_position.xyz - V * t, -primary.Ng);
 					}
 				}
 
@@ -695,6 +732,9 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				primary.alpha = surface.roughness_alpha;
 				primary.perceptual_roughness = surface.perceptual_roughness;
 				primary.metallic = surface.metallic;
+				primary.transmission = surface.transmission;
+				primary.transmission_color = surface.transmission_color;
+				primary.transmission_scattering = surface.transmission_scattering;
 				pt_prepare(primary);
 				emissive = surface.emissive;
 				return true;

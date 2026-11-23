@@ -359,3 +359,42 @@ T.Test3DRayTracing("Graphics render3d ray traced shadows match the path traced d
 		T(result.relative_error < 0.01)["=="](true)
 	end)
 end)
+
+T.Test3DRayTracing("Graphics render3d path tracer lights the far side of a transmissive leaf like the raster", function(draw)
+	local plane = Polygon3D.New()
+	shapes.BuildPlane(plane, Vec3(0, 0, 0), Vec3(0, 1, 0), 1, 1)
+	plane:BuildBoundingBox()
+	plane:Upload()
+	local leaf = Material.New{
+		ColorMultiplier = Color(0.1, 0.25, 0.05, 1),
+		MetallicMultiplier = 0,
+		RoughnessMultiplier = 0.6,
+		DoubleSided = true,
+	}
+	leaf:SetDiffuseTransmission(0.5)
+	leaf:SetTransmissionScattering(0.5)
+
+	with_scene({
+		r_pass_path_trace = true,
+		path_trace_bounces = 0,
+		path_trace_view = "path",
+		lighting_debug_direct = true,
+		screen_space_shadows = false,
+	}, function(polygon3d, created)
+		render3d.camera:SetPosition(Vec3(0, 0.5, 0))
+		render3d.camera:SetAngles{x = math.rad(80), y = 0, z = 0}
+		add_slab(plane, created, Vec3(-3, 1.9, -3), Vec3(3, 2.1, 3), leaf)
+		add_sun(created, Vec3(0.3, 0.8, 0.4))
+	end, function()
+		for _ = 1, 8 do
+			draw()
+		end
+
+		local result = path_trace.Compare()
+		T(result.pixels > 0)["=="](true)
+		T(result.path > 0)["=="](true)
+		T(result.ratio)["~"](1, 0.05)
+	end)
+
+	plane:Remove()
+end)

@@ -13,6 +13,7 @@ return {
 			kind = "texture",
 			type = "render_texture",
 			requires = "DiffuseTransmission",
+			callback = "InvalidateRayMaterial",
 		},
 		{name = "DiffuseTransmission", default = 0.0, callback = "InvalidateFlags"},
 		{
@@ -20,11 +21,13 @@ return {
 			kind = "vec4",
 			default = Color(1.0, 1.0, 1.0, 1.0),
 			requires = "DiffuseTransmission",
+			callback = "InvalidateRayMaterial",
 		},
 		{
 			name = "TransmissionScattering",
 			default = 0.5,
 			requires = "DiffuseTransmission",
+			callback = "InvalidateRayMaterial",
 		},
 	},
 	getters = [[

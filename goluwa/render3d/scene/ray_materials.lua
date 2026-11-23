@@ -344,6 +344,10 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 			vec4 terrain_scales;
 			vec4 terrain_scales2;
 			float terrain_triplanar_sharpness;
+			float transmission;
+			int transmission_tex;
+			vec3 transmission_color;
+			float transmission_scattering;
 			};
 
 		]] .. OPTICAL_VOLUME_STRUCT_GLSL .. [[
@@ -702,6 +706,10 @@ local MaterialEntry = ffi.typeof([[struct {
 	float terrain_scales[4];
 	float terrain_scales2[4];
 	float terrain_triplanar_sharpness;
+	float transmission;
+	int32_t transmission_tex;
+	float transmission_color[3];
+	float transmission_scattering;
 	}]])
 ray_materials.MaterialEntry = MaterialEntry
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -1138,6 +1146,18 @@ do
 					and
 					1 or
 					0
+				entry.transmission = medium_slot > 0 and 0 or material:GetDiffuseTransmission()
+				local transmission_texture = material:GetTransmissionTexture()
+				entry.transmission_tex = transmission_texture and
+					transmission_texture:IsValid() and
+					texture_index(self, state, i, transmission_texture) or
+					-1
+				local tint = material:GetTransmissionColor()
+				local tint_luminance = math.max(tint.r * 0.2126 + tint.g * 0.7152 + tint.b * 0.0722, 0.001)
+				entry.transmission_color[0] = tint.r / tint_luminance
+				entry.transmission_color[1] = tint.g / tint_luminance
+				entry.transmission_color[2] = tint.b / tint_luminance
+				entry.transmission_scattering = math.min(material:GetTransmissionScattering(), 1)
 				entry.transparent = material:IsTransparent() and 1 or 0
 				entry.refractive = material:IsSeeThrough() and 1 or 0
 				local normal = material:GetNormalTexture()
