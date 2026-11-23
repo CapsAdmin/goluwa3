@@ -498,26 +498,32 @@ local function find_hull_triangles(xs, ys, zs, count, epsilon)
 
 	if not i4 or best <= epsilon then return nil end
 
-	local visible_epsilon = 1e-9 * math.sqrt(best_extent)
+	local visible_epsilon = epsilon
 	local ix = (xs[i1] + xs[i2] + xs[i3] + xs[i4]) / 4
 	local iy = (ys[i1] + ys[i2] + ys[i3] + ys[i4]) / 4
 	local iz = (zs[i1] + zs[i2] + zs[i3] + zs[i4]) / 4
 	local fa, fb, fc, fnx, fny, fnz, fd, alive = {}, {}, {}, {}, {}, {}, {}, {}
 	local face_count = 0
+	local stride = count + 1
+	local edge_face = {}
 
-	local function add_face(a, b, c)
+	-- a face whose corners are (nearly) on one line keeps the normal of the face it replaces: dropping it would leave a hole,
+	-- after which horizons stop being loops and faces multiply without bound
+	local function add_face(a, b, c, replaced)
 		local ux, uy, uz = xs[b] - xs[a], ys[b] - ys[a], zs[b] - zs[a]
 		local vx, vy, vz = xs[c] - xs[a], ys[c] - ys[a], zs[c] - zs[a]
 		local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
 		local length = math.sqrt(nx * nx + ny * ny + nz * nz)
 
-		if length <= 1e-12 then return end
+		if replaced and length * length <= epsilon * epsilon * (ux * ux + uy * uy + uz * uz) then
+			nx, ny, nz = fnx[replaced], fny[replaced], fnz[replaced]
+		else
+			nx, ny, nz = nx / length, ny / length, nz / length
 
-		nx, ny, nz = nx / length, ny / length, nz / length
-
-		if nx * (ix - xs[a]) + ny * (iy - ys[a]) + nz * (iz - zs[a]) > 0 then
-			b, c = c, b
-			nx, ny, nz = -nx, -ny, -nz
+			if nx * (ix - xs[a]) + ny * (iy - ys[a]) + nz * (iz - zs[a]) > 0 then
+				b, c = c, b
+				nx, ny, nz = -nx, -ny, -nz
+			end
 		end
 
 		face_count = face_count + 1
@@ -525,40 +531,98 @@ local function find_hull_triangles(xs, ys, zs, count, epsilon)
 		fnx[face_count], fny[face_count], fnz[face_count] = nx, ny, nz
 		fd[face_count] = nx * xs[a] + ny * ys[a] + nz * zs[a]
 		alive[face_count] = true
+		edge_face[a * stride + b] = face_count
+		edge_face[b * stride + c] = face_count
+		edge_face[c * stride + a] = face_count
 	end
 
 	add_face(i1, i2, i3)
 	add_face(i1, i2, i4)
 	add_face(i1, i3, i4)
 	add_face(i2, i3, i4)
-	local stride = count + 1
+	-- the farthest points from the start go first, so the hull reaches its size early and later points are mostly inside
+	local order = {}
+	local distances = {}
 
-	for p = 1, count do
-		if p ~= i1 and p ~= i2 and p ~= i3 and p ~= i4 then
-			local x, y, z = xs[p], ys[p], zs[p]
-			local visible, visible_count = {}, 0
-			local edges = {}
+	for i = 1, count do
+		local dx, dy, dz = xs[i] - ix, ys[i] - iy, zs[i] - iz
+		order[i] = i
+		distances[i] = dx * dx + dy * dy + dz * dz
+	end
 
-			for f = 1, face_count do
-				if alive[f] and fnx[f] * x + fny[f] * y + fnz[f] * z - fd[f] > visible_epsilon then
-					visible_count = visible_count + 1
-					visible[visible_count] = f
-					edges[fa[f] * stride + fb[f]] = true
-					edges[fb[f] * stride + fc[f]] = true
-					edges[fc[f] * stride + fa[f]] = true
+	table.sort(order, function(a, b)
+		return distances[a] > distances[b]
+	end)
+
+	local visited = {}
+	local visible, horizon = {}, {}
+
+	for _, p in ipairs(order) do
+		local x, y, z = xs[p], ys[p], zs[p]
+		local start, start_distance = nil, visible_epsilon
+
+		for f = 1, face_count do
+			if alive[f] then
+				local distance = fnx[f] * x + fny[f] * y + fnz[f] * z - fd[f]
+
+				if distance > start_distance then start, start_distance = f, distance end
+			end
+		end
+
+		-- the faces the point sees are grown from the one it sees best, so they are one connected patch and the horizon one
+		-- loop: picking every face a little in front of it gave separate patches on near coplanar points, whose faces
+		-- overlapped and multiplied without bound
+		if start then
+			local visible_count = 1
+			visible[1] = start
+			visited[start] = p
+			local n = 1
+
+			while n <= visible_count do
+				local f = visible[n]
+				n = n + 1
+
+				for e = 0, 2 do
+					local u = e == 0 and fa[f] or e == 1 and fb[f] or fc[f]
+					local v = e == 0 and fb[f] or e == 1 and fc[f] or fa[f]
+					local twin = edge_face[v * stride + u]
+
+					if
+						twin and
+						alive[twin] and
+						visited[twin] ~= p and
+						fnx[twin] * x + fny[twin] * y + fnz[twin] * z - fd[twin] > 0
+					then
+						visited[twin] = p
+						visible_count = visible_count + 1
+						visible[visible_count] = twin
+					end
 				end
 			end
 
-			for n = 1, visible_count do
-				local f = visible[n]
-				alive[f] = false
-				local a, b, c = fa[f], fb[f], fc[f]
+			local horizon_count = 0
 
-				if not edges[b * stride + a] then add_face(a, b, p) end
+			for i = 1, visible_count do
+				local f = visible[i]
 
-				if not edges[c * stride + b] then add_face(b, c, p) end
+				for e = 0, 2 do
+					local u = e == 0 and fa[f] or e == 1 and fb[f] or fc[f]
+					local v = e == 0 and fb[f] or e == 1 and fc[f] or fa[f]
+					local twin = edge_face[v * stride + u]
 
-				if not edges[a * stride + c] then add_face(c, a, p) end
+					if visited[twin] ~= p then
+						horizon[horizon_count + 1], horizon[horizon_count + 2], horizon[horizon_count + 3] = u, v, f
+						horizon_count = horizon_count + 3
+					end
+				end
+			end
+
+			for i = 1, visible_count do
+				alive[visible[i]] = false
+			end
+
+			for h = 1, horizon_count, 3 do
+				add_face(horizon[h], horizon[h + 1], p, horizon[h + 2])
 			end
 		end
 	end
