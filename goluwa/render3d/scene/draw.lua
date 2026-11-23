@@ -1286,6 +1286,25 @@ function draw.GetGlobalBits(kind)
 	return frame_state.global_bits[kind]
 end
 
+-- without a depth pyramid the culls never sample it (occlusion_max_mip is -1), but the descriptor must still be valid
+local function bind_depth_pyramid(pipeline, slot, bound)
+	if bound then
+		pipeline:UpdateDescriptorSet(
+			"combined_image_sampler",
+			slot,
+			0,
+			0,
+			bound.view,
+			bound.sampler,
+			nil,
+			nil,
+			"general"
+		)
+	else
+		pipeline:UpdateDescriptorSet("combined_image_sampler", slot, 0, 0, render.GetErrorTexture())
+	end
+end
+
 function draw.Cull(
 	cmd,
 	view_projection,
@@ -1319,22 +1338,8 @@ function draw.Cull(
 	args_ring = args_ring or {}
 	local hiz, fallback_hiz = gpu_culling.GetMainViewHiZ()
 	local bound = hiz or fallback_hiz
-	local descriptor_slot
-
-	if bound then
-		descriptor_slot = render.frame_serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
-		pipeline:UpdateDescriptorSet(
-			"combined_image_sampler",
-			descriptor_slot,
-			0,
-			0,
-			bound.view,
-			bound.sampler,
-			nil,
-			nil,
-			"general"
-		)
-	end
+	local descriptor_slot = render.frame_serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+	bind_depth_pyramid(pipeline, descriptor_slot, bound)
 
 	local seen_address = instances.GetSeenTable():GetAddress()
 	local pair_total, pair_address = get_cluster_pairs()
@@ -1419,7 +1424,7 @@ function draw.Cull(
 			dstStage = "compute",
 			memoryBarrier = true,
 		}
-		pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, descriptor_slot or 1)
+		pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, descriptor_slot)
 		cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 
 		if kind == 0 and pair_total > 0 then
@@ -1947,10 +1952,15 @@ do
 		if not buffers or result.slots == 0 then return result end
 
 		local group_capacity = buffers.command_capacity
-		local commands = ffi.cast("uint32_t *", download(buffers.commands, group_capacity * GROUPS * COMMAND_SIZE))
-		local counts = ffi.cast("uint32_t *", download(buffers.counts, GROUPS * 4))
-		local worlds = ffi.cast("float *", download(buffers.worlds, buffers.capacity * 64))
-		local batch_ids = ffi.cast("uint32_t *", download(buffers.batch_ids, buffers.capacity * 8))
+		-- the downloads are kept in locals, a pointer cast from them alone lets them be collected
+		local commands_data = download(buffers.commands, group_capacity * GROUPS * COMMAND_SIZE)
+		local counts_data = download(buffers.counts, GROUPS * 4)
+		local worlds_data = download(buffers.worlds, buffers.capacity * 64)
+		local batch_ids_data = download(buffers.batch_ids, buffers.capacity * 8)
+		local commands = ffi.cast("uint32_t *", commands_data)
+		local counts = ffi.cast("uint32_t *", counts_data)
+		local worlds = ffi.cast("float *", worlds_data)
+		local batch_ids = ffi.cast("uint32_t *", batch_ids_data)
 		local ids = slot_rows:Get()
 
 		for set = 0, GROUPS - 1 do
@@ -1992,7 +2002,8 @@ do
 
 		if not buffers.commands or result.slots == 0 then return result end
 
-		local commands = ffi.cast("uint32_t *", download(buffers.commands, result.slots * SHADOW_COMMAND_SIZE))
+		local commands_data = download(buffers.commands, result.slots * SHADOW_COMMAND_SIZE)
+		local commands = ffi.cast("uint32_t *", commands_data)
 		local drawn = ffi.cast("uint32_t *", download(buffers.counts, 4))[0]
 		local ids = slot_rows:Get()
 
