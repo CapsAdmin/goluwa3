@@ -339,6 +339,7 @@ gpu.system = particles.Register{
 				{"collision", "int"},
 				{"on_hit", "int"},
 				{"lit", "int"},
+				{"phase_g", "float"},
 				{"enabled", "int"},
 				{"first", "int"},
 				{"count", "int"},
@@ -417,6 +418,7 @@ gpu.system = particles.Register{
 			entry.collision = COLLISIONS[emitter.Collision]
 			entry.on_hit = ON_HIT[emitter.OnHit]
 			entry.lit = emitter.Lit and 1 or 0
+			entry.phase_g = emitter.PhaseG
 			entry.enabled = 1
 			entry.first = range.first
 			entry.count = range.count
@@ -654,6 +656,13 @@ gpu.system = particles.Register{
 		float emissive = emitter_curve_emissive(slot, clamp(p.age / p.life, 0.0, 1.0), emitter_random_b(e, index, p).z);
 		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + emissive * effect_exposure_gain(particle_data.pre_exposure_tex, e.exposure_compensation));
 		emitter_shader_shade(e, index, clamp(p.age / p.life, 0.0, 1.0), p);
+	]],
+	phase = [[
+		uint slot;
+
+		if (!get_particle_emitter(p, slot)) return g;
+
+		return emitters_data.emitters[slot].phase_g;
 	]],
 	collision_mode = [[
 		uint slot;

@@ -63,7 +63,6 @@ local system_layout = {
 	{"streak_time", "float"},
 	{"scatter_g", "float"},
 	{"albedo", "vec4"},
-	{"forward_fraction", "float"},
 	{"fade_time", "float"},
 	{"fade_near", "float"},
 	{"fade_far", "float"},
@@ -77,12 +76,6 @@ local pools_and_systems = {
 	{"systems", system_layout, particles.MAX_SYSTEMS},
 	{"system_count", "int"},
 }
-
-local function get_forward_fraction(g)
-	if math.abs(g) < 1e-4 then return 0.5 end
-
-	return (1 - g * g) / (2 * g) * (1 / (1 - g) - 1 / math.sqrt(1 + g * g))
-end
 
 function particles.Register(def)
 	local index = #particles.systems + 1
@@ -99,7 +92,6 @@ function particles.Register(def)
 	assert(index <= particles.MAX_SYSTEMS, "too many particle systems")
 	def.scatter_g = media.presets[def.medium].PhaseG
 	def.albedo = media.GetAlbedo(def.medium)
-	def.forward_fraction = get_forward_fraction(def.scatter_g)
 	def.block = def.block or {}
 	def.declarations = def.declarations or ""
 	def.visibility = def.visibility or "return 1.0;"
@@ -224,7 +216,6 @@ function particles.WriteSystems(block)
 		entry.streak_time = def.streak_time
 		entry.scatter_g = def.scatter_g
 		entry.albedo[0], entry.albedo[1], entry.albedo[2] = def.albedo.x, def.albedo.y, def.albedo.z
-		entry.forward_fraction = def.forward_fraction
 		entry.fade_time = def.fade_time
 		entry.fade_near = def.fade_near * render3d.GetViewScale()
 		entry.fade_far = def.fade_far * render3d.GetViewScale()
@@ -373,6 +364,7 @@ function particles.GetSimulationGLSL()
 	local shades = {}
 	local should_spawns = {}
 	local collision_modes = {}
+	local phases = {}
 
 	for i, def in ipairs(particles.systems) do
 		functions[#functions + 1] = (
@@ -408,6 +400,10 @@ function particles.GetSimulationGLSL()
 			int %s_collision_mode(Particle p) {
 				%s
 			}
+
+			float %s_phase(uint index, Particle p, float g) {
+				%s
+			}
 		]],
 				def.name,
 				def.spawn,
@@ -422,12 +418,15 @@ function particles.GetSimulationGLSL()
 				def.name,
 				def.should_spawn or "return false;",
 				def.name,
-				def.collision_mode
+				def.collision_mode,
+				def.name,
+				def.phase or "return g;"
 			)
 		spawns[#spawns + 1] = string.format("case %du: %s_spawn(index, generation, p); break;", i - 1, def.name)
 		updates[#updates + 1] = string.format("case %du: %s_update(index, dt, p); break;", i - 1, def.name)
 		shades[#shades + 1] = string.format("case %du: %s_shade(index, p); break;", i - 1, def.name)
 		should_spawns[#should_spawns + 1] = string.format("case %du: forced = %s_should_spawn(index); break;", i - 1, def.name)
+		phases[#phases + 1] = string.format("case %du: g = %s_phase(index, p, g); break;", i - 1, def.name)
 		collision_modes[#collision_modes + 1] = string.format("case %du: mode = %s_collision_mode(p); break;", i - 1, def.name)
 		collides[#collides + 1] = string.format(
 			"case %du: %s_collide(index, p, particle_previous, hit, normal); break;",
@@ -449,7 +448,14 @@ function particles.GetSimulationGLSL()
 			return mix(environment, probes.rgb, saturate(weight / ]] .. gi.MIN_WEIGHT .. [[));
 		}
 
-		vec3 get_particle_radiance(vec3 P, vec3 view_dir, float g, float forward_fraction) {
+		float get_particle_forward_fraction(float g) {
+			if (abs(g) < 1e-4) return 0.5;
+
+			return (1.0 - g * g) / (2.0 * g) * (1.0 / (1.0 - g) - 1.0 / sqrt(1.0 + g * g));
+		}
+
+		vec3 get_particle_radiance(vec3 P, vec3 view_dir, float g) {
+			float forward_fraction = get_particle_forward_fraction(g);
 			vec3 sun_dir = get_current_primary_sun_direction();
 			vec3 point = get_atmosphere_camera_origin(P);
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(point, sun_dir) * get_ground_fog_sun_transmittance(point, sun_dir) * get_particle_sun_visibility(P, sun_dir);
@@ -544,7 +550,13 @@ function particles.GetSimulationGLSL()
 
 			if (visibility > 0.0 && system.lit != 0 && (fresh || was_hidden || (index + uint(particle_data.frame)) % ]] .. particles.RELIGHT_INTERVAL .. [[u == 0u)) {
 				vec3 view_dir = (p.position - particle_data.camera_position) / max(distance_to_camera, 1e-4);
-				vec3 light = get_particle_radiance(p.position, view_dir, system.scatter_g, system.forward_fraction) * system.albedo.rgb;
+				float g = system.scatter_g;
+
+				switch (system_index) {
+					]] .. table.concat(phases, "\n") .. [[
+				}
+
+				vec3 light = get_particle_radiance(p.position, view_dir, g) * system.albedo.rgb;
 				p.light = light;
 			}
 

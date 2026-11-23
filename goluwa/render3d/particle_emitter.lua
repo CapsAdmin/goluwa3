@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local curve = import("goluwa/math/curve.lua")
+local media = import("goluwa/render3d/media.lua")
 local particle_emitter = {}
 particle_emitter.GPU_MAX_PARTICLES = 16384
 particle_emitter.CPU_MAX_PARTICLES = 4096
@@ -169,6 +170,7 @@ particle_emitter.gpu = {
 		"color_band",
 	},
 	{"Lit", true, boolean, "Look"},
+	{"PhaseG", media.presets.effects.PhaseG, ranged(-0.95, 0.95), "Look"},
 	{"Emissive", 0, scalar_band(0, 1e7), "Look", "band"},
 	{"ExposureCompensation", 0, ranged(0, 2), "Look"},
 	{"Fizzle", 0, ranged(0, 50), "Motion"},
