@@ -4,6 +4,7 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -831,6 +832,14 @@ do
 			shader = build_resolve_shader(bin),
 		}
 		return resolves[bin]
+	end
+
+	function visibility.IsResolveReady(kind, bits)
+		for bin = kind * VARIANTS * 2 + bits, kind * VARIANTS * 2 + (kinds[kind].second_bin_defines and VARIANTS or 0) + bits, VARIANTS do
+			if not render3d.IsPipelineReady(get_resolve_pipeline(bin)) then return false end
+		end
+
+		return true
 	end
 
 	function visibility.SetCamera(block, front_face)

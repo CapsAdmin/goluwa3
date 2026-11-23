@@ -1267,7 +1267,10 @@ local function resolve_variants(kind_index, remap, ids_remap)
 		then
 			local ids = draw.GetVariant(draw.SHAPE_IDS, draw.GetVariantBits(target))
 
-			if is_variant_ready(kind, ids) then
+			if
+				is_variant_ready(kind, ids) and
+				visibility.IsResolveReady(visibility.KIND_MULTI_DRAW, draw.GetVariantBits(target))
+			then
 				ids_remap[variant] = ids
 				drawn[ids] = true
 			end

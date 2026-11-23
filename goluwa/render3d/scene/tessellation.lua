@@ -17,7 +17,7 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local tessellation = {}
 tessellation.name = "gbuffer_tessellated"
-tessellation.visibility_ids = true
+tessellation.visibility_kind = visibility.KIND_TESSELLATION
 tessellation.MAX_LOG = 6
 local BUCKETS = tessellation.MAX_LOG + 1
 local GROUPS = 2
@@ -1281,12 +1281,15 @@ local function get_pipeline()
 	if not render3d.HasPipelineVariants(tessellation.name) then return end
 
 	if visibility.enabled then
-		local ids = render3d.GetPipelineVariant(
-			tessellation.name,
-			draw.GetVariant(draw.SHAPE_IDS, bit.bor(draw.GetGlobalBits(0), shader_features.PARAMS))
-		)
+		local bits = bit.bor(draw.GetGlobalBits(0), shader_features.PARAMS)
+		local ids = render3d.GetPipelineVariant(tessellation.name, draw.GetVariant(draw.SHAPE_IDS, bits))
 
-		if render3d.IsPipelineReady(ids) then return ids end
+		if
+			render3d.IsPipelineReady(ids) and
+			visibility.IsResolveReady(visibility.KIND_TESSELLATION, bits)
+		then
+			return ids
+		end
 	end
 
 	local plain = draw.GetVariant(draw.SHAPE_PLAIN, bit.bor(draw.GetGlobalBits(0), shader_features.PARAMS))
@@ -1297,6 +1300,23 @@ local function get_pipeline()
 	pipeline = render3d.GetPipelineVariant(tessellation.name, draw.GetVariant(draw.SHAPE_PLAIN, shader_features.PARAMS))
 
 	if render3d.IsPipelineReady(pipeline) then return pipeline end
+end
+
+local function get_terrain_pipeline(pipeline)
+	local bits = bit.bor(draw.GetGlobalBits(0), shader_features.TERRAIN, shader_features.PARAMS)
+
+	if pipeline.config.visibility then
+		local ids = render3d.GetPipelineVariant(tessellation.name, draw.GetVariant(draw.SHAPE_IDS, bits))
+
+		if
+			render3d.IsPipelineReady(ids) and
+			visibility.IsResolveReady(visibility.KIND_TESSELLATION, bits)
+		then
+			return ids
+		end
+	end
+
+	return render3d.GetPipelineVariant(tessellation.name, draw.GetVariant(draw.SHAPE_PLAIN, bits))
 end
 
 local batch_table
@@ -1345,6 +1365,16 @@ function tessellation.PreDraw(cmd)
 	args[5] = data_table:GetAddress()
 	args[6] = instances.GetRasterTable():GetAddress()
 	args[7], state.software_pixels, state.software_cache, state.software_cache_pixels = software_raster.ResetPatches(cmd)
+
+	if
+		not (
+			pipeline.config.visibility and
+			get_terrain_pipeline(pipeline).config.visibility
+		)
+	then
+		args[7] = 0
+	end
+
 	state.software_patches_address = args[7]
 	update_batches(pipeline)
 	cmd:PipelineBarrier{
@@ -1493,13 +1523,7 @@ function tessellation.Draw(pipeline, cmd)
 	if not state.ready or not render3d.IsPipelineReady(pipeline) then return end
 
 	local batches_address = update_batches(pipeline)
-	local terrain = render3d.GetPipelineVariant(
-		tessellation.name,
-		draw.GetVariant(
-			pipeline.config.visibility and draw.SHAPE_IDS or draw.SHAPE_PLAIN,
-			bit.bor(draw.GetGlobalBits(0), shader_features.TERRAIN, shader_features.PARAMS)
-		)
-	)
+	local terrain = get_terrain_pipeline(pipeline)
 
 	for group, group_pipeline in ipairs({pipeline, terrain}) do
 		if render3d.IsPipelineReady(group_pipeline) then

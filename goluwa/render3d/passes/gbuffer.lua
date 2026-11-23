@@ -33,10 +33,15 @@ local function get_extra_pipeline(extra)
 		shader_features.PARAMS
 	local bits = bit.bor(scene_draw.GetGlobalBits(0), param_bits)
 
-	if visibility.enabled and extra.visibility_ids then
+	if visibility.enabled and extra.visibility_kind then
 		local pipeline = render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_IDS, bits))
 
-		if render3d.IsPipelineReady(pipeline) then return pipeline end
+		if
+			render3d.IsPipelineReady(pipeline) and
+			visibility.IsResolveReady(extra.visibility_kind, bits)
+		then
+			return pipeline
+		end
 	end
 
 	local pipeline = render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, bits))
