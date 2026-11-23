@@ -58,6 +58,7 @@ local RAY_REORDER_EXTENSIONS = {
 }
 local VkDeviceQueueCreateInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDeviceQueueCreateInfo)
 local UInt32Array = ffi.typeof("uint32_t[?]")
+local VkPhysicalDeviceComputeShaderDerivativesFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR)
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
 local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
 
@@ -245,6 +246,18 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 		pNextChain = dynamicRenderingFeatures
 	end
 
+	if table.has_value(available_extensions, "VK_NV_compute_shader_derivatives") then
+		local computeDerivativesFeatures = VkPhysicalDeviceComputeShaderDerivativesFeaturesBox(
+			vulkan.vk.s.PhysicalDeviceComputeShaderDerivativesFeaturesKHR{
+				sType = "physical_device_compute_shader_derivatives_features_khr",
+				pNext = pNextChain,
+				computeDerivativeGroupQuads = 1,
+				computeDerivativeGroupLinear = 1,
+			}
+		)
+		pNextChain = computeDerivativesFeatures
+	end
+
 	if table.has_value(available_extensions, "VK_EXT_conditional_rendering") then
 		local conditionalRenderingFeatures = VkPhysicalDeviceConditionalRenderingFeaturesEXTBox(
 			vulkan.vk.s.PhysicalDeviceConditionalRenderingFeaturesEXT{
@@ -278,6 +291,11 @@ function Device.New(physical_device, extensions, graphicsQueueFamily, computeQue
 
 	if physical_features.tessellationShader == 1 then
 		enabled_features[0].tessellationShader = 1
+	end
+
+	-- gl_PrimitiveID in a fragment shader declares the Geometry capability
+	if physical_features.geometryShader == 1 then
+		enabled_features[0].geometryShader = 1
 	end
 
 	if physical_features.fillModeNonSolid == 1 then

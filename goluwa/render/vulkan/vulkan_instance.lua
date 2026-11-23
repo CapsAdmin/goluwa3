@@ -144,6 +144,7 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		"VK_NVX_binary_import",
 		"VK_NVX_image_view_handle",
 		"VK_KHR_push_descriptor",
+		"VK_NV_compute_shader_derivatives",
 	}
 
 	if os.getenv("GOLUWA_CHECKPOINTS") then
