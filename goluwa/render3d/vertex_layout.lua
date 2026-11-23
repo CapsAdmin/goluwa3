@@ -407,15 +407,15 @@ function vertex_layout.BuildGlslAccessors(prefix, type_name, writable)
 
 		if field.packing then
 			local at = (
-				"vertex * %du + %du"
+				"at_vertex * %du + %du"
 			):format(vertex_layout.CoreFloatStride, field.group_float_offset)
 			lines[#lines + 1] = (
-				"%s %s_%s(%s b, uint vertex) {\n\treturn vertex_layout_decode_%s(floatBitsToUint(b.v[%s]));\n}\n"
+				"%s %s_%s(%s b, uint at_vertex) {\n\treturn vertex_layout_decode_%s(floatBitsToUint(b.v[%s]));\n}\n"
 			):format(field.glsl, prefix, name, type_name, field.packing, at)
 
 			if writable then
 				lines[#lines + 1] = (
-					"void %s_set_%s(%s b, uint vertex, %s value) {\n\tb.v[%s] = uintBitsToFloat(vertex_layout_encode_%s(value));\n}\n"
+					"void %s_set_%s(%s b, uint at_vertex, %s value) {\n\tb.v[%s] = uintBitsToFloat(vertex_layout_encode_%s(value));\n}\n"
 				):format(prefix, name, type_name, field.glsl, at, field.packing)
 			end
 
@@ -429,7 +429,7 @@ function vertex_layout.BuildGlslAccessors(prefix, type_name, writable)
 			local stride = field.group == "core" and
 				vertex_layout.CoreFloatStride or
 				vertex_layout.ExtrasFloatStride
-			local at = ("vertex * %du + %du"):format(stride, field.group_float_offset + i)
+			local at = ("at_vertex * %du + %du"):format(stride, field.group_float_offset + i)
 			components[#components + 1] = ("b.v[%s]"):format(at)
 
 			if field.count == 1 then
@@ -445,12 +445,12 @@ function vertex_layout.BuildGlslAccessors(prefix, type_name, writable)
 				"%s(%s)"
 			):format(field.glsl, table.concat(components, ", "))
 		lines[#lines + 1] = (
-			"%s %s_%s(%s b, uint vertex) {\n\treturn %s;\n}\n"
+			"%s %s_%s(%s b, uint at_vertex) {\n\treturn %s;\n}\n"
 		):format(field.glsl, prefix, name, type_name, value)
 
 		if writable then
 			lines[#lines + 1] = (
-				"void %s_set_%s(%s b, uint vertex, %s value) {\n%s\n}\n"
+				"void %s_set_%s(%s b, uint at_vertex, %s value) {\n%s\n}\n"
 			):format(
 				prefix,
 				name,

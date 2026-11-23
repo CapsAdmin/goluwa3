@@ -5,12 +5,12 @@ local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
-local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local accel = import("goluwa/render3d/scene/accel.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local vegetation_pushers = import("goluwa/render3d/vegetation_pushers.lua")
+local deformation = import("goluwa/render3d/deformation.lua")
 local vegetation_bend = {}
 pvars.StartGroup("Rendering", "Ray traced scene", {store = false})
 local enabled = pvars.Setup2{
@@ -37,7 +37,7 @@ local ROW = 65535
 local animation_fields = {}
 local animation_glsl = {}
 
-for i, field in ipairs(model_pipeline.GetVertexAnimationBlock()) do
+for i, field in ipairs(deformation.GetBlock()) do
 	local name, kind = field[1], field[2]
 	animation_fields[i] = kind == "vec3" and
 		"float " .. name .. "[3];" or
@@ -53,7 +53,6 @@ local Animation = ffi.typeof("struct { " .. table.concat(animation_fields, " ") 
 local Job = ffi.typeof(
 	[[struct {
 	uint32_t source[2];
-	uint32_t source_extras[2];
 	uint32_t destination[2];
 	uint32_t instance[2];
 	uint32_t count;
@@ -102,7 +101,7 @@ local function get_pipeline()
 			{"group_count", "int"},
 		},
 		write = function(self, block)
-			local position, pixel_scale = model_pipeline.GetVertexAnimationView()
+			local position, pixel_scale = deformation.GetView()
 			block.camera_position[0] = position.x
 			block.camera_position[1] = position.y
 			block.camera_position[2] = position.z
@@ -121,7 +120,6 @@ local function get_pipeline()
 			};
 			struct BendJob {
 				uvec2 source;
-				uvec2 source_extras;
 				uvec2 destination;
 				uvec2 instance;
 				uint count;
@@ -137,7 +135,7 @@ local function get_pipeline()
 			BendAnimation vertex_animation;
 			mat4 bend_world;
 
-			]] .. model_pipeline.BuildVertexAnimationGlsl("bend_world", "compute.camera_position.xyz", "compute.pixel_scale") .. [[
+			]] .. deformation.BuildGlsl("bend_world", "compute.camera_position.xyz", "compute.pixel_scale") .. [[
 
 			void main() {
 				uint flat_group = gl_WorkGroupID.y * ]] .. ROW .. [[u + gl_WorkGroupID.x;
@@ -167,20 +165,8 @@ local function get_pipeline()
 					vec4(instance.m[3], instance.m[7], instance.m[11], 1.0)
 				);
 				BendSource source = BendSource(packUint2x32(job.source));
-				BendSource extras = BendSource(packUint2x32(job.source_extras));
 				vec3 position = bend_source_position(source, i);
-				vec3 normal = bend_source_normal(source, i);
-				vec4 color = bend_source_color(extras, i);
-				VegetationChain chain = VegetationChain(
-					bend_source_pivot(extras, i),
-					bend_source_chain_mid(extras, i),
-					bend_source_chain_tip(extras, i)
-				);
-				mat3 world3 = mat3(bend_world);
-				mat3 inverse_world3 = inverse(world3);
-				vec3 world_position = (bend_world * vec4(position, 1.0)).xyz;
-				vec3 world_normal = normalize(transpose(inverse_world3) * normal);
-				position += inverse_world3 * get_vertex_animation_offset(world_position, world_normal, color, chain);
+				position += inverse(mat3(bend_world)) * deform(position, bend_source_normal(source, i), i, bend_world, false).offset;
 				BendDestination destination = BendDestination(packUint2x32(job.destination));
 				destination.v[i * 3u] = position.x;
 				destination.v[i * 3u + 1u] = position.y;
@@ -243,14 +229,14 @@ local MIN_PIXELS = 1
 
 -- how far from the camera a part with this material and polygon is bent: while the wind moves it by at least a pixel, 0 when it does not move
 function vegetation_bend.GetRange(material, polygon)
-	model_pipeline.FillVertexAnimationData(scratch_animation, material, polygon)
+	deformation.Fill(scratch_animation, material, polygon)
 
 	if not animates(scratch_animation) then return 0 end
 
-	local _, pixel_scale = model_pipeline.GetVertexAnimationView()
+	local _, pixel_scale = deformation.GetView()
 	return math.min(
 		max_distance:Get(),
-		model_pipeline.GetVertexAnimationMotion(scratch_animation) * pixel_scale / MIN_PIXELS
+		deformation.GetMotion(scratch_animation) * pixel_scale / MIN_PIXELS
 	)
 end
 
@@ -259,7 +245,7 @@ local queued, queued_groups = 0, 0
 local queued_records = {}
 
 -- vertices of the mesh at source are bent by the material's wind for the instance whose row major 3x4 world matrix is at matrix_address, into the record's positions
-function vegetation_bend.Queue(record, source_address, extras_address, matrix_address, material, polygon)
+function vegetation_bend.Queue(record, source_address, matrix_address, material, polygon)
 	local frame = system.GetFrameNumber()
 
 	if frame ~= frame_stamp then
@@ -271,9 +257,8 @@ function vegetation_bend.Queue(record, source_address, extras_address, matrix_ad
 
 	get_pipeline()
 	local job = job_data[(frame % RING) * MAX_JOBS + frame_used + queued]
-	model_pipeline.FillVertexAnimationData(job.animation, material, polygon)
+	deformation.Fill(job.animation, material, polygon)
 	ffi.cast(uint64_ptr, job.source)[0] = source_address
-	ffi.cast(uint64_ptr, job.source_extras)[0] = extras_address
 	ffi.cast(uint64_ptr, job.destination)[0] = record.positions_address
 	ffi.cast(uint64_ptr, job.instance)[0] = matrix_address
 	job.count = record.mesh.vertex_count
@@ -536,7 +521,6 @@ function vegetation_bend.Dispatch(cmd)
 			vegetation_bend.Queue(
 				pool.records[k],
 				mesh_rows[pool.row].vertex_address,
-				mesh_rows[pool.row].extras_address,
 				slots_address + (pool.first + k - 1) * ffi.sizeof(BendSlot),
 				pool.material,
 				pool.polygon

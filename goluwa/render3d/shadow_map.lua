@@ -26,6 +26,7 @@ local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local BatchTable = import("goluwa/render3d/batch_table.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
+local deformation = import("goluwa/render3d/deformation.lua")
 local ShadowMap = objects.CreateTemplate("render3d_shadow_map")
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_POINT_COLOR_FORMAT = "r32_sfloat"
@@ -220,7 +221,7 @@ local ShadowBatchRecord = ffi.typeof(
 		float shell_sink;
 		$ anim;
 	}]],
-	ffi.typeof(model_pipeline.GetVertexAnimationUniformBufferDecl())
+	ffi.typeof(deformation.GetBlockDecl())
 )
 local ShadowMultiDrawPushConstants = ffi.typeof([[
 	struct {
@@ -242,7 +243,7 @@ local SHADOW_MULTI_DRAW_COMMON_GLSL
 do
 	local fields = {}
 
-	for _, field in ipairs(model_pipeline.GetVertexAnimationBlock()) do
+	for _, field in ipairs(deformation.GetBlock()) do
 		fields[#fields + 1] = "\t\t" .. field[2] .. " " .. field[1] .. ";"
 	end
 
@@ -330,7 +331,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 			mat4 shadow_world;
 			VertexAnimation_t vertex_animation;
 
-			]] .. model_pipeline.BuildVertexAnimationGlsl("shadow_world", "pc.wind_camera", "pc.wind_pixel_scale") .. [[
+			]] .. deformation.BuildGlsl("shadow_world", "pc.wind_camera", "pc.wind_pixel_scale") .. [[
 
 			]] .. vertex_layout.BuildGlslAccessors("shadow_vertex", "ShadowVertexData") .. [[
 
@@ -348,34 +349,16 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				vec3 local_pos = shadow_vertex_position(data, index);
 				vec2 uv = shadow_vertex_uv(data, index);
 				shadow_world = ShadowInstanceData(pc.instances).worlds[gl_InstanceIndex];
-				vec3 world_pos = (shadow_world * vec4(local_pos, 1.0)).xyz;
+				vertex_animation = SHADOW_BATCH[batch_index].anim;
+				vertex_animation.Time = pc.time;
+				vertex_animation.PrevTime = pc.prev_time;
+				vertex_animation.DetailTime = pc.detail_time;
+				vertex_animation.PrevDetailTime = pc.detail_time;
+				vec3 local_normal = shadow_vertex_normal(data, index);
+				vec3 world_pos = deform(local_pos, local_normal, index, shadow_world, false).position;
 
 				if (SHADOW_BATCH[batch_index].shell_sink > 0.0) {
-					world_pos -= normalize(transpose(inverse(mat3(shadow_world))) * shadow_vertex_normal(data, index)) * SHADOW_BATCH[batch_index].shell_sink;
-				}
-
-				if (
-					(floatBitsToUint(shadow_world[3][3]) & 0x80000000u) != 0u ||
-					SHADOW_BATCH[batch_index].anim.MainBending > 0.0 ||
-					SHADOW_BATCH[batch_index].anim.PushBending > 0.0 ||
-					(SHADOW_BATCH[batch_index].anim.DetailBending != 0 && SHADOW_BATCH[batch_index].anim.BendSpeed > 0.0)
-				) {
-					vertex_animation = SHADOW_BATCH[batch_index].anim;
-					vertex_animation.Time = pc.time;
-					vertex_animation.PrevTime = pc.prev_time;
-					vertex_animation.DetailTime = pc.detail_time;
-					vertex_animation.PrevDetailTime = pc.detail_time;
-					ShadowVertexData extras = ShadowVertexData(packUint2x32(SHADOW_BATCH[batch_index].extras_address));
-					vec3 local_normal = shadow_vertex_normal(data, index);
-					vec4 vertex_color = shadow_vertex_color(extras, index);
-					VegetationChain vertex_chain = VegetationChain(
-						shadow_vertex_pivot(extras, index),
-						shadow_vertex_chain_mid(extras, index),
-						shadow_vertex_chain_tip(extras, index)
-					);
-					vec3 world_normal = normalize(transpose(inverse(mat3(shadow_world))) * local_normal);
-
-					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color, vertex_chain);
+					world_pos -= normalize(transpose(inverse(mat3(shadow_world))) * local_normal) * SHADOW_BATCH[batch_index].shell_sink;
 				}
 
 				gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);
@@ -1497,12 +1480,12 @@ local function write_shadow_batch_record(self, pipeline, record, batch)
 		cache_shadow_material_texture_indices(self, material, pipeline).normal_texture_index
 	)
 	render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-	model_pipeline.FillVertexAnimationData(record.anim, material)
+	deformation.Fill(record.anim, material)
 end
 
 local function write_shadow_batch_animation(self, pipeline, record, batch)
 	render3d.SetCurrentPolygon3D(batch.first_polygon3d)
-	model_pipeline.FillVertexAnimationData(record.anim, batch.material)
+	deformation.Fill(record.anim, batch.material)
 end
 
 function ShadowMap:DrawBatches(
@@ -1529,7 +1512,7 @@ function ShadowMap:DrawBatches(
 			record_type = ShadowBatchRecord,
 			write_record = write_shadow_batch_record,
 			write_animated = write_shadow_batch_animation,
-			animation_version = model_pipeline.GetVertexAnimationVersion,
+			animation_version = deformation.GetVersion,
 			changes = changes,
 		}
 		self.shadow_batch_tables[key or pipeline] = batch_table
@@ -1544,7 +1527,7 @@ function ShadowMap:DrawBatches(
 	push_constants.light_position[1] = self.point_light_position.y
 	push_constants.light_position[2] = self.point_light_position.z
 	push_constants.light_far_plane = self.far_plane
-	local wind_camera, wind_pixel_scale = model_pipeline.GetVertexAnimationView()
+	local wind_camera, wind_pixel_scale = deformation.GetView()
 	push_constants.wind_camera[0] = wind_camera.x
 	push_constants.wind_camera[1] = wind_camera.y
 	push_constants.wind_camera[2] = wind_camera.z

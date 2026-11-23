@@ -8,6 +8,7 @@ local BatchTable = import("goluwa/render3d/batch_table.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local InstanceBatcher = import("goluwa/render3d/instance_batcher.lua")
 local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
+local deformation = import("goluwa/render3d/deformation.lua")
 local gbuffer_instancing = {}
 local queued_instances = 0
 local last_stats = {
@@ -111,7 +112,7 @@ do
 			changes = changes,
 			write_record = write_record,
 			write_animated = write_animated,
-			animation_version = model_pipeline.GetVertexAnimationVersion,
+			animation_version = deformation.GetVersion,
 			per_frame = true,
 		}
 	end
