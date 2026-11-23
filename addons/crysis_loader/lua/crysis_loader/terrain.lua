@@ -220,12 +220,10 @@ function terrain.ApplyVegetationMaterialState(level_data)
 			if prototype.use_terrain_color then
 				for _, material_path in ipairs(prototype.material_paths) do
 					for _, material in ipairs(mtl_material.FromCryMTLList(material_path)) do
-						if material:GetGroundColorBlend() == 0 then
-							material:SetGroundColorBlend(0.5)
+						if material:GetGroundColorBlend() > 0 then
+							material:SetGroundColorTexture(texture)
+							material:SetGroundColorUV(uv)
 						end
-
-						material:SetGroundColorTexture(texture)
-						material:SetGroundColorUV(uv)
 					end
 				end
 			end
