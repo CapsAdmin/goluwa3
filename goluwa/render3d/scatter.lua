@@ -14,6 +14,7 @@ local Material = import("goluwa/render3d/material.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
+local visibility = import("goluwa/render3d/visibility.lua")
 local BuddyPool = import("goluwa/render3d/buddy_pool.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local event = import("goluwa/event.lua")
@@ -216,7 +217,7 @@ local function get_buffers()
 		},
 		commands = render.CreateBuffer{
 			byte_size = DRAW_COMMAND_SIZE * scatter.MAX_BATCHES * 2,
-			buffer_usage = {"storage_buffer", "indirect_buffer"},
+			buffer_usage = {"storage_buffer", "indirect_buffer", "shader_device_address"},
 			memory_property = {"device_local"},
 			label = "scatter commands",
 		},
@@ -3104,10 +3105,20 @@ function scatter.Draw(pipeline, cmd)
 	pipeline.draw_instances_address = b.instances:GetDeviceAddress()
 	pipeline.draw_prev_instances_address = pipeline.draw_instances_address
 	pipeline.draw_batch_ids_address = 0
+	local ids = pipeline.config.visibility
+
+	if ids then visibility.AddContext(pipeline, b.commands:GetDeviceAddress()) end
+
 	pipeline:UploadConstants()
 	cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
 	cmd:SetCullMode(orientation.CULL_MODE)
 	cmd:DrawIndexedIndirect(b.commands, 0, #draw_batches, DRAW_COMMAND_SIZE)
+
+	if ids then
+		visibility.AddContext(pipeline, b.commands:GetDeviceAddress() + #draw_batches * DRAW_COMMAND_SIZE)
+		pipeline:UploadConstants()
+	end
+
 	cmd:SetCullMode("none")
 	cmd:DrawIndexedIndirect(b.commands, #draw_batches * DRAW_COMMAND_SIZE, #draw_batches, DRAW_COMMAND_SIZE)
 end

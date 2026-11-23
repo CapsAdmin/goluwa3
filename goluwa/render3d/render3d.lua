@@ -1094,6 +1094,12 @@ function render3d.Initialize(config)
 		end
 
 		if pipeline.name == "gbuffer" then
+			local visibility = import("goluwa/render3d/visibility.lua")
+
+			if visibility.enabled then
+				visibility.Resolve(render.GetCommandBuffer(), pipeline:GetFramebuffer())
+			end
+
 			gpu_culling.PrepareMainViewHiZ(render.GetCommandBuffer())
 		end
 	end

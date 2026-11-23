@@ -728,6 +728,7 @@ do
 	out_batch = batch_index;
 	out_instance = uint(gl_InstanceIndex);
 	out_triangle = uint(gl_VertexIndex) / 3u;
+	out_draw = uint(gl_DrawID);
 	PBRBatchData batch_data = PBRBatchData(]] .. options.batches_expr .. [[);
 	uvec4 addresses = batch_data.b[batch_index].addresses;
 
@@ -768,6 +769,9 @@ layout(location = ]] .. (
 layout(location = ]] .. (
 					batch_location + 2
 				) .. [[) flat out uint out_triangle;
+layout(location = ]] .. (
+					batch_location + 3
+				) .. [[) flat out uint out_draw;
 mat4 multi_draw_instance_world;
 mat4 multi_draw_instance_prev_world;
 PBRBatch_vertex_animation vertex_animation;
@@ -1335,9 +1339,13 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 			}
 
 			bool has_vertex_animation() {
+				#ifdef VERTEX_ANIMATION_STATIC
+				return false;
+				#else
 				return vertex_animation.MainBending > 0.0 ||
 					(vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0) ||
 					(vertex_animation.PushBending > 0.0 && get_vegetation_pushers().p[0].x > 0.0);
+				#endif
 			}
 
 			vec4 vegetation_smooth_triangle_wave(vec4 x) {
@@ -1478,11 +1486,27 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 			}
 
 			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain) {
-				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_chain, vertex_animation.Time, vertex_animation.DetailTime);
+				#ifdef VERTEX_ANIMATION_OFFSET
+				return VERTEX_ANIMATION_OFFSET;
+				#else
+				vec3 offset = get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_chain, vertex_animation.Time, vertex_animation.DetailTime);
+				#ifdef VERTEX_ANIMATION_RECORD
+				VERTEX_ANIMATION_RECORD = offset;
+				#endif
+				return offset;
+				#endif
 			}
 
 			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain) {
-				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_chain, vertex_animation.PrevTime, vertex_animation.PrevDetailTime);
+				#ifdef VERTEX_ANIMATION_PREVIOUS_OFFSET
+				return VERTEX_ANIMATION_PREVIOUS_OFFSET;
+				#else
+				vec3 offset = get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_chain, vertex_animation.PrevTime, vertex_animation.PrevDetailTime);
+				#ifdef VERTEX_ANIMATION_PREVIOUS_RECORD
+				VERTEX_ANIMATION_PREVIOUS_RECORD = offset;
+				#endif
+				return offset;
+				#endif
 			}
 	]]
 end

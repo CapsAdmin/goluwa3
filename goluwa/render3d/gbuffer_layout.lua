@@ -2,6 +2,15 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = {}
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+pvars.StartGroup("Rendering", "Visibility buffer", {store = false})
+local visibility_enabled = pvars.Setup2{
+	key = "r_visibility_buffer",
+	default = false,
+	help = "plain opaque scene geometry and scatter only rasterize triangle ids, and a compute pass shades each visible pixel once from them, set before starting (GOLUWA_PVARS)",
+}
+pvars.EndGroup()
+gbuffer_layout.visibility = visibility_enabled:Get()
 -- the guaranteed minimum of vulkan's maxColorAttachments
 local MAX_TARGETS = 8
 gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
@@ -150,6 +159,13 @@ do
 
 	table.insert(gbuffer_layout.targets, EMISSIVE_TARGET)
 	table.insert(gbuffer_layout.targets, VELOCITY_TARGET)
+
+	if gbuffer_layout.visibility and #gbuffer_layout.targets + 1 > MAX_TARGETS then
+		error(
+			"the visibility buffer needs a target, the gbuffer already has " .. #gbuffer_layout.targets,
+			2
+		)
+	end
 end
 
 gbuffer_layout.color_format = {}
@@ -166,6 +182,12 @@ for _, field in ipairs(gbuffer_layout.fields) do
 	if field.kind == "velocity_alpha" then
 		table.insert(gbuffer_layout.block, {field.name .. "_tex", "int"})
 	end
+end
+
+if gbuffer_layout.visibility then
+	gbuffer_layout.VISIBILITY_FORMAT = "r32g32b32a32_uint"
+	table.insert(gbuffer_layout.color_format, {gbuffer_layout.VISIBILITY_FORMAT, {"visibility", "rgba"}})
+	gbuffer_layout.attachment_index.visibility = #gbuffer_layout.color_format
 end
 
 function gbuffer_layout.GetTexture(name)
@@ -270,6 +292,10 @@ do
 				field.default
 			table.insert(defaults, string.format("\tset_%s(%s);", field.name, value))
 		end
+	end
+
+	if gbuffer_layout.visibility then
+		table.insert(defaults, "\tset_visibility(uvec4(0u));")
 	end
 
 	table.insert(defaults, "\tgbuffer_flush_packed();")

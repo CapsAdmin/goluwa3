@@ -10,6 +10,7 @@ local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
+local visibility = import("goluwa/render3d/visibility.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local store = import("goluwa/render3d/scene/store.lua")
@@ -1454,6 +1455,12 @@ local function draw_variants(gbuffer_instancing, kind, name, displaced)
 			pipeline.draw_prev_instances_address = buffers.prev_worlds_address
 			pipeline.draw_thicknesses_address = buffers.thicknesses_address
 			pipeline.draw_batch_ids_address = buffers.batch_ids_address
+			local ids = pipeline.config.visibility
+
+			if ids then
+				visibility.AddContext(pipeline, buffers.commands:GetDeviceAddress() + variant * 2 * group_size)
+			end
+
 			pipeline:UploadConstants()
 			cmd:SetCullMode(orientation.CULL_MODE)
 			cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
@@ -1465,6 +1472,12 @@ local function draw_variants(gbuffer_instancing, kind, name, displaced)
 				count,
 				COMMAND_SIZE
 			)
+
+			if ids then
+				visibility.AddContext(pipeline, buffers.commands:GetDeviceAddress() + (variant * 2 + 1) * group_size)
+				pipeline:UploadConstants()
+			end
+
 			cmd:SetCullMode("none")
 			cmd:DrawIndexedIndirectCount(
 				buffers.commands,

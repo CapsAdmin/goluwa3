@@ -17,6 +17,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
+local visibility = import("goluwa/render3d/visibility.lua")
 local camera_block = geometry_block.New("gbuffer_data", {
 	{"normal_source", "int"},
 	{"eye_near_height_shell", "int"},
@@ -76,6 +77,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		ColorFormat = gbuffer_layout.color_format,
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		DepthClear = 0.0,
+		color_image_usage = visibility.enabled and {"storage"} or nil,
 		fragment = {
 			uniform_buffers = uniform_buffers,
 			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data", true) .. surface_weather.GetGLSL("gbuffer_data") .. surface_conditions.GetGLSL("gbuffer_data") .. surface_overlays.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
@@ -194,6 +196,7 @@ local multi_draw_block = {
 		{"prev_time", "float"},
 		{"detail_time", "float"},
 		{"prev_detail_time", "float"},
+		{"context", "int"},
 	},
 	write = function(self, block)
 		block.batches = self.draw_batches_address
@@ -204,11 +207,12 @@ local multi_draw_block = {
 		block.prev_time = atmosphere.GetPreviousWindTime()
 		block.detail_time = atmosphere.GetWindDetailTime()
 		block.prev_detail_time = atmosphere.GetPreviousWindDetailTime()
+		block.context = self.draw_context or 0
 		return block
 	end,
 }
 
-local function build_multi_draw_pass(fragment_shader, bits)
+local function build_multi_draw_pass(fragment_shader, bits, visibility_ids)
 	local pass = build_base_pass(fragment_shader, true)
 	pass.name = "gbuffer_multi_draw"
 	pass.draw_in_prerender = false
@@ -244,15 +248,33 @@ local function build_multi_draw_pass(fragment_shader, bits)
 			pass.vertex.batch_location,
 			pass.vertex.batch_location + 1,
 			pass.vertex.batch_location + 2
+		) .. (
+			visibility_ids and
+			string.format("layout(location = %d) flat in uint in_draw;\n", pass.vertex.batch_location + 3) or
+			""
 		) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(gbuffer_draw.batches).b[in_batch]") .. [[
 layout(buffer_reference, scalar) readonly buffer PrismVertexData { float v[]; };
 layout(buffer_reference, scalar) readonly buffer PrismIndexData { uint i[]; };
 layout(buffer_reference, scalar) readonly buffer PrismInstanceData { mat4 worlds[]; };
 ]] .. vertex_layout.BuildGlslAccessors("prism_vertex", "PrismVertexData")
+
+	if visibility_ids then
+		pass.visibility = true
+		pass.visibility_bits = bits
+		pass.ColorWriteMask = ""
+		pass.color_blend = {attachments = {}}
+
+		for i = 1, #gbuffer_layout.color_format do
+			pass.color_blend.attachments[i] = {
+				color_write_mask = i == gbuffer_layout.attachment_index.visibility and "rgba" or "",
+			}
+		end
+	end
+
 	return pass
 end
 
-local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellated)
+local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellated, visibility_ids)
 	-- shell hits of entry fragments lie behind them, so the rasterized depth is a bound that keeps early depth rejection; hits marched from an eye inside the relief lie in front and only matter when something else sits between them and their exit surface
 	return (
 			write_depth and
@@ -827,6 +849,14 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			}
 
 			compute_translucency_and_discard(alpha);
+			]] .. (
+			visibility_ids and
+			[[
+			set_visibility(uvec4(uint(gbuffer_draw.context), in_draw, in_instance, uint(gl_PrimitiveID)));
+			return;
+			]] or
+			""
+		) .. [[
 
 			Surface surface;
 			surface.world_pos = displacement.world_pos;
@@ -937,15 +967,34 @@ do
 			end,
 			build = function(variant)
 				local shape = scene_draw.GetVariantShape(variant)
+				local visibility_ids = visibility.enabled and shape == scene_draw.SHAPE_PLAIN
 				-- snow lying on everything moves hits nearer than the triangle, so the nearer shape cannot promise depth_less
 				return build_multi_draw_pass(
-					build_ssdm_fragment_shader(shape ~= scene_draw.SHAPE_PLAIN, true, shape == scene_draw.SHAPE_NEARER),
-					scene_draw.GetVariantBits(variant)
+					build_ssdm_fragment_shader(
+						shape ~= scene_draw.SHAPE_PLAIN,
+						true,
+						shape == scene_draw.SHAPE_NEARER,
+						false,
+						visibility_ids
+					),
+					scene_draw.GetVariantBits(variant),
+					visibility_ids
 				)
 			end,
 		}
 	)
 	scene_draw.SetVariantKind(0, {"gbuffer_multi_draw"}, shader_features.ALL, true)
+
+	if visibility.enabled then
+		visibility.SetResolveSource(
+			function(bits)
+				return build_multi_draw_pass(build_ssdm_fragment_shader(false, true, false), bits)
+			end,
+			camera_block,
+			orientation.FRONT_FACE
+		)
+	end
+
 	render3d.RegisterPipelineVariants(
 		tessellation.name,
 		{
