@@ -297,39 +297,43 @@ local PROTOTYPES_GLSL = [[
 ]]
 local CONFORM_GLSL = RAY_QUERY and
 	[[
-	float scatter_conform_word(ScatterPrototype proto, vec3 root, vec3 x_axis, vec3 z_axis, vec3 up, float size, float size_y) {
-		float conform_word = 1.0;
+	mat4 scatter_conform(ScatterPrototype proto, mat4 world) {
+		if (proto.limits.z <= 0.0) return world;
 
-		if (proto.limits.z > 0.0) {
-			uint radius_code = uint(clamp(round(log(proto.limits.z / 0.02) / log(1.12)), 0.0, 63.0));
-			float radius = 0.02 * pow(1.12, float(radius_code));
-			float reach = radius * size;
-			float window = reach * 1.5;
-			vec3 sample_directions[4] = vec3[4](x_axis, -x_axis, z_axis, -z_axis);
-			uint offsets = 0u;
-			float worst = 0.0;
+		float size = length(world[0].xyz);
+		float size_y = length(world[1].xyz);
+		vec3 x_axis = world[0].xyz / size;
+		vec3 up = world[1].xyz / size_y;
+		vec3 z_axis = world[2].xyz / size;
+		float reach = proto.limits.z * size;
+		float window = reach * 1.5;
+		vec3 sample_directions[4] = vec3[4](x_axis, -x_axis, z_axis, -z_axis);
+		float heights[4];
 
-			for (int i = 0; i < 4; i++) {
-				vec3 edge = root + sample_directions[i] * reach;
-				rayQueryEXT ground;
-				rayQueryInitializeEXT(ground, scatter_scene, gl_RayFlagsOpaqueEXT, 0xFF, edge + up * window, 0.0, -up, window * 2.0);
+		for (int i = 0; i < 4; i++) {
+			vec3 edge = world[3].xyz + sample_directions[i] * reach;
+			rayQueryEXT ground;
+			rayQueryInitializeEXT(ground, scatter_scene, gl_RayFlagsOpaqueEXT, 0xFF, edge + up * window, 0.0, -up, window * 2.0);
 
-				while (rayQueryProceedEXT(ground)) {}
+			while (rayQueryProceedEXT(ground)) {}
 
-				float height = 0.0;
+			heights[i] = 0.0;
 
-				if (rayQueryGetIntersectionTypeEXT(ground, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-					height = window - rayQueryGetIntersectionTEXT(ground, true);
-				}
-
-				worst = max(worst, abs(height) / (radius * size_y));
-				offsets |= uint(int(clamp(round(height / (radius * size_y) * 15.0), -15.0, 15.0)) + 16) << uint(i * 5);
+			if (rayQueryGetIntersectionTypeEXT(ground, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+				heights[i] = window - rayQueryGetIntersectionTEXT(ground, true);
 			}
 
-			if (worst < 0.6) conform_word = uintBitsToFloat(0x80000000u | (radius_code << 24) | offsets);
+			if (abs(heights[i]) > 0.6 * proto.limits.z * size_y) return world;
 		}
 
-		return conform_word;
+		vec3 conformed_up = normalize(up - x_axis * ((heights[0] - heights[1]) / (2.0 * reach)) - z_axis * ((heights[2] - heights[3]) / (2.0 * reach)));
+		vec3 conformed_x = normalize(x_axis - conformed_up * dot(x_axis, conformed_up));
+		world[0].xyz = conformed_x * size;
+		world[1].xyz = conformed_up * size_y;
+		world[2].xyz = cross(conformed_x, conformed_up) * size;
+		// a rigid model on curved ground floats on one side unless it sinks to the lowest of the two curvatures
+		world[3].xyz += up * min(0.0, min(heights[0] + heights[1], heights[2] + heights[3]) * 0.5);
+		return world;
 	}
 ]] or
 	""
@@ -449,11 +453,13 @@ local cull_block = {
 	{"block_base", "int"},
 }
 local conform_block = {
+	{"source", "uint64_t"},
 	{"unit_offset", "int"},
 	{"unit_count", "int"},
 }
 
 local function write_conform_block(self, block)
+	block.source = self.source or 0
 	block.unit_offset = self.unit_offset or 0
 	block.unit_count = self.unit_count or 0
 	return block
@@ -783,21 +789,20 @@ function create_compute_passes()
 						vec3 x_axis = b1 * cos(yaw) + b2 * sin(yaw);
 						vec3 z_axis = cross(x_axis, up);
 						vec3 position = root - up * mix(proto.sink.x, proto.sink.y, r_sink) * size;
-						float conform_word = ]] .. (
-					RAY_QUERY and
-					"scatter_conform_word(proto, root, x_axis, z_axis, up, size, size_y)" or
-					"1.0"
-				) .. [[;
-
 						uint slot = atomicAdd(scatter_unit_counts[uint(compute.unit_slot)], 1u);
 
 						if (slot < uint(compute.unit_capacity)) {
-							scatter_baked[uint(compute.unit_offset) + slot] = mat4(
+							mat4 world = mat4(
 								vec4(x_axis * size, priority / ground_amount),
 								vec4(up * size_y, 0.0),
 								vec4(z_axis * size, uintBitsToFloat(proto_index)),
-								vec4(position, conform_word)
+								vec4(position, 1.0)
 							);
+							scatter_baked[uint(compute.unit_offset) + slot] = ]] .. (
+					RAY_QUERY and
+					"scatter_conform(proto, world)" or
+					"world"
+				) .. [[;
 						}
 					}
 				}
@@ -828,20 +833,15 @@ function create_compute_passes()
 					mat4 scatter_baked[];
 				};
 
+				layout(buffer_reference, std430) readonly buffer ScatterPlacedSource { mat4 w[]; };
+
 				void main() {
 					uint i = gl_GlobalInvocationID.x;
 
 					if (i >= uint(compute.unit_count)) return;
 
-					mat4 world = scatter_baked[uint(compute.unit_offset) + i];
-					ScatterPrototype proto = scatter_prototypes[floatBitsToUint(world[2][3])];
-
-					if (proto.limits.z <= 0.0) return;
-
-					float size = length(world[0].xyz);
-					float size_y = length(world[1].xyz);
-					world[3][3] = scatter_conform_word(proto, world[3].xyz, world[0].xyz / size, world[2].xyz / size, world[1].xyz / size_y, size, size_y);
-					scatter_baked[uint(compute.unit_offset) + i] = world;
+					mat4 world = ScatterPlacedSource(compute.source).w[i];
+					scatter_baked[uint(compute.unit_offset) + i] = scatter_conform(scatter_prototypes[floatBitsToUint(world[2][3])], world);
 				}
 			]],
 			} or
@@ -1889,7 +1889,6 @@ end
 
 local placed_units = {}
 local active_placed = {}
-local placed_staging = {}
 local placed_copy = BufferCopy()
 local COUNT_WORD = ffi.new("uint32_t[1]")
 scatter.PLACED_CELL = 512
@@ -1981,6 +1980,8 @@ function scatter.RemovePlacements(handle)
 
 	for _, unit in ipairs(handle.units) do
 		unit.dead = true
+
+		if unit.source then unit.source:Remove() end
 
 		if unit.slot then
 			pool_release(unit)
@@ -2080,13 +2081,16 @@ local function upload_placed(cmd, b, unit, proto, frame)
 
 	unit.index_written = proto.index
 	local size = unit.n * 64
-	local staging = render.CreateBuffer{
+
+	if unit.source then unit.source:Remove() end
+
+	unit.source = render.CreateBuffer{
 		byte_size = size,
-		buffer_usage = {"transfer_src"},
+		buffer_usage = {"transfer_src", "storage_buffer", "shader_device_address"},
 		memory_property = {"host_visible", "host_coherent"},
+		data = unit.data,
 		label = "scatter placements",
 	}
-	ffi.copy(staging:Map(), unit.data, size)
 	placed_copy[0].srcOffset = 0
 	placed_copy[0].dstOffset = unit.offset * 64
 	placed_copy[0].size = size
@@ -2098,7 +2102,7 @@ local function upload_placed(cmd, b, unit, proto, frame)
 		{"shader_read", "shader_write"},
 		"transfer_write"
 	)
-	cmd:CopyBuffer(staging, b.baked, placed_copy, 1)
+	cmd:CopyBuffer(unit.source, b.baked, placed_copy, 1)
 	barrier(
 		cmd,
 		b.baked,
@@ -2125,17 +2129,12 @@ local function upload_placed(cmd, b, unit, proto, frame)
 		"transfer_write",
 		{"shader_read", "shader_write"}
 	)
-	placed_staging[#placed_staging + 1] = {buffer = staging, frame = frame}
 	unit.conform_frame = nil
 	return true
 end
 
 local function update_placed(cmd, b, passes, frame, camera)
 	list.clear(active_placed)
-
-	while placed_staging[1] and frame - placed_staging[1].frame > scatter.SURFACE_RING + 1 do
-		table.remove(placed_staging, 1).buffer:Remove()
-	end
 
 	local uploads, conforms = 0, 0
 	local tlas_set = false
@@ -2211,6 +2210,7 @@ local function update_placed(cmd, b, passes, frame, camera)
 
 					conforms = conforms + 1
 					unit.conform_frame = frame
+					passes.conform.source = unit.source:GetDeviceAddress()
 					passes.conform.unit_offset = unit.offset
 					passes.conform.unit_count = unit.n
 					passes.conform:Dispatch(cmd, math.ceil(unit.n / 64), 1, 1, render.GetCurrentFrame())

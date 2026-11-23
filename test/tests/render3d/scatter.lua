@@ -385,6 +385,57 @@ T.Test3D("Graphics render3d scatter keeps off slopes it is not set to grow on", 
 	set:Remove()
 end)
 
+T.Test3D("Graphics render3d scatter conformed models stand on the slope under them, others upright", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local scene_draw = import("goluwa/render3d/scene/draw.lua")
+	local camera = render3d.GetCamera()
+	camera:SetFOV(math.rad(60))
+	camera:SetPosition(Vec3(0, 6, 0))
+	camera:SetRotation(Quat():SetAngles(Deg3(-90, 0, 0)))
+	local tilt = 20
+
+	local function lean(conform)
+		local material = Material.New{ColorMultiplier = Color(1, 1, 1, 1)}
+		local ground = create_ground(material, tilt)
+
+		-- the ground must be in the ray traced scene before the bake measures it
+		for _ = 1, 4 do
+			draw()
+		end
+
+		local set = create_red_cubes{conform = conform}
+		material:SetScatterSet(set)
+		local ok, err = pcall(function()
+			for _ = 1, 6 do
+				draw()
+			end
+		end)
+		local result = scene_draw.ReadBackCull(0)
+		local smallest, count = 1, 0
+
+		for _, entries in pairs(result.by_group) do
+			for _, entry in ipairs(entries) do
+				local w = entry.world
+				local length = math.sqrt(w[2] * w[2] + w[6] * w[6] + w[10] * w[10])
+				smallest = math.min(smallest, w[6] / length)
+				count = count + 1
+			end
+		end
+
+		ground:Remove()
+		set:Remove()
+
+		if not ok then error(err, 0) end
+
+		T(count)[">"](0)
+		return smallest
+	end
+
+	T(lean(false))[">"](0.999)
+	T(math.abs(lean(true) - math.cos(math.rad(tilt))))["<"](0.02)
+end)
+
 local function place_red_cubes(grid, spacing)
 	local set = create_red_cubes{placed = true}
 	set:Use()

@@ -378,26 +378,8 @@ function deformation.BuildGlsl(world_matrix_expr, camera_position_expr, pixel_sc
 				return t * t * (3.0 - 2.0 * t);
 			}
 
-			vec3 get_instance_conform_offset(vec3 world_pos) {
-				mat4 world = ]] .. world_matrix_expr .. [[;
-				uint bits = floatBitsToUint(world[3][3]);
-
-				if ((bits & 0x80000000u) == 0u) return vec3(0.0);
-
-				float radius = 0.02 * pow(1.12, float((bits >> 24u) & 63u));
-				mat3 world_matrix3 = mat3(world);
-				vec3 local = inverse(world_matrix3) * (world_pos - world[3].xyz);
-				vec2 edge = clamp(local.xz / radius, -1.0, 1.0);
-				vec4 heights = vec4(float(int(bits & 31u) - 16), float(int((bits >> 5u) & 31u) - 16), float(int((bits >> 10u) & 31u) - 16), float(int((bits >> 15u) & 31u) - 16)) / 15.0;
-				float lift = (heights.x - heights.y) * 0.5 * edge.x + (heights.x + heights.y) * 0.5 * edge.x * edge.x + (heights.z - heights.w) * 0.5 * edge.y + (heights.z + heights.w) * 0.5 * edge.y * edge.y;
-				float follow = 1.0 - smoothstep(0.0, radius, max(local.y, 0.0));
-				return world_matrix3 * vec3(0.0, lift * radius * follow, 0.0);
-			}
-
 			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain, float anim_time, float detail_time) {
-				vec3 conform = get_instance_conform_offset(world_pos);
-
-				if (!has_vertex_animation()) return conform;
+				if (!has_vertex_animation()) return vec3(0.0);
 
 				mat4 world = ]] .. world_matrix_expr .. [[;
 				mat3 world_matrix3 = mat3(world);
@@ -489,7 +471,7 @@ function deformation.BuildGlsl(world_matrix_expr, camera_position_expr, pixel_sc
 					}
 				}
 
-				return conform + world_matrix3 * (pos - start_pos);
+				return world_matrix3 * (pos - start_pos);
 			}
 
 			float get_vertex_animation_still() {
@@ -497,7 +479,7 @@ function deformation.BuildGlsl(world_matrix_expr, camera_position_expr, pixel_sc
 			}
 
 			vec3 get_vertex_animation_offset_still(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain, float anim_time, float detail_time) {
-				if (!has_vertex_animation()) return get_instance_conform_offset(world_pos);
+				if (!has_vertex_animation()) return vec3(0.0);
 
 				float still = get_vertex_animation_still();
 
