@@ -193,6 +193,7 @@ function Beam.New(config)
 	visual:SetReceivesDecals(false)
 	self.entity = entity
 	self.polygon = polygon
+	polygon.Dynamic = true
 
 	if self.ribbon then
 		local vertex_count = self.point_count * 2
@@ -218,8 +219,6 @@ function Beam.New(config)
 		self.primitive = visual:CreatePrimitiveEntity(polygon, self.Material, "beam_primitive")
 		return self
 	end
-
-	polygon.Dynamic = true
 
 	for i = 1, self.point_count * self.ring_size do
 		polygon:AddVertex{
