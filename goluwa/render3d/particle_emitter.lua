@@ -506,9 +506,11 @@ function particle_emitter.Restart(emitter)
 	state.carry = 0
 end
 
+-- returns how many to spawn this step and how many of those are a burst (the rest come from the rate)
 function particle_emitter.Step(emitter, dt)
 	local state = emitter.particle_state
-	local count = state.burst
+	local burst = math.min(state.burst, emitter.MaxParticles)
+	local count = burst
 	state.burst = 0
 
 	if emitter.Playing then
@@ -522,7 +524,7 @@ function particle_emitter.Step(emitter, dt)
 		state.time = state.time + dt
 	end
 
-	return math.min(count, emitter.MaxParticles)
+	return math.min(count, emitter.MaxParticles), burst
 end
 
 function particle_emitter.Sample(emitter, dt)

@@ -344,6 +344,7 @@ gpu.system = particles.Register{
 				{"count", "int"},
 				{"cursor", "int"},
 				{"spawn_count", "int"},
+				{"burst_count", "int"},
 				{"uid", "int"},
 				{"seed", "int"},
 				{"slot", "int"},
@@ -420,7 +421,7 @@ gpu.system = particles.Register{
 			entry.first = range.first
 			entry.count = range.count
 			entry.cursor = range.cursor
-			local spawn_count = particle_emitter.Step(emitter, dt)
+			local spawn_count, burst_count = particle_emitter.Step(emitter, dt)
 			entry.path = 0
 
 			if following and emitter.Playing then
@@ -435,6 +436,7 @@ gpu.system = particles.Register{
 			end
 
 			entry.spawn_count = spawn_count
+			entry.burst_count = burst_count
 			entry.uid = range.uid
 			entry.seed = emitter.Seed
 			local shader = emitter.Shader
@@ -543,18 +545,17 @@ gpu.system = particles.Register{
 
 		if (length(flat_direction) > 1e-4) direction = normalize(mix(direction, flat_direction, e.flatten));
 
-		float elapsed = 0.0;
-		p.position = e.position + offset;
-
-		if (e.path != 0) {
-			uint local_index = index - uint(e.first);
-			float fraction = (float((local_index + uint(e.count) - uint(e.cursor)) % uint(e.count)) + r2.z) / float(e.spawn_count);
-			elapsed = (1.0 - fraction) * particle_data.dt;
-			p.position = mix(e.previous, e.position, fraction) + offset;
-		}
-
+		// what the rate spawns is spread over the step, or a fast emitter at a low frame rate leaves one slab per frame; bursts happen at once
+		uint local_index = index - uint(e.first);
+		int order = int((local_index + uint(e.count) - uint(e.cursor)) % uint(e.count)) - e.burst_count;
+		float fraction = order < 0 ? 1.0 : (float(order) + r2.z) / float(max(e.spawn_count - e.burst_count, 1));
+		float elapsed = (1.0 - fraction) * particle_data.dt;
+		p.position = e.path != 0 ? mix(e.previous, e.position, fraction) + offset : e.position + offset;
 		p.velocity = direction * mix(e.speed_min, e.speed_max, r3.y) + e.velocity;
+		float gravity = 9.81 * mix(e.gravity_min, e.gravity_max, emitter_random_b(e, index, p).y);
 		p.position += p.velocity * elapsed;
+		p.position.y -= 0.5 * gravity * elapsed * elapsed;
+		p.velocity.y -= gravity * elapsed;
 		p.age = elapsed;
 		p.life = mix(e.life_min, e.life_max, r3.z);
 		p.width = emitter_size_at(e, index, p, 0.0);
