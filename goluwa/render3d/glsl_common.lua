@@ -31,6 +31,22 @@ function glsl_common.GetPQGLSL()
 	]]
 end
 
+function glsl_common.GetSRGBGLSL()
+	return [[
+		#ifndef GLSL_COMMON_SRGB
+		#define GLSL_COMMON_SRGB
+		vec3 linear_to_srgb(vec3 c) {
+			c = clamp(c, 0.0, 1.0);
+			return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+		}
+
+		vec3 srgb_to_linear(vec3 c) {
+			return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
+		}
+		#endif
+	]]
+end
+
 function glsl_common.GetOctahedralGLSL()
 	return [[
 		#ifndef GLSL_COMMON_OCTAHEDRAL

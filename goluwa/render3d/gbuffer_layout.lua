@@ -8,8 +8,8 @@ gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
 gbuffer_layout.fields = surface_features.GetFields()
 local ALBEDO_TARGET = {
 	texture = "albedo",
-	format = "r8g8b8a8_srgb",
-	channels = {{"albedo", "rgb"}, {"alpha", "a"}},
+	format = "r8g8b8a8_unorm",
+	channels = {{"albedo_srgb", "rgb"}, {"alpha", "a"}},
 }
 local EMISSIVE_TARGET = {
 	texture = "emissive",
@@ -202,6 +202,10 @@ do
 			return oct_encode(N) * 0.5 + 0.5;
 		}
 
+		void set_albedo(vec3 c) {
+			set_albedo_srgb(linear_to_srgb(c));
+		}
+
 		vec3 gbuffer_encode_emissive(vec3 luminance) {
 			return luminance * (1.0 / 256.0);
 		}
@@ -271,6 +275,7 @@ do
 	table.insert(defaults, "\tgbuffer_flush_packed();")
 	table.insert(defaults, "}")
 	table.insert(lines, glsl_common.GetOctahedralGLSL())
+	table.insert(lines, glsl_common.GetSRGBGLSL())
 	table.insert(lines, handwritten)
 	table.insert(lines, surface_features.GetEncodersGLSL())
 	table.insert(lines, table.concat(defaults, "\n"))
@@ -283,7 +288,7 @@ end
 do
 	local decoders = {
 		[[
-		vec3 gbuffer_albedo(COORD c) { return gbuffer_fetch(GBUFFER.albedo_tex, c).rgb; }
+		vec3 gbuffer_albedo(COORD c) { return srgb_to_linear(gbuffer_fetch(GBUFFER.albedo_tex, c).rgb); }
 		float gbuffer_alpha(COORD c) { return gbuffer_fetch(GBUFFER.albedo_tex, c).a; }
 		float gbuffer_depth(COORD c) { return gbuffer_fetch(GBUFFER.depth_tex, c).r; }
 		vec3 gbuffer_emissive(COORD c) { return gbuffer_fetch(GBUFFER.emissive_tex, c).rgb * 256.0; }
@@ -360,7 +365,7 @@ do
 		"bool gbuffer_is_lit_from_behind(COORD c) { return " .. surface_features.GetGBufferLitFromBehindExpressionGLSL() .. "; }"
 	)
 	decoders = table.concat(decoders, "\n")
-	local code = glsl_common.GetOctahedralGLSL() .. [[
+	local code = glsl_common.GetOctahedralGLSL() .. glsl_common.GetSRGBGLSL() .. [[
 		vec4 gbuffer_fetch(int tex, vec2 uv) {
 			return texture(TEXTURE(tex), uv);
 		}
