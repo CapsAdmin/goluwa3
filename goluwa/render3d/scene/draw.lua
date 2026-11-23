@@ -2764,6 +2764,7 @@ do
 					local entry = {
 						slot = slot,
 						group = set,
+						group_id = batch_ids[at * 2] + 1,
 						fade = worlds[at * 16 + 3],
 						world = world,
 						index_count = command[0],
@@ -2771,9 +2772,8 @@ do
 					}
 
 					if slot == 0xFFFFFFFF then
-						local group_id = batch_ids[at * 2] + 1
-						result.by_group[group_id] = result.by_group[group_id] or {}
-						list.insert(result.by_group[group_id], entry)
+						result.by_group[entry.group_id] = result.by_group[entry.group_id] or {}
+						list.insert(result.by_group[entry.group_id], entry)
 						result.streamed = result.streamed + 1
 					else
 						result.by_id[ids[slot]] = entry
