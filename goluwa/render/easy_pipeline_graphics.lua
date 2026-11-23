@@ -436,33 +436,24 @@ do
 					end
 
 					max_component = math.max(max_component, 1)
-					local output_type = "float"
+					local scalar, vector = "float", "vec"
 
-					if max_component == 2 then
-						output_type = "vec2"
-					elseif max_component == 3 then
-						output_type = "vec3"
-					elseif max_component == 4 then
-						output_type = "vec4"
+					if actual_format:ends_with("_uint") then
+						scalar, vector = "uint", "uvec"
+					elseif actual_format:ends_with("_sint") then
+						scalar, vector = "int", "ivec"
 					end
 
+					local output_type = max_component == 1 and scalar or vector .. max_component
 					fragment_outputs = fragment_outputs .. string.format("layout(location = %d) out %s out_%d;\n", i - 1, output_type, i - 1)
 
 					for j = 2, #format do
 						local mapping = format[j]
 						local name = mapping[1]
 						local swizzle = mapping[2]
-						local glsl_type = "float"
+						local glsl_type = #swizzle == 1 and scalar or vector .. #swizzle
 
-						if #swizzle == 2 then
-							glsl_type = "vec2"
-						elseif #swizzle == 3 then
-							glsl_type = "vec3"
-						elseif #swizzle == 4 then
-							glsl_type = "vec4"
-						end
-
-						if output_type == "float" then
+						if max_component == 1 then
 							fragment_outputs = fragment_outputs .. string.format("void set_%s(%s val) { out_%d = val; }\n", name, glsl_type, i - 1)
 						else
 							fragment_outputs = fragment_outputs .. string.format("void set_%s(%s val) { out_%d.%s = val; }\n", name, glsl_type, i - 1, swizzle)
