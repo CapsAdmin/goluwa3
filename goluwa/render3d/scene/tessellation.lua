@@ -7,6 +7,7 @@ local system = import("goluwa/system.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
 local visibility = import("goluwa/render3d/visibility.lua")
+local software_raster = import("goluwa/render3d/scene/software_raster.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
@@ -474,6 +475,7 @@ local compute_block = {
 	{"triangle_count", "int"},
 	{"capacity", "int"},
 	{"args", "uint64_t"},
+	{"software_pixels", "float"},
 }
 
 local function write_compute_block(self, block)
@@ -487,6 +489,7 @@ local function write_compute_block(self, block)
 	block.triangle_count = state.triangle_count
 	block.capacity = state.triangle_capacity
 	block.args = state.state_address + STATE_ARGS_OFFSET
+	block.software_pixels = state.software_pixels or 0
 	return block
 end
 
@@ -498,7 +501,7 @@ local COMPUTE_GLSL = [[
 	layout(buffer_reference, scalar) readonly buffer TessTLAS { tlas_instance t[]; };
 	layout(buffer_reference, scalar) readonly buffer TessInstanceData { instance_data d[]; };
 	layout(buffer_reference, scalar) readonly buffer TessRaster { raster_data r[]; };
-	]] .. TESS_GLSL .. model_pipeline.BuildPBRBatchRecordGlsl() .. draw.WORLD_FROM_GLSL
+	]] .. TESS_GLSL .. model_pipeline.BuildPBRBatchRecordGlsl() .. draw.WORLD_FROM_GLSL .. software_raster.RECORD_GLSL
 local compute_pipelines
 
 local function get_compute_pipelines()
@@ -586,11 +589,17 @@ local function get_compute_pipelines()
 					if (off_grid == 3) return;
 
 					int outside_x0 = 0, outside_x1 = 0, outside_y0 = 0, outside_y1 = 0, behind = 0;
+					vec2 ndc_lo = vec2(1e30);
+					vec2 ndc_hi = vec2(-1e30);
+					float min_w = 1e30;
 
 					for (int i = 0; i < 6; i++) {
 						int k = i % 3;
 						float level = i < 3 ? 0.0 : 1.0;
 						vec4 c = tess_clip(world, position[k] + dir[k] * (level * height_scale * scale[k]));
+						min_w = min(min_w, c.w);
+						ndc_lo = min(ndc_lo, c.xy / max(c.w, 1e-6));
+						ndc_hi = max(ndc_hi, c.xy / max(c.w, 1e-6));
 						outside_x0 += c.x < -c.w ? 1 : 0;
 						outside_x1 += c.x > c.w ? 1 : 0;
 						outside_y0 += c.y < -c.w ? 1 : 0;
@@ -626,9 +635,28 @@ local function get_compute_pipelines()
 					}
 
 					uint inner = max(max(rate[0], rate[1]), rate[2]);
+					uint rates = rate[0] | (rate[1] << 4) | (rate[2] << 8) | (inner << 12);
+
+					if (args.a[7] != 0ul && inner >= 2u && (job.flags & 1u) == 0u && min_w > 0.05) {
+						vec2 extent = (ndc_hi - ndc_lo) * 0.5 * compute.resolution;
+						float span = max(extent.x, extent.y);
+
+						if (span <= compute.software_pixels * float(1u << inner)) {
+							SoftwarePatches list = SoftwarePatches(args.a[7]);
+							uint record = atomicAdd(list.count, 1u);
+
+							if (record < min(uint(compute.capacity), ]=] .. software_raster.CAPACITY .. [=[u)) {
+								uint instance = ]=] .. GROUPS * BUCKETS .. [=[u * uint(compute.capacity) + record;
+								TessPatchData(args.a[3]).p[instance] = uvec4(lo, tri, rates, 0u);
+								list.r[record] = uvec2(instance, ]=] .. visibility.TESSELLATION_SET .. [=[u + (terrain ? 1u : 0u));
+								return;
+							}
+						}
+					}
+
 					uint bucket = (terrain ? ]=] .. TERRAIN_GROUP * BUCKETS .. [=[u : 0u) + inner;
 					uint slot = atomicAdd(TessWords(args.a[2]).w[bucket * 4u + 1u], 1u);
-					TessPatchData(args.a[3]).p[bucket * uint(compute.capacity) + slot] = uvec4(lo, tri, rate[0] | (rate[1] << 4) | (rate[2] << 8) | (inner << 12), 0u);
+					TessPatchData(args.a[3]).p[bucket * uint(compute.capacity) + slot] = uvec4(lo, tri, rates, 0u);
 				}
 			]=],
 		},
@@ -1027,7 +1055,7 @@ local function ensure_capacity(job_count, triangle_count)
 		"tessellation_worlds"
 	)
 	state.patches_buffer = create_buffer(
-		GROUPS * BUCKETS * state.triangle_capacity * 16,
+		(GROUPS * BUCKETS + 1) * state.triangle_capacity * 16,
 		{"storage_buffer", "shader_device_address"},
 		"tessellation_patches"
 	)
@@ -1245,6 +1273,8 @@ function tessellation.PreDraw(cmd)
 	args[4] = tlas_table:GetAddress()
 	args[5] = data_table:GetAddress()
 	args[6] = instances.GetRasterTable():GetAddress()
+	args[7], state.software_pixels = software_raster.ResetPatches(cmd)
+	update_batches(pipeline)
 	cmd:PipelineBarrier{
 		srcStage = {"draw_indirect", "vertex_shader", "compute"},
 		dstStage = "transfer",
@@ -1263,6 +1293,125 @@ function tessellation.PreDraw(cmd)
 		memoryBarrier = true,
 	}
 	state.ready = true
+end
+
+do
+	local SOFTWARE_LOCAL_SIZE = 256
+	local SOFTWARE_MAX_LOG = tessellation.MAX_LOG
+	local SOFTWARE_VERTICES = (2 ^ SOFTWARE_MAX_LOG + 1) * (2 ^ SOFTWARE_MAX_LOG + 2) / 2
+	local software_pipeline
+
+	local function get_software_pipeline()
+		if software_pipeline then return software_pipeline end
+
+		software_pipeline = EasyPipeline.Compute{
+			name = "software_raster_patches",
+			LocalSize = {x = SOFTWARE_LOCAL_SIZE, y = 1, z = 1},
+			uniform_buffers = {software_raster.GetCameraBlock()},
+			block = {
+				{"patches", "uint64_t"},
+				{"list", "uint64_t"},
+				{"jobs", "uint64_t"},
+				{"worlds", "uint64_t"},
+				{"batches", "uint64_t"},
+				{"depth", "uint64_t"},
+				{"base", "int"},
+				{"limit", "int"},
+				{"seam_band", "float"},
+			},
+			write = function(self, block)
+				block.patches = state.patches_address
+				block.list = software_raster.GetPatches():GetDeviceAddress()
+				block.jobs = state.jobs_address
+				block.worlds = state.worlds_address
+				block.batches = state.batches_address
+				block.depth = software_raster.GetDepthAddress()
+				block.base = GROUPS * BUCKETS * state.triangle_capacity
+				block.limit = math.min(state.triangle_capacity, software_raster.CAPACITY)
+				block.seam_band = seam_band:Get()
+			end,
+			shader = model_pipeline.BuildPBRBatchRecordGlsl() .. TESS_GLSL .. shader_features.GetDefines(shader_features.ALL) .. [[
+				struct SoftwareTessDraw {
+					uint64_t batches;
+				};
+				SoftwareTessDraw gbuffer_draw;
+				uint tess_batch;
+				#define model (PBRBatchData(gbuffer_draw.batches).b[tess_batch].m_model)
+				#define terrain_model (PBRBatchData(gbuffer_draw.batches).b[tess_batch].m_terrain_model)
+			]] .. model_pipeline.TERRAIN_RELIEF_GLSL .. software_raster.RECORD_GLSL .. software_raster.RASTER_GLSL .. TESS_EVAL_GLSL .. [[
+				shared ivec2 software_q[]] .. SOFTWARE_VERTICES .. [[];
+				shared float software_z[]] .. SOFTWARE_VERTICES .. [[];
+
+				int software_lattice(ivec2 q) {
+					return q.x * (q.x + 1) / 2 + q.y;
+				}
+
+				void main() {
+					SoftwarePatches list = SoftwarePatches(compute.list);
+					uint record = gl_WorkGroupID.x;
+
+					if (record >= min(list.count, uint(compute.limit))) return;
+
+					uvec4 patch_record = TessPatchData(compute.patches).p[uint(compute.base) + record];
+					TessJob job = TessJobData(compute.jobs).j[patch_record.x];
+					uint tri = patch_record.y;
+					uint rates = patch_record.z;
+					int n = 1 << int((rates >> 12u) & 15u);
+					gbuffer_draw.batches = compute.batches;
+					tess_batch = job.batch;
+					tess_fade_texture = -1;
+					PBRBatchData batch_data = PBRBatchData(compute.batches);
+					TessVertexData data = TessVertexData(job.vertices);
+					TessVertexData extras = TessVertexData(packUint2x32(batch_data.b[job.batch].extras_address));
+					int height_texture = batch_data.b[job.batch].m_displacement_model.HeightTexture;
+					mat4 world = TessWorldData(compute.worlds).w[patch_record.x * 2u];
+					ivec2 size = ivec2(gbuffer_data.render_size.xy);
+					int vertex_count = (n + 1) * (n + 2) / 2;
+
+					for (int v = int(gl_LocalInvocationID.x); v < vertex_count; v += ]] .. SOFTWARE_LOCAL_SIZE .. [[) {
+						int row = int((sqrt(8.0 * float(v) + 1.0) - 1.0) * 0.5);
+
+						while (row * (row + 1) / 2 > v) row--;
+						while ((row + 1) * (row + 2) / 2 <= v) row++;
+
+						TessSample sample_point = tess_evaluate(job, tri, rates, ivec2(row, v - row * (row + 1) / 2), world, data, extras, height_texture, compute.seam_band);
+						vec4 clip = gbuffer_data.projection * gbuffer_data.view * vec4(sample_point.world_position, 1.0);
+						software_q[v] = ivec2(round((clip.xy / clip.w * 0.5 + 0.5) * vec2(size) * 256.0));
+						software_z[v] = clip.z / clip.w;
+					}
+
+					barrier();
+					SoftwareDepth depth = SoftwareDepth(compute.depth);
+
+					for (int small = int(gl_LocalInvocationID.x); small < n * n; small += ]] .. SOFTWARE_LOCAL_SIZE .. [[) {
+						int r = int(sqrt(float(small)));
+
+						while (r * r > small) r--;
+						while ((r + 1) * (r + 1) <= small) r++;
+
+						int c = small - r * r;
+						int k = c / 2;
+						ivec2 a = ivec2(r, k);
+						ivec2 b = (c & 1) == 0 ? ivec2(r + 1, k) : ivec2(r + 1, k + 1);
+						ivec2 d = (c & 1) == 0 ? ivec2(r + 1, k + 1) : ivec2(r, k + 1);
+						int ia = software_lattice(a);
+						int ib = software_lattice(b);
+						int id = software_lattice(d);
+						ivec2 q[3] = ivec2[3](software_q[ia], software_q[ib], software_q[id]);
+						float z[3] = float[3](software_z[ia], software_z[ib], software_z[id]);
+						software_raster_triangle(q, z, true, uint64_t(0x80000000u | (record << 12u) | uint(small)), depth, size);
+					}
+				}
+			]],
+		}
+		return software_pipeline
+	end
+
+	software_raster.AddRasterizer(function(cmd)
+		if not state.ready then return end
+
+		get_software_pipeline():DispatchIndirect(cmd, software_raster.GetPatches(), 0)
+	end)
 end
 
 function tessellation.Draw(pipeline, cmd)
@@ -1288,6 +1437,7 @@ function tessellation.Draw(pipeline, cmd)
 				visibility.AddContext(
 					group_pipeline,
 					state.state_buffer:GetDeviceAddress() + (group - 1) * BUCKETS * 16,
+					visibility.TESSELLATION_SET + group - 1,
 					visibility.KIND_TESSELLATION,
 					state.jobs_address,
 					state.worlds_address,

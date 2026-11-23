@@ -18,6 +18,7 @@ local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local visibility = import("goluwa/render3d/visibility.lua")
+local software_raster = import("goluwa/render3d/scene/software_raster.lua")
 local camera_block = geometry_block.New("gbuffer_data", {
 	{"normal_source", "int"},
 	{"eye_near_height_shell", "int"},
@@ -56,6 +57,11 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 					extra.PreDraw(cmd)
 				end
 			end
+
+			if not render3d.GetDrawGeometry() then
+				local framebuffer = self:GetFramebuffer()
+				software_raster.Rasterize(cmd, framebuffer.width, framebuffer.height)
+			end
 		end,
 		on_draw = function(self, cmd)
 			local draw_geometry = render3d.GetDrawGeometry()
@@ -78,6 +84,10 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			-- displaced surfaces (terrain) are the most expensive per pixel and write their own depth, so they go last, where meshes and scatter drawn before them reject most of their fragments early
 			event.Call("Draw3DDisplacedGeometry", dt)
 			gbuffer_instancing.Flush()
+
+			if render3d.pipelines.software_raster_emit then
+				software_raster.Emit(cmd, render3d.pipelines.software_raster_emit)
+			end
 		end,
 		ColorFormat = gbuffer_layout.color_format,
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
@@ -1004,6 +1014,7 @@ do
 
 	if visibility.enabled then
 		visibility.SetCamera(camera_block, orientation.FRONT_FACE)
+		software_raster.SetCameraBlock(camera_block)
 		visibility.SetKind(
 			visibility.KIND_MULTI_DRAW,
 			{
@@ -1081,6 +1092,10 @@ end
 
 for _, extra in ipairs(gbuffer_extras) do
 	if extra.BuildPass then list.insert(passes, extra.BuildPass(passes[1])) end
+end
+
+if visibility.enabled then
+	list.insert(passes, software_raster.BuildEmitPass(build_base_pass("void main() {}", false)))
 end
 
 return passes

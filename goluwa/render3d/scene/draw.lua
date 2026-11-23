@@ -11,6 +11,7 @@ local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local visibility = import("goluwa/render3d/visibility.lua")
+local software_raster = import("goluwa/render3d/scene/software_raster.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local store = import("goluwa/render3d/scene/store.lua")
@@ -30,7 +31,7 @@ draw.SHAPE_IDS = 3
 local SHAPES = 4
 local VARIANTS = SHAPES * shader_features.COUNT
 local GROUPS = VARIANTS * 2
-local ARGS_REMAP = 19
+local ARGS_REMAP = 22
 local CLUSTER_COMMANDS = 32768
 local CLUSTER_GROUP = 0xFFFFFFFF
 draw.VARIANTS = VARIANTS
@@ -108,12 +109,31 @@ local function note_group_change(id)
 	group_changes.log[draw.group_serial % CHANGE_LOG_SIZE] = id
 end
 
+local SOFTWARE_RASTER = 0x80000000
+
+local function is_software_rasterizable(material)
+	return not (
+		material:IsTransparent() or
+		material.Dithered or
+		material.AlphaTest or
+		material.Decal or
+		material.Billboard or
+		material.SnowBackdrop or
+		material:MarchesRelief() or
+		material.HeightShell > 0 or
+		material:HasVertexAnimation()
+	)
+end
+
 local function write_group(group)
 	local record = group_table:Get()[group.id - 1]
 	record.mesh_row = group.cluster and CLUSTER_GROUP or group.mesh_row
 	record.base = group.base
 	record.room = group.room
-	record.set = group.set
+	record.set = group.cluster and
+		is_software_rasterizable(group.material) and
+		group.set + SOFTWARE_RASTER or
+		group.set
 end
 
 local function acquire_group(mesh, material, polygon3d, mesh_row, set, cluster)
@@ -476,11 +496,15 @@ local DRAW_DECLARATIONS = [[
 				uint64_t group_areas;
 				float viewport_pixels;
 				float ids_density;
+				uint64_t software_records;
+				uint64_t software_header;
+				float software_density;
+				float software_radius;
 				uint remap[]] .. VARIANTS .. [[];
 				uint ids_remap[]] .. VARIANTS .. [[];
 			};
 
-			]] .. cluster_format.CLUSTER_GLSL .. [[
+			]] .. cluster_format.CLUSTER_GLSL .. software_raster.RECORD_GLSL .. [[
 
 			layout(buffer_reference, scalar) readonly buffer ClusterArray { cluster_record c[]; };
 			layout(buffer_reference, scalar) readonly buffer PairArray { uvec2 p[]; };
@@ -965,14 +989,15 @@ local function get_cluster_pipeline()
 				float cluster_radius = c.bounds.w * scale;
 				float clip_w = dot(compute.view_w_row, vec4(cluster_center, 1.0));
 				float area = ARGS.viewport_pixels;
+				float radius_px = 1e30;
 
 				if (clip_w > cluster_radius) {
-					float radius_px = length(compute.view_y_row.xyz) * cluster_radius * compute.viewport_height / (clip_w * 2.0);
+					radius_px = length(compute.view_y_row.xyz) * cluster_radius * compute.viewport_height / (clip_w * 2.0);
 					area = min(3.14159265 * radius_px * radius_px, ARGS.viewport_pixels);
 				}
 
 				float density = float(c.index_count / 3u) / max(area, 1.0);
-				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[group.set >> 1u] : ARGS.remap[group.set >> 1u];
+				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[(group.set & 0x7FFFFFFFu) >> 1u] : ARGS.remap[(group.set & 0x7FFFFFFFu) >> 1u];
 				uint set = variant * 2u + (group.set & 1u);
 				uint index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 
@@ -985,7 +1010,29 @@ local function get_cluster_pipeline()
 				BatchIdArray(ARGS.batch_ids).b[at] = uvec2(group_id, slot);
 				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.dynamic, inst.overlay);
 				WorldArray(ARGS.prev_worlds).w[at] = world_from(RasterArray(ARGS.raster).r[id].prev, 0.0, inst.dynamic, inst.overlay);
-				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + index] = draw_command(c.index_count, 1u, c.first_index, 0, at);
+				bool software = false;
+
+				if (
+					ARGS.software_records != 0ul &&
+					(group.set & 0x80000000u) != 0u &&
+					variant != ARGS.remap[(group.set & 0x7FFFFFFFu) >> 1u] &&
+					fade == 0.0 &&
+					density >= ARGS.software_density &&
+					radius_px < ARGS.software_radius &&
+					clip_w - cluster_radius > 0.01
+				) {
+					uint record = atomicAdd(SoftwareHeader(ARGS.software_header).count, 1u);
+					software = record < ]] .. software_raster.CAPACITY .. [[u;
+
+					if (software) {
+						SoftwareRecords(ARGS.software_records).r[record] = software_record(
+							uvec4(c.first_index, (c.index_count / 3u) | (set << 8u), at, index),
+							uvec4(inst.mesh_row, 0u, 0u, 0u)
+						);
+					}
+				}
+
+				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + index] = draw_command(c.index_count, software ? 0u : 1u, c.first_index, 0, at);
 			}
 		]],
 	}
@@ -1030,7 +1077,7 @@ local function get_finalize_pipeline()
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
 				float density = float(instance_count) * float(mesh.triangle_count) / max(float(CountArray(ARGS.group_areas).n[group_id]), 1.0);
-				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[group.set >> 1u] : ARGS.remap[group.set >> 1u];
+				uint variant = density >= ARGS.ids_density ? ARGS.ids_remap[(group.set & 0x7FFFFFFFu) >> 1u] : ARGS.remap[(group.set & 0x7FFFFFFFu) >> 1u];
 				uint set = variant * 2u + (group.set & 1u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
@@ -1307,7 +1354,8 @@ function draw.Cull(
 			args.pointer = ffi.cast("uint64_t *", args:Map())
 			args.remap = ffi.cast("uint32_t *", args.pointer + ARGS_REMAP)
 			args.ids_remap = args.remap + VARIANTS
-			args.viewport_pixels = ffi.cast("float *", args.pointer + ARGS_REMAP - 1)
+			args.viewport_pixels = ffi.cast("float *", args.pointer + 18)
+			args.software = ffi.cast("float *", args.pointer + 21)
 			args.address = tonumber(args:GetDeviceAddress())
 		end
 
@@ -1332,6 +1380,11 @@ function draw.Cull(
 		local render_size = render3d.GetInternalRenderSize()
 		args.viewport_pixels[0] = render_size.x * render_size.y
 		args.viewport_pixels[1] = visibility.GetDensity()
+		local software_records, software_header, software_density, software_radius = software_raster.GetCullArgs()
+		args.pointer[19] = kind == 0 and software_records or 0
+		args.pointer[20] = software_header
+		args.software[0] = software_density
+		args.software[1] = software_radius
 		resolve_variants(kind, args.remap, args.ids_remap)
 		state.kind = kind
 		state.args_address = args.address
@@ -1350,6 +1403,9 @@ function draw.Cull(
 		cmd:FillBuffer(buffers.counts, 0, buffers.counts.size, 0)
 		cmd:FillBuffer(buffers.group_counts, 0, buffers.group_counts.size, 0)
 		cmd:FillBuffer(buffers.group_areas, 0, buffers.group_areas.size, 0)
+
+		if kind == 0 then software_raster.Reset(cmd, buffers.worlds_address) end
+
 		cmd:PipelineBarrier{
 			srcStage = {"host", "transfer", "compute"},
 			dstStage = "compute",
@@ -1523,7 +1579,11 @@ local function draw_variants(gbuffer_instancing, kind, name, displaced)
 			local ids = pipeline.config.visibility
 
 			if ids then
-				visibility.AddContext(pipeline, buffers.commands:GetDeviceAddress() + variant * 2 * group_size)
+				visibility.AddContext(
+					pipeline,
+					buffers.commands:GetDeviceAddress() + variant * 2 * group_size,
+					variant * 2
+				)
 			end
 
 			pipeline:UploadConstants()
@@ -1539,7 +1599,11 @@ local function draw_variants(gbuffer_instancing, kind, name, displaced)
 			)
 
 			if ids then
-				visibility.AddContext(pipeline, buffers.commands:GetDeviceAddress() + (variant * 2 + 1) * group_size)
+				visibility.AddContext(
+					pipeline,
+					buffers.commands:GetDeviceAddress() + (variant * 2 + 1) * group_size,
+					variant * 2 + 1
+				)
 				pipeline:UploadConstants()
 			end
 
@@ -1884,10 +1948,11 @@ do
 		for set = 0, GROUPS - 1 do
 			for packed_index = 0, counts[set] - 1 do
 				local command = commands + (set * group_capacity + packed_index) * (COMMAND_SIZE / 4)
+				local instance_count = math.max(command[1], 1)
 				result.commands = (result.commands or 0) + 1
-				result.triangles = (result.triangles or 0) + command[0] / 3 * command[1]
+				result.triangles = (result.triangles or 0) + command[0] / 3 * instance_count
 
-				for place = 0, command[1] - 1 do
+				for place = 0, instance_count - 1 do
 					local at = command[4] + place
 					local slot = batch_ids[at * 2 + 1]
 					local id = ids[slot]

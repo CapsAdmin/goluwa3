@@ -27,6 +27,8 @@ visibility.VARIANTS = shader_features.ALL + 1
 visibility.KIND_MULTI_DRAW = 0
 visibility.KIND_TESSELLATION = 1
 visibility.KINDS = 2
+visibility.MAX_SETS = 256
+visibility.TESSELLATION_SET = 128
 visibility.RING = 4
 visibility.CONTEXT_GLSL = [[
 	struct VisibilityContext {
@@ -70,6 +72,7 @@ local ContextPtr = ffi.typeof("$ *", Context)
 local CONTEXT_SIZE = ffi.sizeof(Context)
 local buffer
 local records
+local set_contexts
 local serial = -1
 local count = 0
 local used_variants = {}
@@ -78,12 +81,19 @@ local function get_buffer()
 	if buffer then return buffer end
 
 	buffer = render.CreateBuffer{
-		byte_size = CONTEXT_SIZE * visibility.MAX_CONTEXTS * visibility.RING,
+		byte_size = (
+				CONTEXT_SIZE * visibility.MAX_CONTEXTS + visibility.MAX_SETS * 4
+			) * visibility.RING,
 		buffer_usage = {"storage_buffer", "shader_device_address"},
 		memory_property = {"host_visible", "host_coherent"},
 		label = "visibility contexts",
 	}
-	records = ffi.cast(ContextPtr, buffer:Map())
+	local mapped = buffer:Map()
+	records = ffi.cast(ContextPtr, mapped)
+	set_contexts = ffi.cast(
+		"uint32_t *",
+		ffi.cast("uint8_t *", mapped) + CONTEXT_SIZE * visibility.MAX_CONTEXTS * visibility.RING
+	)
 	return buffer
 end
 
@@ -91,13 +101,14 @@ local function get_ring()
 	return render.frame_serial % visibility.RING
 end
 
-function visibility.AddContext(pipeline, commands_address, kind, extra0, extra1, extra2, extra_float)
+function visibility.AddContext(pipeline, commands_address, set, kind, extra0, extra1, extra2, extra_float)
 	get_buffer()
 
 	if serial ~= render.frame_serial then
 		serial = render.frame_serial
 		count = 0
 		table.clear(used_variants)
+		ffi.fill(set_contexts + get_ring() * visibility.MAX_SETS, visibility.MAX_SETS * 4)
 	end
 
 	if count >= visibility.MAX_CONTEXTS then
@@ -125,12 +136,19 @@ function visibility.AddContext(pipeline, commands_address, kind, extra0, extra1,
 	record.extra_float = extra_float or 0
 	used_variants[record.kind * visibility.VARIANTS + record.variant] = true
 	count = count + 1
+
+	if set then set_contexts[get_ring() * visibility.MAX_SETS + set] = count end
+
 	pipeline.draw_context = count
 	return count
 end
 
 function visibility.GetContextsAddress()
 	return get_buffer():GetDeviceAddress() + get_ring() * visibility.MAX_CONTEXTS * CONTEXT_SIZE
+end
+
+function visibility.GetSetContextsAddress()
+	return get_buffer():GetDeviceAddress() + CONTEXT_SIZE * visibility.MAX_CONTEXTS * visibility.RING + get_ring() * visibility.MAX_SETS * 4
 end
 
 do
