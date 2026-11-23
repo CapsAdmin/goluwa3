@@ -388,6 +388,10 @@ end
 
 function Polygon3D:UpdateVertexArray(vertices, vertex_count)
 	local mesh = self.mesh
+	assert(
+		mesh.extras_owned,
+		"UpdateVertexArray needs a Dynamic polygon: its extras buffer is shared"
+	)
 	vertex_layout.SplitInto(vertices, vertex_count, mesh.vertex_buffer.data, mesh.extras.data)
 	mesh.vertex_buffer:Upload()
 	mesh.extras:Upload()
