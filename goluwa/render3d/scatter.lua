@@ -3130,7 +3130,7 @@ end
 
 do
 	local SHADOW_COUNT_BYTES = 8 * MAX_PROTOTYPES
-	local SHADOW_COMMAND_BYTES = DRAW_COMMAND_SIZE_SHADOW * scatter.MAX_BATCHES
+	local SHADOW_COMMAND_BYTES = DRAW_COMMAND_SIZE * scatter.MAX_BATCHES
 	local SHADOW_DECLARATIONS = [[
 		#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 		#extension GL_EXT_buffer_reference : require
@@ -3141,7 +3141,7 @@ do
 		layout(buffer_reference, scalar) readonly buffer ShadowPrototypeUint { uvec4 v[]; };
 		layout(buffer_reference, scalar) readonly buffer ShadowBatches { uvec4 b[]; };
 		layout(buffer_reference, scalar) readonly buffer ShadowCommandsIn { uvec4 c[]; };
-		layout(buffer_reference, scalar) writeonly buffer ShadowCommandsOut { uvec4 c[]; };
+		layout(buffer_reference, scalar) writeonly buffer ShadowCommandsOut { uint c[]; };
 		layout(buffer_reference, std430) readonly buffer ShadowWorldsIn { mat4 w[]; };
 		layout(buffer_reference, std430) writeonly buffer ShadowWorldsOut { mat4 w[]; };
 		layout(buffer_reference, scalar) buffer ShadowCounts { uint n[]; };
@@ -3271,11 +3271,17 @@ do
 					if (id >= uint(compute.batch_count)) return;
 
 					uvec4 source = ShadowCommandsIn(compute.source_commands).c[id];
-					uint prototype = ShadowBatches(compute.batches).b[id].z;
+					uvec4 batch = ShadowBatches(compute.batches).b[id];
+					uint prototype = batch.z;
 					uint proto = prototype >> 1u;
 					uint kind = prototype & 1u;
 					uvec4 info = ShadowPrototypeUint(compute.prototypes).v[proto * ]] .. PROTOTYPE_VEC4S .. [[u + 13u + kind];
-					ShadowCommandsOut(compute.out_commands).c[id] = uvec4(source.x, min(ShadowCounts(compute.out_counts).n[proto * 2u + kind], info.y), source.z, info.z);
+					ShadowCommandsOut out_commands = ShadowCommandsOut(compute.out_commands);
+					out_commands.c[id * 5u] = source.x;
+					out_commands.c[id * 5u + 1u] = min(ShadowCounts(compute.out_counts).n[proto * 2u + kind], info.y);
+					out_commands.c[id * 5u + 2u] = batch.y;
+					out_commands.c[id * 5u + 3u] = 0u;
+					out_commands.c[id * 5u + 4u] = info.z;
 				}
 			]],
 		}
@@ -3402,7 +3408,7 @@ do
 			batch_serial,
 			state.instances:GetDeviceAddress(),
 			state.commands,
-			DRAW_COMMAND_SIZE_SHADOW
+			DRAW_COMMAND_SIZE
 		)
 	end)
 end

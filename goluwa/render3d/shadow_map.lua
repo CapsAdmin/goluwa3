@@ -234,7 +234,7 @@ local ShadowMultiDrawPushConstants = ffi.typeof([[
 		float detail_time;
 		uint64_t batches;
 		uint64_t instances;
-		int32_t indexed;
+		int32_t batch_from_instance;
 	}
 ]])
 local SHADOW_MULTI_DRAW_COMMON_GLSL
@@ -296,7 +296,7 @@ do
 		float detail_time;
 		uint64_t batches;
 		uint64_t instances;
-		int indexed;
+		int batch_from_instance;
 	} pc;
 
 	#define SHADOW_BATCH ShadowBatchData(pc.batches).b
@@ -315,10 +315,6 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				float v[];
 			};
 
-			layout(buffer_reference, scalar) readonly buffer ShadowIndexData {
-				uint i[];
-			};
-
 			layout(location = 0) out vec2 out_uv;
 			layout(location = 1) flat out uint out_batch;
 			]] .. (
@@ -335,7 +331,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 			]] .. vertex_layout.BuildGlslAccessors("shadow_vertex", "ShadowVertexData") .. [[
 
 			void main() {
-				uint batch_index = pc.indexed != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID);
+				uint batch_index = pc.batch_from_instance != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID);
 				uvec4 addresses = SHADOW_BATCH[batch_index].addresses;
 
 				if (addresses.x == 0u && addresses.y == 0u) {
@@ -344,19 +340,6 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				}
 
 				uint index = uint(gl_VertexIndex);
-				uint64_t index_address = packUint2x32(addresses.zw);
-
-				if (pc.indexed == 0 && index_address != 0ul) {
-					ShadowIndexData indices = ShadowIndexData(index_address);
-
-					if (SHADOW_BATCH[batch_index].index_is_32 != 0u) {
-						index = indices.i[index];
-					} else {
-						uint word = indices.i[index >> 1];
-						index = (index & 1u) != 0u ? word >> 16 : word & 0xFFFFu;
-					}
-				}
-
 				ShadowVertexData data = ShadowVertexData(packUint2x32(addresses.xy));
 				vec3 local_pos = shadow_vertex_position(data, index);
 				vec2 uv = shadow_vertex_uv(data, index);
@@ -1529,7 +1512,7 @@ function ShadowMap:DrawBatches(
 	instances_address,
 	commands,
 	stride,
-	indexed,
+	batch_from_instance,
 	counts
 )
 	local pipeline = self.mode == "point" and
@@ -1567,19 +1550,19 @@ function ShadowMap:DrawBatches(
 	push_constants.detail_time = atmosphere.GetWindDetailTime()
 	push_constants.batches = batch_table:Update(pipeline, batches, batch_serial, self.batch_serial, self)
 	push_constants.instances = instances_address
-	push_constants.indexed = indexed and 1 or 0
+	push_constants.batch_from_instance = batch_from_instance and 1 or 0
 	pipeline:Bind(self.cmd, render.GetCurrentFrame())
 	self.cmd:SetViewport(0.0, 0.0, depth_texture:GetWidth(), depth_texture:GetHeight(), 0.0, 1.0)
 	self.cmd:SetScissor(0, 0, depth_texture:GetWidth(), depth_texture:GetHeight())
 	self.cmd:SetFrontFace(orientation.FRONT_FACE)
 	self.cmd:SetCullMode("none")
 	pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, push_constants)
+	self.cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
 
-	if indexed then
-		self.cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
+	if counts then
 		self.cmd:DrawIndexedIndirectCount(commands, 0, counts, 0, #batches, stride)
 	else
-		self.cmd:DrawIndirect(commands, 0, #batches, stride)
+		self.cmd:DrawIndexedIndirect(commands, 0, #batches, stride)
 	end
 end
 
