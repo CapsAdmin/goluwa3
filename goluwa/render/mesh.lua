@@ -279,7 +279,7 @@ function Mesh.NewDeduped(
 	return self
 end
 
-function Mesh:CloneDynamic(vertex_buffer, extras)
+function Mesh:CloneDynamic(vertex_buffer)
 	local clone = Mesh:CreateObject()
 	clone.source = self
 	clone.debug_name = self.debug_name
@@ -291,9 +291,9 @@ function Mesh:CloneDynamic(vertex_buffer, extras)
 			self.vertex_buffer.vertex_attributes,
 			build_mesh_buffer_name(self.debug_name, "dynamic vertices")
 		)
-	clone.extras = extras
+	clone.extras = self.extras
 	clone.extras_binding = self.extras_binding
-	clone.extras_owned = extras ~= nil
+	clone.extras_owned = false
 	return clone
 end
 

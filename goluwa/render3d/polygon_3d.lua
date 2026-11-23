@@ -678,7 +678,7 @@ function Polygon3D:UpdateVertices()
 	return true
 end
 
-function Polygon3D:CloneDynamic(vertex_buffer, extras)
+function Polygon3D:CloneDynamic(vertex_buffer)
 	local clone = Polygon3D.New()
 	clone:SetAABB(self.AABB)
 	clone:SetBendHeight(self.BendHeight)
@@ -692,22 +692,7 @@ function Polygon3D:CloneDynamic(vertex_buffer, extras)
 	clone.SkinSource = self
 	clone.Dynamic = true
 
-	if not extras then
-		local source = self.mesh.extras
-		local data = ffi.new("uint8_t[?]", source.vertex_count * vertex_layout.ExtrasStride)
-
-		if source.data then
-			ffi.copy(data, source.data, source.byte_size)
-		else
-			for i = 0, source.vertex_count - 1 do
-				ffi.copy(data + i * vertex_layout.ExtrasStride, source.value, vertex_layout.ExtrasStride)
-			end
-		end
-
-		extras = vertex_extras.New(data)
-	end
-
-	clone.mesh = self.mesh:CloneDynamic(vertex_buffer, extras)
+	clone.mesh = self.mesh:CloneDynamic(vertex_buffer)
 
 	if not vertex_buffer then
 		local dynamic = clone.mesh.vertex_buffer
