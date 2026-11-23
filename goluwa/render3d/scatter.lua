@@ -8,31 +8,26 @@ local system = import("goluwa/system.lua")
 local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
 local vk = import("goluwa/bindings/vk.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local orientation = import("goluwa/render3d/orientation.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
-local index_pool = import("goluwa/render3d/index_pool.lua")
-local visibility = import("goluwa/render3d/visibility.lua")
 local BuddyPool = import("goluwa/render3d/buddy_pool.lua")
-local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local meshes = import("goluwa/render3d/scene/meshes.lua")
 local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local scatter_rt = import("goluwa/render3d/scatter_rt.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local ViewPriority = import("goluwa/render3d/view_priority.lua")
-local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local scatter = {}
-scatter.name = "gbuffer_multi_draw"
-scatter.visibility_kind = visibility.KIND_MULTI_DRAW
 scatter.MAX_SURFACES = 512
 scatter.SURFACE_RING = 4
 scatter.MAX_JOBS = 2 ^ 20
 scatter.JOB_ROW = 2 ^ 15
 scatter.TILE_GROUPS_PER_ROW = 2 ^ 15
-scatter.MAX_INSTANCES = 2 ^ 21
 scatter.MIN_ROOM = 256
 scatter.BAKE_CELLS = {64, 256, 1024}
 scatter.BAKE_SPLIT = 1.5
@@ -45,9 +40,6 @@ scatter.view_priority = ViewPriority.New()
 scatter.MAX_UNITS = 16384
 scatter.MAX_BAKED = 2 ^ 21
 scatter.GROW_MARGIN = 1.5
-scatter.MAX_BATCHES = 1024
-scatter.SHADOW_BLOCK_WORDS = 8
-scatter.MAX_SHADOW_BLOCKS = scatter.MAX_INSTANCES / 64 + 512
 scatter.BILLBOARD_REACH_UNIT = 0.25
 scatter.TILE_CELLS = 32
 scatter.MAX_LEVEL = 4
@@ -91,12 +83,7 @@ local ScatterSurface = ffi.typeof([[struct {
 	uint32_t addresses[4];
 	uint32_t extras[4];
 	uint32_t info[4];
-	float color[4];
 	float layers[4];
-	int32_t layer_textures[4];
-	float layer_scales[4];
-	float layer_detail[4];
-	float layer_additive_detail[4];
 	float slope_min[4];
 	float slope_max[4];
 	float slope_blend[4];
@@ -116,9 +103,6 @@ local ScatterPrototype = ffi.typeof([[struct {
 	float altitude[4];
 	float scale[4];
 	float sink[4];
-	float color[4];
-	float tint_a[4];
-	float tint_b[4];
 	float layers[4];
 	float bounds[4];
 	uint32_t info[4];
@@ -128,16 +112,9 @@ local ScatterPrototype = ffi.typeof([[struct {
 	uint32_t info5[4];
 	float limits[4];
 }]])
-local PROTOTYPE_VEC4S = ffi.sizeof(ScatterPrototype) / 16
-local DRAW_COMMAND_SIZE_SHADOW = 16
-local ScatterBatch = ffi.typeof("struct { uint32_t index_count, first_index, prototype, double_sided; }")
 local uint64_ptr = ffi.typeof("uint64_t *")
 local int32_ptr = ffi.typeof("int32_t *")
-local DRAW_COMMAND_SIZE = ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
-local ARGS_WORDS = 4 + 4 * MAX_PROTOTYPES
-local ARGS_RESET = ffi.new("uint32_t[?]", ARGS_WORDS)
-ARGS_RESET[1] = 1
-ARGS_RESET[2] = 1
+local NO_STREAM = 0xFFFFFFFF
 local buffers = nil
 
 local function get_buffers()
@@ -161,12 +138,6 @@ local function get_buffers()
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"device_local"},
 			label = "scatter jobs",
-		},
-		instances = render.CreateBuffer{
-			byte_size = 64 * scatter.MAX_INSTANCES,
-			buffer_usage = {"storage_buffer", "shader_device_address"},
-			memory_property = {"device_local"},
-			label = "scatter instances",
 		},
 		baked = render.CreateBuffer{
 			byte_size = 64 * scatter.MAX_BAKED,
@@ -199,51 +170,18 @@ local function get_buffers()
 			label = "scatter blocks",
 		},
 		args = render.CreateBuffer{
-			byte_size = ffi.sizeof(ARGS_RESET),
+			byte_size = 16,
 			buffer_usage = {"storage_buffer", "indirect_buffer", "transfer_dst", "transfer_src"},
 			memory_property = {"device_local"},
 			label = "scatter args",
-		},
-		demand = render.CreateBuffer{
-			byte_size = 16 * MAX_PROTOTYPES * scatter.SURFACE_RING,
-			buffer_usage = {"transfer_dst"},
-			memory_property = {"host_visible", "host_coherent"},
-			label = "scatter demand",
-		},
-		batches = render.CreateBuffer{
-			byte_size = ffi.sizeof(ScatterBatch) * scatter.MAX_BATCHES,
-			buffer_usage = {"storage_buffer", "shader_device_address"},
-			memory_property = {"host_visible", "host_coherent"},
-			label = "scatter batches",
-		},
-		commands = render.CreateBuffer{
-			byte_size = DRAW_COMMAND_SIZE * scatter.MAX_BATCHES * 2,
-			buffer_usage = {"storage_buffer", "indirect_buffer", "shader_device_address"},
-			memory_property = {"device_local"},
-			label = "scatter commands",
-		},
-		shadow_commands = render.CreateBuffer{
-			byte_size = DRAW_COMMAND_SIZE_SHADOW * scatter.MAX_BATCHES,
-			buffer_usage = {"storage_buffer", "indirect_buffer", "shader_device_address"},
-			memory_property = {"device_local"},
-			label = "scatter shadow commands",
-		},
-		shadow_blocks = render.CreateBuffer{
-			byte_size = 4 * scatter.SHADOW_BLOCK_WORDS * scatter.MAX_SHADOW_BLOCKS,
-			buffer_usage = {"storage_buffer", "shader_device_address", "transfer_dst"},
-			memory_property = {"device_local"},
-			label = "scatter shadow blocks",
 		},
 	}
 	buffers.surface_data = ffi.cast(ffi.typeof("$ *", ScatterSurface), buffers.surfaces:Map())
 	buffers.prototype_memory = ffi.new("uint8_t[?]", buffers.prototypes.size)
 	buffers.prototype_data = ffi.cast(ffi.typeof("$ *", ScatterPrototype), buffers.prototype_memory)
-	buffers.batch_data = ffi.cast(ffi.typeof("$ *", ScatterBatch), buffers.batches:Map())
-	buffers.demand_data = ffi.cast("uint32_t *", buffers.demand:Map())
 	buffers.unit_counts_data = ffi.cast("uint32_t *", buffers.unit_counts_readback:Map())
 	buffers.units_data = ffi.cast("uint32_t *", buffers.units:Map())
 	buffers.blocks_data = ffi.cast("uint32_t *", buffers.blocks:Map())
-	buffers.shadow_blocks_data = ffi.new("uint32_t[?]", buffers.shadow_blocks.size / 4)
 	return buffers
 end
 
@@ -266,15 +204,11 @@ local BINDING_PROTOTYPES = 6
 local BINDING_ARGS = 7
 local BINDING_SCENE = 8
 local BINDING_INSTANCES = 9
-local BINDING_BATCHES = 10
-local BINDING_COMMANDS = 11
-local BINDING_SHADOW_COMMANDS = 12
-local BINDING_OUTPUT = 13
 local BINDING_UNITS = 14
 local BINDING_BLOCKS = 15
 local BINDING_UNIT_COUNTS = 16
 local RAY_QUERY = render.GetDevice().ray_query_supported
-local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
+local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. [[
 	#define SCATTER_TILE_CELLS ]] .. scatter.TILE_CELLS .. [[
 
 	#define SCATTER_MAX_LEVEL ]] .. scatter.MAX_LEVEL .. [[
@@ -288,12 +222,7 @@ local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL()
 		uvec4 addresses;
 		uvec4 extras;
 		uvec4 info;
-		vec4 color;
 		vec4 layers;
-		ivec4 layer_textures;
-		vec4 layer_scales;
-		vec4 layer_detail;
-		vec4 layer_additive_detail;
 		vec4 slope_min;
 		vec4 slope_max;
 		vec4 slope_blend;
@@ -314,9 +243,6 @@ local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL()
 		vec4 altitude;
 		vec4 scale;
 		vec4 sink;
-		vec4 color;
-		vec4 tint_a;
-		vec4 tint_b;
 		vec4 layers;
 		vec4 bounds;
 		uvec4 info;
@@ -326,10 +252,6 @@ local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL()
 		uvec4 info5;
 		vec4 limits;
 	};
-
-	uint scatter_counter(uint proto_index, uint kind) {
-		return proto_index * 4u + kind;
-	}
 
 	uint scatter_pcg(uint v) {
 		uint state = v * 747796405u + 2891336453u;
@@ -439,7 +361,6 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 	layout(std430, set = 0, binding = ]] .. BINDING_ARGS .. [[) buffer ScatterArgs {
 		uint scatter_dispatch[3];
 		uint scatter_job_counter;
-		uint scatter_counts[];
 	};
 
 	uint scatter_index(ScatterSurface s, uint i) {
@@ -509,26 +430,6 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		return 1.0 - smoothstep(0.1, 0.6, blend);
 	}
 
-	vec3 scatter_terrain_layer_albedo(ScatterSurface s, int layer, vec3 base, vec2 xz) {
-		int tex = s.layer_textures[layer];
-
-		if (tex < 0) return base;
-
-		vec3 albedo = textureLod(TEXTURE(tex), xz / max(s.layer_scales[layer], 0.0001), 0.0).rgb;
-		float detail = s.layer_detail[layer];
-
-		if (detail <= 0.0) return albedo * base;
-
-		float additive = s.layer_additive_detail[layer];
-
-		if (additive > 0.0) {
-			return pow(max(pow(base, vec3(1.0 / 2.2)) + (albedo - 0.5) * detail, vec3(0.0)), vec3(2.2)) * additive;
-		}
-
-		vec3 average = texture_average(tex).rgb;
-		return base * mix(vec3(1.0), albedo / max(average, vec3(0.01)), detail);
-	}
-
 	void scatter_basis(vec3 n, out vec3 b1, out vec3 b2) {
 		float sign_z = n.z >= 0.0 ? 1.0 : -1.0;
 		float a = -1.0 / (sign_z + n.z);
@@ -549,7 +450,7 @@ local bake_block = {
 	{"band_distance", "float"},
 }
 local cull_block = {
-	{"view_projection", "mat4"},
+	{"streams", "uint64_t"},
 	{"camera_position", "vec3"},
 	{"block_count", "int"},
 	{"unit_base", "int"},
@@ -588,10 +489,8 @@ local function write_bake_block(self, block)
 end
 
 local function write_cull_block(self, block)
-	local camera = render3d.GetCamera()
-	local view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()
-	view_projection:CopyToFloatPointer(block.view_projection)
-	local position = camera:GetPosition()
+	block.streams = self.streams
+	local position = render3d.GetCamera():GetPosition()
 	block.camera_position[0] = position.x
 	block.camera_position[1] = position.y
 	block.camera_position[2] = position.z
@@ -822,7 +721,6 @@ function create_compute_passes()
 					int max_level = scatter_max_level(cell_size);
 					int step_cells = 1 << level;
 					int per_axis = SCATTER_TILE_CELLS >> level;
-					int albedo_texture = int(s.info.z);
 					int mask_texture = int(s.info.w);
 					vec4 layer_amounts = s.layers * proto.layers;
 
@@ -877,8 +775,6 @@ function create_compute_passes()
 						float r_tilt_direction = pcg_unorm(h);
 						h = scatter_pcg(h);
 						float r_sink = pcg_unorm(h);
-						h = scatter_pcg(h);
-						float r_variation = pcg_unorm(h);
 						float size = mix(proto.scale.x, proto.scale.y, r_size);
 						float size_y = size * mix(proto.scale.z, proto.scale.w, r_stretch);
 
@@ -914,36 +810,12 @@ function create_compute_passes()
 					"1.0"
 				) .. [[;
 
-						vec3 color = albedo_texture >= 0 ? textureLod(TEXTURE(albedo_texture), uv, 3.0).rgb : vec3(1.0);
-
-						if (mask_texture >= 0) {
-							vec3 ground = vec3(0.0);
-
-							for (int i = 0; i < 4; i++) {
-								if (layer_weights[i] > 0.001) {
-									ground += scatter_terrain_layer_albedo(s, i, color, xz) * layer_weights[i];
-								}
-							}
-
-							color = ground;
-						}
-
-						color *= s.color.rgb;
-						float color_luma = luminance(color);
-						vec3 chroma = color_luma > 0.0001 ? color / color_luma : vec3(1.0);
-						chroma = max(mix(vec3(1.0), chroma, proto.color.y), vec3(0.0));
-						vec3 tint = mix(vec3(1.0), chroma * mix(1.0, clamp(color_luma / 0.25, 0.4, 2.0), proto.color.z), proto.color.x);
-						float patch_mix = smoothstep(0.35, 0.65, scatter_fbm(xz / max(proto.cluster.z, 0.01) + vec2(3.1, 11.9)));
-						tint *= mix(vec3(1.0), mix(proto.tint_a.rgb, proto.tint_b.rgb, patch_mix), proto.cluster.w);
-						tint *= 1.0 + (r_variation * 2.0 - 1.0) * proto.color.w;
-						uint tint_bits = packUnorm4x8(vec4(clamp(tint * 0.5, 0.0, 1.0), 1.0));
-
 						uint slot = atomicAdd(scatter_unit_counts[uint(compute.unit_slot)], 1u);
 
 						if (slot < uint(compute.unit_capacity)) {
 							scatter_baked[uint(compute.unit_offset) + slot] = mat4(
 								vec4(x_axis * size, priority / ground_amount),
-								vec4(up * size_y, uintBitsToFloat(tint_bits)),
+								vec4(up * size_y, 0.0),
 								vec4(z_axis * size, uintBitsToFloat(proto_index)),
 								vec4(position, conform_word)
 							);
@@ -1001,28 +873,16 @@ function create_compute_passes()
 			LocalSize = {x = 64, y = 1, z = 1},
 			descriptor_sets = {
 				storage_buffer(BINDING_PROTOTYPES, "prototypes", "compute"),
-				storage_buffer(BINDING_ARGS, "args", "compute"),
 				storage_buffer(BINDING_INSTANCES, "baked", "compute"),
-				storage_buffer(BINDING_OUTPUT, "instances", "compute"),
 				storage_buffer(BINDING_UNITS, "units", "compute"),
 				storage_buffer(BINDING_BLOCKS, "blocks", "compute"),
 				storage_buffer(BINDING_UNIT_COUNTS, "unit_counts", "compute"),
 			},
 			block = cull_block,
 			write = write_cull_block,
-			shader = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
-				layout(std430, set = 0, binding = ]] .. BINDING_ARGS .. [[) buffer ScatterArgs {
-					uint scatter_dispatch[3];
-					uint scatter_job_counter;
-					uint scatter_counts[];
-				};
-
+			shader = COMMON_GLSL .. PROTOTYPES_GLSL .. scene_draw.STREAM_GLSL .. [[
 				layout(std430, set = 0, binding = ]] .. BINDING_INSTANCES .. [[) readonly buffer ScatterBaked {
 					mat4 scatter_baked[];
-				};
-
-				layout(std430, set = 0, binding = ]] .. BINDING_OUTPUT .. [[) writeonly buffer ScatterOutput {
-					mat4 scatter_output[];
 				};
 
 				layout(std430, set = 0, binding = ]] .. BINDING_UNITS .. [[) readonly buffer ScatterUnits {
@@ -1036,36 +896,6 @@ function create_compute_passes()
 				layout(std430, set = 0, binding = ]] .. BINDING_UNIT_COUNTS .. [[) readonly buffer ScatterUnitCounts {
 					uint scatter_unit_counts[];
 				};
-
-	vec4 scatter_frustum_plane(int i) {
-		mat4 m = compute.view_projection;
-		vec4 w = vec4(m[0][3], m[1][3], m[2][3], m[3][3]);
-		int axis = i >> 1;
-		vec4 r = vec4(m[0][axis], m[1][axis], m[2][axis], m[3][axis]);
-		return (i & 1) == 0 ? w + r : w - r;
-	}
-
-	bool scatter_box_visible(vec3 lo, vec3 hi) {
-		for (int i = 0; i < 4; i++) {
-			vec4 plane = scatter_frustum_plane(i);
-			vec3 p = mix(lo, hi, step(0.0, plane.xyz));
-
-			if (dot(plane.xyz, p) + plane.w < 0.0) return false;
-		}
-
-		return true;
-	}
-
-	bool scatter_sphere_visible(vec3 center, float radius) {
-		for (int i = 0; i < 4; i++) {
-			vec4 plane = scatter_frustum_plane(i);
-
-			if (dot(plane.xyz, center) + plane.w < -radius * length(plane.xyz)) return false;
-		}
-
-		return true;
-	}
-
 
 				struct ScatterRtTlas {
 					float m[12];
@@ -1153,13 +983,10 @@ function create_compute_passes()
 					if (lod_keep <= need) return;
 
 					float widen = mix(1.0, clamp(inversesqrt(lod_keep), 1.0, 4.0), proto.placement.w);
-					float size_xz = length(world[0].xyz) * widen;
-					float size_y = length(world[1].xyz);
 					world[0].xyz *= widen;
 					world[2].xyz *= widen;
+					world[0][3] = 0.0;
 					world[2][3] = 0.0;
-					bool in_view = scatter_sphere_visible(position + vec3(0.0, proto.bounds.y * size_y * 0.5, 0.0), proto.bounds.x * max(size_xz, size_y));
-
 					float lod_fade = lod_keep >= 0.999 ? 0.0 : 1.0 - clamp((lod_keep - need) / (lod_keep * 0.3), 0.0, 1.0);
 					float switch_distance = proto.bounds.z;
 					float band = proto.bounds.w;
@@ -1170,145 +997,39 @@ function create_compute_passes()
 
 					if (proto.info.w != 0u) {
 						if (switch_distance > 0.0 && d >= switch_distance) {
-							uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 3u)], 1u);
+							uint slot = scene_stream_append(compute.streams, proto.info2.x, 1u, world);
 
-							if (slot < proto.info4.y) {
-								world[0][3] = 0.0;
-								scatter_output[proto.info4.x + slot] = world;
-								scatter_rt_emit(proto.info5.y, proto.info5.z + proto.info5.w, proto.info5.y != 0xFFFFFFFFu ? 1u : 0u, slot, world);
-							}
+							if (slot < proto.info4.y) scatter_rt_emit(proto.info5.y, proto.info5.z + proto.info5.w, proto.info5.y != 0xFFFFFFFFu ? 1u : 0u, slot, world);
 						} else if (mid_distance > 0.0 && d >= mid_distance) {
 							ScatterPrototype mid = scatter_prototypes[mid_index - 1u];
-							uint slot = atomicAdd(scatter_counts[scatter_counter(mid_index - 1u, 2u)], 1u);
+							uint slot = scene_stream_append(compute.streams, mid.info.x, 1u, world);
 
-							if (slot < mid.info3.y) {
-								world[0][3] = 0.0;
-								scatter_output[mid.info3.x + slot] = world;
-								scatter_rt_emit(mid.info5.x, mid.info5.z, mid.info5.w, slot, world);
-							}
+							if (slot < mid.info3.y) scatter_rt_emit(mid.info5.x, mid.info5.z, mid.info5.w, slot, world);
 						} else {
-							uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 2u)], 1u);
+							uint slot = scene_stream_append(compute.streams, proto.info.x, 1u, world);
 
-							if (slot < proto.info3.y) {
-								world[0][3] = 0.0;
-								scatter_output[proto.info3.x + slot] = world;
-								scatter_rt_emit(proto.info5.x, proto.info5.z, proto.info5.w, slot, world);
-							}
+							if (slot < proto.info3.y) scatter_rt_emit(proto.info5.x, proto.info5.z, proto.info5.w, slot, world);
 						}
 					}
-
-					if (!in_view) return;
 
 					if (mid_distance > 0.0) {
 						if (mid_blend < 1.0) {
-							uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 0u)], 1u);
-
-							if (slot < proto.info.y) {
-								world[0][3] = mid_blend;
-								scatter_output[proto.info.x + slot] = world;
-							}
+							world[0][3] = mid_blend;
+							scene_stream_append(compute.streams, proto.info.x, 0u, world);
 						}
 
 						if (mid_blend > 0.0 && (switch_distance == 0.0 || blend < 1.0)) {
-							ScatterPrototype mid = scatter_prototypes[mid_index - 1u];
-							uint slot = atomicAdd(scatter_counts[scatter_counter(mid_index - 1u, 0u)], 1u);
-
-							if (slot < mid.info.y) {
-								world[0][3] = mid_blend < 1.0 ? mid_blend - 1.0 : (switch_distance > 0.0 ? blend : lod_fade);
-								scatter_output[mid.info.x + slot] = world;
-							}
+							world[0][3] = mid_blend < 1.0 ? mid_blend - 1.0 : (switch_distance > 0.0 ? blend : lod_fade);
+							scene_stream_append(compute.streams, scatter_prototypes[mid_index - 1u].info.x, 0u, world);
 						}
 					} else if (switch_distance == 0.0 || blend < 1.0) {
-						uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 0u)], 1u);
-
-						if (slot < proto.info.y) {
-							world[0][3] = switch_distance > 0.0 ? blend : lod_fade;
-							scatter_output[proto.info.x + slot] = world;
-						}
+						world[0][3] = switch_distance > 0.0 ? blend : lod_fade;
+						scene_stream_append(compute.streams, proto.info.x, 0u, world);
 					}
 
 					if (switch_distance > 0.0 && blend > 0.0) {
-						uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 1u)], 1u);
-
-						if (slot < proto.info2.y) {
-							world[0][3] = blend < 1.0 ? blend - 1.0 : lod_fade;
-							scatter_output[proto.info2.x + slot] = world;
-						}
-					}
-				}
-			]],
-		},
-		commands = EasyPipeline.Compute{
-			name = "scatter_commands",
-			DescriptorSetCount = 1,
-			LocalSize = {x = 64, y = 1, z = 1},
-			descriptor_sets = {
-				storage_buffer(BINDING_PROTOTYPES, "prototypes", "compute"),
-				storage_buffer(BINDING_ARGS, "args", "compute"),
-				storage_buffer(BINDING_BATCHES, "batches", "compute"),
-				storage_buffer(BINDING_COMMANDS, "commands", "compute"),
-				storage_buffer(BINDING_SHADOW_COMMANDS, "shadow_commands", "compute"),
-			},
-			block = {{"batch_count", "int"}},
-			write = function(self, block)
-				block.batch_count = self.batch_count
-				return block
-			end,
-			shader = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
-				layout(std430, set = 0, binding = ]] .. BINDING_ARGS .. [[) readonly buffer ScatterArgs {
-					uint scatter_dispatch[3];
-					uint scatter_job_counter;
-					uint scatter_counts[];
-				};
-
-				layout(std430, set = 0, binding = ]] .. BINDING_BATCHES .. [[) readonly buffer ScatterBatches {
-					uvec4 scatter_batches[];
-				};
-
-				struct ScatterDrawCommand {
-					uint index_count;
-					uint instance_count;
-					uint first_index;
-					int vertex_offset;
-					uint first_instance;
-				};
-
-				layout(std430, set = 0, binding = ]] .. BINDING_COMMANDS .. [[) writeonly buffer ScatterCommands {
-					ScatterDrawCommand scatter_commands[];
-				};
-
-				layout(std430, set = 0, binding = ]] .. BINDING_SHADOW_COMMANDS .. [[) writeonly buffer ScatterShadowCommands {
-					uvec4 scatter_shadow_commands[];
-				};
-
-				void main() {
-					uint id = gl_GlobalInvocationID.x;
-					uint batch_count = uint(compute.batch_count);
-
-					if (id >= batch_count * 2u) return;
-
-					uint batch = id % batch_count;
-					uvec4 info = scatter_batches[batch];
-					ScatterPrototype proto = scatter_prototypes[info.z >> 1u];
-					bool billboard = (info.z & 1u) != 0u;
-					uint first = billboard ? proto.info2.x : proto.info.x;
-					uint counter = scatter_counter(info.z >> 1u, info.z & 1u);
-					uint count = min(scatter_counts[counter], billboard ? proto.info2.y : proto.info.y);
-
-					if ((info.w != 0u) != (id >= batch_count)) count = 0u;
-
-					scatter_commands[id] = ScatterDrawCommand(info.x, count, info.y, 0, first);
-
-					if (id < batch_count) {
-						uint shadow_count = 0u;
-
-						if (proto.info.w != 0u) {
-							shadow_count = billboard ?
-								min(scatter_counts[scatter_counter(info.z >> 1u, 3u)], proto.info4.y) :
-								min(scatter_counts[scatter_counter(info.z >> 1u, 2u)], proto.info3.y);
-						}
-
-						scatter_shadow_commands[id] = uvec4(info.x, shadow_count, 0u, billboard ? proto.info4.x : proto.info3.x);
+						world[0][3] = blend < 1.0 ? blend - 1.0 : lod_fade;
+						scene_stream_append(compute.streams, proto.info2.x, 0u, world);
 					}
 				}
 			]],
@@ -1421,37 +1142,12 @@ local function write_surface(out, surface, pipeline)
 		out.info[1] = 0
 	end
 
-	ffi.cast(int32_ptr, out.info + 2)[0] = pipeline:GetTextureIndex(material:GetAlbedoTexture())
 	ffi.cast(int32_ptr, out.info + 3)[0] = pipeline:GetTextureIndex(material:GetTerrainMaterialTexture())
-	local color = material:GetColorMultiplier()
-	out.color[0] = color.r
-	out.color[1] = color.g
-	out.color[2] = color.b
-	out.color[3] = color.a
 	local layers = material:GetTerrainLayerScatter()
 	out.layers[0] = layers.r
 	out.layers[1] = layers.g
 	out.layers[2] = layers.b
 	out.layers[3] = layers.a
-	out.layer_textures[0] = pipeline:GetTextureIndex(material:GetTerrainLayer1Texture())
-	out.layer_textures[1] = pipeline:GetTextureIndex(material:GetTerrainLayer2Texture())
-	out.layer_textures[2] = pipeline:GetTextureIndex(material:GetTerrainLayer3Texture())
-	out.layer_textures[3] = pipeline:GetTextureIndex(material:GetTerrainLayer4Texture())
-	local scales = material:GetTerrainLayerScales()
-	out.layer_scales[0] = scales.r
-	out.layer_scales[1] = scales.g
-	out.layer_scales[2] = scales.b
-	out.layer_scales[3] = scales.a
-	local detail = material:GetTerrainLayerDetailStrength()
-	out.layer_detail[0] = detail.r
-	out.layer_detail[1] = detail.g
-	out.layer_detail[2] = detail.b
-	out.layer_detail[3] = detail.a
-	local additive_detail = material:GetTerrainLayerAdditiveDetail()
-	out.layer_additive_detail[0] = additive_detail.r
-	out.layer_additive_detail[1] = additive_detail.g
-	out.layer_additive_detail[2] = additive_detail.b
-	out.layer_additive_detail[3] = additive_detail.a
 
 	for _, rule in ipairs(LAYER_RULES) do
 		local value = material[rule[1]](material)
@@ -1469,25 +1165,13 @@ local function write_surface(out, surface, pipeline)
 	out.params[0] = material:GetScatterDensity()
 end
 
-local function write_prototype(
-	out,
-	proto,
-	instance_base,
-	far_base,
-	shadow_base,
-	shadow_billboard_base,
-	shadow_out_base,
-	shadow_out_billboard_base,
-	rt
-)
+local function write_prototype(out, proto, rt)
 	out.placement[0] = proto.density * proto.density_multiplier
 	out.placement[1] = proto.max_distance * proto.distance_multiplier * proto.reach
 	out.placement[2] = proto.full_density_distance * proto.distance_multiplier * proto.reach
 	out.placement[3] = proto.distance_scale
 	out.cluster[0] = proto.cluster_scale
 	out.cluster[1] = proto.cluster_amount
-	out.cluster[2] = proto.tint_scale
-	out.cluster[3] = proto.tint_amount
 	out.slope[0] = proto.slope_min
 	out.slope[1] = proto.slope_max
 	out.slope[2] = proto.slope_fade
@@ -1503,34 +1187,20 @@ local function write_prototype(
 	out.sink[0] = proto.sink_min
 	out.sink[1] = proto.sink_max
 	out.sink[2] = proto.yaw
-	out.color[0] = proto.color_surface
-	out.color[1] = proto.color_saturation
-	out.color[2] = proto.color_brightness
-	out.color[3] = proto.color_variation
-
-	for i = 0, 2 do
-		out.tint_a[i] = proto.tint_a[i + 1]
-		out.tint_b[i] = proto.tint_b[i + 1]
-	end
 
 	for i = 0, 3 do
 		out.layers[i] = proto.layers[i + 1]
 	end
 
+	local model, billboard = proto.model_stream, proto.billboard_stream
 	out.bounds[0] = proto.radius or 0
 	out.bounds[1] = proto.height or 0
-	out.info[0] = instance_base
-	out.info[1] = proto.room
-	out.bounds[2] = proto.sized_switch
+	out.info[0] = model and model.index or NO_STREAM
+	out.bounds[2] = billboard and proto.sized_switch or 0
 	out.bounds[3] = proto.billboard_fade
-	out.info2[0] = far_base
-	out.info2[1] = proto.far_room
-	out.info3[0] = shadow_base
+	out.info2[0] = billboard and billboard.index or NO_STREAM
 	out.info3[1] = proto.shadow_room
-	out.info3[2] = shadow_out_base
-	out.info4[0] = shadow_billboard_base
 	out.info4[1] = proto.shadow_billboard_room
-	out.info4[2] = shadow_out_billboard_base
 
 	for i = 0, 3 do
 		out.info5[i] = rt[i + 1]
@@ -1538,7 +1208,7 @@ local function write_prototype(
 
 	out.limits[3] = proto.align_steep
 	local mid = proto.mid
-	local has_mid = mid and mid.state == "ready" and proto.sized_mid > 0
+	local has_mid = mid and mid.model_stream and proto.sized_mid > 0
 	out.info2[2] = has_mid and mid.index + 1 or 0
 	out.limits[0] = has_mid and proto.sized_mid or 0
 	out.limits[2] = RAY_QUERY and
@@ -1547,7 +1217,7 @@ local function write_prototype(
 		proto.footprint > 0.02 and
 		proto.footprint or
 		0
-	out.info[2] = proto.state == "ready" and 1 or 0
+	out.info[2] = model and 1 or 0
 	out.info[3] = proto.shadow and 1 or 0
 end
 
@@ -1561,24 +1231,10 @@ local rt_rows = setmetatable(
 		end,
 	}
 )
-local draw_batches = {}
-local batch_table = nil
-local batch_serial = 0
 local draw_version = nil
-local first_commands_frame = nil
-local instance_bases = {}
-local far_bases = {}
-local shadow_bases = {}
-local shadow_billboard_bases = {}
-local shadow_out_bases = {}
-local shadow_out_billboard_bases = {}
-local shadow_out_total = 0
-local shadow_block_count = 0
 local layout_dirty = false
-local layout_version = 0
 local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
 local demand_copy = BufferCopy()
-local demand_versions = {}
 
 local function get_reach(proto)
 	if proto.placed or not (billboards_enabled:Get() and proto.billboard_part) then
@@ -1729,188 +1385,138 @@ local function size_prototype(proto)
 	if proto.mid then size_mid(proto.mid) end
 end
 
-local function assign_bases()
-	local protos = ScatterSet.GetPrototypes()
-	local fixed, dynamic = 0, 0
+local live_streams = {}
 
-	for _, proto in ipairs(protos) do
-		dynamic = dynamic + proto.far_capacity + proto.shadow_capacity + proto.shadow_billboard_capacity
+local function sync_stream(proto, key, source, parts, room, shadow_room)
+	local stream = proto[key]
 
-		if proto.max_instances then
-			fixed = fixed + proto.capacity
-		else
-			dynamic = dynamic + proto.capacity
+	if stream and stream.source ~= source then
+		scene_draw.RemoveStream(stream)
+		live_streams[stream] = nil
+		stream = nil
+	end
+
+	if stream then
+		scene_draw.ResizeStream(stream, room, shadow_room)
+	elseif source then
+		local stream_parts = {}
+
+		for i, part in ipairs(parts) do
+			local mesh_row = assert(meshes.Get(part.mesh), proto.name .. " has a mesh the scene cannot draw")
+			meshes.EnsureRaster(mesh_row)
+			stream_parts[i] = {
+				mesh = part.mesh,
+				material = part.material,
+				polygon3d = part.polygon,
+				mesh_row = mesh_row,
+			}
 		end
+
+		stream = scene_draw.CreateStream{
+			parts = stream_parts,
+			bounds = proto.sphere,
+			room = room,
+			shadow_room = shadow_room,
+		}
+		stream.source = source
+		live_streams[stream] = {proto = proto, key = key}
 	end
 
-	local scale = dynamic > 0 and math.min((scatter.MAX_INSTANCES - fixed) / dynamic, 1) or 1
-	assert(
-		scale > 0,
-		"the fixed scatter prototypes alone want more instances than the " .. scatter.MAX_INSTANCES .. " there is room for"
-	)
-	local total = 0
+	proto[key] = stream
+	return stream
+end
 
-	for i, proto in ipairs(protos) do
-		proto.room = proto.max_instances and
-			proto.capacity or
-			math.max(math.floor(proto.capacity * scale), 1)
-		proto.far_room = math.max(math.floor(proto.far_capacity * scale), 1)
-		proto.shadow_room = math.max(math.floor(proto.shadow_capacity * scale), 1)
-		instance_bases[i] = total
-		far_bases[i] = total + proto.room
-		proto.shadow_billboard_room = math.max(math.floor(proto.shadow_billboard_capacity * scale), 1)
-		shadow_bases[i] = far_bases[i] + proto.far_room
-		shadow_billboard_bases[i] = shadow_bases[i] + proto.shadow_room
-		total = shadow_billboard_bases[i] + proto.shadow_billboard_room
+local function assign_streams()
+	local seen = {}
+
+	for _, proto in ipairs(ScatterSet.GetPrototypes()) do
+		local ready = proto.state == "ready"
+		local model = sync_stream(
+			proto,
+			"model_stream",
+			ready and proto.parts or nil,
+			proto.parts,
+			proto.capacity,
+			proto.shadow and proto.shadow_capacity or 0
+		)
+		local billboard_part = ready and proto.sized_switch > 0 and proto.billboard_part or nil
+		local billboard = sync_stream(
+			proto,
+			"billboard_stream",
+			billboard_part,
+			{billboard_part},
+			proto.far_capacity,
+			proto.shadow and proto.shadow_billboard_capacity or 0
+		)
+		proto.room = model and model.room or 0
+		proto.shadow_room = model and model.shadow_room or 0
+		proto.far_room = billboard and billboard.room or 0
+		proto.shadow_billboard_room = billboard and billboard.shadow_room or 0
+
+		if model then seen[model] = true end
+
+		if billboard then seen[billboard] = true end
 	end
 
-	shadow_out_total = 0
-
-	for i, proto in ipairs(protos) do
-		shadow_out_bases[i] = shadow_out_total
-		shadow_out_billboard_bases[i] = shadow_out_total + proto.shadow_room
-		shadow_out_total = shadow_out_billboard_bases[i] + proto.shadow_billboard_room
-	end
-
-	local first_batch = {}
-
-	for batch_index, batch in ipairs(draw_batches) do
-		first_batch[batch.prototype] = first_batch[batch.prototype] or batch_index - 1
-	end
-
-	local data = get_buffers().shadow_blocks_data
-	shadow_block_count = 0
-
-	for i, proto in ipairs(protos) do
-		if proto.shadow and proto.state == "ready" then
-			for kind = 0, 1 do
-				local batch = first_batch[proto.index * 2 + kind]
-
-				if batch then
-					local room = kind == 0 and proto.shadow_room or proto.shadow_billboard_room
-					local source = kind == 0 and shadow_bases[i] or shadow_billboard_bases[i]
-					local out = kind == 0 and shadow_out_bases[i] or shadow_out_billboard_bases[i]
-
-					for first = 0, room - 1, 64 do
-						assert(shadow_block_count < scatter.MAX_SHADOW_BLOCKS, "too many scatter shadow blocks")
-						local entry = data + shadow_block_count * scatter.SHADOW_BLOCK_WORDS
-						entry[0] = first
-						entry[1] = source
-						entry[2] = out
-						entry[3] = room
-						entry[4] = bit.bor(bit.lshift(batch, 16), proto.index * 2 + kind)
-						shadow_block_count = shadow_block_count + 1
-					end
-				end
-			end
+	for stream, owner in pairs(live_streams) do
+		if not seen[stream] then
+			scene_draw.RemoveStream(stream)
+			live_streams[stream] = nil
+			owner.proto[owner.key] = nil
 		end
 	end
 
 	layout_dirty = false
-	layout_version = layout_version + 1
 end
 
-local function adjust_rooms(slot)
-	if demand_versions[slot] ~= draw_version then return end
+local function fit_room(capacity, peak)
+	local target = math.max(math.ceil(peak * scatter.GROW_MARGIN), scatter.MIN_ROOM)
 
-	local b = get_buffers()
-	local counts = b.demand_data + slot * MAX_PROTOTYPES * 4
+	if target > capacity or target * 3 < capacity then
+		layout_dirty = true
+		return target
+	end
 
+	return capacity
+end
+
+local function adjust_rooms()
 	for _, proto in ipairs(ScatterSet.GetPrototypes()) do
-		if not proto.max_instances then
-			proto.peak = math.max(counts[proto.index * 4], proto.peak * 0.995)
-			local target = math.max(math.ceil(proto.peak * scatter.GROW_MARGIN), scatter.MIN_ROOM)
+		local model, billboard = proto.model_stream, proto.billboard_stream
+		local view, shadow = nil, nil
 
-			if target > proto.capacity or target * 3 < proto.capacity then
-				proto.capacity = target
-				layout_dirty = true
+		if model then view, shadow = scene_draw.GetStreamDemand(model) end
+
+		if view then
+			if not proto.max_instances then
+				proto.peak = math.max(view, proto.peak * 0.995)
+				proto.capacity = fit_room(proto.capacity, proto.peak)
 			end
+
+			proto.shadow_peak = math.max(shadow, proto.shadow_peak * 0.995)
+			proto.shadow_capacity = fit_room(proto.shadow_capacity, proto.shadow_peak)
 		end
 
-		proto.far_peak = math.max(counts[proto.index * 4 + 1], proto.far_peak * 0.995)
-		local target = math.max(math.ceil(proto.far_peak * scatter.GROW_MARGIN), scatter.MIN_ROOM)
+		view, shadow = nil, nil
 
-		if target > proto.far_capacity or target * 3 < proto.far_capacity then
-			proto.far_capacity = target
-			layout_dirty = true
-		end
+		if billboard then view, shadow = scene_draw.GetStreamDemand(billboard) end
 
-		proto.shadow_peak = math.max(counts[proto.index * 4 + 2], proto.shadow_peak * 0.995)
-		target = math.max(math.ceil(proto.shadow_peak * scatter.GROW_MARGIN), scatter.MIN_ROOM)
-
-		if target > proto.shadow_capacity or target * 3 < proto.shadow_capacity then
-			proto.shadow_capacity = target
-			layout_dirty = true
-		end
-
-		proto.shadow_billboard_peak = math.max(counts[proto.index * 4 + 3], proto.shadow_billboard_peak * 0.995)
-		target = math.max(math.ceil(proto.shadow_billboard_peak * scatter.GROW_MARGIN), scatter.MIN_ROOM)
-
-		if
-			target > proto.shadow_billboard_capacity or
-			target * 3 < proto.shadow_billboard_capacity
-		then
-			proto.shadow_billboard_capacity = target
-			layout_dirty = true
+		if view then
+			proto.far_peak = math.max(view, proto.far_peak * 0.995)
+			proto.far_capacity = fit_room(proto.far_capacity, proto.far_peak)
+			proto.shadow_billboard_peak = math.max(shadow, proto.shadow_billboard_peak * 0.995)
+			proto.shadow_billboard_capacity = fit_room(proto.shadow_billboard_capacity, proto.shadow_billboard_peak)
 		end
 	end
 end
 
-local function rebuild_draws()
-	local b = get_buffers()
-	local protos = ScatterSet.GetPrototypes()
-	list.clear(draw_batches)
-
-	for _, proto in ipairs(protos) do
+local function rebuild_streams()
+	for _, proto in ipairs(ScatterSet.GetPrototypes()) do
 		if not proto.capacity then size_prototype(proto) end
-
-		if proto.state == "ready" then
-			for _, part in ipairs(proto.parts) do
-				assert(#draw_batches < scatter.MAX_BATCHES, "too many scatter meshes")
-				assert(
-					part.mesh.vertex_buffer:GetVertexCount() <= 2 ^ visibility.VERTEX_INDEX_BITS,
-					"scatter meshes are limited to " .. 2 ^ visibility.VERTEX_INDEX_BITS .. " vertices"
-				)
-				local index_buffer = part.mesh.index_buffer
-				draw_batches[#draw_batches + 1] = {
-					mesh = part.mesh,
-					material = part.material,
-					first_polygon3d = part.polygon,
-					prototype = proto.index * 2,
-					first_index = index_pool.GetFirstIndex(index_buffer),
-					index_count = index_buffer:GetIndexCount(),
-					double_sided = part.material:GetDoubleSided() and 1 or 0,
-				}
-			end
-
-			local part = proto.billboard_part
-
-			if part then
-				local index_buffer = part.mesh.index_buffer
-				draw_batches[#draw_batches + 1] = {
-					mesh = part.mesh,
-					material = part.material,
-					first_polygon3d = part.polygon,
-					prototype = proto.index * 2 + 1,
-					first_index = index_pool.GetFirstIndex(index_buffer),
-					index_count = index_buffer:GetIndexCount(),
-					double_sided = part.material:GetDoubleSided() and 1 or 0,
-				}
-			end
-		end
 	end
 
-	for i, batch in ipairs(draw_batches) do
-		local out = b.batch_data[i - 1]
-		out.index_count = batch.index_count
-		out.first_index = batch.first_index
-		out.prototype = batch.prototype
-		out.double_sided = batch.double_sided
-	end
-
-	batch_serial = batch_serial + 1
 	draw_version = ScatterSet.version
-	assign_bases()
+	layout_dirty = true
 end
 
 local function barrier(cmd, buffer, src_stage, dst_stage, src_access, dst_access)
@@ -2399,9 +2005,6 @@ scatter.PLACED_CONFORMS = 2
 scatter.PLACED_CONFORM_INTERVAL = 300
 
 do
-	local TINT_WORD = 0xFF808080
-	local Uint32Pointer = ffi.typeof("uint32_t *")
-
 	-- writes the matrix of a placed instance at a position, scale, yaw about a normal (unit), as AddPlacements reads them
 	function scatter.WritePlacement(out, at, x, y, z, scale, yaw, nx, ny, nz)
 		local sign = nz >= 0 and 1 or -1
@@ -2414,7 +2017,7 @@ do
 		local zx, zy, zz = xy * nz - xz * ny, xz * nx - xx * nz, xx * ny - xy * nx
 		out[at], out[at + 1], out[at + 2], out[at + 3] = xx * scale, xy * scale, xz * scale, 0
 		out[at + 4], out[at + 5], out[at + 6] = nx * scale, ny * scale, nz * scale
-		ffi.cast(Uint32Pointer, out + at)[7] = TINT_WORD
+		out[at + 7] = 0
 		out[at + 8], out[at + 9], out[at + 10], out[at + 11] = zx * scale, zy * scale, zz * scale, 0
 		out[at + 12], out[at + 13], out[at + 14], out[at + 15] = x, y, z, 1
 	end
@@ -2843,7 +2446,7 @@ local function pre_draw(cmd)
 	local passes = get_compute_passes()
 
 	if draw_version ~= ScatterSet.version then
-		rebuild_draws()
+		rebuild_streams()
 		local signature = {}
 
 		for i, proto in ipairs(ScatterSet.GetPrototypes()) do
@@ -2860,7 +2463,7 @@ local function pre_draw(cmd)
 
 	local protos = ScatterSet.GetPrototypes()
 	local ring = (render.GetCurrentFrame() - 1) % scatter.SURFACE_RING
-	adjust_rooms(ring)
+	adjust_rooms()
 	apply_unit_counts(b, ring)
 
 	for _, proto in ipairs(protos) do
@@ -2890,46 +2493,16 @@ local function pre_draw(cmd)
 		end
 	end
 
-	local blocks_changed = layout_dirty
-
-	if layout_dirty then assign_bases() end
+	if layout_dirty then assign_streams() end
 
 	scatter_rt.Update(protos, rt_rows)
 
 	for i, proto in ipairs(protos) do
-		write_prototype(
-			b.prototype_data[i - 1],
-			proto,
-			instance_bases[i],
-			far_bases[i],
-			shadow_bases[i],
-			shadow_billboard_bases[i],
-			shadow_out_bases[i],
-			shadow_out_billboard_bases[i],
-			rt_rows[i]
-		)
+		write_prototype(b.prototype_data[i - 1], proto, rt_rows[i])
 	end
 
 	upload(cmd, b.prototypes, b.prototype_memory, ffi.sizeof(ScatterPrototype) * #protos)
-	barrier(
-		cmd,
-		b.prototypes,
-		"transfer",
-		{"compute", "vertex_shader"},
-		"transfer_write",
-		"shader_read"
-	)
-
-	if blocks_changed and shadow_block_count > 0 then
-		upload(
-			cmd,
-			b.shadow_blocks,
-			b.shadow_blocks_data,
-			4 * scatter.SHADOW_BLOCK_WORDS * shadow_block_count
-		)
-		barrier(cmd, b.shadow_blocks, "transfer", "compute", "transfer_write", "shader_read")
-	end
-
+	barrier(cmd, b.prototypes, "transfer", "compute", "transfer_write", "shader_read")
 	pool_collect()
 	local frame = system.GetFrameNumber()
 	local camera_object = render3d.GetCamera()
@@ -3005,412 +2578,30 @@ local function pre_draw(cmd)
 	end
 
 	local unit_base, block_base, block_count = write_cull_tables(b, ring, frame)
-	surface_count = block_count
-	barrier(
-		cmd,
-		b.args,
-		{"draw_indirect", "compute", "transfer"},
-		"transfer",
-		{"indirect_command_read", "shader_read", "shader_write", "transfer_read"},
-		"transfer_write"
-	)
-	cmd:UpdateBuffer(b.args, 0, ffi.sizeof(ARGS_RESET), ARGS_RESET)
-	barrier(
-		cmd,
-		b.args,
-		"transfer",
-		"compute",
-		"transfer_write",
-		{"shader_read", "shader_write"}
-	)
-	barrier(cmd, b.instances, "vertex", "compute", "shader_read", "shader_write")
-	barrier(
-		cmd,
-		b.commands,
-		"draw_indirect",
-		"compute",
-		"indirect_command_read",
-		"shader_write"
-	)
-	barrier(
-		cmd,
-		b.shadow_commands,
-		"draw_indirect",
-		"compute",
-		"indirect_command_read",
-		"shader_write"
-	)
+	local streams = scene_draw.BeginStreams(cmd)
 
 	if block_count > 0 then
+		passes.cull.streams = streams
 		passes.cull.block_count = block_count
 		passes.cull.unit_base = unit_base
 		passes.cull.block_base = block_base
 		passes.cull:Dispatch(cmd, block_count, 1, 1, 1)
 	end
 
-	barrier(cmd, b.args, "compute", "compute", "shader_write", "shader_read")
-
-	if draw_batches[1] then
-		passes.commands.batch_count = #draw_batches
-		passes.commands:Dispatch(cmd, math.ceil(#draw_batches * 2 / 64), 1, 1, 1)
-		barrier(
-			cmd,
-			b.commands,
-			"compute",
-			"draw_indirect",
-			"shader_write",
-			"indirect_command_read"
-		)
-		barrier(
-			cmd,
-			b.shadow_commands,
-			"compute",
-			"draw_indirect",
-			"shader_write",
-			"indirect_command_read"
-		)
-		first_commands_frame = first_commands_frame or system.GetFrameNumber()
-	end
-
-	barrier(cmd, b.args, "compute", "transfer", "shader_write", "transfer_read")
-	demand_copy[0].srcOffset = 16
-	demand_copy[0].dstOffset = ring * MAX_PROTOTYPES * 16
-	demand_copy[0].size = MAX_PROTOTYPES * 16
-	cmd:CopyBuffer(b.args, b.demand, demand_copy, 1)
-	demand_versions[ring] = draw_version
 	barrier(cmd, b.unit_counts, "compute", "transfer", "shader_write", "transfer_read")
 	demand_copy[0].srcOffset = 0
 	demand_copy[0].dstOffset = ring * scatter.MAX_UNITS * 4
 	demand_copy[0].size = scatter.MAX_UNITS * 4
 	cmd:CopyBuffer(b.unit_counts, b.unit_counts_readback, demand_copy, 1)
 	unit_readback_frames[ring] = frame
-	barrier(cmd, b.instances, "compute", "vertex", "shader_write", "shader_read")
 end
 
 event.AddListener("PreSceneBuild", "scatter", function(cmd)
-	if render3d.HasPipelineVariants(scatter.name) then pre_draw(cmd) end
+	if render3d.HasPipelineVariants("gbuffer_multi_draw") then
+		gpu_timing.BeginScope(cmd, "scatter")
+		pre_draw(cmd)
+		gpu_timing.EndScope(cmd, "scatter")
+	end
 end)
-
-function scatter.GetSurfaceParamBits()
-	local bits = 0
-
-	for _, batch in ipairs(draw_batches) do
-		bits = bit.bor(bits, batch.material:GetSurfaceParamBits())
-	end
-
-	return bits
-end
-
-function scatter.Draw(pipeline, cmd)
-	if not enabled:Get() or surface_count == 0 or not draw_batches[1] then return end
-
-	local b = get_buffers()
-	batch_table = batch_table or gbuffer_instancing.NewBatchTable("scatter_batches")
-	pipeline.draw_batches_address = batch_table:Update(pipeline, draw_batches, batch_serial, system.GetFrameNumber())
-	pipeline.draw_instances_address = b.instances:GetDeviceAddress()
-	pipeline.draw_prev_instances_address = pipeline.draw_instances_address
-	pipeline.draw_batch_ids_address = 0
-	local ids = pipeline.config.visibility
-
-	if ids then visibility.AddContext(pipeline, b.commands:GetDeviceAddress()) end
-
-	pipeline:UploadConstants()
-	cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-	cmd:SetCullMode(orientation.CULL_MODE)
-	cmd:DrawIndexedIndirect(b.commands, 0, #draw_batches, DRAW_COMMAND_SIZE)
-
-	if ids then
-		visibility.AddContext(pipeline, b.commands:GetDeviceAddress() + #draw_batches * DRAW_COMMAND_SIZE)
-		pipeline:UploadConstants()
-	end
-
-	cmd:SetCullMode("none")
-	cmd:DrawIndexedIndirect(b.commands, #draw_batches * DRAW_COMMAND_SIZE, #draw_batches, DRAW_COMMAND_SIZE)
-end
-
-do
-	local SHADOW_COUNT_BYTES = 8 * MAX_PROTOTYPES
-	local SHADOW_COMMAND_BYTES = DRAW_COMMAND_SIZE * scatter.MAX_BATCHES
-	local SHADOW_DECLARATIONS = [[
-		#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
-		#extension GL_EXT_buffer_reference : require
-		#extension GL_EXT_scalar_block_layout : require
-
-		layout(buffer_reference, scalar) readonly buffer ShadowBlocks { uvec4 b[]; };
-		layout(buffer_reference, scalar) readonly buffer ShadowPrototypeVec { vec4 v[]; };
-		layout(buffer_reference, scalar) readonly buffer ShadowPrototypeUint { uvec4 v[]; };
-		layout(buffer_reference, scalar) readonly buffer ShadowBatches { uvec4 b[]; };
-		layout(buffer_reference, scalar) readonly buffer ShadowCommandsIn { uvec4 c[]; };
-		layout(buffer_reference, scalar) writeonly buffer ShadowCommandsOut { uint c[]; };
-		layout(buffer_reference, std430) readonly buffer ShadowWorldsIn { mat4 w[]; };
-		layout(buffer_reference, std430) writeonly buffer ShadowWorldsOut { mat4 w[]; };
-		layout(buffer_reference, scalar) buffer ShadowCounts { uint n[]; };
-	]]
-	local cull_pipeline
-	local commands_pipeline
-
-	local function get_cull_pipeline()
-		if cull_pipeline then return cull_pipeline end
-
-		cull_pipeline = EasyPipeline.Compute{
-			name = "scatter_shadow_cull",
-			DescriptorSetCount = 1,
-			LocalSize = {x = 64, y = 1, z = 1},
-			block = {
-				{"blocks", "uint64_t"},
-				{"prototypes", "uint64_t"},
-				{"source", "uint64_t"},
-				{"source_commands", "uint64_t"},
-				{"out_worlds", "uint64_t"},
-				{"out_counts", "uint64_t"},
-				{"planes", "vec4", 5},
-				{"min_extent", "float"},
-				{"block_count", "int"},
-				{"culling_enabled", "int"},
-			},
-			write = function(self, block)
-				local v = self.shadow_state
-				block.blocks = v.blocks
-				block.prototypes = v.prototypes
-				block.source = v.source
-				block.source_commands = v.source_commands
-				block.out_worlds = v.out_worlds
-				block.out_counts = v.out_counts
-
-				for i = 0, 3 do
-					for k = 0, 3 do
-						block.planes[i][k] = v.planes[i * 4 + k]
-					end
-				end
-
-				for k = 0, 3 do
-					block.planes[4][k] = v.planes[20 + k]
-				end
-
-				block.min_extent = v.min_extent
-				block.block_count = v.block_count
-				block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
-				return block
-			end,
-			custom_declarations = SHADOW_DECLARATIONS,
-			shader = [[
-				void main() {
-					uint block = gl_WorkGroupID.x;
-
-					if (block >= uint(compute.block_count)) return;
-
-					uvec4 entry = ShadowBlocks(compute.blocks).b[block * 2u];
-					uint packed_id = ShadowBlocks(compute.blocks).b[block * 2u + 1u].x;
-					uint i = entry.x + gl_LocalInvocationID.x;
-					uint batch = packed_id >> 16u;
-					uint proto = (packed_id >> 1u) & 0x7FFFu;
-					uint kind = packed_id & 1u;
-					uint count = min(ShadowCommandsIn(compute.source_commands).c[batch].y, entry.w);
-
-					if (i >= count) return;
-
-					mat4 world = ShadowWorldsIn(compute.source).w[entry.y + i];
-					vec4 bounds = ShadowPrototypeVec(compute.prototypes).v[proto * ]] .. PROTOTYPE_VEC4S .. [[u + 10u];
-					float size_y = length(world[1].xyz);
-					float radius = bounds.x * max(length(world[0].xyz), size_y);
-					vec3 center = world[3].xyz + vec3(0.0, bounds.y * size_y * 0.5, 0.0);
-
-					if (compute.culling_enabled != 0) {
-						if (compute.min_extent > 0.0 && radius * 2.0 < compute.min_extent) return;
-
-						float reach = radius * 1.25 + 0.25;
-
-						if (
-							dot(compute.planes[0].xyz, center) + compute.planes[0].w < -reach ||
-							dot(compute.planes[1].xyz, center) + compute.planes[1].w < -reach ||
-							dot(compute.planes[2].xyz, center) + compute.planes[2].w < -reach ||
-							dot(compute.planes[3].xyz, center) + compute.planes[3].w < -reach ||
-							dot(compute.planes[4].xyz, center) + compute.planes[4].w < -reach
-						) return;
-					}
-
-					uint slot = atomicAdd(ShadowCounts(compute.out_counts).n[proto * 2u + kind], 1u);
-
-					if (slot < entry.w) ShadowWorldsOut(compute.out_worlds).w[entry.z + slot] = world;
-				}
-			]],
-		}
-		return cull_pipeline
-	end
-
-	local function get_commands_pipeline()
-		if commands_pipeline then return commands_pipeline end
-
-		commands_pipeline = EasyPipeline.Compute{
-			name = "scatter_shadow_commands",
-			DescriptorSetCount = 1,
-			LocalSize = {x = 64, y = 1, z = 1},
-			block = {
-				{"batches", "uint64_t"},
-				{"prototypes", "uint64_t"},
-				{"source_commands", "uint64_t"},
-				{"out_commands", "uint64_t"},
-				{"out_counts", "uint64_t"},
-				{"batch_count", "int"},
-			},
-			write = function(self, block)
-				local v = self.shadow_state
-				block.batches = v.batches
-				block.prototypes = v.prototypes
-				block.source_commands = v.source_commands
-				block.out_commands = v.out_commands
-				block.out_counts = v.out_counts
-				block.batch_count = v.batch_count
-				return block
-			end,
-			custom_declarations = SHADOW_DECLARATIONS,
-			shader = [[
-				void main() {
-					uint id = gl_GlobalInvocationID.x;
-
-					if (id >= uint(compute.batch_count)) return;
-
-					uvec4 source = ShadowCommandsIn(compute.source_commands).c[id];
-					uvec4 batch = ShadowBatches(compute.batches).b[id];
-					uint prototype = batch.z;
-					uint proto = prototype >> 1u;
-					uint kind = prototype & 1u;
-					uvec4 info = ShadowPrototypeUint(compute.prototypes).v[proto * ]] .. PROTOTYPE_VEC4S .. [[u + 13u + kind];
-					ShadowCommandsOut out_commands = ShadowCommandsOut(compute.out_commands);
-					out_commands.c[id * 5u] = source.x;
-					out_commands.c[id * 5u + 1u] = min(ShadowCounts(compute.out_counts).n[proto * 2u + kind], info.y);
-					out_commands.c[id * 5u + 2u] = batch.y;
-					out_commands.c[id * 5u + 3u] = 0u;
-					out_commands.c[id * 5u + 4u] = info.z;
-				}
-			]],
-		}
-		return commands_pipeline
-	end
-
-	local shadow_states = setmetatable({}, {__mode = "k"})
-	local COMPUTE_TO_COMPUTE = {
-		srcStage = {"host", "transfer", "compute"},
-		dstStage = "compute",
-		memoryBarrier = true,
-	}
-	local COMPUTE_TO_DRAW = {
-		srcStage = "compute",
-		dstStage = {"draw_indirect", "vertex_shader"},
-		memoryBarrier = true,
-	}
-
-	event.AddListener("CullAllShadows", "scatter", function(shadow_map, cascade_index)
-		local states = shadow_states[shadow_map]
-
-		if not states then
-			states = {}
-			shadow_states[shadow_map] = states
-		end
-
-		local state = states[cascade_index]
-
-		if not state then
-			state = {}
-			states[cascade_index] = state
-		end
-
-		state.culled = false
-
-		if
-			not enabled:Get() or
-			not draw_batches[1] or
-			not first_commands_frame or
-			first_commands_frame >= system.GetFrameNumber()
-			or
-			shadow_block_count == 0
-		then
-			return
-		end
-
-		if not state.commands then
-			state.counts = render.CreateBuffer{
-				byte_size = SHADOW_COUNT_BYTES,
-				buffer_usage = {"storage_buffer", "shader_device_address", "transfer_dst"},
-				memory_property = {"device_local"},
-				label = "scatter shadow cull counts",
-			}
-			state.commands = render.CreateBuffer{
-				byte_size = SHADOW_COMMAND_BYTES,
-				buffer_usage = {"storage_buffer", "indirect_buffer", "shader_device_address"},
-				memory_property = {"device_local"},
-				label = "scatter shadow cull commands",
-			}
-			state.counts_address = state.counts:GetDeviceAddress()
-			state.commands_address = state.commands:GetDeviceAddress()
-		end
-
-		if state.layout_version ~= layout_version then
-			if state.instances then state.instances:Remove() end
-
-			state.instances = render.CreateBuffer{
-				byte_size = 64 * math.max(shadow_out_total, 1),
-				buffer_usage = {"storage_buffer", "shader_device_address"},
-				memory_property = {"device_local"},
-				label = "scatter shadow cull instances",
-			}
-			state.layout_version = layout_version
-		end
-
-		local b = get_buffers()
-		local cmd = shadow_map.cmd
-		local options = shadow_map:GetGPUCullOptions(cascade_index)
-		local cull = get_cull_pipeline()
-		local commands = get_commands_pipeline()
-		local planes = shadow_map.cascade[cascade_index].frustum_planes
-		local v = cull.shadow_state or {planes = {}}
-		cull.shadow_state = v
-		v.blocks = b.shadow_blocks:GetDeviceAddress()
-		v.prototypes = b.prototypes:GetDeviceAddress()
-		v.source = b.instances:GetDeviceAddress()
-		v.source_commands = b.shadow_commands:GetDeviceAddress()
-		v.out_worlds = state.instances:GetDeviceAddress()
-		v.out_counts = state.counts_address
-
-		for i = 0, 23 do
-			v.planes[i] = planes[i]
-		end
-
-		v.min_extent = options and options.min_caster_extent or 0
-		v.block_count = shadow_block_count
-		local c = commands.shadow_state or {}
-		commands.shadow_state = c
-		c.batches = b.batches:GetDeviceAddress()
-		c.prototypes = v.prototypes
-		c.source_commands = v.source_commands
-		c.out_commands = state.commands_address
-		c.out_counts = state.counts_address
-		c.batch_count = #draw_batches
-		cmd:FillBuffer(state.counts, 0, SHADOW_COUNT_BYTES, 0)
-		cmd:PipelineBarrier(COMPUTE_TO_COMPUTE)
-		cull:Dispatch(cmd, shadow_block_count, 1, 1, 1)
-		cmd:PipelineBarrier(COMPUTE_TO_COMPUTE)
-		commands:Dispatch(cmd, math.ceil(#draw_batches / 64), 1, 1, 1)
-		cmd:PipelineBarrier(COMPUTE_TO_DRAW)
-		state.culled = true
-	end)
-
-	event.AddListener("DrawAllShadows", "scatter", function(shadow_map, cascade_index)
-		local states = shadow_states[shadow_map]
-		local state = states and states[cascade_index]
-
-		if not state or not state.culled then return end
-
-		shadow_map:DrawBatches(
-			cascade_index,
-			scatter,
-			draw_batches,
-			batch_serial,
-			state.instances:GetDeviceAddress(),
-			state.commands,
-			DRAW_COMMAND_SIZE
-		)
-	end)
-end
 
 return scatter

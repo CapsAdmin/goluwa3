@@ -14,7 +14,7 @@ pvars.StartGroup("Rendering", "Visibility buffer", {store = false})
 local density = pvars.Setup2{
 	key = "r_visibility_buffer_density",
 	default = 0.03,
-	help = "triangles per pixel above which a group of plain scene meshes is drawn through the visibility buffer (triangles of its visible instances over the pixels of their bounding spheres), below it stays classic; each cluster of a cluster lod mesh is routed the same way by its own triangles, scatter always uses it",
+	help = "triangles per pixel above which a group of plain scene meshes is drawn through the visibility buffer (triangles of its visible instances over the pixels of their bounding spheres), below it stays classic; each cluster of a cluster lod mesh is routed the same way by its own triangles",
 }
 pvars.EndGroup()
 

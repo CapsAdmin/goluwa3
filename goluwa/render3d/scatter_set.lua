@@ -412,11 +412,24 @@ local function finish_loading(proto, entries)
 		proto.radius = math.sqrt(
 			math.max(min_x * min_x, max_x * max_x) + math.max(min_y * min_y, max_y * max_y) + math.max(min_z * min_z, max_z * max_z)
 		)
+		proto.sphere = {
+			(
+				min_x + max_x
+			) * 0.5,
+			(
+				min_y + max_y
+			) * 0.5,
+			(
+				min_z + max_z
+			) * 0.5,
+			0.5 * math.sqrt((max_x - min_x) ^ 2 + (max_y - min_y) ^ 2 + (max_z - min_z) ^ 2),
+		}
 
 		if proto.mid then
 			proto.mid.height = proto.height
 			proto.mid.footprint = proto.footprint
 			proto.mid.radius = proto.radius
+			proto.mid.sphere = proto.sphere
 		end
 
 		if proto.billboard_radii then
