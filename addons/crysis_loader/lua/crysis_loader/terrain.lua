@@ -143,7 +143,6 @@ local function get_or_create_cry_terrain_layers(terrain)
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					fade_distance = surface_type.project_axis == 2 and 128 or 2048,
 					fade_distance_xy = side and side.cry_texture_maps and side.cry_texture_maps.Diffuse and 2048 or nil,
-					specular = 0,
 					scatter = 0,
 					roughness = 1,
 					medium = material.cry_medium_density or 0,
