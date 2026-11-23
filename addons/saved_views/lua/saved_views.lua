@@ -11,6 +11,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
 local View = import("goluwa/render3d/view.lua")
 local Shot = import("goluwa/render3d/shot.lua")
+local process = import("goluwa/bindings/process.lua")
 local saved_views = {}
 local scene_name
 local scene_args
