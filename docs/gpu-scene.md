@@ -33,7 +33,7 @@ Visuals with `InSceneBVH = false` are not ray traced (mask 0) but are still draw
 - Everything the gpu reads of a row must stay valid for frames in flight: freed rows keep their data `RETIRE_FRAMES` before being zeroed, `Buffer` releases are deferred by submission serial, and growing a table keeps the old buffer for a few frames. Reading a zeroed mesh row makes a ray read address 0 and loses the device.
 - Build the TLAS outside a render pass and before the passes that trace.
 - DDGI's ray pipeline payload size must equal `Payload` (`max_ray_payload_size`); a bigger payload than declared is a device lost, not a validation error.
-- A mesh whose vertices change in place needs `dynamic` and something that says when (`skinning.updated`); nothing else refits. Deformation that only the raster does (wind bending in the vertex shader) is not in the store: the instance keeps its mesh row for the raster and hit shading and traces against a bent copy of the mesh chosen on the gpu from its bend pool (`instances.SetBendPool`, see foliage.md).
+- A mesh whose vertices change in place needs `dynamic` and something that says when (`skinning.updated`). Procedural deformation (wind) is not in the store: the instance keeps its mesh row for the raster and hit shading and traces against a deformed copy of the mesh chosen on the gpu from its part's pool (`scene/vegetation_bend.lua`, see foliage.md). Both kinds of deformed BLAS refit through one queue (`accel.QueueRefit`, flushed once in `instances.Build` after the copies are written).
 - Rotate gpu-read per-frame resources by `render.frame_serial`, not the frame number (a blocking wait inside Update can record a second frame with the same number).
 
 ## Verifying

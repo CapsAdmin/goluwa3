@@ -279,9 +279,9 @@ local function dispatch_queued(cmd)
 	gpu_timing.BeginScope(cmd, "vegetation_bend")
 	pipeline:Dispatch(cmd, math.min(queued_groups, ROW), math.ceil(queued_groups / ROW), 1, 1)
 	gpu_timing.EndScope(cmd, "vegetation_bend")
-	accel.BuildBLASes(cmd, queued_records, queued)
 
 	for i = 1, queued do
+		accel.QueueRefit(queued_records[i])
 		queued_records[i] = nil
 	end
 

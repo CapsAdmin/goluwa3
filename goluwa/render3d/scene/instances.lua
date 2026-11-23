@@ -688,7 +688,10 @@ do
 		data_table.count = row_count
 		raster_table.count = row_count
 
-		if row_count == 0 then return nil end
+		if row_count == 0 then
+			accel.FlushRefits(cmd)
+			return nil
+		end
 
 		local pipeline = get_update_pipeline()
 		local slot = (
@@ -763,6 +766,7 @@ do
 			dstStage = "acceleration_structure_build_khr",
 			memoryBarrier = true,
 		}
+		accel.FlushRefits(cmd)
 		local instance_buffer, instance_count = tlas_buffer, row_count
 		local used, span_count = tlas_table:GetSpans(spans)
 

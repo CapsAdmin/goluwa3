@@ -172,6 +172,26 @@ local function barrier_between_builds(cmd)
 	}
 end
 
+-- deformed meshes (skinned copies, wind bent copies) refit together once their positions are written
+local refits, refit_count = {}, 0
+
+function accel.QueueRefit(record)
+	refit_count = refit_count + 1
+	refits[refit_count] = record
+end
+
+function accel.FlushRefits(cmd)
+	if refit_count == 0 then return end
+
+	accel.BuildBLASes(cmd, refits, refit_count)
+
+	for i = 1, refit_count do
+		refits[i] = nil
+	end
+
+	refit_count = 0
+end
+
 function accel.BuildBLASes(cmd, jobs, count)
 	local device = render.GetDevice()
 	scratch_alignment = scratch_alignment or

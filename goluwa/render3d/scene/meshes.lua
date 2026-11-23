@@ -357,7 +357,6 @@ function meshes.Build(cmd, updated)
 	end
 
 	local refit_count = 0
-	local refit = {}
 
 	if updated then
 		for address in pairs(updated) do
@@ -369,14 +368,12 @@ function meshes.Build(cmd, updated)
 
 					if record.blas then
 						refit_count = refit_count + 1
-						refit[refit_count] = record
+						accel.QueueRefit(record)
 					end
 				end
 			end
 		end
 	end
-
-	if refit_count > 0 then accel.BuildBLASes(cmd, refit, refit_count) end
 
 	local compacted, compacted_count = accel.CompactBLASes(cmd)
 
