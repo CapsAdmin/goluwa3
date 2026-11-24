@@ -6,6 +6,7 @@ local cry_water = import("lua/crysis_loader/water.lua")
 local water = import("goluwa/render3d/water.lua")
 local fluid = import("goluwa/physics/fluid.lua")
 local scene = import("goluwa/entities/scene.lua")
+local event = import("goluwa/event.lua")
 local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -523,6 +524,26 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					spawn_point = {Group = "spawn"},
 				},
 			}
+		end
+	end
+
+	if data.entities and data.entities[1] then
+		local entities_guid
+
+		for index, entity in ipairs(data.entities) do
+			local components = event.Call("CryEntity", entity)
+
+			if components then
+				entities_guid = entities_guid or add_folder(level_guid, "Entities")
+				local transform_data = level.ConvertCryWorldMatrixToEngineTransform(entity.world_matrix)
+				components.transform = {Position = transform_data.position, Rotation = transform_data.rotation}
+				add{
+					guid = level_guid .. ":entity:" .. index,
+					parent = entities_guid,
+					properties = {Name = entity.name or entity.class},
+					components = components,
+				}
+			end
 		end
 	end
 

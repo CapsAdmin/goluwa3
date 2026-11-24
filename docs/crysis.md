@@ -58,6 +58,10 @@ Warhead's ice shaders map to the engine's `medium` feature (the `ice` preset, se
 - The stored world to bone matrix is stale in some models (turtle); the inverse bind is derived from bone to world.
 - Animations are `.caf` files listed in the model's `.cal` (`name = file`, relative to `#filepath`, which is game root relative); each becomes a clip of that name. Controllers 0x827 store centimeters and the log of the inverse local rotation; `caf.lua` bakes them to frames at the timing chunk's rate. `.lmg`, `.dba` (the shark) and `Animations.pak` are not supported.
 
+## Entities
+
+Entities without geometry that the loader does not handle itself (`level.ExtractEntity`, with archetype properties merged under the instance's) are offered to addons through `event.Call("CryEntity", {class, name, world_matrix, properties})`; a listener returns a component table and the entity is added under the level's `Entities` folder (the `boids` addon claims `Chickens` and `Turtles`).
+
 ## Collision
 
 - Collision comes from the cgf physics chunk of slot 0 (`cry_physics.lua`); slots 1 and 2 are not solid. Models with no slot 0 have no collision in Cry either.

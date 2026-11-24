@@ -377,6 +377,41 @@ local function extract_road_object(node, world_matrix, layer, group)
 	}
 end
 
+do
+	local function merge_properties(out, properties)
+		if not properties then return end
+
+		for key, value in pairs(properties.attrs) do
+			out[key] = value
+		end
+
+		local children = properties.children
+
+		for i = 1, children and (children.n or #children) or 0 do
+			local child = children[i]
+			out[child.tag] = table.merge(out[child.tag] or {}, child.attrs)
+		end
+	end
+
+	function level.ExtractEntity(node, world_matrix, libraries)
+		local attrs = node.attrs
+		local archetype = attrs.Type == "EntityArchetype" and libraries.archetype_nodes[attrs.Prototype]
+		local class = attrs.EntityClass or archetype and archetype.attrs.Class
+
+		if not class then return nil end
+
+		local properties = {}
+		merge_properties(properties, archetype and find_child_by_tag(archetype, "Properties"))
+		merge_properties(properties, find_child_by_tag(node, "Properties"))
+		return {
+			class = class,
+			name = attrs.Name,
+			world_matrix = world_matrix,
+			properties = properties,
+		}
+	end
+end
+
 function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, extra, group, layer)
 	local attrs = node.attrs or {}
 	layer = attrs.Layer or layer
@@ -468,19 +503,24 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 
 	local model_path = level.GetVisualGeometryPath(node, libraries)
 
-	if model_path then
-		out[#out + 1] = {
-			name = attrs.Name or file_path.GetFileNameFromPath(model_path),
-			model_path = model_path,
-			material_path = attrs.Material ~= "" and attrs.Material or nil,
-			type = object_type,
-			physics = level.GetPhysicsProperties(node, libraries),
-			world_matrix = world_matrix,
-			layer = layer,
-			group = group,
-		}
+	if not model_path then
+		local entity = level.ExtractEntity(node, world_matrix, libraries)
+
+		if entity then list.insert(extra.entities, entity) end
+
+		return out
 	end
 
+	out[#out + 1] = {
+		name = attrs.Name or file_path.GetFileNameFromPath(model_path),
+		model_path = model_path,
+		material_path = attrs.Material ~= "" and attrs.Material or nil,
+		type = object_type,
+		physics = level.GetPhysicsProperties(node, libraries),
+		world_matrix = world_matrix,
+		layer = layer,
+		group = group,
+	}
 	return out
 end
 
@@ -529,7 +569,7 @@ function level.ExtractVisualObjects(nodes, libraries)
 	local by_id = {}
 	local world_matrices = {}
 	local out = {}
-	local extra = {water = {}, decals = {}, roads = {}, spawns = {}, lights = {}}
+	local extra = {water = {}, decals = {}, roads = {}, spawns = {}, lights = {}, entities = {}}
 
 	for _, node in ipairs(nodes) do
 		if node.attrs.Id then by_id[node.attrs.Id] = node end
@@ -1707,6 +1747,7 @@ function level.Load(level_dir)
 		roads = extra.roads,
 		spawns = extra.spawns,
 		lights = extra.lights,
+		entities = extra.entities,
 		terrain = terrain,
 	}
 	return loaded_levels[level_dir]

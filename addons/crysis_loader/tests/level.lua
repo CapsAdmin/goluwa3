@@ -453,6 +453,48 @@ T.Test("Cry level parser extracts lights and skips inactive ones", function()
 	T(extra.lights[2].spot_fov)["=="](nil)
 end)
 
+T.Test("Cry level parser keeps entities without geometry with archetype properties", function()
+	local libraries = {
+		prefabs = {},
+		archetypes = {},
+		archetype_nodes = {
+			["{C}"] = assert(
+				xml.Decode([[
+<EntityPrototype Id="{C}" Class="Chickens">
+	<Properties>
+		<Boid nCount="3" Mass="10" />
+		<Options Radius="10" bActivate="1" />
+	</Properties>
+</EntityPrototype>
+			]])
+			).children[1],
+		},
+	}
+	local _, extra = crylevel.ExtractVisualObjects(
+		assert(
+			crylevel.ParseEditorObjectsData([[
+<Level>
+	<Objects>
+		<Object Type="EntityArchetype" Name="flock" Prototype="{C}" Pos="1,2,3">
+			<Properties>
+				<Options Radius="4" />
+			</Properties>
+		</Object>
+	</Objects>
+</Level>
+			]])
+		),
+		libraries
+	)
+	T(#extra.entities)["=="](1)
+	local entity = extra.entities[1]
+	T(entity.class)["=="]("Chickens")
+	T(entity.name)["=="]("flock")
+	T(entity.properties.Boid.nCount)["=="]("3")
+	T(entity.properties.Options.Radius)["=="]("4")
+	T(entity.properties.Options.bActivate)["=="]("1")
+end)
+
 T.Test("Cry brush list parser reads materials, models and transforms", function()
 	local brush_list = import("lua/crysis_loader/brush_list.lua")
 
