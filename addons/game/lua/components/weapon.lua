@@ -271,7 +271,7 @@ function META:GiveDefaultAmmo(holder)
 end
 
 function META:GetReserve(kind)
-	return self:GetHolder():GetAmmo(kind)
+	return self:GetHolder():GetAmmoCount(kind)
 end
 
 function META:HasPrimaryAmmo(count)

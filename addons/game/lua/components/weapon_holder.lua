@@ -33,7 +33,7 @@ function META:IsAmmoInfinite()
 	return infinite_ammo:Get()
 end
 
-function META:GetAmmo(kind)
+function META:GetAmmoCount(kind)
 	if self:IsAmmoInfinite() then return math.huge end
 
 	return self.Ammo[kind] or 0

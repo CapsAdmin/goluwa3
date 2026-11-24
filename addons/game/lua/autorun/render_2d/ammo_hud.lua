@@ -39,7 +39,7 @@ event.AddListener("DrawHUD", "ammo_hud", function()
 	local w, h = PANEL_WIDTH * S, PANEL_HEIGHT * S
 	local x, y = screen_w - MARGIN_X * S - w, screen_h - MARGIN_Y * S - h
 	local infinite = holder:IsAmmoInfinite()
-	local count = weapon.ClipSize > 0 and weapon.Clip or holder:GetAmmo(weapon.AmmoType)
+	local count = weapon.ClipSize > 0 and weapon.Clip or holder:GetAmmoCount(weapon.AmmoType)
 	active:DrawHudPanel(
 		x,
 		y,
@@ -60,7 +60,7 @@ event.AddListener("DrawHUD", "ammo_hud", function()
 
 	if weapon.ClipSize > 0 and not infinite then
 		render2d.DrawText{
-			text = "/ " .. holder:GetAmmo(weapon.AmmoType),
+			text = "/ " .. holder:GetAmmoCount(weapon.AmmoType),
 			x = x + 96 * S,
 			y = y + 24 * S,
 			size = 18 * S,
@@ -73,7 +73,7 @@ event.AddListener("DrawHUD", "ammo_hud", function()
 
 	if weapon.SecondaryAmmoType ~= "" and not infinite then
 		render2d.DrawText{
-			text = "alt " .. holder:GetAmmo(weapon.SecondaryAmmoType),
+			text = "alt " .. holder:GetAmmoCount(weapon.SecondaryAmmoType),
 			x = x + w - 14 * S,
 			y = y + 8 * S,
 			size = 14 * S,

@@ -45,14 +45,14 @@ T.Test("given half-life 2 weapons start with a full clip and their reserve ammo"
 	}
 	local smg = owner.weapon_holder:Give("weapon_hl2_smg1").weapon
 	T(smg.Clip)["=="](45)
-	T(owner.weapon_holder:GetAmmo("smg1"))["=="](225)
-	T(owner.weapon_holder:GetAmmo("smg1_grenade"))["=="](3)
+	T(owner.weapon_holder:GetAmmoCount("smg1"))["=="](225)
+	T(owner.weapon_holder:GetAmmoCount("smg1_grenade"))["=="](3)
 	local dropped = weapons.Spawn("weapon_hl2_smg1", Vec3(0, 1, 0))
 	T(owner.weapon_holder:Pickup(dropped))["=="](true)
 	T(dropped:IsValid())["=="](false)
-	T(owner.weapon_holder:GetAmmo("smg1"))["=="](450)
+	T(owner.weapon_holder:GetAmmoCount("smg1"))["=="](450)
 	pvars.SetSession("sv_infinite_ammo", true)
-	T(owner.weapon_holder:GetAmmo("smg1"))["=="](math.huge)
+	T(owner.weapon_holder:GetAmmoCount("smg1"))["=="](math.huge)
 	pvars.SetSession("sv_infinite_ammo", infinite)
 	owner:Remove()
 end)
