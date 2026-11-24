@@ -56,9 +56,7 @@ local function find_library_linux(name)
 			end
 
 			if pipewire_path then
-				local ok_xffi, xffi = pcall(require, "nattlua.other.xffi")
-
-				if ok_xffi then xffi.dl.load(pipewire_path, true) end
+				pcall(ffi.load, pipewire_path, true)
 			end
 
 			if asound_path then
