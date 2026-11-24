@@ -9,12 +9,12 @@ local GAMES = {
 	{
 		appid = 17300,
 		key = "crysis",
-		paks = {"ZPatch1", "Objects", "Textures", "GameData", "Localized/english"},
+		paks = {"ZPatch1", "Objects", "Textures", "GameData", "Sounds", "Localized/english"},
 	},
 	{
 		appid = 17340,
 		key = "wars",
-		paks = {"ZPatch1", "Objects", "Textures", "GameData", "Localized/english"},
+		paks = {"ZPatch1", "Objects", "Textures", "GameData", "Sounds", "Localized/english"},
 	},
 	{
 		appid = 17330,
@@ -28,6 +28,7 @@ local GAMES = {
 			"Warhead_Objects",
 			"Warhead_Textures",
 			"Warhead_GameData",
+			"Warhead_Sounds",
 			"Localized/english",
 		},
 	},

@@ -58,6 +58,11 @@ Warhead's ice shaders map to the engine's `medium` feature (the `ice` preset, se
 - The stored world to bone matrix is stale in some models (turtle); the inverse bind is derived from bone to world.
 - Animations are `.caf` files listed in the model's `.cal` (`name = file`, relative to `#filepath`, which is game root relative); each becomes a clip of that name. Controllers 0x827 store centimeters and the log of the inverse local rotation; `caf.lua` bakes them to frames at the timing chunk's rate. `.lmg`, `.dba` (the shark) and `Animations.pak` are not supported.
 
+## Sounds
+
+- `Sounds.pak` (`Warhead_Sounds.pak`) holds FSB banks (see [audio.md](audio.md), Decoding) and the FMOD Designer projects (`.fdp`, XML) that name the sounds. `fmod_events.Get("Sounds/environment:random_oneshots_natural:chicken_cluck")` (project dir, then event groups and the event) parses the project once and returns the event's bank sample paths, volume and pitch (octaves). The binary `.fev` is not read.
+- An event's layers name sound definitions, whose waveforms name a bank and a file; only the file's base name is in the bank. Dialog events mostly do not resolve (localized and programmer sounds).
+
 ## Entities
 
 Entities without geometry that the loader does not handle itself (`level.ExtractEntity`, with archetype properties merged under the instance's) are offered to addons through `event.Call("CryEntity", {class, name, world_matrix, properties})`; a listener returns a component table and the entity is added under the level's `Entities` folder (the `boids` addon claims `Chickens` and `Turtles`).
