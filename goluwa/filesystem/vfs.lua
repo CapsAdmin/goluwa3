@@ -18,6 +18,7 @@ do
 
 		vfs.ClearCallCache()
 		vfs.Unmount(where, to)
+		local requested_where = where
 		local path_info_where = vfs.GetPathInfo(where, true)
 		local path_info_to = vfs.GetPathInfo(to, true)
 
@@ -40,6 +41,7 @@ do
 				where = path_info_where,
 				to = path_info_to,
 				full_where = where,
+				requested_where = requested_where,
 				full_to = to,
 				userdata = userdata,
 				to_length = #path_info_to.full_path,
@@ -56,7 +58,15 @@ do
 		vfs.ClearCallCache()
 
 		for i, v in ipairs(vfs.mounted_paths) do
-			if v.full_where:lower() == where:lower() and v.full_to:lower() == to:lower() then
+			-- a mount of a path with an unknown filesystem is stored with the filesystem's name in front
+			if
+				(
+					v.full_where:lower() == where:lower() or
+					v.requested_where:lower() == where:lower()
+				)
+				and
+				v.full_to:lower() == to:lower()
+			then
 				list.remove(vfs.mounted_paths, i)
 				vfs.mount_generation = vfs.mount_generation + 1
 				vfs.ClearTranslateCache()
