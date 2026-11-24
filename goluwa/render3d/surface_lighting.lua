@@ -441,7 +441,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 		]] .. surface_features.GetSurfaceGLSL() .. [[
 
-		]] .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetFinishFunctionGLSL() .. [[
+		]] .. render3d.GetEmissiveGLSL() .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetFinishFunctionGLSL() .. [[
 
 		float get_light_visibility_at(int i, int type, vec3 position, vec3 L, vec3 light_position, float light_range) {
 			if (type == 0) {
