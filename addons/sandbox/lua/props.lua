@@ -117,6 +117,18 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 					end
 				end
 
+				if not points[1] then
+					local min, max = model.bounds.min, model.bounds.max
+
+					for _, x in ipairs{min.x, max.x} do
+						for _, y in ipairs{min.y, max.y} do
+							for _, z in ipairs{min.z, max.z} do
+								points[#points + 1] = {pos = Vec3(x, y, z)}
+							end
+						end
+					end
+				end
+
 				local child = convex_hull.FromPolygon3D({Vertices = points})
 				local center = child.Position
 				local size = child.ConvexHull.bounds_max - child.ConvexHull.bounds_min
