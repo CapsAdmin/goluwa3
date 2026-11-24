@@ -553,7 +553,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 				if (dot(N, Ng) <= 0.0) N = Ng;
 
-				emission = ray_hit_emission(tri, albedo, P, instance, primitive);
+				emission = ray_hit_emission(tri, albedo, P, instance, primitive, dir);
 				albedo = ray_medium_albedo(material, albedo);
 				metallic = clamp(metallic, 0.0, 1.0);
 				v.transmission = material.transmission;

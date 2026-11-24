@@ -7,6 +7,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local scene_materials = import("goluwa/render3d/scene/materials.lua")
 local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
@@ -318,6 +319,8 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 			int emissive_color;
 			float emissive_albedo;
 			float emissive_floor;
+			int sky_tex;
+			float sky_window;
 			vec3 medium_extinction;
 			vec3 medium_scattering;
 			vec3 medium_porous_scattering;
@@ -369,7 +372,7 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 end
 
 function ray_materials.GetMaterialGLSL()
-	return medium_common.GetGLSL() .. [[
+	return medium_common.GetGLSL() .. glsl_common.GetEquirectGLSL() .. [[
 
 		vec3 ray_material_albedo(ray_material material, vec3 P) {
 			if (material.terrain_tex >= 0) {
@@ -466,10 +469,19 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 			return min(material.emissive_scale * source * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
 		}
 
-		vec3 ray_hit_emission(scene_triangle tri, vec3 albedo, vec3 P, uint instance, uint primitive) {
+		// dir is the direction the emitter is seen in, a sky window shows the sky behind it along it
+		vec3 ray_material_sky_window(ray_material material, vec3 emission, vec3 dir) {
+			if (material.sky_tex < 0) return emission;
+
+			float lod = material.roughness * float(textureQueryLevels(TEXTURE(material.sky_tex)) - 1);
+			vec4 sky = textureLod(TEXTURE(material.sky_tex), dir_to_equirect_uv(vec3(-dir.x, dir.y, dir.z)), lod);
+			return mix(emission, emission / EMISSIVE_REFERENCE_LUMINANCE * sky.rgb * sky.a, material.sky_window);
+		}
+
+		vec3 ray_hit_emission(scene_triangle tri, vec3 albedo, vec3 P, uint instance, uint primitive, vec3 dir) {
 			ray_material material = ray_materials[tri.material];
 
-			if (!ray_material_emission_textured(material)) return ray_material_emission(tri, albedo);
+			if (!ray_material_emission_textured(material)) return ray_material_sky_window(material, ray_material_emission(tri, albedo), dir);
 
 			vec3 p = P - tri.v0;
 			float d00 = dot(tri.e1, tri.e1);
@@ -482,7 +494,7 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 			float w = (d00 * d21 - d01 * d20) * inv;
 			scene_uv uv = scene_hit_uv(instance, primitive);
 			ivec2 size = textureSize(TEXTURE(ray_material_emission_texture(material)), 0);
-			return ray_material_texel_emission(material, albedo, textureLod(TEXTURE(ray_material_emission_texture(material)), uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w, max(log2(float(max(size.x, size.y)) / RAY_EMISSIVE_TEXELS), 0.0)));
+			return ray_material_sky_window(material, ray_material_texel_emission(material, albedo, textureLod(TEXTURE(ray_material_emission_texture(material)), uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w, max(log2(float(max(size.x, size.y)) / RAY_EMISSIVE_TEXELS), 0.0))), dir);
 		}
 	]]
 end
@@ -692,6 +704,8 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t emissive_color;
 	float emissive_albedo;
 	float emissive_floor;
+	int32_t sky_tex;
+	float sky_window;
 	float medium_extinction[3];
 	float medium_scattering[3];
 	float medium_porous_scattering[3];
@@ -1111,6 +1125,11 @@ do
 				entry.emissive_color = material:GetEmissiveTextureIsColor() and 1 or 0
 				entry.emissive_albedo = material:GetEmissiveAlbedoFactor()
 				entry.emissive_floor = material:GetEmissiveAlphaFloor()
+				entry.sky_window = material:GetSkyWindow()
+				entry.sky_tex = entry.sky_window > 0 and
+					render3d.GetEnvironmentTexture() and
+					texture_index(self, state, i, render3d.GetEnvironmentTexture()) or
+					-1
 				local from_albedo = material:GetMediumPorosityFromAlbedo() > 0
 				local medium_slot = material:GetMediumSlot()
 

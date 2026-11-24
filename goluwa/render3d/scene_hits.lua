@@ -427,7 +427,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			#endif
 
 			albedo = ray_medium_albedo(material, albedo);
-			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive) : vec3(0.0);
+			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive, dir) : vec3(0.0);
 			metallic = saturate(metallic);
 			hit_brdf brdf = hit_brdf_prepare(albedo, metallic, material.specular, clamp(hit_roughness, 0.045, 1.0), material.diffuse_roughness, dot(hit_N, -dir));
 			vec3 sun_L = normalize(radiance_cache_data.radiance_cache_sun_direction.xyz);

@@ -905,7 +905,7 @@ function emitters.GetLightGLSL()
 			scene_triangle tri = scene_hit_tri(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED);
 			ray_material material = ray_materials[tri.material];
 			float receiving = normal == vec3(0.0) ? 1.0 : max(dot(normal, dir), 1e-3);
-			return ray_hit_emission(tri, ray_material_albedo(material, point), point, emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED) / (emitter_luminance(e, tri) * receiving) * weight;
+			return ray_hit_emission(tri, ray_material_albedo(material, point), point, emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED, dir) / (emitter_luminance(e, tri) * receiving) * weight;
 		}
 
 		vec3 emitter_sample_light(uint index, uint frame, vec3 origin, vec3 normal, float radius, out vec3 dir, out float dist) {
