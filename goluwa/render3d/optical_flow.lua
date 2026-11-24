@@ -1,7 +1,6 @@
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Texture = import("goluwa/render/texture.lua")
 local render = import("goluwa/render/render.lua")
--- FSR3's optical flow: block matching of the luma of the presented image against last frame's, coarse to fine over a pyramid, plus scene change detection from luma histograms
 local optical_flow = {}
 optical_flow.LEVELS = 7
 optical_flow.BLOCK_SIZE = 8
@@ -538,7 +537,12 @@ local function ensure_resources(width, height)
 
 	for input = 1, 2 do
 		for level = 0, optical_flow.LEVELS - 1 do
-			resources.luma[input][level] = texture("luma " .. input .. " level " .. level, math.max(1, math.floor(width / 2 ^ level)), math.max(1, math.floor(height / 2 ^ level)), "r32_uint")
+			resources.luma[input][level] = texture(
+				"luma " .. input .. " level " .. level,
+				math.max(1, math.floor(width / 2 ^ level)),
+				math.max(1, math.floor(height / 2 ^ level)),
+				"r32_uint"
+			)
 		end
 	end
 
@@ -611,13 +615,22 @@ function optical_flow.Dispatch(cmd, scene, reset)
 		end
 	end
 
-	for _, t in ipairs{r.histogram, r.previous_histograms[1], r.previous_histograms[2], r.scd_temp, r.scd_output} do
+	for _, t in ipairs{
+		r.histogram,
+		r.previous_histograms[1],
+		r.previous_histograms[2],
+		r.scd_temp,
+		r.scd_output,
+	} do
 		render.TransitionResourceToComputeStorage(t, {cmd = cmd, srcStage = "all_commands", srcAccess = "memory_read"})
 	end
 
 	if reset or recreated then
 		state.frame_index = 0
-		clear_images(cmd, {r.scd_temp, r.scd_output, r.previous_histograms[1], r.previous_histograms[2]})
+		clear_images(
+			cmd,
+			{r.scd_temp, r.scd_output, r.previous_histograms[1], r.previous_histograms[2]}
+		)
 
 		for input = 1, 2 do
 			clear_images(cmd, r.luma[input])
@@ -635,10 +648,12 @@ function optical_flow.Dispatch(cmd, scene, reset)
 	state.level = 0
 	local base = ((render.GetCurrentFrame() or 1) - 1) % MAX_FRAMES * SLOTS_PER_FRAME + 1
 	local slot = base
+
 	local function next_slot()
 		slot = slot + 1
 		return slot - 1
 	end
+
 	local p = get_pipeline("clear", {x = 64, y = 1, z = 1}, CLEAR_DECLARATIONS, CLEAR_SHADER)
 	local s = next_slot()
 	bind(cmd, p, s, {r.histogram})
@@ -653,18 +668,43 @@ function optical_flow.Dispatch(cmd, scene, reset)
 	for level = 1, optical_flow.LEVELS - 1 do
 		s = next_slot()
 		bind(cmd, p, s, {current[level - 1], current[level]})
-		p.pipeline:DispatchForSize(cmd, math.max(1, math.floor(size.x / 2 ^ level)), math.max(1, math.floor(size.y / 2 ^ level)), 1, s, p.dynamic_offsets)
+		p.pipeline:DispatchForSize(
+			cmd,
+			math.max(1, math.floor(size.x / 2 ^ level)),
+			math.max(1, math.floor(size.y / 2 ^ level)),
+			1,
+			s,
+			p.dynamic_offsets
+		)
 		barrier(cmd)
 	end
 
 	p = get_pipeline("histogram", {x = 32, y = 8, z = 1}, HISTOGRAM_DECLARATIONS, HISTOGRAM_SHADER)
 	s = next_slot()
 	bind(cmd, p, s, {current[0], r.histogram})
-	p.pipeline:Dispatch(cmd, math.max(1, math.ceil(math.floor(math.floor(size.x / 4) / 3) / 32)), 16, HISTOGRAMS, s, p.dynamic_offsets)
+	p.pipeline:Dispatch(
+		cmd,
+		math.max(1, math.ceil(math.floor(math.floor(size.x / 4) / 3) / 32)),
+		16,
+		HISTOGRAMS,
+		s,
+		p.dynamic_offsets
+	)
 	barrier(cmd)
 	p = get_pipeline("divergence", {x = 256, y = 1, z = 1}, DIVERGENCE_DECLARATIONS, DIVERGENCE_SHADER)
 	s = next_slot()
-	bind(cmd, p, s, {r.histogram, r.previous_histograms[2 - state.frame_parity], r.previous_histograms[state.frame_parity + 1], r.scd_temp, r.scd_output})
+	bind(
+		cmd,
+		p,
+		s,
+		{
+			r.histogram,
+			r.previous_histograms[2 - state.frame_parity],
+			r.previous_histograms[state.frame_parity + 1],
+			r.scd_temp,
+			r.scd_output,
+		}
+	)
 	p.pipeline:Dispatch(cmd, HISTOGRAMS, 3, 1, s, p.dynamic_offsets)
 	barrier(cmd)
 	local search = get_pipeline("search", {x = 64, y = 1, z = 1}, SEARCH_DECLARATIONS, SEARCH_SHADER)
@@ -673,22 +713,55 @@ function optical_flow.Dispatch(cmd, scene, reset)
 
 	for level = optical_flow.LEVELS - 1, 0, -1 do
 		state.level = level
-		local luma_width, luma_height = math.max(1, math.floor(size.x / 2 ^ level)), math.max(1, math.floor(size.y / 2 ^ level))
+		local luma_width, luma_height = math.max(1, math.floor(size.x / 2 ^ level)),
+		math.max(1, math.floor(size.y / 2 ^ level))
 		s = next_slot()
 		bind(cmd, search, s, {current[level], previous[level], r.search[level], r.scd_output})
-		search.pipeline:Dispatch(cmd, math.ceil(luma_width / 16), math.ceil(luma_height / 16), 1, s, search.dynamic_offsets)
+		search.pipeline:Dispatch(
+			cmd,
+			math.ceil(luma_width / 16),
+			math.ceil(luma_height / 16),
+			1,
+			s,
+			search.dynamic_offsets
+		)
 		barrier(cmd)
 		local flow_width, flow_height = r.flow_sizes[level][1], r.flow_sizes[level][2]
 		s = next_slot()
 		bind(cmd, filter, s, {r.search[level], r.filtered[level]})
-		filter.pipeline:Dispatch(cmd, math.ceil(flow_width / 16), math.ceil(flow_height / 4), 1, s, filter.dynamic_offsets)
+		filter.pipeline:Dispatch(
+			cmd,
+			math.ceil(flow_width / 16),
+			math.ceil(flow_height / 4),
+			1,
+			s,
+			filter.dynamic_offsets
+		)
 		barrier(cmd)
 
 		if level > 0 then
 			local next_width, next_height = r.flow_sizes[level - 1][1], r.flow_sizes[level - 1][2]
 			s = next_slot()
-			bind(cmd, scale, s, {current[level], previous[level], r.filtered[level], r.search[level - 1], r.scd_output})
-			scale.pipeline:Dispatch(cmd, math.ceil(next_width / 4), math.ceil(next_height / 4), 1, s, scale.dynamic_offsets)
+			bind(
+				cmd,
+				scale,
+				s,
+				{
+					current[level],
+					previous[level],
+					r.filtered[level],
+					r.search[level - 1],
+					r.scd_output,
+				}
+			)
+			scale.pipeline:Dispatch(
+				cmd,
+				math.ceil(next_width / 4),
+				math.ceil(next_height / 4),
+				1,
+				s,
+				scale.dynamic_offsets
+			)
 			barrier(cmd)
 		end
 	end

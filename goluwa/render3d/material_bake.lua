@@ -24,7 +24,6 @@ local objects = import("goluwa/objects/objects.lua")
 local material_bake = {}
 material_bake.estimators = {albedo = true, roughness = true, normal = true}
 
--- a loader can give a material its own set (material.bake_estimators), the estimators are tuned for Source content
 function material_bake.GetEstimators(material)
 	return material.bake_estimators or material_bake.estimators
 end
@@ -284,7 +283,6 @@ local function to_hex(raw)
 	end))
 end
 
--- the cache is valid for exactly this source: this file, the encoder and the generated surface shader
 do
 	local version
 
@@ -337,12 +335,6 @@ local function create_pipeline()
 	}
 end
 
--- Evaluates the material's own surface shader code over uv space into render targets, one texel per
--- uv texel: albedo (rgb in the encoding of the target, alpha is the material's alpha), normal (xy in rg)
--- and metallic, roughness, specular scale in rgb. Returns the framebuffer, its attachments are
--- Textures 1 to 4: the fourth is the emissive color without the multiplier, which stays on the material.
--- skip_normal_estimate leaves the normal of a material without one flat (Bake renders that normal
--- on its own at twice the size).
 function material_bake.Render(material, width, height, skip_normal_estimate)
 	pipeline = pipeline or create_pipeline()
 	local framebuffer = Framebuffer.New{
@@ -388,11 +380,6 @@ function material_bake.Render(material, width, height, skip_normal_estimate)
 	return framebuffer
 end
 
--- Bakes the material into three compressed textures, returned as dds strings:
--- Albedo (bc7 srgb, alpha is the material's alpha), Normal (bc5, the xy the shader would use) and
--- MetallicRoughness (bc7 linear: r metallic, g roughness, b specular scale / 2 with the cavity damping in it).
--- Emissive (bc7 srgb, the color before EmissiveMultiplier) is added when the material emits.
--- Texture transforms are not part of the bake, they stay on the material.
 function material_bake.WantsNormalEstimate(material)
 	return material_bake.GetEstimators(material).normal and
 		not material:GetNormalTexture()
@@ -526,9 +513,6 @@ local function is_identity(u, v)
 	return u.x == 1 and u.y == 0 and u.z == 0 and v.x == 0 and v.y == 1 and v.z == 0
 end
 
--- nil: one layer. "multiply": the second albedo only modulates the first, a bake of the whole is
--- exact. "blend": the vertex blend weight mixes two layers, each layer is baked and the shader
--- mixes them. "unsupported": a blend whose layers cannot be baked separately.
 function material_bake.GetLayerKind(material)
 	local albedo2 = material:GetAlbedo2Texture()
 	local normal2 = material:GetNormal2Texture()
@@ -559,10 +543,6 @@ function material_bake.Emits(material)
 		material:GetMetallicTextureAlphaIsEmissive()
 end
 
--- what the bake does not cover yet: blends whose layers cannot be baked apart, terrain, additive
--- materials, texture transforms (the baked textures are the untransformed content, the
--- transforms stay on the material but one packed texture could not follow three of them) and the
--- specular masks. Returns true, or false and the reason.
 function material_bake.CanBake(material)
 	if material.has_proxies then return false, "proxies" end
 
@@ -603,7 +583,6 @@ function material_bake.CanBake(material)
 	return true
 end
 
--- replaces the textures and every property that only existed to derive them with the baked set
 local SRGB_SLOTS = material_file.SRGBSlots
 
 function material_bake.CreateTextures(baked)
@@ -680,8 +659,6 @@ local READY_GETTERS = {unpack(TEXTURE_GETTERS)}
 table.insert(READY_GETTERS, "GetAlbedo2Texture")
 table.insert(READY_GETTERS, "GetNormal2Texture")
 
--- a key for everything the bake reads: every property and the identity of the textures, nil when a
--- texture has no path to identify it by
 function material_bake.GetKey(material)
 	local parts = {material_bake.GetVersion()}
 
@@ -759,8 +736,6 @@ local function save_cache(key, baked)
 	end
 end
 
--- everything known about a bake for investigation: where the material came from (the loader's
--- source_meta), the properties it had when it was baked, its input textures and what the bake did
 local function build_meta(material, key, width, height)
 	local properties, inputs = {}, {}
 
@@ -952,8 +927,6 @@ local function skip(material, reason)
 	material_bake.LoadDeferred(material)
 end
 
--- Asks for a material to be baked. Needs the material's textures created but deferred: a cache hit
--- loads the baked textures and never loads the originals. A no-op unless r_bake_materials is on.
 function material_bake.Request(material)
 	if not material_bake.enabled:Get() then return end
 

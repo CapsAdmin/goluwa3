@@ -287,9 +287,6 @@ local BEND_VALUES = 6
 local vuv, vuv_new, vnd, vnd_new, vbd, vbd_new
 local vshared, vowner
 
--- mode 0 keeps every open edge, uv seam and attribute within tolerance. A group that cannot simplify is tried
--- again with mode 1, which lets open edges that no other group or chunk shares collapse and loosens the attribute
--- tolerances, then mode 2, which also ignores uv seams. The error stays the measured position deviation
 local function simplify(mesh, tris, isl, nt, target, stats, mode)
 	assert(nt <= MAXT, "group too big")
 	mode = mode or 0

@@ -387,8 +387,6 @@ do
 		}
 	end
 
-	-- polygon3d.TopologySource ({vertices, vertex_count, indices, index_count}) stands in for the polygon's own data and
-	-- is shared by every polygon that welds the same way (terrain tiles of one template), so they share the topology
 	function tessellation.GetTopology(polygon3d)
 		local key = polygon3d.TopologySource or polygon3d.mesh
 		local topology = topologies[key]

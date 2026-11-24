@@ -107,7 +107,6 @@ end
 
 test_chart.regions = build_regions()
 
--- every patch: its region, name, centre in uv and its scene linear colour
 function test_chart.GetPatches()
 	local patches = {}
 
@@ -139,7 +138,6 @@ local function vec3_list(colors)
 	return table.concat(parts, ", ")
 end
 
--- the chart as scene linear colour (18% grey is 0.18), meant to replace the scene before the exposure
 function test_chart.GetGLSL()
 	local blocks = {}
 

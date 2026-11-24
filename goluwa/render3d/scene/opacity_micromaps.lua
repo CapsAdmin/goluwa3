@@ -405,7 +405,6 @@ local function get_jobs_buffer(slot)
 	return entry
 end
 
--- builds micromaps for the waiting meshes whose alpha texture is fully loaded and returns the records that now need a bottom level rebuild
 function opacity_micromaps.Build(cmd)
 	release_retired()
 

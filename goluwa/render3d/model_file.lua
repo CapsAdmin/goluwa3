@@ -21,8 +21,6 @@ local function u32(value)
 	)
 end
 
--- The CPU side of an uploaded mesh: the packed vertices and the indices it was created with.
--- Returns nil and a reason for a mesh that cannot be written.
 function model_file.GetGeometry(polygon)
 	local mesh = polygon.mesh
 
@@ -59,10 +57,6 @@ function model_file.GetGeometry(polygon)
 	}
 end
 
--- What of a model the file carries, for a model that is loaded: its meshes with their skin, the
--- skeleton (bones, parents, bind pose, inverse bind) and the physics children (convex hulls and
--- mesh colliders) with the mass properties. Animations, pose parameters, flexes and ragdolls are
--- not carried, they are listed in the returned `dropped`.
 function model_file.GetDropped(loaded)
 	local dropped = {}
 	local skeleton = loaded.skeleton
@@ -86,9 +80,6 @@ function model_file.GetDropped(loaded)
 	return dropped
 end
 
--- model: {meshes = {{polygon, material = path relative to the model file's directory or nil}},
--- bounds = {min, max}, source = path it came from, physics = model.physics, skeleton = Skeleton}.
--- Returns the file contents.
 function model_file.Serialize(model)
 	local header = {
 		version = VERSION,
@@ -218,7 +209,6 @@ function model_file.Serialize(model)
 	return MAGIC .. u32(#text) .. text .. table.concat(blobs)
 end
 
--- Returns the header and the reader of what is in the blob.
 function model_file.Read(data)
 	assert(data:sub(1, 4) == MAGIC, "not a model file")
 	local b1, b2, b3, b4 = data:byte(5, 8)

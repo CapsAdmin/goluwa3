@@ -34,11 +34,11 @@ To evaluate estimators, compare against a decomposition reference (for example t
 
 ## Material file
 
-Every bake writes `material.mat` (`material_file.lua`) next to its dds files: a luadata chunk with every non-default property and a `Meta` key (source info, key, inputs, and `unserialized`, the properties luadata cannot carry). Object valued properties are written as references through `material_file.RegisterReferenceType` (a texture is `{path, srgb}`, relative when it lives in the same directory; a scatter set is `{name}`). `material_file.Load(path)` resolves them; `.mat` is a registered material extension. Saving a scene with its materials is in [scene-export.md](scene-export.md).
+Every bake writes `material.mat` (`material_file.lua`) next to its dds files: a luadata chunk with every non-default property and a `Meta` key (source info, key, inputs, and `unserialized`, the properties luadata cannot carry). Object valued properties are written as references through `material_file.RegisterReferenceType` (a texture is `{path, srgb}`, relative when it lives in the same directory; a scatter set is `{name}`). A texture without a path is written through the caller's `relative_paths` (texture to file) when it was made from decoded data. `material_file.Load(path)` resolves them, a name in the material's own directory winning over the same name looked up globally (one cached directory listing, no per file probing); `.mat` is a registered material extension. Saving a scene with its materials is in [scene-export.md](scene-export.md).
 
 ## Height from normals
 
-`goluwa/render/height_from_normals.lua` solves for the height a normal texture describes (Frankot Chellappa Poisson solve with a gpu fft). It needs a square power of two texture and assumes it tiles. `vmt_material` uses it for parallax heights (`NORMAL_PARALLAX`).
+`goluwa/render/height_from_normals.lua` solves for the height a normal texture describes (Frankot Chellappa Poisson solve with a gpu fft). It needs a square power of two texture and assumes it tiles. `cutoff` (cycles over the texture) removes the slowest frequencies, the drift a tiling solve cannot know; `height_cut` fades out everything finer than that many cycles, since parallax smears steep narrow grooves. `vmt_material` uses it for parallax heights (`NORMAL_PARALLAX`).
 
 ## Verifying
 

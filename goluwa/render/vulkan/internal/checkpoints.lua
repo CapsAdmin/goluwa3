@@ -5,7 +5,6 @@ local system = import("goluwa/system.lua")
 local checkpoints = {}
 -- functions (address, precision) returning a line that says what lives at a faulting gpu address, or nil
 checkpoints.address_describers = {}
--- functions returning a short text about engine state to include in the device lost report
 checkpoints.state_reporters = {}
 local report_lines
 

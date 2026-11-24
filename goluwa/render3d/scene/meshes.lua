@@ -251,7 +251,6 @@ end
 
 local DESCRIBE_RANGE = 64 * 1024 * 1024
 
--- what a gpu address belongs to: the mesh buffer that contains it, or the nearest ones, for fault reports
 function meshes.DescribeAddress(address, precision)
 	local best = {}
 

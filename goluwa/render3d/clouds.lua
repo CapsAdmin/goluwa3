@@ -789,7 +789,6 @@ function clouds.GetGLSL(block)
 		const float CLOUD_BODY_LUMP_LOW = 0.35;
 		const float CLOUD_BODY_LUMP_HIGH = 0.6;
 		const float CLOUD_TOP_CELL_LOD = 3.0;
-		// measured: a fair weather layer seen from 60 km straight down, the mean brightness over clear sea of the resolved clouds against the unresolved medium; the coverage threshold leaves most columns clear, and the cloud lighting is tuned for dense cloud
 		const float CLOUD_UNRESOLVED_DEPTH = ]] .. clouds.UNRESOLVED_DEPTH .. [[;
 
 		struct cloud_ray_t {

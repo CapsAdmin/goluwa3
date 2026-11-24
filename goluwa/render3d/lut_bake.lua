@@ -53,7 +53,6 @@ local function check(config)
 	return encoding
 end
 
--- the key is everything the table depends on, including the shader helpers bake_transform can call
 function lut_bake.GetPath(config)
 	check(config)
 	local key = table.concat(
@@ -80,11 +79,6 @@ local function create_buffer(byte_size, readback)
 	}
 end
 
--- Bakes a display transform into a .cube read like a camera table: red fastest, the input is the
--- scene encoded by `encoding` (slog3, logc or cineon, see compute_helpers log_encode), the output is the
--- display image sRGB encoded. `glsl` defines `vec3 bake_transform(vec3 x)` from the exposed scene
--- (18% grey is 0.18) to display linear and may call anything in compute_helpers. Returns the path
--- and whether it was already cached.
 function lut_bake.Bake(config)
 	local encoding = check(config)
 	local path = lut_bake.GetPath(config)

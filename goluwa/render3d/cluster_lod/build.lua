@@ -296,7 +296,6 @@ function build.PrepareMesh(input)
 	}
 end
 
--- the original vertex a cluster triangle corner stands for
 function build.CornerVertex(mesh, prepared, position, island)
 	local w = mesh.wlookup[position * prepared.island_count + island] or
 		prepared.first_wedge[position]

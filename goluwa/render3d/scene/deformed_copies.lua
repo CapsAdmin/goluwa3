@@ -181,7 +181,6 @@ function deformed_copies.IsEnabled()
 	return enabled:Get()
 end
 
--- a positions only copy of the mesh that the bend writes and an acceleration structure over it with the mesh's indices, carrying the opacity micromap (the state of an opacity_micromaps variant) when there is one, which a refit must repeat
 function deformed_copies.NewRecord(mesh, omm)
 	local positions = render.CreateBuffer{
 		byte_size = mesh.vertex_count * 12,
@@ -227,7 +226,6 @@ end
 local scratch_animation = Animation()
 local MIN_PIXELS = 1
 
--- how far from the camera a part with this material and polygon is bent: while the wind moves it by at least a pixel, 0 when it does not move
 function deformed_copies.GetRange(material, polygon)
 	deformation.Fill(scratch_animation, material, polygon)
 
@@ -244,7 +242,6 @@ local frame_stamp, frame_used = -1, 0
 local queued, queued_groups = 0, 0
 local queued_records = {}
 
--- vertices of the mesh at source are bent by the material's wind for the instance whose row major 3x4 world matrix is at matrix_address, into the record's positions
 function deformed_copies.Queue(record, source_address, matrix_address, material, polygon)
 	local frame = system.GetFrameNumber()
 
@@ -457,7 +454,6 @@ function deformed_copies.UnrefPool(pool)
 	active[pool] = nil
 end
 
--- sizes every pool from what the gpu counted a few frames ago, makes or remakes the copies it asks for and clears the counters the next assignment adds to
 function deformed_copies.Prepare(cmd)
 	if not next(active) then return end
 
@@ -508,7 +504,6 @@ function deformed_copies.Prepare(cmd)
 	}
 end
 
--- bends the copies the assignment filled and refits them, and reads the counters back for the sizing a few frames on
 function deformed_copies.Dispatch(cmd)
 	if not next(active) then return end
 

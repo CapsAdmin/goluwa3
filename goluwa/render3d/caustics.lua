@@ -549,7 +549,6 @@ local function read_stats(state)
 	return ring
 end
 
--- returns how many photons the casters emit, 0 when there is no sun or nothing casts
 function caustics.WriteBlock(self, block, budget, exact)
 	medium_surface.WriteBlock(self, block)
 	block.caustic_photon_count = 0

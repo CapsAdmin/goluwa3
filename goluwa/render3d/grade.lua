@@ -584,7 +584,6 @@ local CURVE_STUB = [[
 	}
 ]]
 
--- binding_3d and binding_1d are the bindings of the table samplers, binding_curve the tone curve's and binding_histogram the histogram's storage buffer, a shader that gives none has no table, curve or histogram
 function grade.GetGLSL(block_name, binding_3d, binding_1d, binding_curve, binding_histogram)
 	local lut = binding_3d and LUT_GLSL:format(binding_3d, binding_1d) or LUT_STUB
 	local range = string.format("%.1f", grade.CURVE_RANGE)

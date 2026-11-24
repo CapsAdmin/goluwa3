@@ -90,7 +90,6 @@ local function create_state(device)
 	}
 end
 
--- the texture released at a release serial, false once the log has moved past it
 function bindless.GetReleased(state, serial)
 	if state.releases - serial >= bindless.RELEASE_LOG_SIZE then return false end
 

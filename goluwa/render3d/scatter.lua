@@ -1110,8 +1110,6 @@ local function write_prototype(out, proto)
 	out.bounds[2] = billboard and proto.sized_switch or 0
 	out.bounds[3] = proto.billboard_fade
 	out.info2[0] = billboard and billboard.index or NO_STREAM
-
-
 	out.limits[3] = proto.align_steep
 	local mid = proto.mid
 	local has_mid = mid and mid.model_stream and proto.sized_mid > 0
@@ -1897,7 +1895,6 @@ scatter.PLACED_CONFORMS = 2
 scatter.PLACED_CONFORM_INTERVAL = 300
 
 do
-	-- writes the matrix of a placed instance at a position, scale, yaw about a normal (unit), as AddPlacements reads them
 	function scatter.WritePlacement(out, at, x, y, z, scale, yaw, nx, ny, nz)
 		local sign = nz >= 0 and 1 or -1
 		local a = -1 / (sign + nz)
@@ -2135,7 +2132,6 @@ end
 
 local function update_placed(cmd, b, passes, frame, camera)
 	list.clear(active_placed)
-
 	local uploads, conforms = 0, 0
 	local tlas_set = false
 
@@ -2480,7 +2476,6 @@ local function pre_draw(cmd)
 	end
 
 	scene_draw.EndStreams(cmd)
-
 	barrier(cmd, b.unit_counts, "compute", "transfer", "shader_write", "transfer_read")
 	demand_copy[0].srcOffset = 0
 	demand_copy[0].dstOffset = ring * scatter.MAX_UNITS * 4

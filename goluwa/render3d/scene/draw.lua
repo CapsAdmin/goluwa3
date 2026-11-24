@@ -1620,7 +1620,6 @@ local function layout_changed()
 	stream_layout_serial = stream_layout_serial + 1
 end
 
--- stream inputs and slots are rewritten every frame, so a layout change packs them all again instead of keeping free rooms
 -- a freed produced range is zeroed by the next flush, so it is only freed once this frame's ranges are taken
 local ray_frees = {}
 
@@ -1634,6 +1633,7 @@ end
 
 local scene_parts, materials
 
+-- stream inputs and slots are rewritten every frame, so a layout change packs them all again instead of keeping free rooms
 local function pack_streams()
 	if packed_serial == stream_layout_serial then return end
 

@@ -502,7 +502,7 @@ function Texture.New(config)
 		local vulkan_info = nil
 
 		if img_or_err then
-			-- hacky way to get the prop from vtf to vmt where it belongs
+			-- the vtf reflectivity belongs to the vmt, the texture carries it until the material reads it
 			reflectivity = img_or_err.reflectivity
 			local img = img_or_err
 			config.width = config.width or img.width

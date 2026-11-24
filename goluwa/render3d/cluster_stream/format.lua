@@ -7,8 +7,6 @@ format.NORMAL_BITS = 10
 format.TANGENT_BITS = 7
 format.GROUP_STORED = 1
 format.GROUP_ROOT = 2
--- every level of the hierarchy together with the root groups below it is a whole watertight mesh: the mesh rays
--- and shadow maps see is the finest such level within FALLBACK_RATIO of the source triangles
 format.FALLBACK_RATIO = 1 / 128
 format.FALLBACK_MIN_TRIANGLES = 256
 format.Header = ffi.typeof([[struct {
@@ -35,10 +33,6 @@ format.Header = ffi.typeof([[struct {
 	float aabb_max[3];
 	float sphere[4];
 }]])
--- a group is the unit of residency: its member clusters load and unload together, and they are all replaced at once
--- by the coarser clusters the group was simplified into, when `error` at `sphere` is under the budget. Its page
--- (data_offset from the data section) holds its cluster records and then their vertices and indices. links from
--- first_link are the groups holding what it was simplified into, they must be resident before it is
 format.Group = ffi.typeof([[struct {
 	float sphere[4];
 	float error;
@@ -54,10 +48,6 @@ format.Group = ffi.typeof([[struct {
 	uint32_t vertex_count;
 	uint32_t pad;
 }]])
--- lod_sphere and lod_error are the error of the cluster itself (the group it was simplified from), gen is that group
--- or -1 when it is the finest stored level. Vertices are `vertex_bits` each, packed without padding: position deltas
--- on the file's grid from pos_min, uv deltas from uv_min, an octahedral normal and tangent with its sign. The
--- `index_bits` wide triangle corners follow at the next word
 format.Cluster = ffi.typeof([[struct {
 	float bounds[4];
 	float lod_sphere[4];
@@ -117,7 +107,6 @@ do
 	local NORMAL_MAX = 2 ^ format.NORMAL_BITS - 1
 	local TANGENT_MAX = 2 ^ format.TANGENT_BITS - 1
 
-	-- writes the cluster's vertices (engine vertex layout) to out from out_first and returns its corner indices
 	function format.DecodeCluster(header, page, cluster, out, out_first, corners)
 		local words = ffi.cast(u32_ptr_t, ffi.cast("const uint8_t *", page) + cluster.data_offset)
 		local bx, by, bz = cluster.pos_bits[0], cluster.pos_bits[1], cluster.pos_bits[2]

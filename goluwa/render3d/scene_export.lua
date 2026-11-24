@@ -20,16 +20,6 @@ local MODEL_REFERENCES = {
 	{"scatter_placements", "Model"},
 }
 
--- Saves the scene to storage/scenes/<name>/scene.scene. The files are written to <name>.saving and
--- replace <name> when everything is written, so a failed save leaves the old scene as it was. With options.materials every material the
--- scene draws with is written to <name>/materials/<id>/material.mat. With options.textures their
--- textures are copied next to the material file (baked textures from the cache, originals out of
--- mounted archives) so the file refers to them relatively, otherwise it keeps the paths it has.
--- With options.models the loaded models (meshes, skin weights, skeleton, physics) are written to <name>/models/<id>/model.mesh and
--- the scene refers to them as "./models/<id>/model.mesh", a path relative to the scene
--- directory. Models that are not loaded and procedural models stay as they are.
--- Materials the loaded world looked up by path but never draws (tool textures) are written too so
--- the lookup resolves. Every material file is loaded back and compared with what was written. Returns the stats.
 function scene_export.Save(name, options)
 	options = options or {}
 	assert(

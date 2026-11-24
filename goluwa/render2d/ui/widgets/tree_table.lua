@@ -621,7 +621,6 @@ function META:SelectNode(node)
 	return self
 end
 
--- the rows drawn now, for automation: {node, index, text, x, y, w, h} with screen rects
 function META:GetDrawnItems()
 	local out = {}
 	local content = self._scroll and self:GetContentPanel()

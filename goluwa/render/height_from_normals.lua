@@ -190,15 +190,6 @@ do
 		return a, b
 	end
 
-	-- Solves for the height whose slopes are the ones the normals describe (a Poisson problem, the
-	-- Frankot Chellappa method) on the gpu: both slope fields go through one complex fft as p + iq, the
-	-- solve in frequency space splits them again from the symmetry of a real signal. `normals` is a
-	-- square power of two Texture with the normal's xy in rg (0 to 1 encoded); the surface is assumed
-	-- to tile. `cutoff` (cycles over the texture, default 2) removes the slowest frequencies, the
-	-- drift a tiling solve cannot know. `height_cut` fades out everything finer than that many
-	-- cycles (a parallax method smears steep narrow grooves). Returns a buffer of n * n floats, in
-	-- texels of height for a slope measured in texels (`ffi.cast("float*", buffer:Map())`). `flip_green`
-	-- is for normal maps whose green points down (DirectX).
 	function height_from_normals.Solve(normals, cutoff, height_cut, flip_green)
 		local n = normals:GetWidth()
 		assert(
@@ -218,9 +209,6 @@ do
 	end
 end
 
--- Solves the height of a square power of two normal texture and normalises it to 8 bits (1% to 99% of the
--- solved range). Returns the r8 texture and the solved relief as a fraction of the texture size, the depth
--- the normals describe. `height_cut` is a fraction of the size, see Solve.
 function height_from_normals.CreateHeightTexture(normals, height_cut, cache_key, flip_green)
 	local size = normals:GetWidth()
 	local buffer = height_from_normals.Solve(normals, 2, size * height_cut, flip_green)

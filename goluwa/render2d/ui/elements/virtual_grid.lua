@@ -325,7 +325,6 @@ function META:GetRange()
 	math.min(#self._items, (math.floor((y2 - padding) / self._pitch_y) + 1) * self._columns)
 end
 
--- what is drawn now, for automation: {item, index, text, x, y, w, h} with screen rects
 function META:GetDrawnItems()
 	local out = {}
 	local content = self._content

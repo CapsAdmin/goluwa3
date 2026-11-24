@@ -802,7 +802,7 @@ function emitters.GetGLSL()
 			seed = seed * 747796405u + 2891336453u;
 			float pick = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0);
 
-			// one pass that keeps each leaf with its share of the weight so far, an array of the cluster's importances lived in local memory
+			// one pass that keeps each leaf with its share of the weight so far
 			for (uint i = 0u; i < span; i++) {
 				vec2 importance = emitter_node_importance(first + i, origin, normal, radius);
 

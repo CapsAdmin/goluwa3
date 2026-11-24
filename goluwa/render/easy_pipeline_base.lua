@@ -659,7 +659,6 @@ do
 		return self.pipeline:GetTextureIndexReleases()
 	end
 
-	-- the texture whose index was released at a serial of GetTextureIndexReleases, false once that is too long ago
 	function EasyPipeline:GetReleasedTexture(serial)
 		return self.pipeline:GetReleasedTexture(serial)
 	end

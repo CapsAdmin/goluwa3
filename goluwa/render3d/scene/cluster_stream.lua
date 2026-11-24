@@ -227,8 +227,6 @@ local function read_file_range(path, offset, size)
 	return data
 end
 
--- the node tree is the groups split into spatial leaves of up to 8; a node's sphere bounds its groups' spheres and
--- its error is their largest, so a node whose error projects under the budget has no group whose members draw
 local function build_nodes(geometry)
 	local cx, cy, cz, r, err = geometry.cx, geometry.cy, geometry.cz, geometry.r, geometry.err
 	local roots = {}
@@ -430,7 +428,6 @@ local function in_level_cut(geometry, g, level)
 		)
 end
 
--- the finest level whose whole mesh (its groups and the root groups below it) fits in the fallback budget
 function cluster_stream.GetFallbackLevel(geometry)
 	local budget = math.max(format.FALLBACK_MIN_TRIANGLES, geometry.header.source_triangles * fallback_ratio:Get())
 
@@ -449,7 +446,6 @@ function cluster_stream.GetFallbackLevel(geometry)
 	return geometry.header.level_count - 1
 end
 
--- the mesh rays and shadow maps see: a level cut decoded to the engine's vertex layout
 function cluster_stream.BuildFallback(geometry, level)
 	local header = geometry.header
 	local vertex_total, index_total = 0, 0
@@ -601,7 +597,6 @@ local function free_retired()
 	state.pending_free = kept
 end
 
--- evicts groups nothing needed for a while, oldest first, until the pool has room for `units`
 local function make_room(units)
 	local list = state.resident_list
 	local evictable = {}
@@ -801,8 +796,6 @@ end
 local requests = {}
 local request_count = 0
 
--- walks every row's node tree with the camera: resident groups whose coarser replacement is not good enough are
--- candidates (a superset, the cull pass decides exactly), missing ones whose parents are resident are requested
 local function emit(out, count, capacity, row, geometry, g)
 	if count < capacity then
 		local c = out[count]
@@ -819,6 +812,8 @@ local function emit(out, count, capacity, row, geometry, g)
 	return count + 1
 end
 
+-- walks every row's node tree with the camera: resident groups whose coarser replacement is not good enough are
+-- candidates (a superset, the cull pass decides exactly), missing ones whose parents are resident are requested
 local function traverse(focal, threshold, cam_x, cam_y, cam_z)
 	local out = ffi.cast(CandidatePointer, state.candidate_ptr) + state.ring_slot * state.candidate_capacity
 	local count = 0

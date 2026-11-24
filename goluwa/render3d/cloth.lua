@@ -73,7 +73,6 @@ function Cloth:Advance(dt, matrix)
 	m[8], m[9], m[10], m[11] = matrix.m02, matrix.m12, matrix.m22, matrix.m32
 end
 
--- writes into out the transform that takes model space positions of the previous entity matrix to the current one, and returns the direction of world down in model space
 local function get_transform(previous, current, out)
 	local a, b, c, d, e, f, g, h, i = current[0],
 	current[1],
@@ -122,7 +121,6 @@ local function get_transform(previous, current, out)
 	return -c01, -c11, -c21
 end
 
--- the model space position the animation gives each node: the alpha weighted mean of its bone attachments
 local function compute_targets(desc, world, target)
 	local target_start, target_bone, target_offset, target_alpha = desc.target_start, desc.target_bone, desc.target_offset, desc.target_alpha
 
@@ -151,7 +149,6 @@ local function compute_targets(desc, world, target)
 	end
 end
 
--- called after the rig computed the animated pose: simulates the nodes and replaces the world and skin matrices of the cloth bones
 function Cloth:Apply(rig)
 	if not self.initialized and self.dt == 0 then return end
 

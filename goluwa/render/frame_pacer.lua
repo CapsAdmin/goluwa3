@@ -357,7 +357,6 @@ do
 		return self.state.interval
 	end
 
-	-- seconds between the last presents, oldest first
 	function META:GetPresentIntervals()
 		local s = self.state
 		local intervals = {}
@@ -370,7 +369,6 @@ do
 		return intervals
 	end
 
-	-- waits until the present thread is done copying out of the next slot's images and returns them
 	function META:BeginFrame()
 		local s = self.state
 

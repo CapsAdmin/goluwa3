@@ -33,7 +33,7 @@ local CHECK_MARGIN = 8
 local WHITE = Color(1, 1, 1, 1)
 local textures = {}
 local colors = {}
--- the png and bmp decoders write the bottom row first, the others the top row
+-- only these decoders write the top row first, the rest write the bottom row first
 local top_first = {jpg = true, jpeg = true, dds = true, vtf = true}
 
 local function refresh_colors()

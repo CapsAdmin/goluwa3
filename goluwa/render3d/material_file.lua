@@ -21,9 +21,6 @@ material_file.TextureFiles = {
 }
 material_file.SRGBSlots = {Albedo = true, Albedo2 = true, Emissive = true}
 local SKIPPED_PROPERTIES = {Name = true, OriginalMaterial = true}
--- an object valued property is written as a reference table and rebuilt on load. to_reference
--- returns nil for an object that has none (it is listed in Meta.unserialized), from_reference gets
--- the context of the file being loaded
 local reference_types = {}
 material_file.ReferenceTypes = reference_types
 
@@ -31,8 +28,6 @@ function material_file.RegisterReferenceType(type, to_reference, from_reference)
 	reference_types[type] = {to_reference = to_reference, from_reference = from_reference}
 end
 
--- a name in the material's own directory wins over the same name looked up globally. One cached
--- directory listing answers every texture of the material, no per file probing.
 material_file.RegisterReferenceType("render_texture", function(texture, context)
 	if texture == Texture.GetFallback() then return {fallback = true} end
 
@@ -66,12 +61,6 @@ end, function(reference)
 	return assert(ScatterSet.Get(reference.name), "unknown scatter set " .. reference.name)
 end)
 
--- The material as it is: every property that differs from its default under its own name, so the
--- file reads like a Material config. A texture is written as a reference {path, srgb} with the
--- path relative to the file's directory when it lives there; a texture without a path and
--- anything luadata cannot carry (a scatter set) is listed in Meta.unserialized, never dropped
--- silently. relative_paths maps a texture object to the file it was loaded from when its config
--- has no path (textures made from decoded data). Meta holds what is known for investigation.
 function material_file.Serialize(material, directory, meta, relative_paths)
 	local out, unserialized = {}, {}
 	local context = {directory = directory, relative_paths = relative_paths}

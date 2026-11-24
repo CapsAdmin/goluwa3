@@ -234,7 +234,6 @@ end
 Buffer.addressed = setmetatable({}, {__mode = "k"})
 local DESCRIBE_RANGE = 64 * 1024 * 1024
 
--- the buffers with a device address that contain a gpu address or are nearest to it, for fault reports
 table.insert(import("goluwa/render/vulkan/internal/checkpoints.lua").address_describers, function(address)
 	local best = {}
 

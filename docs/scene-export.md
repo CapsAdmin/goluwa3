@@ -1,6 +1,6 @@
 # Saving scenes with their assets
 
-A scene is a directory: `storage/scenes/<name>/scene.scene` (`scene.GetSceneDirectory`, `scene.GetPath`). `scene_export.Save(name, options)` (`goluwa/render3d/scene_export.lua`; editor FILE > save scene, the checkboxes are the options) writes the scene and optionally the assets it uses next to it. `textures` and `models` need `materials`.
+A scene is a directory: `storage/scenes/<name>/scene.scene` (`scene.GetSceneDirectory`, `scene.GetPath`). `scene_export.Save(name, options)` (`goluwa/render3d/scene_export.lua`; editor FILE > save scene, the checkboxes are the options) writes the scene and optionally the assets it uses next to it. `textures` and `models` need `materials`. The save is written to `<name>.saving` and replaces `<name>` only once everything is written, so a failed save leaves the old scene.
 
 An asset path property (a storable variable with the `asset` category) that starts with `./` refers to the scene's own directory; `scene.Load` resolves it when the scene is read. Nothing probes the disk for it. Every property holding a model path needs the `asset` category, or its `./` is never resolved and the model load never completes and never fails.
 

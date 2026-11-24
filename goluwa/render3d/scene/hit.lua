@@ -110,7 +110,6 @@ function hit.GetEscapeGLSL(tlas_name)
 	)
 end
 
--- the same function for shaders without a scene to trace
 function hit.GetEscapeStubGLSL()
 	return [[
 		#ifndef SCENE_ESCAPE_TESSELLATION

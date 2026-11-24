@@ -55,7 +55,6 @@ local WORKER = [[
 	return stats
 ]]
 
--- the file a primitive's clusters are cached in, named after its source buffer so a changed source gets a new file
 function bake_scene.GetCachePath(cache_dir, gltf_data, mesh_index, primitive_index)
 	local raw = gltf_data.raw
 	local primitive = raw.meshes[mesh_index].primitives[primitive_index]

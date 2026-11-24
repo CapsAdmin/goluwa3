@@ -637,10 +637,6 @@ local function encode_chain(current, width, height, config, cmd)
 	return dds.Encode(get_dds_name(format, kind), width, height, levels)
 end
 
--- Encodes an image into block compressed mips on the gpu and returns a ready dds file as a string.
--- config: pixels (r8g8b8a8, width * height * 4 bytes), width, height, format ("bc7", "bc5" or "bc4"),
--- kind ("srgb", "linear" or "normal": how mips are filtered, srgb also marks the format),
--- mips (default true), wrap (mips wrap around, for tiling textures), channel (bc4: 0 to 3)
 function texture_compress.Compress(config)
 	local width, height = config.width, config.height
 	local current = create_buffer(width * height * 16)
@@ -653,9 +649,6 @@ function texture_compress.Compress(config)
 	return encode_chain(current, width, height, config)
 end
 
--- Encodes mips that already exist (the caller filtered them, e.g. to keep alpha test coverage) instead of
--- building them. config: levels (a list of {pixels = r8g8b8a8, width, height}, level 0 first), format,
--- kind and channel as in Compress
 function texture_compress.CompressLevels(config)
 	local pipeline, block_bytes = get_encoder(config.format)
 	local levels = {}
@@ -795,15 +788,6 @@ local function create_source_texture(source)
 	return Texture.New{decoded = info}, info.width, info.height
 end
 
--- Decodes one or more sources on the gpu, runs an edit over every texel and encodes the result,
--- never leaving the gpu in between. Returns a ready dds file as a string.
--- config: sources (a list, each a dds string, {pixels, width, height} with r8g8b8a8 pixels or {texture}
--- for a Texture that is already on the gpu (an srgb texture reads as linear light); the output
--- is the size of the first), edit (glsl defining `vec4 edit(ivec2 position, ivec2 size, vec4 texel)`,
--- texel being the first source's raw value: encoded, not linear, and bc5 sources have no blue),
--- params (up to 16 floats, `edit_params[i]` in the glsl), then the same as Compress
--- Available to the glsl: fetch(index, position) and source_size(index) for the other sources,
--- to_linear/from_linear for floats and vec3.
 function texture_compress.Recompress(config)
 	local sources = config.sources
 	assert(#sources >= 1 and #sources <= MAX_SOURCES, "one to four sources")

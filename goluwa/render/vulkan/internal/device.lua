@@ -727,7 +727,7 @@ function Device:DeferRelease(callback, serial)
 	table.insert(self.deferred_releases, {serial = serial, callback = callback})
 end
 
--- a collection that lets go of hundreds of resources at once queues them all here, and every vkFreeMemory is 0.1-0.4 ms,
+-- a collection that lets go of hundreds of resources at once queues them all here, and vkFreeMemory is slow,
 -- so a flush that is not forced stops after a budget and leaves the rest for the next one
 local FLUSH_BUDGET = 0.002
 

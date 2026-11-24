@@ -75,7 +75,7 @@ function ByteWriter:Append(ptr, bytes)
 	self.size = self.size + bytes
 end
 
--- writes `count` bits of `value` (count <= 24) at bit `at` of a zeroed word array
+-- count <= 24
 local function put_bits(words, at, value, count)
 	if count == 0 then return end
 
@@ -322,7 +322,7 @@ local function chunk_primitive(input, chunk, remap, vertex_list, borders)
 end
 
 -- input: position, normal, uv, tangent (float pointers, normal, uv and tangent optional), vertex_count, indices
--- (uint32 or uint16 pointer), index_count, flip_v, flip_winding, min_level. Returns the file as a string and stats
+-- (uint32 or uint16 pointer), index_count, flip_v, flip_winding, min_level, chunk_triangles. Returns the file as a string and stats
 function bake.Bake(input)
 	local pos = input.position
 	local x0, y0, z0, x1, y1, z1 = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge

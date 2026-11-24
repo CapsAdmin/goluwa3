@@ -441,7 +441,6 @@ local GAME_FIELD_SHADER = [[
 		}
 	}
 ]]
--- mode 0 reduces the source field into mip 0, mode 1 reduces the previous mip into the next
 local GAME_PYRAMID_DECLARATIONS = [[
 	layout(set = 0, binding = 0, r32ui) uniform readonly uimage2D game_x;
 	layout(set = 0, binding = 1, r32ui) uniform readonly uimage2D game_y;
@@ -952,6 +951,7 @@ local function interpolate(cmd, scene)
 	if state.blurred_motion then
 		render.TransitionResourceToShaderRead(state.blurred_motion, {cmd = cmd, srcStage = "all_commands"})
 	end
+
 	render.TransitionResourceToShaderRead(gbuffer_layout.GetDepthTexture(), {cmd = cmd, srcStage = "all_commands"})
 
 	if render3d.velocity_enabled:Get() then
@@ -959,11 +959,26 @@ local function interpolate(cmd, scene)
 	end
 
 	state.mode, state.mip = 0, 0
-	dispatch(cmd, "setup", base, {r.counter, r.of_x, r.of_y, optical_flow.GetSceneChangeOutput()}, r.of_width, r.of_height)
+	dispatch(
+		cmd,
+		"setup",
+		base,
+		{r.counter, r.of_x, r.of_y, optical_flow.GetSceneChangeOutput()},
+		r.of_width,
+		r.of_height
+	)
 
 	if state.optical_flow then
-		dispatch(cmd, "of_vector_field", base, {optical_flow.GetFlow(), r.of_x, r.of_y}, r.of_width, r.of_height)
+		dispatch(
+			cmd,
+			"of_vector_field",
+			base,
+			{optical_flow.GetFlow(), r.of_x, r.of_y},
+			r.of_width,
+			r.of_height
+		)
 	end
+
 	dispatch(
 		cmd,
 		"clear",
@@ -1008,7 +1023,14 @@ local function interpolate(cmd, scene)
 		rh
 	)
 	render.TransitionResourceToShaderRead(r.disocclusion, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
-	dispatch(cmd, "interpolation", base, {r.game_x, r.game_y, r.interpolated, r.of_x, r.of_y, r.counter}, dw, dh)
+	dispatch(
+		cmd,
+		"interpolation",
+		base,
+		{r.game_x, r.game_y, r.interpolated, r.of_x, r.of_y, r.counter},
+		dw,
+		dh
+	)
 	build_pyramid(cmd, "color_pyramid", base + 16, r.color_pyramid_views, {r.interpolated})
 	render.TransitionResourceToShaderRead(r.color_pyramid, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 	dispatch(cmd, "inpainting", base, {r.interpolated}, dw, dh)
@@ -1105,7 +1127,6 @@ function frame_generation.Compose(cmd, ui, generated, real)
 	if present_generated then interpolate(cmd, scene) end
 
 	gpu_timing.EndScope(cmd, "frame_generation")
-
 	render.TransitionResourceToShaderRead(scene, {cmd = cmd, srcStage = "all_commands"})
 	render.TransitionResourceToShaderRead(ui, {cmd = cmd, srcStage = "color_attachment_output"})
 
@@ -1153,7 +1174,6 @@ event.AddListener("PreRenderPass", "frame_generation", function()
 	state.camera_cut = render3d.IsCameraCut()
 end)
 
--- the last generated frame and the two rendered frames it sits between, before the ui is composited
 function frame_generation.GetDebugTextures()
 	return resources.history, resources.interpolated
 end

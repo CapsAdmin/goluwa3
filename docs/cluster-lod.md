@@ -10,6 +10,14 @@ A related path, cluster streaming (`scene/cluster_stream.lua`, `cluster_stream/`
 - Group and mesh borders are locked, and a collapse never creates an edge between two locked vertices, so neighbouring groups always agree on their shared border. Groups that cannot simplify enough stay as roots.
 - Error is the propagated vertex deviation, accumulated along the merge chain. Parent bounding spheres contain their children's, so the projected error is monotonic and a cluster is drawn when its own error is under the budget and its parent's is over it. UV and normal deviation gate collapses but are not part of the bound.
 - UV seams: simplification runs on position topology with a uv island id per triangle; a vertex may only collapse into one that touches all its islands, so every corner keeps a valid wedge.
+- A group that cannot simplify is retried with looser rules: first open edges no other group or chunk shares may collapse and attribute tolerances widen, then uv seams are ignored too. The error stays the measured position deviation.
+
+## Cluster streaming
+
+- A group is the unit of residency: its clusters load and unload together and are replaced all at once by the coarser clusters it was simplified into, when its error at its sphere is under the budget. A group links to the groups holding those coarser clusters, which must be resident before it is.
+- A cluster carries its own error (from the group it was simplified from, `gen`, or -1 at the finest stored level) besides the bounds it is culled by.
+- Every level together with the root groups below it is a whole watertight mesh; the fallback mesh rays and shadow maps see is the finest such level within the fallback triangle budget.
+- Groups are split into a node tree of small spatial leaves. A node's sphere bounds its groups' spheres and its error is their largest, so a node whose error projects under the budget has no group that draws, and the per frame cpu walk stops there. The walk emits a superset of candidates and the cull pass decides exactly.
 
 ## Raster
 

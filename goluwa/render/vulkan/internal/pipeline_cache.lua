@@ -34,8 +34,7 @@ local function address(pointer)
 	return tostring(ffi.cast("uint64_t", ffi.cast("uintptr_t", pointer)))
 end
 
--- vkCreateGraphicsPipelines and vkCreateComputePipelines block for as long as the driver compiles, which
--- is tens of seconds for the lighting shaders on a cold start, so they run on a worker thread and the
+-- vkCreateGraphicsPipelines and vkCreateComputePipelines block for as long as the driver compiles, so they run on a worker thread and the
 -- pipeline is waited for when it is bound
 local CREATE_JOB = [[
 	local ffi = require("ffi")

@@ -112,7 +112,6 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			height = scissor_height,
 		},
 	}
-	-- TODO: support more than one viewport/scissor
 	local viewportState = vulkan.vk.s.PipelineViewportStateCreateInfo{
 		viewportCount = 1,
 		pViewports = viewport,

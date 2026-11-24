@@ -38,7 +38,6 @@ local function write(part)
 	if part.pool then part.pool.trace_row = trace_row end
 end
 
--- what rays trace for a mesh with a material (a part), one per mesh, material and, for bending ones, polygon: the mesh row of its bottom level structure (an opacity micromap variant when it has one) and its bend pool. every instance of the part refers to it by id, so a change to either is one row written
 function parts.Acquire(mesh_row, material, polygon, max_copies)
 	local bends = material:HasVertexAnimation()
 	polygon = bends and polygon or false

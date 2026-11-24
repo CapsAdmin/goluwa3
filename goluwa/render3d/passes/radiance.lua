@@ -308,7 +308,6 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		vec3 id;
 	};
 
-	// an emitter sample is kept as its triangle (instance, primitive, packed barycentrics and side) and placed on it each time it is read, so a sample on a moving light moves with it instead of lighting the spot the light left
 	vec3 restir_stored_x(restir_sample s) {
 		return s.kind == RESTIR_EMITTER ? s.id : s.x;
 	}
@@ -670,7 +669,6 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return false;
 	}
 ]]
--- the world cache lookup at off screen hits (light past the first bounce) runs for a whole thread group on one frame in 1/share and counts 1/share as much: a linear estimate, so no bias and nothing leaks, and coherent per group, so the warps that skip it skip its visibility rays
 local HIT_GI_SHARE_GLSL = [[
 	float restir_hit_gi_share = 1.0;
 
@@ -756,7 +754,6 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				return normalize(T * (r * cos(phi)) + B * (r * sin(phi)) + N * sqrt(max(1.0 - xi.y, 0.0)));
 			}
 
-			// rays leave emission to the emitter samples, so an emitter sample holds only emission and a ray hit only reflected light
 			restir_sample restir_hit_sample(vec3 origin, vec3 dir, bool hit, float t, uint instance, uint primitive, vec2 barycentrics, bool emitter, vec3 shaded) {
 				restir_sample s;
 
@@ -794,9 +791,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				return restir_hit_sample(origin, dir, !miss, t, instance, primitive, barycentrics, emitter, miss || emitter ? vec3(0.0) : shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics));
 			}
 ]] .. RESOLVE_GLSL
--- the specular lobe a pixel reflects with, shared by its ray (the candidates) and the reservoirs that stand in for the ray on rough surfaces (the spatial pass)
 local SPECULAR_LOBE_GLSL = scene_hits.CONSTANTS_GLSL .. surface_weather.GetRainSurfaceGLSL("restir_data") .. ibl.GetBRDFGLSLCode() .. [[
-	// the specular lobe: one ray a pixel, over the visible normals of the pixel's surface (a mirror's own direction when it is smooth enough), shaded like every other ray hit. the accumulation and the filter average it over frames and pixels by the lobe
 	float radiance_specular_roughness(ivec2 gbuffer_pos, vec3 world_pos, float footprint, inout vec3 N) {
 		float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
 		]] .. surface_features.GetReflectionGLSL() .. [[
@@ -812,7 +807,6 @@ local SPECULAR_LOBE_GLSL = scene_hits.CONSTANTS_GLSL .. surface_weather.GetRainS
 		return roughness;
 	}
 
-	// the rays follow the visible normals and the lobe also masks the light along each: the weight of that (the lobe over the density the rays are drawn at), which the sum of the weighted rays divides by their weights in the accumulation, so the average is the light over the lobe and not over the density
 	float radiance_specular_weight(vec3 N, vec3 V, float roughness, vec3 L) {
 		float a2 = max(roughness * roughness, 0.001);
 		a2 *= a2;
@@ -852,7 +846,6 @@ local SPECULAR_LOBE_GLSL = scene_hits.CONSTANTS_GLSL .. surface_weather.GetRainS
 	}
 ]]
 
--- below full resolution the screen pixel each gi pixel reads, chosen once a frame for every pass (as an offset in its block)
 local function pass_pick()
 	return {
 		name = "radiance_pick",
@@ -884,7 +877,6 @@ local function pass_pick()
 	}
 end
 
--- traces this frame's new candidates for the pixels whose turn it is, one thread per tracing pixel so no warp traces a few rays at the cost of a full one
 local function pass_candidates()
 	return {
 		name = "radiance_candidates",
@@ -1003,7 +995,7 @@ local function pass_candidates()
 				ray.R = reflection_direction(ray.N, ray.V, ray.roughness, vec2(restir_random(pos, 50u), restir_random(pos, 51u)), ray.environment_roughness);
 				ray.lobe_below = dot(ray.N, ray.R) <= 0.0;
 				ray.R = reflection_above(ray.geometric_N, reflection_above(ray.N, ray.R, 0.001), 0.01);
-				// an emitter sample reads low across a broad lobe (half of the light a furnace gives a rough metal at roughness 1), where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
+				// an emitter sample reads low across a broad lobe, where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
 				ray.sample_emitters = radiance_specular_samples_emitters(pos, ray.roughness);
 				ray.origin = scene_escape_tessellation(P + ray.geometric_N * (0.0002 + 0.0001 * view_depth), ray.geometric_N, 0.1 * restir_data.view_scale);
 				return ray;
@@ -1120,7 +1112,7 @@ local function pass_candidates()
 							uint diffuse_primitive = 0u;
 							vec2 diffuse_barycentrics = vec2(0.0);
 
-							// both rays go through one call of the hit shading: unrolled, the shader carried it twice and stalled on instruction fetch
+							// both rays go through one call site, inlining the hit shading twice stalls instruction fetch
 							]] .. "[[dont_unroll]]" .. [[ for (int r = 0; r < 2; r++) {
 								bool reflected = r == 1;
 
@@ -1388,7 +1380,6 @@ local function pass_temporal()
 							bool moved = retraced.kind != h.kind || (restir_is_point(h.kind) && distance(retraced.x, h.x) > 0.05 * distance(h.x, h_origin) + 0.02);
 							float ratio = max(luminance(retraced.L), luminance(h.L)) / max(min(luminance(retraced.L), luminance(h.L)), 1e-6);
 
-							// the stored radiance is never replaced: reservoirs keep samples whose noisy shading came out high, and swapping in a fresh estimate under the same W darkens everything. the history is dropped when the hit is gone or its light clearly changed
 							if (ratio > 4.0) flags |= RESTIR_FLAG_CHANGED;
 
 							if (moved || ratio > 4.0) h_M = 0.0;
@@ -1579,7 +1570,6 @@ local function pass_spatial()
 				}
 
 				vec3 specular_excess = specular_clipped && own_cosine > 0.0 ? radiance_specular_clipped(own, specular_limit, specular_emission_sampled) * (radiance_specular_lobe(specular_N, V, specular_roughness, dir) * W) : vec3(0.0);
-				// the reservoir handed to next frame: one sample resampled from this pixel's and its neighbours' by the same weights as the irradiance
 				restir_sample picked = own;
 				float picked_target = own_target;
 				float picked_sum = 0.0;
@@ -1780,7 +1770,6 @@ local function pass_accumulate()
 				return (radiance_previous_image_uv(P, V, hit, w_image) - radiance_previous_image_uv(P, V, 0.0, w_surface)) * vec2(size);
 			}
 
-			// the reflection seen in a smooth surface moves on the screen as the reflected point does, not as the surface: its image lies behind the surface along the view ray, by the hit distance for a mirror and by less as the lobe widens and leans toward the normal (the dominant direction factor, as nrd does), so a rough lobe's image slides back onto the surface. the history is read where last frame showed that image, on texels that hold this pixel's plane, which the line from last frame's camera to the image crosses
 			bool radiance_virtual_taps(vec3 P, vec3 N, vec3 V, float hit, float dominance, vec2 position, ivec2 size, vec4 plane, out ivec2 base, out vec4 weights) {
 				base = ivec2(0);
 				weights = vec4(0.0);
@@ -1953,16 +1942,13 @@ local function pass_accumulate()
 				history_length = min(history_length + 1.0, min(accumulation, restir_data.history_cap));
 				float alpha = 1.0 / history_length;
 				vec2 moments = mix(history_moments.yz, vec2(current_luminance, current_luminance * current_luminance), alpha);
-				// the specular depends on where it is seen from: its history covers at most half a lobe width of the view turning at this frame's rate, or the light seen from elsewhere stays mixed in
 				vec3 previous_camera = -(transpose(mat3(restir_data.prev_view)) * restir_data.prev_view[3].xyz);
 				float view_turn = acos(clamp(dot(normalize(restir_data.camera_position - P), normalize(previous_camera - P)), -1.0, 1.0));
 				float lobe_width = max(gbuffer_roughness(gpos), 0.001);
 				float specular_length = min(min(history_moments.w, view_turn > 0.0 ? 0.5 * lobe_width / view_turn : history_length) + 1.0, history_length);
 				bool traced = (int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5) & RESTIR_FLAG_TRACED) != 0;
-				// the reflection is tracked by the inverse distance from the camera to its image (the camera to the surface plus the hit), which the image's motion on the screen is proportional to: averaged, a ray that escapes to the sky counts as far away only for its share, where an average of distances would put every image it touches at infinity. this frame's ray on a smooth surface, where it is exact, the accumulated one as the lobe widens and a single ray wanders over it (nrd's curve, already most of the way at perceptual roughness 0.1)
 				float wander = (1.0 - exp2(-200.0 * lobe_width)) * pow(sqrt(lobe_width), 0.25);
 				float surface_distance = distance(restir_data.camera_position, P);
-				// weighed by the light each ray brought: what is seen of a glossy reflection is its bright part (a lamp, a window), and a broad lobe also finds the dark things right beside the surface, whose nearness would make the image trail
 				float raw_inverse = traced ? 1.0 / (surface_distance + max(texelFetch(TEXTURE(restir_data.candidate_hit_tex), pos, 0).r, 0.0)) : 0.0;
 				vec4 ray_specular = texelFetch(TEXTURE(restir_data.candidate_specular_tex), pos, 0);
 				float raw_weight = traced ? luminance(ray_specular.rgb) + 1e-6 : 0.0;
@@ -1970,7 +1956,6 @@ local function pass_accumulate()
 				float history_inverse_spread = history_tracking.y > 0.0 ? sqrt(max(history_tracking.z / history_tracking.y - history_inverse * history_inverse, 0.0)) : 0.0;
 				float inverse = history_found && history_inverse > 0.0 ? (raw_inverse > 0.0 ? mix(raw_inverse, history_inverse, wander) : history_inverse) : raw_inverse;
 				float hit = inverse > 0.0 ? max(1.0 / inverse - surface_distance, 0.0) : 0.0;
-				// how far behind the surface the reflection's image lies, as a share of the hit distance: the dominant direction factor of the lobe, all of a mirror's, none of a fully rough one's
 				float dominance = (1.0 - lobe_width) * (sqrt(1.0 - lobe_width) + lobe_width);
 				vec3 V_view = normalize(restir_data.camera_position - P);
 				ivec2 virtual_base;
@@ -2002,14 +1987,11 @@ local function pass_accumulate()
 						virtual_specular /= total;
 						virtual_tracking /= total;
 						virtual_length /= total;
-						// a tracking distance that disagrees with the one found there last frame puts the image elsewhere: the history counts for less the more they differ, but only where one ray is the reflection (a mirror). on a glossy surface the rays scatter over the lobe and their distances always disagree, its history would never grow
 						float virtual_inverse = virtual_tracking.y > 0.0 ? virtual_tracking.x / virtual_tracking.y : inverse;
 						float confidence = mix(1.0 - clamp(20.0 * abs(inverse - virtual_inverse) / max(max(inverse, virtual_inverse), 1e-12), 0.0, 1.0), 1.0, smoothstep(0.0, 0.5, wander));
-						// the image history replaces the surface's outright: a share of the surface's, misplaced by the reflection's motion every frame, builds up over a long history into a smear
 						history_specular = virtual_specular;
 						history_tracking = virtual_tracking;
 						specular_length = min(mix(1.0, virtual_length, confidence) + 1.0, history_length);
-						// a broad lobe sees near and far things at once (a box beside the surface, a lamp across the room), and their images move apart on the screen however the history is moved: it keeps only as many frames as they take to drift apart by half the lobe's own footprint on the screen. a mirror sees one thing and keeps all of its history
 						float near_inverse = history_inverse + history_inverse_spread;
 						float far_inverse = max(history_inverse - history_inverse_spread, 1e-9);
 						float drift = length(radiance_image_shift(P, V_view, dominance * max(1.0 / near_inverse - surface_distance, 0.0), size) - radiance_image_shift(P, V_view, dominance * max(1.0 / far_inverse - surface_distance, 0.0), size));
@@ -2057,7 +2039,6 @@ local function pass_accumulate()
 	}
 end
 
--- a-trous passes with growing steps over the accumulated estimate, each tap stopped by the plane, the normal and a luminance difference beyond the pixel's standard deviation (of the accumulated mean, carried in alpha between the passes), so a noisy pixel blurs wide and a settled one keeps its detail
 local function pass_filter(iteration)
 	local last = iteration == FILTER_ITERATIONS - 1
 	return {

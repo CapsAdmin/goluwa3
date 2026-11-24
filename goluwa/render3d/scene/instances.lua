@@ -303,13 +303,11 @@ function instances.SetMatrix(id, matrix)
 	tlas_table:Touch(id)
 end
 
--- the part (parts.Acquire) the instance traces: the mesh row of its bottom level structure and the bend pool whose copy it traces while one is free for it, 0 for neither
 function instances.SetPart(id, part)
 	part_table:Reserve(tlas_table.capacity)
 	part_table:Get()[id] = part
 end
 
--- the level of detail the update pass shows, by the same test
 function instances.IsLevelShown(id, camera_position)
 	local data = data_table:Get()[id]
 	local level = bit.band(bit.rshift(data.mask_lod, 8), 0xFF)
@@ -327,7 +325,6 @@ function instances.IsLevelShown(id, camera_position)
 	return (level == 0 or ratio >= data.lod_near) and (level == last or ratio < data.lod_far)
 end
 
--- device addresses of the rows a gpu pass writes produced instances into (the tlas row, the data row and the part of each instance); a produced instance is shown only in the frame it was written in, which the producer must do before the scene build
 function instances.GetProducedAddresses()
 	instances.GetTables()
 	part_table:Reserve(tlas_table.capacity)
