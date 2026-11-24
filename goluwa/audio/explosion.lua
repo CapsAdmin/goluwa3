@@ -45,7 +45,6 @@ function explosion.GetPeakLevel(overpressure)
 	return 20 * math.log10(overpressure / explosion.REFERENCE_PRESSURE)
 end
 
--- a dry pressure signature as heard at `distance` from a charge: the Friedlander wave of the shock and its negative phase, the crackle of the turbulent fireball, its low thump, and the debris coming down. Peak normalized to 1, the overpressure of the shock is returned so the level can be set from it. Everything after it (air, ground, reverb) is the engine's
 function explosion.Generate(charge_kg, distance, sample_rate, seed)
 	local random = math.random
 	math.randomseed(seed or 1)
@@ -77,7 +76,6 @@ function explosion.Generate(charge_kg, distance, sample_rate, seed)
 		out[i] = out[i] * (i + 1) / (explosion.SHOCK_RISE_SAMPLES + 1)
 	end
 
-	-- crackle: broadband turbulence of the fireball, brighter than the shock itself
 	local low_pass = 0
 	local fireball_coefficient = 1 - math.exp(-2 * math.pi * explosion.FIREBALL_CORNER / sample_rate)
 	local previous = 0
@@ -95,7 +93,6 @@ function explosion.Generate(charge_kg, distance, sample_rate, seed)
 		out[i] = out[i] + crackle + thump
 	end
 
-	-- debris: bursts at a rate that decays with time
 	local t = 0.04
 
 	while t < explosion.DURATION - 0.05 do

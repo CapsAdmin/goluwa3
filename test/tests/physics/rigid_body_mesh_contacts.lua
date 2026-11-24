@@ -103,7 +103,6 @@ T.TestPhysics("Static mesh rigid bodies collide with falling spheres", function(
 	local position = sphere_ent.transform:GetPosition()
 	sphere_ent:Remove()
 	ground_ent:Remove()
-	--T(sphere:GetGrounded())["=="](true) TODO
 	T(position.y)[">="](1.70)
 	T(position.y)["<="](1.95)
 	T(math.abs(position.x))["<"](0.1)

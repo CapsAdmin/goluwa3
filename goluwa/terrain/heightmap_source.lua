@@ -279,7 +279,6 @@ function HeightmapSource.ToMap(data, x, z)
 	return (uv[1] * px + uv[2] * pz) / size, (uv[3] * px + uv[4] * pz) / size
 end
 
--- uploads the height samples and the layer map again after they were edited
 function HeightmapSource.UploadMaps(source)
 	local data = source.Data
 	source.HeightTexture:Upload(data.height.samples)

@@ -569,9 +569,8 @@ local function find_hull_triangles(xs, ys, zs, count, epsilon)
 			end
 		end
 
-		-- the faces the point sees are grown from the one it sees best, so they are one connected patch and the horizon one
-		-- loop: picking every face a little in front of it gave separate patches on near coplanar points, whose faces
-		-- overlapped and multiplied without bound
+		-- the visible faces are grown from the one the point sees best so they stay one connected patch and the
+		-- horizon one loop, near coplanar points otherwise split them into overlapping patches
 		if start then
 			local visible_count = 1
 			visible[1] = start

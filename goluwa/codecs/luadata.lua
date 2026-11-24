@@ -330,7 +330,6 @@ local env = {
 	Color = Color,
 }
 
--- TODO: Bytecode analysis for bad loop and string functions?
 function luadata.Decode(str, nojail)
 	local func, err = loadstring(
 		str:find("^%s*return%s*{") and str or string.format("return { %s }", str),

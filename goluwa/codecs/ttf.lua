@@ -390,9 +390,6 @@ function ttf.DecodeBuffer(input_buffer)
 					if bit.band(flags, ARGS_ARE_XY_VALUES) ~= 0 then
 						m[5] = arg1
 						m[6] = arg2
-					else
-
-					-- TODO: match points
 					end
 
 					if bit.band(flags, WE_HAVE_A_SCALE) ~= 0 then

@@ -33,7 +33,6 @@ end
 local bit_7 = bits(7)
 local bit_0_3 = bits(0, 1, 2, 3)
 local bit_0_6 = bits(0, 1, 2, 3, 4, 5, 6)
--- TODO: improve performance
 local xor_mask = function(encoded, mask, payload)
 	local transformed, transformed_arr = {}, {}
 

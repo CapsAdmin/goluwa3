@@ -35,7 +35,7 @@ local EVENT_BIND_POINTS = {
 }
 local parse_cubin
 -- a warp sample with stall reason n is STALL_REASONS[n]: the order of the PCSampler stall metrics in the
--- Ada GPU Trace config, checked against shaders built to stall on each
+-- Ada GPU Trace config
 ngfx_gputrace.STALL_REASONS = {
 	"drain",
 	"imc_miss",
@@ -241,7 +241,6 @@ function Trace:GetProcesses()
 	return out
 end
 
--- returns the png file contents and the size of the frame that was captured
 function Trace:GetScreenshot()
 	local root, ptr = self:GetRoot()
 	local api = Decode(ptr, Find(root, ROOT_API)[3], Find(root, ROOT_API)[4])
@@ -466,7 +465,6 @@ function Trace:GetPipelines()
 	return pipelines, regions
 end
 
--- returns the region whose code contains the program counter
 function Trace:FindRegion(pc)
 	local regions = select(2, self:GetPipelines())
 	local lo, hi = 1, #regions
@@ -1540,8 +1538,6 @@ do
 		return self.modules[index]
 	end
 
-	-- the cubin of a region and the spir-v module it was compiled from: the modules of a pipeline are
-	-- stored right before its first code blob. The match is checked against the line table.
 	function Trace:GetRegionCubin(region)
 		if region.cubin == nil then
 			region.cubin = region.cubin_blob and

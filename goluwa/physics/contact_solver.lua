@@ -743,8 +743,7 @@ local function get_passes(m, ba, bb)
 end
 
 -- A sweep is a flat list of tasks instead of nested loops over manifolds and rows: LuaJIT unrolls
--- short inner loops into the outer trace, which overflowed its spill slots for large contact patches
--- and left the whole solver interpreted.
+-- short inner loops into the outer trace, which overflows its spill slots for large contact patches.
 local TASK_BEGIN, TASK_NORMAL, TASK_NORMAL_EXTRA, TASK_FRICTION, TASK_TWIST = 0, 1, 2, 3, 4
 
 local function add_task(m_index, k, kind, pass)

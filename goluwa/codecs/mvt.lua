@@ -1,7 +1,6 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local band, rshift, bxor = bit.band, bit.rshift, bit.bxor
--- decodes Mapbox vector tiles (protobuf, already decompressed): layers of features with their properties and geometry
 local mvt = {}
 mvt.POINT = 1
 mvt.LINESTRING = 2

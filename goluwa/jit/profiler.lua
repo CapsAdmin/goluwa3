@@ -1717,7 +1717,6 @@ HTML_TEMPLATE = [==[
 * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'SF Mono', 'Consolas', 'Menlo', monospace; }
 body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 
-/* Custom Scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg-base); }
 ::-webkit-scrollbar-thumb { background: var(--bg-elevated); border: 2px solid var(--bg-base); border-radius: 5px; }
@@ -1891,7 +1890,6 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 <div id="tooltip"></div>
 
 <script>
-// --- Data accumulator & decoder ---
 var _S=[],_E=[];
 function _C(s,e){for(var i=0;i<s.length;i++)_S.push(s[i]);for(var i=0;i<e.length;i++)_E.push(e[i]);}
 function _decode(S,E){
@@ -1926,11 +1924,9 @@ const TOTAL_TIME = EVENTS.length > 1 ? EVENTS[EVENTS.length-1].time - EVENTS[0].
 const FILE_URL_TEMPLATE = %FILE_URL_JSON%;
 const MAX_MCODE_KB = %MAXMCODE_KB%;
 const SIZE_MCODE_KB = %SIZEMCODE_KB%;
-// --- File link helper ---
 function funcInfoLink(fi, label) {
   if (!fi) return label || '?';
   const display = label || fi;
-  // Match "path/or/file.lua:line" — path may be absolute or relative
   const m = fi.match(/^(.+):([0-9]+)$/);
   if (!m) return display;
   const [, filePath, line] = m;
@@ -1938,12 +1934,9 @@ function funcInfoLink(fi, label) {
   return `<a class="loc-link" href="${href}">${display}</a>`;
 }
 
-// --- Colors ---
 const COLORS = {
-  // Accent / interaction
   accent:     '#e0e0e0',
   accentDim:  'rgba(224,224,224,0.15)',
-  // Span / VM state
   ok:         '#52b788',
   abort:      '#ef6461',
   stitch:     '#e9c46a',
@@ -1952,14 +1945,12 @@ const COLORS = {
   jit:        '#ffd166',
   select:     '#ffc832',
   hover:      'rgba(255,255,255,0.06)',
-  // Backgrounds / structure
   bgDeep:      '#141414',
   bgBase:      '#1a1a1a',
   bgPanel:     '#222',
   border:      '#333',
   borderStrong:'#444',
   bgSeparator: '#1e1e1e',
-  // Text
   white:       '#fff',
   textBright:  '#ccc',
   textMid:     '#bbb',
@@ -1967,19 +1958,16 @@ const COLORS = {
   textDim:     '#888',
   textDimmer:  '#666',
   spanLabel:   '#111',
-  // Canvas overlays / tooltips
   tooltipBg:    'rgba(15,15,35,0.75)',
   tooltipBgDim: 'rgba(15,15,35,0.72)',
   jitBand:      'rgba(255,241,118,0.07)',
   abortBand:    'rgba(239,100,97,0.15)',
   flushBand:    'rgba(255,107,107,0.08)',
-  // Event / section colors
   okLight:      '#81c784',
   sectionStart: '#fff176',
   sectionEnd:   '#ffd54f',
   textFaint:    '#999',
   textVeryDim:  '#555',
-  // Span tree connections
   selectTreeLine: 'rgba(255,200,50,0.85)',
   selectTreeFill: 'rgba(255,200,50,0.3)',
   hoverTreeLine:  'rgba(255,255,200,0.75)',
@@ -1987,13 +1975,12 @@ const COLORS = {
   selectGlow:     'rgba(255,200,50,0.9)',
 };
 
-// --- VM state helpers ---
 const VM_STATE_COLORS = {
-  'N': COLORS.ok,     // Native (JIT)
-  'I': COLORS.interpreter, // Interpreter
-  'C': COLORS.linked, // C code
-  'G': COLORS.abort,  // GC
-  'J': COLORS.jit,    // JIT compile
+  'N': COLORS.ok,
+  'I': COLORS.interpreter,
+  'C': COLORS.linked,
+  'G': COLORS.abort,
+  'J': COLORS.jit,
 };
 const VM_STATE_LABELS = {
   'N': 'native',
@@ -2031,7 +2018,6 @@ function traceStatusClassFromCategory(category) {
   return 'trace-ok';
 }
 
-// --- Derived state ---
 let timeOrigin = Infinity, timeEnd = -Infinity;
 for (const e of EVENTS) {
   if (e.time < timeOrigin) timeOrigin = e.time;
@@ -2041,16 +2027,16 @@ const timeDuration = timeEnd - timeOrigin || 1;
 
 let viewStart = 0, viewEnd = timeDuration;
 let selStart = 0, selEnd = timeDuration;
-let dragMode = null; // null | 'select' | 'pan'
+let dragMode = null;
 let panStartX = 0, panViewStart0 = 0, panViewEnd0 = 0;
 let autoScrollTimer = null;
 let lastSelectX = 0;
-let sampleH = 60; // updated each draw
+let sampleH = 60;
 let tlHovered = false;
-let pieHoveredState = null; // vm_state key hovered on pie chart
-let hoveredSection = null;  // section name being hovered in fg-section-filter
-let pieSlices = [];  // [{state, a0, a1}] built by drawVmPie
-let timelineContainerH = 0; // set after totalLanes is known
+let pieHoveredState = null;
+let hoveredSection = null;
+let pieSlices = [];
+let timelineContainerH = 0;
 
 const ALL_SECTIONS = [];
 const SECTION_OTHER = '__other__';
@@ -2087,7 +2073,6 @@ function buildSampleFilterPanel(lo, hi) {
 
   let html = '<div class="filter-grid">';
 
-  // VM States
   states.forEach(state => {
     const isEnabled = enabledStates.has(state);
     const color = VM_STATE_COLORS[state] || COLORS.textDim;
@@ -2232,15 +2217,13 @@ function scheduleFlamegraph(lo, hi) {
   fgDebounceTimer = setTimeout(() => {
     drawFlamegraph(lo, hi);
     fgDebounceTimer = null;
-  }, 10); // Reduced delay for immediate feedback
+  }, 10);
 }
 
 function refreshView(lo, hi, immediate) {
   drawTimeline();
   updateSelOverlay();
 
-  // If selection is exactly the current view (100% visible), 
-  // then filtering (flamegraph/stats/panels) should follow the zoom.
   const isFullView = (selStart <= lo + 0.000001 && selEnd >= hi - 0.000001);
   const filterStart = isFullView ? lo : selStart;
   const filterEnd = isFullView ? hi : selEnd;
@@ -2259,8 +2242,6 @@ function refreshView(lo, hi, immediate) {
   }
 }
 
-// --- Stats ---
-// Precompute sorted sample times for binary-search range queries
 const sampleEvents = [];
 for (const e of EVENTS) { if (e.type === 'sample') sampleEvents.push(e); }
 sampleEvents.sort((a, b) => a.time - b.time);
@@ -2283,7 +2264,6 @@ function updateStats(lo, hi) {
 }
 updateStats(0, timeDuration);
 
-// --- VM Pie Chart ---
 const VM_STATE_ORDER = ['N','I','C','G','J'];
 function drawVmPie(lo, hi) {
   const canvas = document.getElementById('vm-pie-canvas');
@@ -2291,7 +2271,6 @@ function drawVmPie(lo, hi) {
   const size = 72;
   const ctx = setupCanvas(canvas, size, size);
 
-  // Count samples in range using binary search
   const rangeCounts = {};
   let total = 0;
   const iLo = bisectLeft(_sampleTimes, lo);
@@ -2330,7 +2309,6 @@ function drawVmPie(lo, hi) {
     pieSlices.push({state: key, a0: angle, a1: angle + sweep});
     angle += sweep;
   }
-  // Draw non-hovered slices first, then hovered on top
   for (const sl of sliceData) {
     const color = VM_STATE_COLORS[sl.state] || COLORS.textDim;
     const hov = sl.state === pieHoveredState;
@@ -2345,20 +2323,17 @@ function drawVmPie(lo, hi) {
     ctx.globalAlpha = 1;
   }
 
-  // Punch out the center for the donut hole
   ctx.fillStyle = COLORS.bgPanel;
   ctx.beginPath();
   ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
   ctx.fill();
 
-  // Center label: hovered state key or total count
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   if (pieHoveredState) {
     const cnt = rangeCounts[pieHoveredState] || 0;
     const pct = (cnt / total * 100).toFixed(0) + '%';
     const stateColor = VM_STATE_COLORS[pieHoveredState] || COLORS.textMuted;
-    // Background pill behind labels
     const bgW = innerR * 1.7, bgH = innerR * 1.25;
     ctx.fillStyle = COLORS.bgDeep;
     ctx.beginPath();
@@ -2373,7 +2348,6 @@ function drawVmPie(lo, hi) {
   }
 }
 
-// --- Trace List ---
 function traceStatusClass(span) {
   return traceStatusClassFromCategory(span.category);
 }
@@ -2497,7 +2471,6 @@ function _ensureTraceSkeleton() {
     '<div id="trace-vbot" style="height:0"></div></div>';
   container.innerHTML = html;
 
-  // Wire sort headers once
   container.querySelectorAll('th[data-sort]').forEach(th => {
     th.addEventListener('click', (ev) => {
       if (ev.target.classList.contains('th-resizer')) return;
@@ -2547,7 +2520,6 @@ function _ensureTraceSkeleton() {
     }
   });
 
-  // Event delegation wired once
   const scrollEl = document.getElementById('trace-panel-scroll');
   scrollEl.addEventListener('click', (ev) => {
     const row = ev.target.closest('tr.trace-row');
@@ -2597,10 +2569,9 @@ function _updateSortIndicators() {
   const arrow = traceListSortAsc ? ' ▲' : ' ▼';
   container.querySelectorAll('th[data-sort]').forEach(th => {
     const key = th.dataset.sort;
-    // Remove old arrow if present
     const resizer = th.querySelector('.th-resizer');
     const label = th.childNodes[0];
-    const baseLabel = key; // the column name
+    const baseLabel = key;
     if (label && label.nodeType === 3) {
       label.textContent = baseLabel + (traceListSortKey === key ? arrow : '');
     }
@@ -2730,16 +2701,13 @@ document.getElementById('btn-toggle-fg').addEventListener('click', () => {
 });
 
 
-// Sync: highlight traces row when timeline hover changes
 function syncTraceListHighlight(span) {
   const panel = document.getElementById('trace-panel');
   if (!panel) return;
-  // Remove previous transient highlight (not the selected one)
   const prev = panel.querySelector('tr.trace-row.highlighted');
   if (prev) prev.classList.remove('highlighted');
   if (!span) return;
 
-  // Virtual scroll: scroll to the row's position if not currently visible
   const scrollEl = document.getElementById('trace-panel-scroll');
   if (scrollEl && traceVisibleData.length > 0) {
     const idx = traceVisibleData.findIndex(s => s.uid === span.uid);
@@ -2760,7 +2728,6 @@ function syncTraceListHighlight(span) {
   }
 }
 
-// --- Build trace spans (connect start → stop/abort) with depth-based nesting ---
 // Trace IDs can repeat, even inside the same generation, so keep a per-occurrence uid.
 function tracePendingKey(gen, id) { return gen + ':' + id; }
 function traceUid(gen, id, occurrence) { return gen + ':' + id + ':' + occurrence; }
@@ -2872,7 +2839,6 @@ function traceSupersessionKey(span) {
   }
 }
 
-// Compute max depth for layout
 let maxTraceDepth = 0;
 for (const span of traceSpans) {
   if (span.depth > maxTraceDepth) maxTraceDepth = span.depth;
@@ -2882,7 +2848,7 @@ const totalLanes = Math.max(5, maxTraceDepth);
 let visibleSpanRects = [];
 let lastHoveredSpan = null;
 let selectedSpan = null;
-let panClickSpanCandidate = null; // span under cursor at mousedown in trace area
+let panClickSpanCandidate = null;
 let showSupersededAborts = false;
 
 function shouldShowTraceSpan(span) {
@@ -2903,7 +2869,6 @@ function getTraceFilterStats() {
   return {categories, abortReasons};
 }
 
-// --- Trace filter ---
 const initialTraceFilterStats = getTraceFilterStats();
 const enabledCategories = new Set(['OK', 'interpreter', 'linked', 'stitch', 'aborted', 'flush']);
 const enabledAbortReasons = new Set(Object.keys(initialTraceFilterStats.abortReasons));
@@ -3262,7 +3227,6 @@ function buildFilterPanel(tStart, tEnd) {
   const traceFilterStats = getTraceFilterStats();
   const abortReasonList = Object.entries(traceFilterStats.abortReasons).sort((a, b) => b[1] - a[1]);
 
-  // Recalculate what categories are actually visible in current range
   const zoomCategories = {};
   const zoomAbortReasons = {};
   for (const span of traceSpans) {
@@ -3290,7 +3254,6 @@ function buildFilterPanel(tStart, tEnd) {
 
   let html = '<div class="filter-grid">';
   
-  // Main categories
   categoryList.forEach(([cat, count], idx) => {
     const color = traceCategoryColor(cat);
 
@@ -3320,7 +3283,6 @@ function buildFilterPanel(tStart, tEnd) {
   const abortedChecked = enabledCategories.has('aborted');
   if (abortedChecked && abortReasonList.length > 0) {
     html += '<div class="filter-separator"></div>';
-    // Abort reasons
     abortReasonList.forEach(([reason, count], idx) => {
       const isEnabled = enabledAbortReasons.has(reason);
       const checkedChar = isEnabled ? '☑' : '☐';
@@ -3348,7 +3310,6 @@ function buildFilterPanel(tStart, tEnd) {
         enabledCategories.delete(cat);
       } else {
         enabledCategories.add(cat);
-        // Reset all abort reasons to checked when "aborted" is re-enabled
         if (cat === 'aborted') {
           abortReasonList.forEach(([reason]) => enabledAbortReasons.add(reason));
         }
@@ -3373,7 +3334,6 @@ function buildFilterPanel(tStart, tEnd) {
       
       const isSolo = enabledCategories.has(cat) && enabledCategories.size === 1;
       if (isSolo) {
-        // Inverse: check everything except aborted reasons (just the main categories)
         categoryList.forEach(([c]) => enabledCategories.add(c));
         abortReasonList.forEach(([r]) => enabledAbortReasons.add(r));
       } else {
@@ -3488,7 +3448,6 @@ function buildFilterPanel(tStart, tEnd) {
 }
 buildTraceListPanel();
 
-// --- Timeline ---
 const tlCanvas = document.getElementById('timeline-canvas');
 const tlCtx = tlCanvas.getContext('2d');
 const selOverlay = document.getElementById('selection-overlay');
@@ -3549,12 +3508,10 @@ function drawTimeline() {
 
   const vDur = viewEnd - viewStart || 1;
 
-  // Layout: vm state (top, smaller) + traces (bottom, larger)
   sampleH = Math.min(30, Math.max(20, Math.round(h * 0.14)));
-  const traceY = sampleH + 4; // 4px gap for divider
+  const traceY = sampleH + 4;
   const traceH = h - traceY;
 
-  // Draw section bands first (background)
   const sectionStarts = {};
   for (const e of EVENTS) {
     const t = e.time - timeOrigin;
@@ -3580,7 +3537,6 @@ function drawTimeline() {
     }
   }
 
-  // Draw trace_flush as subtle bands in sample area (prominent rendering is in trace area below)
   if (enabledCategories.has('flush')) {
     for (const ft of flushTimes) {
       const t = ft - timeOrigin;
@@ -3593,7 +3549,6 @@ function drawTimeline() {
     }
   }
 
-  // Draw samples and section boundaries
   for (const e of EVENTS) {
     if (e.type.startsWith('trace_')) continue;
     const t = e.time - timeOrigin;
@@ -3634,8 +3589,6 @@ function drawTimeline() {
 
   tlCtx.strokeStyle = COLORS.bgSeparator;
   tlCtx.lineWidth = 0.5;
-  // Exponential lane heights clamped between MIN_LANE_H and MAX_LANE_H;
-  // excess space distributed evenly so lanes converge as timeline grows.
   const EXP_R = 0.75;
   const MIN_LANE_H = 3, MAX_LANE_H = 20;
   const availLaneH = traceH - 6;
@@ -3649,7 +3602,6 @@ function drawTimeline() {
     laneHeights[i] = Math.min(MAX_LANE_H, Math.max(MIN_LANE_H, h0 * Math.pow(EXP_R, i)));
     nominalTotal += laneHeights[i];
   }
-  // Distribute leftover space equally so lanes converge as timeline grows
   const bonus = Math.max(0, (availLaneH - nominalTotal) / totalLanes);
   let acc = 0;
   for (let i = 0; i < totalLanes; i++) {
@@ -3665,14 +3617,12 @@ function drawTimeline() {
     tlCtx.stroke();
   }
 
-  // Health-based color for trace spans
   function spanColor(span) {
     if (span.outcome === 'abort') return [COLORS.abort, COLORS.abort];
     const color = traceCategoryColor(span.category);
     return [color, color];
   }
 
-  // Draw trace spans in depth-based swimlanes
   visibleSpanRects = [];
   let hoveredSpan = null;
 
@@ -3697,7 +3647,6 @@ function drawTimeline() {
     visibleSpanRects.push({x: x0, y: by, w: bw, h: barH, span: span});
   }
 
-  // Draw parent-child connection lines for the active span (selected takes priority over hovered)
   if (lastHoveredSpan || selectedSpan) {
     tlCtx.save();
 
@@ -3742,11 +3691,9 @@ function drawTimeline() {
       }
     }
 
-    // Draw selected span tree (always visible, golden)
     if (selectedSpan) {
       drawSpanTree(selectedSpan, COLORS.selectTreeLine, COLORS.selectTreeFill);
     }
-    // Draw hovered span tree on top (if different from selected, cyan)
     if (lastHoveredSpan && lastHoveredSpan !== selectedSpan) {
       drawSpanTree(lastHoveredSpan, COLORS.hoverTreeLine, COLORS.hoverTreeFill);
     }
@@ -3754,7 +3701,6 @@ function drawTimeline() {
     tlCtx.restore();
     tlCtx.setLineDash([]);
 
-    // Glow selected span
     if (selectedSpan) {
       for (const r of visibleSpanRects) {
         if (r.span === selectedSpan) {
@@ -3768,7 +3714,6 @@ function drawTimeline() {
         }
       }
     }
-    // Highlight hovered span border
     const borderTarget = lastHoveredSpan || selectedSpan;
     if (borderTarget) {
       for (const r of visibleSpanRects) {
@@ -3782,7 +3727,6 @@ function drawTimeline() {
     tlCtx.restore();
   }
 
-  // Region labels + depth labels drawn on top of boxes and hover lines
   function drawCanvasLabel(text, x, y, font) {
     tlCtx.font = font || '9px monospace';
     const tw = tlCtx.measureText(text).width;
@@ -3793,13 +3737,10 @@ function drawTimeline() {
     tlCtx.fillText(text, x, y);
   }
 
-  // Inline canvas legends — shown only while the timeline is hovered
   if (tlHovered) {
-    // Helper: draw a horizontal legend row centered in a band
     function drawInlineLegend(items, centerX, midY) {
       tlCtx.font = '8px monospace';
       const swatchW = 7, swatchH = 7, gap = 4, itemGap = 10;
-      // Measure total width
       let totalW = 0;
       for (const {label} of items) totalW += swatchW + gap + tlCtx.measureText(label).width + itemGap;
       totalW -= itemGap;
@@ -3824,17 +3765,14 @@ function drawTimeline() {
       }
     }
   }
-  // Depth labels: root trace, d1, d2, d3, d.., d{maxDepth}
   {
     const maxDepth = totalLanes - 1;
-    // Build list of lane indices to label
-    const labelLanes = []; // {lane, text}
+    const labelLanes = [];
     labelLanes.push({lane: 0, text: 'root trace'});
     for (let i = 1; i <= Math.min(3, maxDepth); i++) {
       labelLanes.push({lane: i, text: 'd' + i});
     }
     if (maxDepth > 4) {
-      // insert ellipsis after d3 (not a real lane, just drawn at lane 4 position)
       labelLanes.push({lane: 4, text: 'd\u2026'});
     }
     if (maxDepth > 3) {
@@ -3852,8 +3790,6 @@ function drawTimeline() {
     }
   }
 
-  // Draw FLUSH lines (prominent, full height of trace region)
-  // Drawn last so they sit on top of everything else
   if (enabledCategories.has('flush')) {
     tlCtx.save();
     tlCtx.setLineDash([5, 4]);
@@ -3865,16 +3801,13 @@ function drawTimeline() {
       const t = ft - timeOrigin;
       if (t < viewStart || t > viewEnd) continue;
       const fx = ((t - viewStart) / vDur) * w;
-      // Semi-transparent band
       tlCtx.fillStyle = COLORS.flushBand;
       tlCtx.fillRect(fx - 4, traceY, 8, traceH);
-      // Dashed line
       tlCtx.strokeStyle = COLORS.abort;
       tlCtx.beginPath();
       tlCtx.moveTo(fx, traceY);
       tlCtx.lineTo(fx, traceY + traceH);
       tlCtx.stroke();
-      // Label in VM area with black background
       tlCtx.font = 'bold 9px monospace';
       const txt = 'FLUSH';
       const tw = tlCtx.measureText(txt).width;
@@ -3887,7 +3820,6 @@ function drawTimeline() {
   }
 
 
-  // Schedule panel updates (debounced) — avoids rebuilding DOM on every canvas frame
   const currentFilterStateKey = Array.from(enabledStates).sort().join(',') + '|' + Array.from(enabledSections).sort().join(',') + '|' + (hoverState || '') + '|' + (hoverSection || '') + '|' + (hoverCategory || '') + '|' + (hoverAbortReason || '');
   const rangeKey = currentRange[0].toFixed(6) + ':' + currentRange[1].toFixed(6);
   if (rangeKey !== lastPanelRangeKey || currentFilterStateKey !== lastFilterStateKey) {
@@ -3905,7 +3837,6 @@ function tlXToTime(clientX) {
   return Math.max(0, Math.min(timeDuration, t));
 }
 
-// --- Timeline tooltip ---
 function formatTooltip(e) {
   const t = (e.time - timeOrigin).toFixed(6);
   let s = `<b>${e.type}</b>  <span style="color:${COLORS.textDimmer}">${t}s</span>`;
@@ -3985,10 +3916,8 @@ function formatSpanTooltip(span) {
 }
 
 tlCanvas.addEventListener('mousedown', (ev) => {
-  if (ev.button !== 0) return; // Only handle left clicks
+  if (ev.button !== 0) return;
 
-  // Force a redraw/measurement if sampleH or rect is somehow stale
-  if (sampleH === 0) drawTimeline();
   const rect = getTlRect();
   const mouseY = ev.clientY - rect.top;
   const inSampleRegion = mouseY < sampleH;
@@ -3996,20 +3925,17 @@ tlCanvas.addEventListener('mousedown', (ev) => {
   hideTooltip();
 
   if (inSampleRegion) {
-    // VM state area — draw selection
     dragMode = 'select';
     selStart = tlXToTime(ev.clientX);
     selEnd = selStart;
     selOverlay.style.display = 'block';
     updateSelOverlay();
   } else {
-    // Trace area — pan the view (or click to select a span)
     dragMode = 'pan';
     panStartX = ev.clientX;
     panViewStart0 = viewStart;
     panViewEnd0 = viewEnd;
     tlCanvas.style.cursor = 'grabbing';
-    // Use the already-accurate hover result as the click candidate
     panClickSpanCandidate = lastHoveredSpan;
   }
 });
@@ -4029,7 +3955,6 @@ tlCanvas.addEventListener('mousemove', (ev) => {
   let tooltipContent = null;
 
   if (inSampleRegion) {
-    // Find closest sample
     let closest = null;
     let minDist = threshold;
     for (const e of EVENTS) {
@@ -4040,7 +3965,6 @@ tlCanvas.addEventListener('mousemove', (ev) => {
     }
     if (closest) tooltipContent = formatTooltip(closest);
   } else {
-    // Hit-test trace span rects
     for (let i = visibleSpanRects.length - 1; i >= 0; i--) {
       const r = visibleSpanRects[i];
       if (mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h) {
@@ -4058,7 +3982,6 @@ tlCanvas.addEventListener('mousemove', (ev) => {
       syncTraceListHighlight(null);
       drawTimeline();
     }
-    // Fallback: nearest trace event by time
     if (!tooltipContent) {
       let closest = null;
       let minDist = threshold;
@@ -4106,7 +4029,6 @@ window.addEventListener('mousemove', (ev) => {
     lastSelectX = ev.clientX;
     selEnd = tlXToTime(ev.clientX);
     
-    // Auto-scroll logic
     const rect = getTlRect();
     const margin = 25;
     const relX = ev.clientX - rect.left;
@@ -4166,7 +4088,6 @@ window.addEventListener('mouseup', () => {
   if (mode === 'select') {
     if (selStart !== null && selEnd !== null) {
       let lo = Math.min(selStart, selEnd), hi = Math.max(selStart, selEnd);
-      // If selection is too small (e.g. a single click), reset selection to full view
       if (hi - lo < 0.000001) {
         selStart = viewStart; selEnd = viewEnd;
         refreshView(viewStart, viewEnd, true);
@@ -4177,7 +4098,6 @@ window.addEventListener('mouseup', () => {
     }
   } else if (mode === 'pan') {
     tlCanvas.style.cursor = 'grab';
-    // If the view didn't actually move it's a click — select/deselect the span
     const actualMoved = Math.abs(viewStart - panViewStart0) > 0.000001 ||
                         Math.abs(viewEnd - panViewEnd0) > 0.000001;
     if (!actualMoved && panClickSpanCandidate) {
@@ -4219,11 +4139,9 @@ function updateSelOverlay() {
     btnZoom.style.display = (hi - lo > 0.0001 && sWidth > 40 && !isFullSelection) ? 'block' : 'none';
   }
 
-  // Exception for 0-100% full selection
   const isFull = (lx <= 0 && rx >= rect.width);
   selOverlay.style.background = isFull ? 'transparent' : 'var(--accent-dim)';
 
-  // Time labels with clamping
   const startEl = document.getElementById('sel-t-start');
   const endEl = document.getElementById('sel-t-end');
 
@@ -4233,7 +4151,7 @@ function updateSelOverlay() {
     let offsetX = -w / 2;
     if (lx + offsetX < 0) offsetX = -lx;
     if (lx + offsetX + w > rect.width) offsetX = rect.width - lx - w;
-    startEl.style.transform = `translate(${offsetX}px, 2px)`; // Moved inside VM area
+    startEl.style.transform = `translate(${offsetX}px, 2px)`;
   }
   if (endEl) {
     endEl.textContent = hi.toFixed(4) + 's';
@@ -4242,13 +4160,12 @@ function updateSelOverlay() {
     const absRx = rx;
     if (absRx + offsetX < 0) offsetX = -absRx;
     if (absRx + offsetX + w > rect.width) offsetX = rect.width - absRx - w;
-    endEl.style.transform = `translate(${offsetX}px, 2px)`; // Moved inside VM area
+    endEl.style.transform = `translate(${offsetX}px, 2px)`;
   }
 
   schedulePanelUpdate(lo, hi);
 }
 
-// --- Options Dropdown ---
 const btnOptions = document.getElementById('btn-toggle-options');
 const optionsDropdown = document.getElementById('options-dropdown');
 const cbHoverPreview = document.getElementById('cb-hover-preview');
@@ -4288,7 +4205,6 @@ document.getElementById('btn-zoom-sel').addEventListener('click', () => {
   }
 });
 
-// Mouse wheel zoom on timeline
 tlCanvas.addEventListener('wheel', (ev) => {
   ev.preventDefault();
   const zoomFactor = ev.deltaY > 0 ? 1.2 : 1/1.2;
@@ -4297,12 +4213,9 @@ tlCanvas.addEventListener('wheel', (ev) => {
   const newEnd = mouseT + (viewEnd - mouseT) * zoomFactor;
   viewStart = Math.max(0, newStart);
   viewEnd = Math.min(timeDuration, newEnd);
-  // Canvas redraws immediately; panels + flamegraph are debounced to avoid
-  // rebuilding expensive DOM on every wheel tick.
   refreshView(viewStart, viewEnd);
 }, {passive: false});
 
-// --- Resize handle helper ---
 function makeResizable(handle, minH, getH, setH) {
   let dragging = false, startY = 0, startH = 0;
   handle.addEventListener('mousedown', (ev) => {
@@ -4318,7 +4231,6 @@ function makeResizable(handle, minH, getH, setH) {
   });
 }
 
-// --- Timeline resize handle ---
 const tlContainer = document.getElementById('timeline-container');
 const tracePanel = document.getElementById('trace-panel');
 const TRACE_PANEL_DEFAULT_H = 280;
@@ -4332,10 +4244,8 @@ makeResizable(document.getElementById('trace-panel-resize-handle'), 60,
 
 function computeDefaultTimelineH() {
   const r = 0.75, minH = 3, maxH = 20;
-  // Sum of clamped exponential lane heights
   let lanesH = 0;
   for (let i = 0; i < totalLanes; i++) lanesH += Math.min(maxH, Math.max(minH, maxH * Math.pow(r, i)));
-  // sampleH capped at 35px; traceY = sampleH+4; traceH = lanesH+6
   return Math.max(80, Math.round(35 + 4 + lanesH + 6));
 }
 
@@ -4412,7 +4322,6 @@ mcodeCanvas.addEventListener('click', (ev) => {
   }
 });
 
-// --- Flamegraph ---
 const fgCanvas = document.getElementById('flamegraph-canvas');
 const fgCtx = fgCanvas.getContext('2d');
 let fgRects = [];
@@ -4435,7 +4344,6 @@ function buildFlamegraph(tStart, tEnd) {
   for (let idx = iLo; idx < iHi; idx++) {
     const e = sampleEvents[idx];
     if (!e.stack) continue;
-    // Filter out samples belonging to disabled sections or non-hovered state/section
     if (hoverState || hoverSection) {
       if (hoverState && e.vm_state !== hoverState) continue;
       if (hoverSection && e.section_path !== hoverSection) continue;
@@ -4534,7 +4442,6 @@ function drawFlamegraph(tStart, tEnd) {
     const rectH = FG_ROW_HEIGHT;
 
     fgCtx.fillStyle = depth === 0 ? COLORS.border : colorForFrame(node.name);
-    // Draw rect that is 1px smaller than its available space to create a 1px gap
     fgCtx.fillRect(xStart, y, w - 1, rectH - 1);
 
     if (w > 30) {
@@ -4545,7 +4452,6 @@ function drawFlamegraph(tStart, tEnd) {
       if (textW < w - 6) {
         fgCtx.fillText(label, xStart + 3, y + rectH - 5);
       } else {
-        // Binary search for truncation length instead of linear scan
         let lo = 1, hi = label.length, best = 1;
         while (lo <= hi) {
           const mid = (lo + hi) >> 1;
@@ -4577,7 +4483,6 @@ function drawFlamegraph(tStart, tEnd) {
   drawNode(root, 0, xOffset, xOffset + totalWidth);
 }
 
-// Tooltip on flamegraph
 fgCanvas.addEventListener('mousemove', (ev) => {
   const rect = fgCanvas.getBoundingClientRect();
   const mx = ev.clientX - rect.left;
@@ -4595,7 +4500,6 @@ fgCanvas.addEventListener('mousemove', (ev) => {
     const pct = ((hit.count / hit.total) * 100).toFixed(1);
     const selfPct = ((hit.self / hit.total) * 100).toFixed(1);
     showTooltip(`<b>${hit.label}</b>\n${hit.count} samples (${pct}%)\nself: ${hit.self} (${selfPct}%)`, ev.clientX + 12, ev.clientY - 10);
-    // Show pointer cursor if the frame is navigable
     fgCanvas.style.cursor = hit.label.match(/^.+:[0-9]+$/) ? 'pointer' : 'default';
   } else {
     hideTooltip();
@@ -4610,8 +4514,6 @@ fgCanvas.addEventListener('click', (ev) => {
   for (let i = fgRects.length - 1; i >= 0; i--) {
     const r = fgRects[i];
     if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
-      const link = funcInfoLink(r.label);
-      // funcInfoLink returns an <a> tag only when path:line is detected
       const m = r.label.match(/^(.+):([0-9]+)$/);
       if (m) {
         const [, filePath, line] = m;
@@ -4624,11 +4526,9 @@ fgCanvas.addEventListener('click', (ev) => {
 
 fgCanvas.addEventListener('mouseleave', () => { hideTooltip(); });
 
-// --- Init ---
 timelineContainerH = computeDefaultTimelineH();
 tlContainer.style.height = timelineContainerH + 'px';
 
-// Trigger a sync layout pass and first draw
 requestAnimationFrame(() => {
   invalidateTlRect();
   drawTimeline();
@@ -4636,7 +4536,6 @@ requestAnimationFrame(() => {
   refreshView(0, timeDuration, true);
 });
 
-// Pie chart hover — highlight matching VM state in timeline
 const vmPieCanvas = document.getElementById('vm-pie-canvas');
 vmPieCanvas.addEventListener('mousemove', (ev) => {
   const rect = vmPieCanvas.getBoundingClientRect();
@@ -4652,7 +4551,6 @@ vmPieCanvas.addEventListener('mousemove', (ev) => {
     return;
   }
   let a = Math.atan2(dy, dx);
-  // normalize to same start (-PI/2) as drawing code
   if (a < -Math.PI / 2) a += Math.PI * 2;
   let found = null;
   for (const sl of pieSlices) {
@@ -4676,7 +4574,7 @@ vmPieCanvas.addEventListener('mouseleave', () => {
 
 window.addEventListener('resize', () => { invalidateTlRect(); refreshView(viewStart, viewEnd, true); });
 refreshView(0, timeDuration, true);
-}); // end DOMContentLoaded
+});
 </script>
 </body>
 </html>

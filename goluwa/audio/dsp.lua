@@ -221,7 +221,6 @@ local function soft_reduction(over, knee, slope)
 	return 0
 end
 
--- two stages on the mix. The bass (below 300 Hz) has its own rms and gain: it is most of the energy of a blast and the least audible, it would otherwise decide what the peak limiter does to everything else. The reflex then follows the loudness through a hearing weighted detector (2nd order high pass at 400 Hz, close to A weighting) and takes 1 / ratio of the excess over the threshold in dBFS, in full below 1 kHz and EAR_HIGH_SHARE of it above, through a soft knee
 function dsp.ProcessEar(ear, out, frames, threshold)
 	local st = ear.state
 	local ll1, ll2, lr1, lr2, low_l, low_r, xl1, xl2, yl1, yl2, xr1, xr2 = st[1],

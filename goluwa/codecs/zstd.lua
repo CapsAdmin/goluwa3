@@ -98,7 +98,6 @@ local function build_rle_table(t, symbol)
 	return t
 end
 
--- returns the bytes read
 local function read_fse_description(p, start, limit, t, max_symbol, max_log)
 	local norm = i16_array_t(256)
 	local pos = start * 8
@@ -567,7 +566,6 @@ local function decode_huffman_stream(ctx, p, start, size, out, out_at, count)
 	if pos ~= floor_pos then error("zstd: huffman stream not fully consumed", 3) end
 end
 
--- returns the literal count and the bytes read
 local function read_literals(ctx, p, start, limit)
 	local b0 = p[start]
 	local kind = band(b0, 3)
@@ -883,7 +881,6 @@ function zstd.GetContentSize(src, src_size)
 	return read_u32(src, at) + read_u32(src, at + 4) * 4294967296
 end
 
--- decodes every frame in src into dst and returns the bytes written
 function zstd.Decompress(src, src_size, dst, dst_capacity)
 	local padded = bytes_t(src_size + PAD * 2)
 	ffi.copy(padded + PAD, src, src_size)

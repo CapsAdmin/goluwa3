@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local bit = require("bit")
 local deflate = import("goluwa/codecs/deflate.lua")
 local band, bxor, lshift = bit.band, bit.bxor, bit.lshift
--- reads PMTiles v3 archives: the header, directories and tile ids; fetching the bytes is the caller's
 local pmtiles = {}
 pmtiles.HEADER_SIZE = 127
 -- the root directory is within this many bytes of the start of every archive

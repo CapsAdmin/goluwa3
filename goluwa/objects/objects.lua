@@ -397,9 +397,8 @@ do
 		return layout
 	end
 
-	-- LuaJIT guards a constant key read on the hash node it found the key in (HREFK), so instances whose keys were
-	-- inserted in another order or set get a side trace each at every field read. Inserting every key in one order
-	-- (and clearing the ones without a default afterwards, which keeps their node) gives all instances one layout.
+	-- insert every key in one order so all instances share one hash layout (HREFK guards), keys without a default
+	-- are cleared afterwards, which keeps their node
 	local function apply_field_layout(self, meta)
 		local layout = meta.field_layout_built and meta.FieldLayout or build_field_layout(meta)
 		local count = 0
