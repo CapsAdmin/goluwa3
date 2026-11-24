@@ -362,6 +362,15 @@ return {
 				return gi.rgb;
 			}
 
+			vec3 grade_indirect_diffuse(vec3 irradiance) {
+				float grey = luminance(irradiance);
+
+				if (grey <= 0.0) return irradiance;
+
+				irradiance = max(vec3(grey) + (irradiance - grey) * lighting_data.gi_saturation, vec3(0.0));
+				return irradiance * lighting_data.gi_gain * pow(grey * get_exposure() / lighting_data.gi_contrast_pivot, lighting_data.gi_contrast - 1.0);
+			}
+
 			vec4 get_ambient_occlusion(vec2 uv) {
 				if (lighting_data.ambient_occlusion_tex < 0) return vec4(0.0, 0.0, 0.0, 1.0);
 				return texture(TEXTURE(lighting_data.ambient_occlusion_tex), uv);
@@ -471,7 +480,7 @@ return {
 				vec2 envBRDF = brdf_lut.rg;
 				vec3 specular_albedo = (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y) * GGXEnergyCompensation(s.F0, envBRDF);
 				vec3 kD_ambient = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - s.metallic);
-				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * EON_directional_albedo(s.albedo, s.diffuse_roughness, s.NdotV);
+				vec3 ambient_diffuse = kD_ambient * grade_indirect_diffuse(lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * EON_directional_albedo(s.albedo, s.diffuse_roughness, s.NdotV);
 
 				vec3 caustic_specular = vec3(0.0);
 

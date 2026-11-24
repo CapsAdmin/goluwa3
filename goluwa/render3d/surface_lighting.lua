@@ -18,6 +18,7 @@ local RAY_ESCAPE = 0.1
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local indirect_look = import("goluwa/render3d/indirect_look.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local caustics = import("goluwa/render3d/caustics.lua")
 local surface_lighting = {}
@@ -65,6 +66,10 @@ surface_lighting.block = {
 	{"gi_screen_tex", "int"},
 	{"gi_screen_geometry_tex", "int"},
 	{"gi_screen_specular_tex", "int"},
+	{"gi_gain", "float"},
+	{"gi_contrast", "float"},
+	{"gi_contrast_pivot", "float"},
+	{"gi_saturation", "float"},
 	{"light_transmittance", "int"},
 	{"caustics", "int"},
 	caustics.coverage_block,
@@ -133,6 +138,10 @@ function surface_lighting.WriteBlock(self, block)
 	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
+	block.gi_gain = indirect_look.gain:Get()
+	block.gi_contrast = indirect_look.contrast:Get()
+	block.gi_contrast_pivot = indirect_look.contrast_pivot:Get()
+	block.gi_saturation = indirect_look.saturation:Get()
 	block.light_transmittance = (optical_rays.IsEnabled() and ray_materials.HasDirectTint()) and 1 or 0
 	block.caustics = 0
 	caustics.WriteCoverageBlock(block)
