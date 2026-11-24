@@ -300,7 +300,7 @@ function saved_views.Format()
 		end
 	end
 
-	return str
+	return str, hit
 end
 
 return saved_views

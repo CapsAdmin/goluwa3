@@ -3,9 +3,24 @@ local clipboard = import("goluwa/bindings/clipboard.lua")
 local system = import("goluwa/system.lua")
 local Shot = import("goluwa/render3d/shot.lua")
 local saved_views = import("lua/saved_views.lua")
+local debug_draw = import("goluwa/debug_draw.lua")
+local Color = import("goluwa/structs/color.lua")
 
 commands.Add("copyview", function()
-	clipboard.Set(saved_views.Format())
+	local str, hit = saved_views.Format()
+	clipboard.Set(str)
+
+	if hit and hit.primitive then
+		debug_draw.DrawMesh{
+			id = "copyview",
+			polygon3d = hit.primitive.polygon3d,
+			matrix = hit.primitive.entity.transform:GetWorldMatrix(),
+			color = Color(1, 0.2, 0.8, 0.35),
+			translucent = true,
+			double_sided = true,
+			time = 3,
+		}
+	end
 end)
 
 commands.Add("saveview=string,string_rest|nil", function(name, note)
