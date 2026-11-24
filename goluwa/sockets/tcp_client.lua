@@ -34,6 +34,7 @@ function TCPClient:Initialize(socket)
 end
 
 function TCPClient:SocketRestart(socket)
+	self:RemoveFromSocketPool()
 	self.socket = socket or ljsocket.create("inet", "stream", "tcp")
 	self:assert(self.socket:set_blocking(false))
 	self.socket:set_option("nodelay", true, "tcp")
