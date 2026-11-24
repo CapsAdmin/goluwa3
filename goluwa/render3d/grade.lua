@@ -6,6 +6,7 @@ local exposure_model = import("goluwa/render3d/exposure.lua")
 local vfs = import("goluwa/vfs.lua")
 local lut_codec = import("goluwa/codecs/lut.lua")
 local curve = import("goluwa/math/curve.lua")
+local system = import("goluwa/system.lua")
 local grade = {}
 grade.BLEND_TIME = 2
 pvars.StartGroup("Post", "Grade", {store = false, prefix = "grade_"})
@@ -89,6 +90,8 @@ grade.block = {
 	{"grade_contrast", "float"},
 	{"grade_contrast_pivot", "float"},
 	{"grade_curve", "int"},
+	{"histogram", "int"},
+	{"histogram_range", "float"},
 	{"grade_saturation", "float"},
 	{"grade_warmth", "float"},
 	{"lut_mode", "int"},
@@ -324,6 +327,80 @@ function grade.GetCurveTexture()
 	return curve_state.texture
 end
 
+grade.HISTOGRAM_BINS = 256
+grade.HISTOGRAM_STRIDE = 4
+grade.HISTOGRAM_LINGER = 0.5
+
+do
+	local HistogramPointer = ffi.typeof("uint32_t*")
+	local byte_size = grade.HISTOGRAM_BINS * 4 * 4
+	local buffers = {}
+	local requested = -math.huge
+	local histogram
+
+	function grade.IsHistogramActive()
+		return system.GetElapsedTime() - requested < grade.HISTOGRAM_LINGER
+	end
+
+	function grade.GetHistogram()
+		requested = system.GetElapsedTime()
+		return histogram
+	end
+
+	function grade.GetHistogramBuffer()
+		local render = import("goluwa/render/render.lua")
+		local slot = (
+				(
+					render.GetCurrentFrame() or
+					1
+				) - 1
+			) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+		local buffer = buffers[slot]
+
+		if not buffer then
+			buffer = render.CreateBuffer{
+				byte_size = byte_size,
+				buffer_usage = {"storage_buffer"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "grade_histogram",
+				data = ffi.new("uint8_t[?]", byte_size),
+			}
+			buffers[slot] = buffer
+			return buffer
+		end
+
+		if not grade.IsHistogramActive() then
+			histogram = nil
+			return buffer
+		end
+
+		local counts = ffi.cast(HistogramPointer, buffer:Map(0, byte_size))
+		local bins = grade.HISTOGRAM_BINS
+		local total = 0
+
+		for i = 0, bins - 1 do
+			total = total + counts[3 * bins + i]
+		end
+
+		if total > 0 then
+			histogram = histogram or {r = {}, g = {}, b = {}, luma = {}}
+			histogram.range = grade.GetCurveDisplayRange()
+
+			for channel, name in ipairs{"r", "g", "b", "luma"} do
+				local values = histogram[name]
+				local offset = (channel - 1) * bins
+
+				for i = 0, bins - 1 do
+					values[i + 1] = counts[offset + i] / total
+				end
+			end
+		end
+
+		ffi.fill(counts, byte_size)
+		return buffer
+	end
+end
+
 function grade.WriteBlock(block)
 	update_lut()
 	block.grade_brightness = brightness:Get() / 100
@@ -341,6 +418,8 @@ function grade.WriteBlock(block)
 		1 or
 		0
 	block.grade_curve = grade.GetCurveTexture() and 1 or 0
+	block.histogram = grade.IsHistogramActive() and 1 or 0
+	block.histogram_range = grade.GetCurveDisplayRange()
 	local lut = lut_state.lut
 	local strength = lut_strength:Get() / 100
 	block.lut_strength = strength
@@ -474,20 +553,49 @@ local CURVE_GLSL = [[
 		) + max(x - %s, 0.0);
 	}
 ]]
+local HISTOGRAM_GLSL = [[
+	#define GRADE_HISTOGRAM_BINS %d
+	#define GRADE_HISTOGRAM_STRIDE %du
+
+	layout(std430, set = 0, binding = %d) buffer GradeHistogram {
+		uint grade_histogram_bins[];
+	};
+
+	vec3 grade_histogram(vec3 x) {
+		if (BLOCK.histogram == 0 || any(notEqual(gl_GlobalInvocationID.xy %% GRADE_HISTOGRAM_STRIDE, uvec2(0)))) return x;
+
+		vec4 v = vec4(x, dot(x, vec3(0.2126, 0.7152, 0.0722)));
+		ivec4 bin = ivec4(0, 1, 2, 3) * GRADE_HISTOGRAM_BINS + clamp(ivec4(v / BLOCK.histogram_range * float(GRADE_HISTOGRAM_BINS)), 0, GRADE_HISTOGRAM_BINS - 1);
+		atomicAdd(grade_histogram_bins[bin.r], 1u);
+		atomicAdd(grade_histogram_bins[bin.g], 1u);
+		atomicAdd(grade_histogram_bins[bin.b], 1u);
+		atomicAdd(grade_histogram_bins[bin.a], 1u);
+		return x;
+	}
+]]
+local HISTOGRAM_STUB = [[
+	vec3 grade_histogram(vec3 x) {
+		return x;
+	}
+]]
 local CURVE_STUB = [[
 	vec3 grade_curve(vec3 x) {
 		return x;
 	}
 ]]
 
--- binding_3d and binding_1d are the bindings of the table samplers and binding_curve the tone curve's, a shader that gives none has no table or curve
-function grade.GetGLSL(block_name, binding_3d, binding_1d, binding_curve)
+-- binding_3d and binding_1d are the bindings of the table samplers, binding_curve the tone curve's and binding_histogram the histogram's storage buffer, a shader that gives none has no table, curve or histogram
+function grade.GetGLSL(block_name, binding_3d, binding_1d, binding_curve, binding_histogram)
 	local lut = binding_3d and LUT_GLSL:format(binding_3d, binding_1d) or LUT_STUB
 	local range = string.format("%.1f", grade.CURVE_RANGE)
 	lut = lut .. (
 			binding_curve and
 			CURVE_GLSL:format(binding_curve, grade.CURVE_SIZE - 1, range, range) or
 			CURVE_STUB
+		) .. (
+			binding_histogram and
+			HISTOGRAM_GLSL:format(grade.HISTOGRAM_BINS, grade.HISTOGRAM_STRIDE, binding_histogram) or
+			HISTOGRAM_STUB
 		)
 	return (
 		(
@@ -522,9 +630,9 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d, binding_curve)
 		}
 
 		vec3 grade_display(vec3 c) {
-			if (BLOCK.grade_on == 0 && BLOCK.grade_curve == 0 && (BLOCK.lut_mode & 1) == 0) return c;
+			if (BLOCK.grade_on == 0 && BLOCK.grade_curve == 0 && BLOCK.histogram == 0 && (BLOCK.lut_mode & 1) == 0) return c;
 
-			vec3 x = clamp(grade_curve(LinearToSRGB(clamp(c, 0.0, 1.0))), 0.0, 1.0);
+			vec3 x = clamp(grade_curve(grade_histogram(LinearToSRGB(clamp(c, 0.0, 1.0)))), 0.0, 1.0);
 			return SRGBToLinear(clamp(grade_encoded(x), 0.0, 1.0));
 		}
 
@@ -535,12 +643,12 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d, binding_curve)
 
 			if ((BLOCK.lut_mode & 1) != 0) x = grade_lut_log(encoded, x);
 
-			x = clamp(grade_curve(x), 0.0, 1.0);
+			x = clamp(grade_curve(grade_histogram(x)), 0.0, 1.0);
 			return SRGBToLinear(clamp(grade_controls(x), 0.0, 1.0));
 		}
 
 		vec3 grade_display_hdr(vec3 c) {
-			if (BLOCK.grade_curve != 0) c = SRGBToLinear(max(grade_curve(LinearToSRGB(max(c, vec3(0.0)))), vec3(0.0)));
+			if (BLOCK.grade_curve != 0 || BLOCK.histogram != 0) c = SRGBToLinear(max(grade_curve(grade_histogram(LinearToSRGB(max(c, vec3(0.0))))), vec3(0.0)));
 
 			if (BLOCK.grade_on == 0 && (BLOCK.lut_mode & 1) == 0) return c;
 

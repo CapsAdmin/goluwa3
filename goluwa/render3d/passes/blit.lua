@@ -575,7 +575,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 16) uniform sampler2D lens_bloom_tex;
 	const float LENS_WARP_ENTRIES = ]] .. lens.WARP_ENTRIES .. [[.0;
 	const vec2 LENS_VIGNETTE_SIZE = vec2(]] .. lens.VIGNETTE_FIELDS .. [[.0, ]] .. lens.VIGNETTE_APERTURES .. [[.0);
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12, 17) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12, 17, 18) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
 
 	float effective_paper_white;
 
@@ -894,6 +894,11 @@ for _, pass in ipairs{
 		ComputePass = true,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_buffers = {{binding_index = 18}},
+		on_pre_draw = function(self, cmd, frame, desc)
+			local buffer = grade.GetHistogramBuffer()
+			self:UpdateDescriptorSet("storage_buffer", desc, 18, 0, buffer, buffer:GetSize())
+		end,
 		storage_images = {
 			{
 				binding_index = 0,

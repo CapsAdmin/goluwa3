@@ -184,13 +184,14 @@ local function build_items()
 		Apply = sync_tone_curve,
 		Build = function()
 			local channels = {
-				{Text = "all", Color = Color(0.9, 0.9, 0.9)},
-				{Text = "red", Color = Color(1, 0.35, 0.3)},
-				{Text = "green", Color = Color(0.35, 0.9, 0.4)},
-				{Text = "blue", Color = Color(0.4, 0.6, 1)},
+				{Text = "all", Color = Color(0.9, 0.9, 0.9), Histogram = "luma"},
+				{Text = "red", Color = Color(1, 0.35, 0.3), Histogram = "r"},
+				{Text = "green", Color = Color(0.35, 0.9, 0.4), Histogram = "g"},
+				{Text = "blue", Color = Color(0.4, 0.6, 1), Histogram = "b"},
 			}
 			tone_curve = ToneCurve{
 				Curves = channels,
+				OnGetHistogram = grade.GetHistogram,
 				OnChange = function(index, points)
 					grade.Stop()
 					local text = points and grade.FormatCurve(points) or ""

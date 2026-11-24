@@ -188,6 +188,7 @@ T.Test("Graphics render3d grade is off at the defaults", function()
 	local block = {}
 	reset()
 	T(grade.WriteBlock(block).grade_on)["=="](0)
+	T(block.histogram)["=="](0)
 	pvars.SetSession("r_grade_warmth", 10)
 	T(grade.WriteBlock(block).grade_on)["=="](1)
 	T(block.grade_warmth)["~"](0.1, 1e-6)
@@ -377,6 +378,66 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 		T(texels[2][1] > inputs[3][1] * 1.5)["=="](true)
 	end)
 	reset()
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
+	if not ok then error(err, 0) end
+end)
+
+local histogram_pass = table.copy(grade_pass)
+histogram_pass.name = "grade_histogram_test"
+histogram_pass.FramebufferSize = {x = 8, y = 1}
+histogram_pass.storage_buffers = {{binding_index = 3}}
+histogram_pass.on_pre_draw = function(self, cmd, frame, desc)
+	local buffer = grade.GetHistogramBuffer()
+	self:UpdateDescriptorSet("storage_buffer", desc, 3, 0, buffer, buffer:GetSize())
+end
+histogram_pass.shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data", nil, nil, 2, 3) .. [[
+	void main() {
+		int x = int(gl_GlobalInvocationID.x);
+
+		if (x == 0) imageStore(out_graded, ivec2(x, 0), vec4(grade_display(vec3(0.5, 0.2, 1.0)), 1.0));
+		if (x == 4) imageStore(out_graded, ivec2(x, 0), vec4(grade_display_hdr(vec3(2.0, 0.5, 0.0)), 1.0));
+	}
+]]
+
+T.Test3D("Graphics render3d grade histogram counts the curve's input while it is asked for", function(draw)
+	render3d.Initialize{passes = {import("goluwa/render3d/passes/gbuffer.lua"), histogram_pass}}
+	reset()
+	local ok, err = pcall(function()
+		local histogram
+
+		for _ = 1, 8 do
+			histogram = grade.GetHistogram()
+			draw()
+		end
+
+		histogram = grade.GetHistogram()
+		T(histogram ~= nil)["=="](true)
+		T(histogram.range)["=="](1)
+
+		local function bin(linear)
+			return math.min(math.floor(linear_to_srgb(linear) * grade.HISTOGRAM_BINS), grade.HISTOGRAM_BINS - 1) + 1
+		end
+
+		T(histogram.r[bin(0.5)])["~"](0.5, 1e-6)
+		T(histogram.r[grade.HISTOGRAM_BINS])["~"](0.5, 1e-6)
+		T(histogram.g[bin(0.2)])["~"](0.5, 1e-6)
+		T(histogram.g[bin(0.5)])["~"](0.5, 1e-6)
+		T(histogram.b[bin(1)])["~"](0.5, 1e-6)
+		T(histogram.b[1])["~"](0.5, 1e-6)
+		local total = 0
+
+		for _, value in ipairs(histogram.luma) do
+			total = total + value
+		end
+
+		T(total)["~"](1, 1e-6)
+	end)
 	render3d.Initialize{
 		passes = {
 			import("goluwa/render3d/passes/gbuffer.lua"),

@@ -149,6 +149,37 @@ function CANVAS:OnDraw()
 	render2d.SetTexture(nil)
 	render2d.SetColor(surface.r, surface.g, surface.b, 1)
 	render2d.DrawRect(0, 0, size.x, size.y)
+	local histogram = editor.OnGetHistogram()
+
+	if histogram then
+		local values = histogram[editor.Curves[editor.Channel].Histogram]
+		local count = #values
+		local peak = 0
+
+		for i = 2, count - 1 do
+			peak = math.max(peak, values[i])
+		end
+
+		if peak > 0 then
+			local color = editor.Curves[editor.Channel].Color
+			local bin_width = width * histogram.range / range / count
+			render2d.SetColor(
+				math.lerp(0.18, surface.r, color.r),
+				math.lerp(0.18, surface.g, color.g),
+				math.lerp(0.18, surface.b, color.b),
+				1
+			)
+
+			for i = 1, count do
+				local bar = math.min(values[i] / peak, 1) * height
+
+				if bar > 0 then
+					render2d.DrawRect(left + (i - 1) * bin_width, top + height - bar, bin_width + 0.5, bar)
+				end
+			end
+		end
+	end
+
 	if range > 1 then
 		local white_x, white_y = self:to_screen(1, 1)
 		render2d.SetColor(text.r, text.g, text.b, 0.05)
@@ -237,6 +268,8 @@ META:GetSet("Channel", 1)
 META:EndStorable()
 
 function META.OnChange(index, points, tone_curve) end
+
+function META.OnGetHistogram() end
 
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
