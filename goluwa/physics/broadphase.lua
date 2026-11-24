@@ -637,7 +637,10 @@ function Broadphase:TrackBodies(bodies, physics_override, incremental)
 						bounds.max_x, bounds.max_y, bounds.max_z = tight.max_x, tight.max_y, tight.max_z
 						inflate_entry_bounds(body, bounds)
 						entry.overflow_dirty = true
-						changed[#changed + 1] = entry
+
+						-- a pairless entry never pairs, so pair evaluation can skip it when it only moved
+						if not entry.pairless then changed[#changed + 1] = entry end
+
 						stats:Count("broadphase_bounds_updates")
 
 						if not is_same_spatial_assignment(self, entry, bounds) then
