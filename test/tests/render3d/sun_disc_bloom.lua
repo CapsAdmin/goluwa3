@@ -58,7 +58,7 @@ T.Test3D("Graphics render3d the sun disc's light does not change with the jitter
 	camera:SetPosition(Vec3(0, 3, 0))
 	camera:SetAngles{x = math.rad(elevation), y = 0, z = 0}
 
-	for _ = 1, 40 do
+	for _ = 1, 120 do
 		draw()
 	end
 
