@@ -16,6 +16,7 @@ Module map (`goluwa/audio/`):
 - Sounds load by path through the codec registry (`Sound:LoadPath`, `codec.DecodeFileAsync`); decoders with a `thread_job` run on workers. A worker hands its samples back as a byte pointer, so code reading a decoded buffer casts it to `float *` (`configure_sound_buffer` does); indexing the byte pointer reads bytes.
 - `codecs/wav.lua`: PCM, float, IMA ADPCM (Microsoft 0x0011 and Xbox 0x0069: the Xbox block holds the header sample and 63 nibbles) and MPEG audio (0x0050). A `fact` chunk trims the decoded length.
 - `codecs/mpeg_audio.lua`: MPEG 1 and 2 layer II (verified against ffmpeg). Layer III and MPEG 2.5 raise errors.
+- FMOD sound banks (FSB3, FSB4) mount as archives (`filesystem/files/fsb.lua`): each sample is a `.wav` whose header is synthesized in front of the bank's bytes. Bank names keep 30 bytes, so long names lose their extension and get `.wav` back. A bank inside a pak opens only by its absolute path (`vfs.GetAbsolutePath` of the bank); a mount resolves files of the archive it mounts, not archives inside it.
 
 ## Mixer
 

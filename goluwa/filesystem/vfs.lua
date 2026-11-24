@@ -481,6 +481,7 @@ vfs.InstantiateFilesystem(import("goluwa/filesystem/files/pak.lua"))
 vfs.InstantiateFilesystem(import("goluwa/filesystem/files/zip.lua"))
 vfs.InstantiateFilesystem(import("goluwa/filesystem/files/bsp.lua"))
 vfs.InstantiateFilesystem(import("goluwa/filesystem/files/gma.lua"))
+vfs.InstantiateFilesystem(import("goluwa/filesystem/files/fsb.lua"))
 vfs.InstantiateFilesystem(import("goluwa/filesystem/files/lzma.lua"))
 
 for _, context in ipairs(vfs.GetFileSystems()) do
