@@ -6,6 +6,8 @@ Every folder in `addons/` is mounted into one merged vfs, so `import("lua/x.lua"
 
 Addons are ordered so dependencies come first (a topological sort over priority then name), and an addon with a missing dependency does not autorun. `--addons a,b` restricts what mounts but does not pull in dependencies.
 
+An addon that imports another addon's file (a `lua/` path only that addon has, or `addons/<folder>/...`) must list it in `dependencies`, directly or through a dependency; `test/tests/other/addon_dependencies.lua` checks every import in every mounted addon, tests included. When a lower addon needs behaviour from a higher one, the higher one plugs in (an event, a registry, or overriding a method from its autorun, like `jrpg` replacing `ai_controller:Cast`) instead of being imported.
+
 ## Game addons
 
 All of them always load, they are not exclusive modes.
