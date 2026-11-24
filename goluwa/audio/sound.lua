@@ -20,7 +20,8 @@ function module.Attach(audio)
 	local function configure_sound_buffer(sound, data, buffer_length, channels, sample_rate, decoded)
 		if not data then return false end
 
-		sound:SetBuffer(data)
+		-- decodes that ran on a worker hand over their samples as a byte pointer
+		sound:SetBuffer(ffi.cast("float *", data))
 		sound.decoded = decoded
 		sound:SetBufferLength(tonumber(buffer_length) or 0)
 		sound:SetChannels(tonumber(channels) or 2)
