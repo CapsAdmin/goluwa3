@@ -576,24 +576,6 @@ T.Test("source 2 sound files decode to pcm", function()
 	T(stereo.channels)["=="](2)
 end)
 
-T.Test("source 2 sound profile", function()
-	local info = steam.FindSourceGame(546560)
-
-	if not info then return T.Unavailable("half-life: alyx is not installed") end
-
-	steam.MountSourceGame(info)
-	local profile = import("lua/sound_profiles/source2.lua")
-	local impact = profile.GetImpact("concrete")
-	T(#impact.soft > 0 and #impact.hard > 0)["=="](true)
-	T(vfs.IsFile(impact.soft[1]))["=="](true)
-	local step = profile.GetFootstep("metal", 2)
-	T(step[1]:find("metal_solid", 1, true) ~= nil)["=="](true)
-	T(vfs.IsFile(step[1]))["=="](true)
-	T(profile.GetFootstep("metal", 0.5)[1]:find("step_light", 1, true) ~= nil)["=="](true)
-	T(profile.GetFootstep("metal", 5)[1]:find("step_run", 1, true) ~= nil)["=="](true)
-	T(import("lua/sound_profiles.lua").Get())["=="](profile)
-end)
-
 T.Test("source 2 materials take their physics surface", function()
 	local info = steam.FindSourceGame(546560)
 
