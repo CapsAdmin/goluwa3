@@ -32,6 +32,9 @@ cgf.CHUNK_EXPORT_FLAGS = 0xCCCC0015
 cgf.CHUNK_DATA_STREAM = 0xCCCC0016
 cgf.CHUNK_MESH_SUBSETS = 0xCCCC0017
 cgf.CHUNK_MESH_PHYSICS_DATA = 0xCCCC0018
+cgf.CHUNK_COMPILED_BONES = 0xACDC0000
+cgf.CHUNK_COMPILED_INT_SKIN_VERTICES = 0xACDC0005
+cgf.CHUNK_COMPILED_EXT_TO_INT_MAP = 0xACDC0006
 cgf.MAX_SIBLING_LODS = 4
 
 local function assert_old_cgf_version(version)
@@ -337,6 +340,87 @@ function cgf.ReadNodeChunk(file, chunk)
 	return node
 end
 
+do
+	local BONE_SIZE = 584
+	local BONES_OFFSET = 48
+
+	function cgf.ReadCompiledBones(file, chunk)
+		local bones = {}
+
+		for index = 1, math.floor((chunk.size - BONES_OFFSET) / BONE_SIZE) do
+			file:PushPosition(chunk.offset + BONES_OFFSET + (index - 1) * BONE_SIZE)
+			local controller_id = file:ReadU32()
+			-- the stored world to bone matrix is stale in some models (turtle.chr), it is derived from bone to world instead
+			file:Advance(212 + 48)
+			local bone_to_world = {}
+
+			for i = 1, 12 do
+				bone_to_world[i] = file:ReadFloat()
+			end
+
+			local name = file:ReadString(256):match("^[^%z]*")
+			file:Advance(4)
+			local parent_offset = file:ReadI32()
+			file:PopPosition()
+			local parent = parent_offset ~= 0 and index + parent_offset or nil
+			assert(not parent or (parent >= 1 and parent < index), "cgf bone parent after child")
+			bones[index] = {
+				name = name,
+				controller_id = controller_id,
+				parent = parent,
+				bone_to_world = bone_to_world,
+			}
+		end
+
+		return bones
+	end
+end
+
+function cgf.ReadSkin(parsed)
+	local file = parsed.file
+	local vertices_chunk, map_chunk
+
+	for _, chunk in ipairs(parsed.chunks) do
+		if chunk.type == cgf.CHUNK_COMPILED_INT_SKIN_VERTICES then
+			vertices_chunk = chunk
+		elseif chunk.type == cgf.CHUNK_COMPILED_EXT_TO_INT_MAP then
+			map_chunk = chunk
+		end
+	end
+
+	if not vertices_chunk or not map_chunk then return nil end
+
+	local internal = {}
+	file:PushPosition(vertices_chunk.offset + 48)
+
+	for index = 1, math.floor((vertices_chunk.size - 48) / 64) do
+		file:Advance(36)
+		local b1, b2, b3, b4 = file:ReadU16(), file:ReadU16(), file:ReadU16(), file:ReadU16()
+		internal[index] = {
+			b1 + 1,
+			b2 + 1,
+			b3 + 1,
+			b4 + 1,
+			file:ReadFloat(),
+			file:ReadFloat(),
+			file:ReadFloat(),
+			file:ReadFloat(),
+		}
+		file:Advance(4)
+	end
+
+	file:PopPosition()
+	local skin = {}
+	file:PushPosition(chunk_body_offset(map_chunk))
+
+	for index = 1, math.floor((map_chunk.size - 16) / 2) do
+		skin[index] = internal[file:ReadU16() + 1]
+	end
+
+	file:PopPosition()
+	return skin
+end
+
 function cgf.GetNodeWorldTransform(nodes_by_id, node_id, cache, visiting)
 	cache = cache or {}
 
@@ -531,6 +615,7 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 		end
 	end
 
+	local skin = cgf.ReadSkin(parsed)
 	local world_transforms = {}
 	local base_nodes_by_name = {}
 	local first_base_node
@@ -603,7 +688,7 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 				local positions = streams_by_type[0] and streams_by_type[0].values or {}
 				local normals = streams_by_type[1] and streams_by_type[1].values or {}
 				local uvs = streams_by_type[2] and streams_by_type[2].values or {}
-				local colors = streams_by_type[3] and streams_by_type[3].values or {}
+				local colors = not skin and streams_by_type[3] and streams_by_type[3].values or {}
 				local indices = streams_by_type[5] and streams_by_type[5].values or {}
 				local base_vertices = {}
 				local physics_chunk_id = mesh.physics_data_chunk_ids[1]
@@ -660,6 +745,7 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 						uv = uvs[index] and uvs[index]:Copy() or nil,
 						texture_blend = colors[index] == RIGID_COLOR and 0 or colors[index].a,
 						vertex_color = colors[index],
+						skin = skin and skin[index],
 					}
 				end
 
@@ -691,6 +777,7 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 										uv = vertex.uv,
 										texture_blend = vertex.texture_blend,
 										vertex_color = vertex.vertex_color,
+										skin = vertex.skin,
 									}
 								else
 									claimed[vertex_index] = true
@@ -827,6 +914,28 @@ function cgf.GetMaterialPaths(path)
 
 	parsed.file:Close()
 	return out
+end
+
+function cgf.LoadMaterial(model_path, material_name, subset_material_id, resolved_paths)
+	local material_path = resolved_paths[material_name]
+
+	if not material_path then
+		material_path = cgf.ResolveMaterialPath(model_path, material_name)
+		resolved_paths[material_name] = material_path
+	end
+
+	if vfs.IsFile(material_path) then
+		return mtl_material.FromCryMTL(material_path, subset_material_id)
+	end
+
+	logf(
+		"crytek material not found for %q referenced by model %q\n",
+		tostring(material_path),
+		tostring(model_path)
+	)
+	local material = Material.New()
+	material:SetAlbedoTexture(Texture.GetFallback())
+	return material
 end
 
 cgf.Decoder = {}
@@ -982,29 +1091,13 @@ function cgf.Decoder.Finish(
 	local resolved_material_paths = {}
 
 	for _, info in ipairs(meta.entries) do
-		local material = nil
-
-		if info.material_name then
-			local material_path = resolved_material_paths[info.material_name]
-
-			if not material_path then
-				material_path = cgf.ResolveMaterialPath(input.model_path, info.material_name)
-				resolved_material_paths[info.material_name] = material_path
-			end
-
-			if vfs.IsFile(material_path) then
-				material = mtl_material.FromCryMTL(material_path, info.subset_material_id)
-			else
-				logf(
-					"crytek material not found for %q referenced by model %q\n",
-					tostring(material_path),
-					tostring(path)
-				)
-				material = Material.New()
-				material:SetAlbedoTexture(Texture.GetFallback())
-			end
-		end
-
+		local material = info.material_name and
+			cgf.LoadMaterial(
+				input.model_path,
+				info.material_name,
+				info.subset_material_id,
+				resolved_material_paths
+			)
 		local vertices, indices = packed_mesh.Unpack(info, blob_table)
 		local diffuse = material and material.cry_texture_maps and material.cry_texture_maps.Diffuse
 

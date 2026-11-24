@@ -52,6 +52,12 @@ Warhead's ice shaders map to the engine's `medium` feature (the `ice` preset, se
 - Bending (`deformation.lua`) is based on CE2's `_DetailBending` with deliberate differences; see [foliage.md](foliage.md) for the shared wind rules. Tune `BEND_PER_HEIGHT` before touching the shader.
 - Painted vegetation is drawn by scatter as placed instances, one `scatter_placements` entity per prototype, never one entity per instance (see [scatter.md](scatter.md)). "Fit to Terrain" is scatter `conform`. Procedural scatter is off on Cry terrain layers.
 
+## Characters
+
+- `.chr` files are skinned cgf chunk files (`chr.lua`, decoder `model_decoders/chr.lua`): `CompiledBones` (0xACDC0000) holds the skeleton (bone to world 3x4, relative parent offsets, controller id = CRC32 of the case sensitive bone name), `CompiledIntSkinVertices` plus `CompiledExt2IntMap` give four global bone ids and float weights per mesh vertex. The mesh's bone mapping stream uses per subset bone lists; it is not read.
+- The stored world to bone matrix is stale in some models (turtle); the inverse bind is derived from bone to world.
+- Animations are `.caf` files listed in the model's `.cal` (`name = file`, relative to `#filepath`, which is game root relative); each becomes a clip of that name. Controllers 0x827 store centimeters and the log of the inverse local rotation; `caf.lua` bakes them to frames at the timing chunk's rate. `.lmg`, `.dba` (the shark) and `Animations.pak` are not supported.
+
 ## Collision
 
 - Collision comes from the cgf physics chunk of slot 0 (`cry_physics.lua`); slots 1 and 2 are not solid. Models with no slot 0 have no collision in Cry either.
