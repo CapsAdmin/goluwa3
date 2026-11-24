@@ -274,95 +274,107 @@ function repl.IsFocused()
 end
 
 do
-	local old = package.path
-	package.path = package.path .. ";" .. "goluwa/?.lua"
-	local Code = require("nattlua.code")
-	local Lexer = require("nattlua.lexer.lexer")
-	package.path = old
 	local colors = {
 		keyword = "#569cd6",
-		operator = "#d4d4d4",
-		symbol = "#d4d4d4",
+		["function"] = "#dcdcaa",
 		number = "#b5cea8",
 		string = "#ce9178",
 		comment = "#6a9955",
-		any = "#9cdcfe",
-		["function"] = "#dcdcaa",
-		table = "#4ec9b0",
-		["type"] = "#4ec9b0",
-		letter = "#d4d4d4",
+		default = "#d4d4d4",
 	}
 
 	for key, hex in pairs(colors) do
 		local r, g, b = hex:match("#?(..)(..)(..)")
-		r = tonumber("0x" .. r)
-		g = tonumber("0x" .. g)
-		b = tonumber("0x" .. b)
-		colors[key] = {r, g, b}
+		colors[key] = {tonumber("0x" .. r), tonumber("0x" .. g), tonumber("0x" .. b)}
 	end
 
-	local function lex_string(str)
-		return Lexer.New(Code.New(str, "repl")):GetTokens()
+	local keywords = {}
+
+	for word in (
+		"and break do else elseif end false for function goto if in local nil not or repeat return then true until while"
+	):gmatch("%S+") do
+		keywords[word] = true
+	end
+
+	local function long_bracket_stop(str, i)
+		local equals = str:match("^%[(=*)%[", i)
+
+		if not equals then return nil end
+
+		local _, stop = str:find("]" .. equals .. "]", i + #equals + 2, true)
+		return stop or #str
 	end
 
 	function repl.ColorizeAndWrite(term, str)
-		local ok, tokens = pcall(lex_string, str)
+		local last_kind = nil
+		local i = 1
+		local length = #str
 
-		if not ok then
-			term:Write(str)
-			return
-		end
+		while i <= length do
+			local kind, stop
 
-		local last_color = nil
+			if str:find("^%s", i) then
+				local _, s = str:find("^%s+", i)
+				stop = s
+			elseif str:find("^%-%-", i) then
+				kind = "comment"
+				stop = long_bracket_stop(str, i + 2) or (str:find("\n", i, true) or length + 1) - 1
+			elseif str:find("^[\"']", i) then
+				kind = "string"
+				local quote = str:sub(i, i)
+				local j = i + 1
+				stop = length
 
-		local function set_color(what)
-			if not colors[what] then what = "letter" end
+				while true do
+					local s = str:find("[\\\n" .. quote .. "]", j)
 
-			if what ~= last_color then
-				local c = colors[what]
-				term:ForegroundColor(c[1], c[2], c[3])
-				last_color = what
-			end
-		end
+					if not s then break end
 
-		for _, token in ipairs(tokens) do
-			if token:HasWhitespace() then
-				for _, v in ipairs(token:GetWhitespace()) do
-					if v.Type == "line_comment" or v.Type == "multiline_comment" then
-						set_color("comment")
+					local char = str:sub(s, s)
+
+					if char == "\\" then
+						j = s + 2
+					else
+						stop = char == "\n" and s - 1 or s
+
+						break
 					end
-
-					term:Write(v:GetValueString())
 				end
-			end
+			elseif long_bracket_stop(str, i) then
+				kind = "string"
+				stop = long_bracket_stop(str, i)
+			elseif str:find("^%.?%d", i) then
+				kind = "number"
+				local _, s = str:find("^0[xX][%x%.]*", i)
+				stop = s or select(2, str:find("^%d*%.?%d*", i))
+				local _, e = str:find("^[eEpP][%+%-]?%d+", stop + 1)
+				stop = e or stop
+				local _, suffix = str:find("^[uUlLiI]+", stop + 1)
+				stop = suffix or stop
+			elseif str:find("^[%a_]", i) then
+				local _, s = str:find("^[%w_]+", i)
+				stop = s
 
-			if token:IsKeyword() then
-				set_color("keyword")
-			elseif token:IsKeywordValue() then
-				set_color("keyword")
-			elseif token:IsSymbol() then
-				set_color("symbol")
-			elseif token:IsOperator() then
-				set_color("operator")
-			elseif token:IsNumber() then
-				set_color("number")
-			elseif token:IsString() then
-				set_color("string")
-			elseif token:IsAny() then
-				set_color("any")
-			elseif token:IsFunction() then
-				set_color("function")
-			elseif token:IsTable() then
-				set_color("table")
-			elseif token:IsOtherType() then
-				set_color("type")
+				if keywords[str:sub(i, stop)] then
+					kind = "keyword"
+				elseif str:find("^%s*[%(\"'{]", stop + 1) or str:find("^%s*%[=*%[", stop + 1) then
+					kind = "function"
+				else
+					kind = "default"
+				end
 			else
-				set_color(token.Type)
+				kind = "default"
+				stop = i
 			end
 
-			term:Write(token:GetValueString())
+			if kind and kind ~= last_kind then
+				local c = colors[kind]
+				term:ForegroundColor(c[1], c[2], c[3])
+				last_kind = kind
+			end
 
-			if token.Type == "end_of_file" then break end
+			term:Write(str:sub(i, stop))
+			i = stop + 1
 		end
 	end
 end
