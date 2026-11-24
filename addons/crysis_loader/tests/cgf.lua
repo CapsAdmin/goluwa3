@@ -575,7 +575,7 @@ T.Test("CryMTL loader maps nodraw, glass, opacity, two sided and glow", function
 	assert(
 		vfs.Write(
 			path,
-			[[<Material><SubMaterials><Material Name="proxy" Shader="Nodraw" /><Material Name="glass" Shader="Glass" Opacity="0.4" /><Material Name="faded" Shader="Illum" Opacity="0.5" MtlFlags="2" /><Material Name="cutout" Shader="Illum" Opacity="0.5" AlphaTest="0.3" /><Material Name="lamp" Shader="Illum" GlowAmount="0.8" /></SubMaterials></Material>]]
+			[[<Material><SubMaterials><Material Name="proxy" Shader="Nodraw" /><Material Name="glass" Shader="Glass" Opacity="0.4" /><Material Name="faded" Shader="Illum" Opacity="0.5" MtlFlags="2" /><Material Name="cutout" Shader="Illum" Opacity="0.5" AlphaTest="0.3" /><Material Name="lamp" Shader="Illum" GenMask="8192" GlowAmount="0.8" /><Material Name="unlit" Shader="Illum" GlowAmount="0.8" /></SubMaterials></Material>]]
 		)
 	)
 	local proxy = mtl_material.FromCryMTL(path, 0)
@@ -583,6 +583,7 @@ T.Test("CryMTL loader maps nodraw, glass, opacity, two sided and glow", function
 	local faded = mtl_material.FromCryMTL(path, 2)
 	local cutout = mtl_material.FromCryMTL(path, 3)
 	local lamp = mtl_material.FromCryMTL(path, 4)
+	local unlit = mtl_material.FromCryMTL(path, 5)
 	T(proxy:GetNoDraw())["=="](true)
 	T(glass:GetNoDraw())["=="](false)
 	T(glass:GetTranslucent())["=="](true)
@@ -593,7 +594,8 @@ T.Test("CryMTL loader maps nodraw, glass, opacity, two sided and glow", function
 	T(cutout:GetAlphaTest())["=="](true)
 	T(cutout:GetColorMultiplier().a)["=="](1)
 	T(lamp:GetAlbedoAlphaIsEmissive())["=="](true)
-	T(math.abs(lamp:GetEmissiveMultiplier().a - 0.8))["<"](0.0001)
+	T(math.abs(lamp:GetEmissiveMultiplier().a - 1.8))["<"](0.0001)
+	T(unlit:GetAlbedoAlphaIsEmissive())["=="](false)
 	vfs.Delete(path)
 end)
 
