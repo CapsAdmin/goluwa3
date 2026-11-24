@@ -8,6 +8,7 @@ local BatchTable = import("goluwa/render3d/batch_table.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Record = ffi.typeof([[struct {
 	uint32_t addresses[4];
+	uint32_t extras_address[2];
 	uint32_t index_is_32;
 	float value;
 }]])
@@ -84,6 +85,7 @@ T.Test3D("Graphics render3d batch table writes mesh addresses and records", func
 		T(record.value)["=="](i)
 		T(addresses[0] == mesh:GetVertexBufferAddress())["=="](true)
 		T(addresses[1] == mesh:GetIndexBufferAddress())["=="](true)
+		T(addresses[2] == mesh:GetExtrasBufferAddress())["=="](true)
 		T(record.index_is_32)["=="](0)
 	end
 
@@ -105,6 +107,7 @@ T.Test3D("Graphics render3d batch table zeroes the addresses of removed meshes",
 	T(context.writes)["=="](1)
 	T(addresses[0] == 0)["=="](true)
 	T(addresses[1] == 0)["=="](true)
+	T(addresses[2] == 0)["=="](true)
 	batch_table:Remove()
 end)
 
@@ -240,6 +243,7 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	addresses = ffi.cast(UInt64Ptr, read_record(batch_table.buffers[1], 60).addresses)
 	T(addresses[0] == 0)["=="](true)
 	T(addresses[1] == 0)["=="](true)
+	T(addresses[2] == 0)["=="](true)
 	batch_table:Remove()
 end)
 
