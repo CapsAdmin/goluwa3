@@ -176,7 +176,7 @@ render3d.SUBSURFACE_MIN_ALBEDO = 0.05
 
 function render3d.GetEmissiveGLSL()
 	return (
-		"const float EMISSIVE_REFERENCE_LUMINANCE = %.1f;\nconst float EMISSIVE_MAX_LUMINANCE = %.1f;\n"
+		"#ifndef EMISSIVE_REFERENCE_LUMINANCE\n#define EMISSIVE_REFERENCE_LUMINANCE %.1f\n#define EMISSIVE_MAX_LUMINANCE %.1f\n#endif\n"
 	):format(render3d.EMISSIVE_REFERENCE_LUMINANCE, render3d.EMISSIVE_MAX_LUMINANCE)
 end
 
