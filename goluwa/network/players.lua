@@ -1,6 +1,6 @@
 local clients = import("goluwa/network/clients.lua")
+local event = import("goluwa/event.lua")
 local players = {}
-import.loaded["lua/players.lua"] = players
 local registered = {}
 local local_player
 
@@ -32,11 +32,7 @@ function players.Get(client)
 
 	if entity and entity:IsValid() then return entity end
 
-	for _, controller in ipairs(import("lua/components/player_controller.lua").Instances or {}) do
-		local network = controller.Owner.network
-
-		if network and network:GetNetworkOwner() == uid then return controller.Owner end
-	end
+	return event.Call("FindPlayer", uid)
 end
 
 function players.GetClient(entity)

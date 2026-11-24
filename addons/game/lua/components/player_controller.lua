@@ -406,4 +406,14 @@ function META:NextCommand(dt)
 end
 
 CharacterMovement.RegisterController("player_controller")
-return META:Register()
+local PlayerController = META:Register()
+
+event.AddListener("FindPlayer", "player_controller", function(uid)
+	for _, controller in ipairs(PlayerController.Instances) do
+		local network = controller.Owner.network
+
+		if network and network:GetNetworkOwner() == uid then return controller.Owner end
+	end
+end)
+
+return PlayerController

@@ -1,4 +1,4 @@
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")

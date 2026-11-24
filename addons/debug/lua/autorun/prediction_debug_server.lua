@@ -3,7 +3,7 @@ if not SERVER then return end
 local message = import("goluwa/network/message.lua")
 local NetworkComponent = import("goluwa/entities/components/network.lua")
 local system = import("goluwa/system.lua")
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local collider_debug = import("lua/collider_debug.lua")
 local trace_debug = import("lua/trace_debug.lua")
 local MAX_RADIUS = 30

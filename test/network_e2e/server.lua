@@ -1,7 +1,7 @@
 local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 shapes.Box{

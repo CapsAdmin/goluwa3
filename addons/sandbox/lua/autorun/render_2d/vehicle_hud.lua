@@ -1,4 +1,4 @@
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")

@@ -1,4 +1,4 @@
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 
 if not RENDER_3D then return end
 

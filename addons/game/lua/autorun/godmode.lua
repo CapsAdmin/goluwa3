@@ -1,7 +1,7 @@
 local commands = import("goluwa/cli/commands.lua")
 local message = import("goluwa/network/message.lua")
 local network = import("goluwa/network/network.lua")
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 
 local function toggle(entity)
 	local health = entity.health

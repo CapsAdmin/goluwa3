@@ -19,7 +19,7 @@ Server authoritative, Source/GMod style. Server: `luajit glw --server` (physics 
 
 # Players
 
-Find players with `players` (`addons/game/lua/players.lua`), never a global: `players.Get(client)` (client or server, nil when it has none), `players.GetLocal()` (this process's own rig, nil on a dedicated server), `players.IsLocal(entity)` and `players.GetClient(entity)`. Code that runs on the server must go through the entity or the client, not `GetLocal`.
+Find players with `players` (`goluwa/network/players.lua`), never a global: `players.Get(client)` (client or server, nil when it has none), `players.GetLocal()` (this process's own rig, nil on a dedicated server), `players.IsLocal(entity)` and `players.GetClient(entity)`. Code that runs on the server must go through the entity or the client, not `GetLocal`.
 
 A player is one entity with `transform`, `rigid_body`, `player_controller`, `character_movement`, `character_pose`, `attachment_points`, `procedural_pose`, `weapon_holder`, `player_avatar` and, for the local one, `camera` and `player_input`. The player entity is deliberately not a prefab: remote clients only get `transform`, `rigid_body`, `network` and `player_avatar` from the spawn packet.
 

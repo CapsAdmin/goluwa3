@@ -6,7 +6,7 @@ local weapons = import("lua/weapons.lua")
 local animations = import("lua/animations.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
 local weapon_categories = import("lua/weapon_categories.lua")
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 weapon_categories.Register{Name = "hl2", Icon = "pistol", Label = "HL2", Color = Color(1, 0.55, 0.1, 1)}
 animations.Register(
 	"hl2_swing",

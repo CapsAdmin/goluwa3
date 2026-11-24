@@ -7,7 +7,7 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local View = import("goluwa/render3d/view.lua")
 steam.MountSourceGame("gmod")
 local npcs = import("lua/npcs.lua")
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local AIController = import("lua/components/ai_controller.lua")
 local simulation_lod = import("lua/simulation_lod.lua")
 local SIZE = tonumber(os.getenv("ARENA_SIZE")) or 36

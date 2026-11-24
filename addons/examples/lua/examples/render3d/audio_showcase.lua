@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local audio = import("goluwa/audio.lua")

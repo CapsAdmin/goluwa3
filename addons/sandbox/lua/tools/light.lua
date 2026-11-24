@@ -1,4 +1,4 @@
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local toolgun = import("lua/toolgun.lua")
 local game_history = import("lua/game_history.lua")
 local props = import("lua/props.lua")

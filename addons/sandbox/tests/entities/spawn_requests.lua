@@ -7,7 +7,7 @@ import("lua/components/weapon_holder.lua")
 import("lua/weapons.lua")
 import("lua/interactives.lua")
 local spawn_requests = import("lua/spawn_requests.lua")
-local players = import("lua/players.lua")
+local players = import("goluwa/network/players.lua")
 local history = import("lua/game_history.lua").history
 
 local function find(name)
