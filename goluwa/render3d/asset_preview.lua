@@ -7,7 +7,6 @@ local crypto = import("goluwa/crypto.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
-local vmt_material = import("lua/source_loader/vmt_material.lua")
 local ModelPreview = import("goluwa/render3d/model_preview.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local prefab = import("goluwa/entities/prefab.lua")
@@ -601,7 +600,7 @@ function previews.LoadMaterial(entry)
 
 	if entry.extension == ".vmt" then
 		previews.private_serial = previews.private_serial + 1
-		return vmt_material.FromVMT(entry.path, "asset_preview|" .. previews.private_serial .. "|")
+		return import(vfs.GetAddonModules("material_loaders").vmt).FromVMT(entry.path, "asset_preview|" .. previews.private_serial .. "|")
 	end
 
 	return assets.GetMaterial(entry.path)
@@ -628,7 +627,9 @@ function previews.GetMaterialPaths(material)
 end
 
 function previews.ReleaseMaterial(material)
-	if material.private_prefix then vmt_material.Release(material) end
+	if material.private_prefix then
+		import(vfs.GetAddonModules("material_loaders").vmt).Release(material)
+	end
 end
 
 local function step_material(state, now, budget)

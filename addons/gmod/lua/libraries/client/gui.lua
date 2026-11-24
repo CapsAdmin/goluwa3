@@ -1414,7 +1414,7 @@ do
 			if not is_stub_model_preview(self) then return end
 
 			if self.__obj.vgui_type == "modelimage" and self.__obj.gmod_model_name ~= model then
-				previews = previews or import("lua/asset_preview.lua")
+				previews = previews or import("goluwa/render3d/asset_preview.lua")
 
 				if self.__obj.gmod_preview_entry then
 					previews.Release(self.__obj.gmod_preview_entry)
