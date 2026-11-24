@@ -40,12 +40,12 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 	for _, field in ipairs(vertex_layout.Fields) do
 		local name = field.alias:lower()
 		T(
-			readable:find(field.glsl .. " test_vertex_" .. name .. "(TestVertexData b, uint vertex)", 1, true)
+			readable:find(field.glsl .. " test_vertex_" .. name .. "(TestVertexData b, uint at_vertex)", 1, true)
 		)["~="](nil)
 		T(readable:find("test_vertex_set_" .. name .. "(", 1, true))["=="](nil)
 		T(
 			writable:find(
-				"void test_vertex_set_" .. name .. "(TestVertexData b, uint vertex, " .. field.glsl .. " value)",
+				"void test_vertex_set_" .. name .. "(TestVertexData b, uint at_vertex, " .. field.glsl .. " value)",
 				1,
 				true
 			)
@@ -54,7 +54,7 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 		if field.packing then
 			T(
 				readable:find(
-					"floatBitsToUint(b.v[vertex * " .. vertex_layout.CoreFloatStride .. "u + " .. field.group_float_offset .. "u])",
+					"floatBitsToUint(b.v[at_vertex * " .. vertex_layout.CoreFloatStride .. "u + " .. field.group_float_offset .. "u])",
 					1,
 					true
 				)
@@ -63,7 +63,7 @@ T.Test("the vertex layout is tightly packed and every consumer reads it from the
 			for i = 0, field.count - 1 do
 				T(
 					readable:find(
-						"b.v[vertex * " .. (
+						"b.v[at_vertex * " .. (
 								field.group == "core" and
 								vertex_layout.CoreFloatStride or
 								vertex_layout.ExtrasFloatStride
