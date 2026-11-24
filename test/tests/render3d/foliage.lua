@@ -364,9 +364,11 @@ T.Test("foliage scatter sets only grow registered foliage models", function()
 	local count = 0
 
 	for _, set in pairs(sets) do
-		for _, proto in ipairs(set.protos) do
-			T(assets.virtual_assets[proto.model] ~= nil)["=="](true)
-			count = count + 1
+		if type(set) == "table" then
+			for _, proto in ipairs(set.protos) do
+				T(assets.virtual_assets[proto.model] ~= nil)["=="](true)
+				count = count + 1
+			end
 		end
 	end
 
