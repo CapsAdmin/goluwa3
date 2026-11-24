@@ -4,6 +4,8 @@ local desktop = import("goluwa/render2d/ui/desktop.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local pvar_node = import("goluwa/render2d/ui/pvar_node.lua")
+local ToneCurve = import("goluwa/render2d/ui/widgets/tone_curve.lua")
+local Color = import("goluwa/structs/color.lua")
 local grade = import("goluwa/render3d/grade.lua")
 local exposure = import("goluwa/render3d/exposure.lua")
 local lens = import("goluwa/render3d/lens.lua")
@@ -142,9 +144,74 @@ local function build_items()
 	}
 	local grade_groups = {}
 
+	local curve_keys = {}
+
+	for _, field in ipairs(grade.fields) do
+		if field.curve then curve_keys[#curve_keys + 1] = field.key end
+	end
+
+	local function get_curves()
+		local values = {}
+
+		for i, key in ipairs(curve_keys) do
+			values[i] = pvars.Get(key)
+		end
+
+		return table.concat(values, "|") .. "|" .. grade.GetCurveDisplayRange()
+	end
+
+	local tone_curve
+
+	local function sync_tone_curve()
+		if not tone_curve or not tone_curve:IsValid() then return end
+
+		tone_curve:SetRange(math.max(grade.GetCurveDisplayRange(), 1))
+
+		for i, key in ipairs(curve_keys) do
+			local text = pvars.Get(key)
+
+			if text ~= tone_curve.Curves[i].Source then
+				tone_curve.Curves[i].Source = text
+				tone_curve:SetPoints(i, text ~= "" and grade.ParseCurve(text) or nil)
+			end
+		end
+	end
+
+	local curve_node = {
+		Key = "grade/tone_curve",
+		Type = "panel",
+		GetValue = get_curves,
+		Apply = sync_tone_curve,
+		Build = function()
+			local channels = {
+				{Text = "all", Color = Color(0.9, 0.9, 0.9)},
+				{Text = "red", Color = Color(1, 0.35, 0.3)},
+				{Text = "green", Color = Color(0.35, 0.9, 0.4)},
+				{Text = "blue", Color = Color(0.4, 0.6, 1)},
+			}
+			tone_curve = ToneCurve{
+				Curves = channels,
+				OnChange = function(index, points)
+					grade.Stop()
+					local text = points and grade.FormatCurve(points) or ""
+					channels[index].Source = text
+					pvars.SetSession(curve_keys[index], text)
+				end,
+			}
+			sync_tone_curve()
+			return tone_curve
+		end,
+	}
+
 	for _, field in ipairs(grade.fields) do
 		local info = grade.GetInfo(field)
 		local group = add_group(items, grade_groups, "grade/group/", info.group, "Grade")
+
+		if field.curve then
+			if not group.Children[1] then add_node(group, curve_node) end
+
+			goto continue
+		end
 		local node = pvar_node.Build(info, function(value)
 			grade.Stop()
 			grade.SetValue(field, value)
@@ -155,6 +222,8 @@ local function build_items()
 			return grade.GetValue(field)
 		end
 		add_node(group, node)
+
+		::continue::
 	end
 
 	local lut_group = add_group(items, grade_groups, "grade/group/", "Look LUT", "Grade")
@@ -277,7 +346,14 @@ local LookEditor = react.Component(
 				for _, node in ipairs(nodes) do
 					local value = values[node.Key]
 
-					if value ~= node.Value then editor.current:UpdateValueForKey(node.Key, value) end
+					if value ~= node.Value then
+						if node.Apply then
+							node.Value = value
+							node.Apply()
+						else
+							editor.current:UpdateValueForKey(node.Key, value)
+						end
+					end
 				end
 			end,
 			{values, items}
