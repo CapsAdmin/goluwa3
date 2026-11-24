@@ -9,6 +9,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local grade = import("goluwa/render3d/grade.lua")
+local scopes = import("goluwa/render3d/scopes.lua")
 local afterimage = import("goluwa/render3d/passes/afterimage.lua")
 local lens_flare = import("goluwa/render3d/passes/lens_flare.lua")
 local lens = import("goluwa/render3d/lens.lua")
@@ -575,7 +576,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 16) uniform sampler2D lens_bloom_tex;
 	const float LENS_WARP_ENTRIES = ]] .. lens.WARP_ENTRIES .. [[.0;
 	const vec2 LENS_VIGNETTE_SIZE = vec2(]] .. lens.VIGNETTE_FIELDS .. [[.0, ]] .. lens.VIGNETTE_APERTURES .. [[.0);
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12, 17, 18) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12, 17, 18) .. scopes.GetGLSL("compute", 19) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
 
 	float effective_paper_white;
 
@@ -744,6 +745,7 @@ local compute_shader = [[
 				col = grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0)) * display_scale;
 			}
 
+			scope_waveform(LinearToSRGB(max(col, vec3(0.0))), pos, size);
 			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
@@ -758,6 +760,8 @@ local compute_shader = [[
 			} else {
 				nits = grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / effective_paper_white, compute.tonemapper)) * effective_paper_white;
 			}
+
+			scope_waveform(LinearToSRGB(max(nits / compute.hdr_paper_white, vec3(0.0))), pos, size);
 
 			if (compute.output_mode == 1) {
 				nits = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps));
@@ -894,10 +898,12 @@ for _, pass in ipairs{
 		ComputePass = true,
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		LocalSize = COMPUTE_LOCAL_SIZE,
-		storage_buffers = {{binding_index = 18}},
+		storage_buffers = {{binding_index = 18}, {binding_index = 19}},
 		on_pre_draw = function(self, cmd, frame, desc)
 			local buffer = grade.GetHistogramBuffer()
 			self:UpdateDescriptorSet("storage_buffer", desc, 18, 0, buffer, buffer:GetSize())
+			local waveform = scopes.GetWaveformBuffer(cmd)
+			self:UpdateDescriptorSet("storage_buffer", desc, 19, 0, waveform, waveform:GetSize())
 		end,
 		storage_images = {
 			{
@@ -1037,6 +1043,7 @@ for _, pass in ipairs{
 			{"pixels_per_degree", "float"},
 			exposure_model.camera_block,
 			grade.block,
+			scopes.block,
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
@@ -1077,6 +1084,7 @@ for _, pass in ipairs{
 			block.pixels_per_degree = exposure_model.GetPixelsPerDegree(render.GetRenderImageSize().y)
 			exposure_model.WriteCameraBlock(block)
 			grade.WriteBlock(block)
+			scopes.WriteBlock(block)
 
 			if block.debug_passthrough == 1 then
 				block.has_bloom_tex = 0
@@ -1090,6 +1098,7 @@ for _, pass in ipairs{
 		end,
 		shader = compute_shader,
 	},
+	scopes.resolve_pass,
 	{
 		name = "blit",
 		RasterizationSamples = function()
