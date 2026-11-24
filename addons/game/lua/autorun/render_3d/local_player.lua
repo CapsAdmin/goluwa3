@@ -67,3 +67,10 @@ event.AddListener("Update", "player_spawn_point", place_on_first_spawn_point)
 event.AddListener("SceneCleared", "player_spawn_point", function()
 	event.AddListener("Update", "player_spawn_point", place_on_first_spawn_point)
 end)
+
+event.AddListener("EditorInitialSelection", "local_player", function()
+	local player = players.GetLocal()
+	local outfit = player and player.player_avatar.outfit
+
+	if outfit and outfit:IsValid() then return outfit end
+end)

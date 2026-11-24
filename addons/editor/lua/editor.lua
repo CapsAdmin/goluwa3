@@ -1,4 +1,3 @@
-local players = import("goluwa/network/players.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -1139,11 +1138,10 @@ local Editor = react.Component(
 				tree.current:CollapseOwnerGroup(Entity.World, Entity.World)
 
 				if not props.SelectedEntityGUID then
-					local player = players.GetLocal()
-					local outfit = player and player.player_avatar.outfit
+					local initial = event.Call("EditorInitialSelection")
 
-					if outfit and outfit:IsValid() then
-						h.set_selected_target(outfit)
+					if initial then
+						h.set_selected_target(initial)
 					else
 						local closest = nearby.Collect(camera.GetPosition(), 1)[1]
 
