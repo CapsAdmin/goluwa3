@@ -79,7 +79,7 @@ There is one screen GI, the `radiance` pass (per pixel ReSTIR final gather over 
 
 `passes/ambient_occlusion.lua`: half resolution, bit mask occlusion over cosine distributed directions giving occlusion, bent normal and a short bounce, then temporal and a bilateral blur. Tunables are `ambient_occlusion_*`; `ambient_occlusion_debug` shows a single output. The temporal pass gates history by distance from the raw neighbourhood mean in units of its deviation, to keep moving occluders from trailing. Measure noise against a long converged still render, not the previous frame, and trailing with an object moving past a wall.
 
-The AO weighs below-horizon directions down because the probes already include the ground; the bent normal of an unoccluded surface must equal its normal. Under ReSTIR the lighting skips the AO and its bounce for diffuse (the rays hold near field occlusion); specular occlusion still uses it.
+The AO weighs below-horizon directions down because the probes already include the ground; the bent normal of an unoccluded surface must equal its normal. Under ReSTIR the lighting skips the AO and its bounce for diffuse (the rays hold near field occlusion); specular occlusion still uses it. Its bounce gathers last frame's lit occluders, so it is already coloured multi-bounce; a fitted multi-bounce AO (Jimenez) on top would count the interreflection twice.
 
 ## Global illumination (ReSTIR)
 
