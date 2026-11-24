@@ -137,6 +137,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/crysis.md](docs/crysis.md): Crysis level loading, terrain, vegetation, water, performance
 - [docs/navigation-and-npcs.md](docs/navigation-and-npcs.md): probed-grid pathfinding, NPC prefabs that walk with Source animations, simulation LOD
 - [docs/physics.md](docs/physics.md): solver, stress testing, impacts and contacts, buoyancy, Source props, physgun, toolgun and constraint entities, game undo history
+- [docs/boids.md](docs/boids.md): ambient animal flocks (chickens, turtles) from Crysis models, the steering ported from CryEngine, spawning on Crysis levels
 - [docs/vehicles.md](docs/vehicles.md): car, motorbike, boat and plane (wheel joints, balance, buoyant hull, aerodynamic surfaces), seats, sitting and steering poses, the seat camera
 - [docs/characters.md](docs/characters.md): the shared character (controller, pose state, biped skeleton, drivers, sockets)
 - [docs/weapons.md](docs/weapons.md): weapons in the right and left hand and on body mounts, button routing, selection, posing both hands
