@@ -449,6 +449,7 @@ do
 
 		if not variant then
 			variant = self:Copy()
+			variant:SetName(self:GetName())
 			local color = self:GetColorMultiplier()
 			variant:SetColorMultiplier(Color(color.r * tint[1], color.g * tint[2], color.b * tint[3], color.a))
 			variants[key] = variant
