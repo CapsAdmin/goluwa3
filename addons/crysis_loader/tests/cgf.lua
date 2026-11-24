@@ -511,6 +511,46 @@ T.Test("CryMTL loader resolves submaterial textures with dds fallback", function
 	vfs.Delete(mount_root .. "/Game/Textures.pak/textures/demo/spec.dds")
 end)
 
+T.Test("CryMTL loader keeps the stored diffuse values of non foliage and decodes foliage as srgb", function()
+	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "cgf_crymtl_albedo_test"
+	assert(vfs.CreateDirectory(mount_root))
+	assert(vfs.CreateDirectory(mount_root .. "/Game"))
+	assert(vfs.CreateDirectory(mount_root .. "/Game/Objects.pak"))
+	assert(vfs.CreateDirectory(mount_root .. "/Game/Objects.pak/materials"))
+	assert(vfs.CreateDirectory(mount_root .. "/Game/Objects.pak/objects"))
+	assert(
+		vfs.Write(
+			mount_root .. "/Game/Objects.pak/materials/albedo.mtl",
+			[[<Material><SubMaterials><Material Name="stone" Diffuse="0.25,0.5,0.75" Shader="Illum"><Textures><Texture Map="Diffuse" File="objects/albedo.tif" /></Textures></Material><Material Name="leaf" Diffuse="0.25,0.5,0.75" Shader="Vegetation" GenMask="256"><Textures><Texture Map="Diffuse" File="objects/albedo.tif" /></Textures></Material></SubMaterials></Material>]]
+		)
+	)
+	assert(vfs.Write(mount_root .. "/Game/Objects.pak/objects/albedo.dds", "dds"))
+	local old_texture_new = Texture.New
+	local created = {}
+	Texture.New = function(config)
+		created[#created + 1] = {path = config.path, srgb = config.srgb}
+		return {
+			config = config,
+			IsValid = function()
+				return true
+			end,
+			IsReady = function()
+				return true
+			end,
+		}
+	end
+	local stone = mtl_material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/albedo.mtl", 0)
+	local leaf = mtl_material.FromCryMTL(mount_root .. "/Game/Objects.pak/materials/albedo.mtl", 1)
+	Texture.New = old_texture_new
+	T(created[1].srgb)["=="](false)
+	T(created[2].srgb)["=="](true)
+	local scale = mtl_material.DIFFUSE_SCALE * mtl_material.ALBEDO_SCALE
+	T(math.abs(stone:GetColorMultiplier().g - 0.5 * scale))["<"](0.0001)
+	T(math.abs(leaf:GetColorMultiplier().g - (0.5 * mtl_material.DIFFUSE_SCALE) ^ 2.2))["<"](0.0001)
+	vfs.Delete(mount_root .. "/Game/Objects.pak/materials/albedo.mtl")
+	vfs.Delete(mount_root .. "/Game/Objects.pak/objects/albedo.dds")
+end)
+
 T.Test("CryMTL loader logs and falls back when textures are missing", function()
 	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "cgf_crymtl_missing_test"
 	assert(vfs.CreateDirectory(mount_root))

@@ -12,8 +12,11 @@ local FOLIAGE_WIND_EMISSION = Vec3(0.3, 0.6, 0.8)
 local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local mtl_material = {}
--- CryEngine colors are gamma space values lit at about twice their value
-mtl_material.GAMMA_ALBEDO_SCALE = 2
+-- CryEngine lights texels and colours as stored (gamma space values, never linearised), with
+-- material colours at about twice their value; a stored value times ALBEDO_SCALE is the albedo.
+-- Foliage is authored brighter and more saturated than that and is right decoded as srgb
+mtl_material.DIFFUSE_SCALE = 2
+mtl_material.ALBEDO_SCALE = 0.8
 local cry_mtl_document_cache = {}
 local cry_mtl_material_cache = {}
 local cry_texture_path_cache = {}
@@ -328,13 +331,17 @@ local function apply_cry_material_node(self, material_node, material_path)
 
 	local alpha_test = tonumber(attrs.AlphaTest) or 0
 	local opacity = tonumber(attrs.Opacity) or 1
+	local leaves = has_gen("LEAVES") or has_gen("GRASS")
 
 	do
 		local r, g, b = unpack_csv_numbers(attrs.Diffuse)
 
-		if not is_terrain_layer_shader(shader) then
-			local scale = mtl_material.GAMMA_ALBEDO_SCALE
+		if leaves then
+			local scale = mtl_material.DIFFUSE_SCALE
 			r, g, b = ((r or 1) * scale) ^ 2.2, ((g or 1) * scale) ^ 2.2, ((b or 1) * scale) ^ 2.2
+		elseif not is_terrain_layer_shader(shader) then
+			local scale = mtl_material.DIFFUSE_SCALE * mtl_material.ALBEDO_SCALE
+			r, g, b = (r or 1) * scale, (g or 1) * scale, (b or 1) * scale
 		end
 
 		if self.cry_medium_mesh then
@@ -357,7 +364,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 		self:SetDithered(true)
 	end
 
-	local leaves = has_gen("LEAVES") or has_gen("GRASS")
 	self:SetDoubleSided(leaves or bit.band(mtl_flags, MTL_FLAG_2SIDED) ~= 0)
 
 	if shader == "Vegetation" then
@@ -446,7 +452,11 @@ local function apply_cry_material_node(self, material_node, material_path)
 		if map_name == "Diffuse" then
 			self:SetAlbedoTexture(
 				resolved and
-					SRGBTexture(resolved) or
+					(
+						leaves and
+						SRGBTexture or
+						LinearTexture
+					)(resolved) or
 					get_missing_cry_texture(material_path, texture_attrs, candidates)
 			)
 		elseif map_name == "Normalmap" or map_name == "Bumpmap" then

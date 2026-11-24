@@ -1699,9 +1699,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				if (albedo_tex != -1) {
 					if (detail_strength > 0.0) {
 						if (additive_detail > 0.0) {
-							vec3 base_gamma = pow(base, vec3(1.0 / 2.2));
 							vec3 detail = albedo.rgb - texture_average(albedo_tex).rgb * fade - 0.5 * (1.0 - fade);
-							albedo.rgb = pow(max(base_gamma + detail * detail_strength, vec3(0.0)), vec3(2.2)) * mix(additive_detail, 1.0, fade);
+							albedo.rgb = max(base + detail * detail_strength, vec3(0.0)) * mix(additive_detail, 1.0, fade);
 						} else {
 							vec3 average = texture_average(albedo_tex).rgb;
 							albedo.rgb = base * mix(vec3(1.0), albedo.rgb / max(average, vec3(0.01)), detail_strength);

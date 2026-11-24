@@ -16,7 +16,8 @@ do
 		} atlas_node;
 	]]
 	local ATLAS_NODE_GLSL = [[
-		const float GAMMA_ALBEDO_SCALE = ]] .. string.format("%.4f", mtl_material.GAMMA_ALBEDO_SCALE) .. [[;
+		const float DIFFUSE_SCALE = ]] .. string.format("%.4f", mtl_material.DIFFUSE_SCALE) .. [[;
+		const float ALBEDO_SCALE = ]] .. string.format("%.4f", mtl_material.ALBEDO_SCALE) .. [[;
 		vec2 cell = uv * float(atlas_node.span) - vec2(atlas_node.x, atlas_node.y);
 
 		if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(1.0)))) discard;
@@ -24,16 +25,17 @@ do
 		vec4 texel = texture(TEXTURE(atlas_node.source), cell);
 		float red = (texel.r + 0.001012) * (31.0 / 30.0);
 		vec3 color = vec3(red, texel.g, 1.0 - red - texel.g) * 3.0 * texel.b;
-		color = pow(clamp(color * GAMMA_ALBEDO_SCALE, 0.0, 1.0), vec3(2.2));
+		color = clamp(color * DIFFUSE_SCALE, 0.0, 1.0) * ALBEDO_SCALE;
 		return vec4(color, 1.0);
 	]]
 	local ATLAS_NODE_PLAIN_GLSL = [[
+		const float ALBEDO_SCALE = ]] .. string.format("%.4f", mtl_material.ALBEDO_SCALE) .. [[;
 		vec2 cell = uv * float(atlas_node.span) - vec2(atlas_node.x, atlas_node.y);
 
 		if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(1.0)))) discard;
 
 		vec4 texel = texture(TEXTURE(atlas_node.source), cell);
-		return vec4(pow(texel.rgb, vec3(2.2)), 1.0);
+		return vec4(texel.rgb * ALBEDO_SCALE, 1.0);
 	]]
 	local LINEAR_CLAMP = {
 		min_filter = "linear",
@@ -139,7 +141,10 @@ local function get_or_create_cry_terrain_layers(terrain)
 					detail_bump_tiling = detail_bump and material:GetDetailTiling().x or nil,
 					detail_bump_scale = detail_bump and material:GetDetailBumpScale() or nil,
 					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
-					detail = tonumber(material.cry_public_params.DetailTextureStrength) or 1,
+					detail = (
+							tonumber(material.cry_public_params.DetailTextureStrength) or
+							1
+						) * mtl_material.ALBEDO_SCALE,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					fade_distance = surface_type.project_axis == 2 and 128 or 2048,
 					fade_distance_xy = side and side.cry_texture_maps and side.cry_texture_maps.Diffuse and 2048 or nil,

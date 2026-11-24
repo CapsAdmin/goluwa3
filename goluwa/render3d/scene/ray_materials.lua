@@ -405,7 +405,7 @@ function ray_materials.GetMaterialGLSL()
 						if (detail <= 0.0) {
 							layer = average * base;
 						} else if (additive > 0.0) {
-							layer = pow(max(pow(base, vec3(1.0 / 2.2)) + (average - 0.5) * detail, vec3(0.0)), vec3(2.2)) * additive;
+							layer = max(base + (average - 0.5) * detail, vec3(0.0)) * additive;
 						}
 					}
 
