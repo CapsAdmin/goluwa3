@@ -260,6 +260,9 @@ function scene_hits.GetGLSL(block_name, shared)
 		#ifndef SCENE_HIT_EMISSION
 		#define SCENE_HIT_EMISSION true
 		#endif
+		#ifndef SCENE_HIT_BOUNCE
+		#define SCENE_HIT_BOUNCE false
+		#endif
 		#ifndef SCENE_HIT_MASK
 		#define SCENE_HIT_MASK 0xFF
 		#endif
@@ -428,6 +431,9 @@ function scene_hits.GetGLSL(block_name, shared)
 
 			albedo = ray_medium_albedo(material, albedo);
 			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive, dir) : vec3(0.0);
+
+			if (SCENE_HIT_BOUNCE) albedo = radiance_cache_bounce_albedo(albedo);
+
 			metallic = saturate(metallic);
 			hit_brdf brdf = hit_brdf_prepare(albedo, metallic, material.specular, clamp(hit_roughness, 0.045, 1.0), material.diffuse_roughness, dot(hit_N, -dir));
 			vec3 sun_L = normalize(radiance_cache_data.radiance_cache_sun_direction.xyz);

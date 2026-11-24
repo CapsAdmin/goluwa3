@@ -425,7 +425,7 @@ local function pass_shade()
 				}
 
 				vec3 P = origin + dir * t;
-				vec3 albedo = ray_hit_albedo(material, P, hit.y, hit.z);
+				vec3 albedo = radiance_cache_bounce_albedo(ray_hit_albedo(material, P, hit.y, hit.z));
 				vec3 surface = P + N * 0.02 * radiance_cache_data.radiance_cache_view_scale;
 				float light_radius = radiance_cache_data.radiance_cache_light_radius * radiance_cache_spacing(c);
 				vec4 u = emitter_random(hit_index, uint(radiance_cache_data.radiance_cache_frame), 0u);

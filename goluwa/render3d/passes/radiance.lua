@@ -744,7 +744,7 @@ local RESOLVE_GLSL = [[
 		return s;
 	}
 ]]
-local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\nbool radiance_hit_emission = true;\n#define SCENE_HIT_EMISSION radiance_hit_emission\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. [[
+local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\nbool radiance_hit_emission = true;\n#define SCENE_HIT_EMISSION radiance_hit_emission\nbool radiance_hit_bounce = true;\n#define SCENE_HIT_BOUNCE radiance_hit_bounce\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_hits.GetGLSL("restir_data") .. [[
 			vec3 restir_cosine_direction(vec3 N, vec2 xi) {
 				vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 				vec3 T = normalize(cross(up, N));
@@ -1121,6 +1121,7 @@ local function pass_candidates()
 								vec3 ray_origin = reflected ? specular.origin : origin;
 								vec3 ray_dir = reflected ? specular.R : dir;
 								radiance_hit_emission = reflected ? !specular.sample_emitters : emitter_count == 0;
+								radiance_hit_bounce = !reflected;
 								float t;
 								uint instance;
 								uint primitive;
@@ -1142,6 +1143,7 @@ local function pass_candidates()
 							}
 
 							radiance_hit_emission = true;
+							radiance_hit_bounce = true;
 
 							if (diffuse_ray) {
 								ray_cosine = max(ray_cosine, 1e-4);

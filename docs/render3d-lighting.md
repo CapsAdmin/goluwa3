@@ -72,6 +72,7 @@ There is one screen GI, the `radiance` pass (per pixel ReSTIR final gather over 
 - A coarse cascade only keeps the shadow of occluders taller than its spacing. Planes without thickness cannot be traced reliably from a surface.
 - Octahedral atlas borders: edge texels mirror the adjacent interior row/column, corners take the diagonally opposite interior corner. A wrong border shows as seams wherever a normal's x or y crosses zero.
 - `radiance_cache_strength` scales what consumers read, not the probes' own bounces.
+- **Art controls** (`indirect_look.lua`, the `gi_*` pvars, neutral at 1): `gi_bounce_*` change the albedo that GI rays see (probe and screen hits, not reflections), so they compound per bounce and leave sky light alone; `gi_sky_gain` scales what missing rays bring back. Compare against the path tracer only at the neutral values.
 - Verify with `test/tests/render3d/radiance_cache.lua`. For noise, score the rms of many frames against their mean and print the mean luminance too (flicker that comes with a darker result is bias); compare runs at the same warm up, since multi-bounce settles slowly.
 
 ### Screen space AO

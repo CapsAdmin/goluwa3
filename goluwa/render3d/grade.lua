@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+import("goluwa/render3d/indirect_look.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local vfs = import("goluwa/vfs.lua")
 local lut_codec = import("goluwa/codecs/lut.lua")
@@ -675,6 +676,9 @@ local fields = {
 	{key = "r_bloom_strength"},
 	{key = "r_bloom_threshold"},
 	{key = "r_bloom_floor"},
+	{key = "gi_bounce_gain"},
+	{key = "gi_bounce_saturation"},
+	{key = "gi_sky_gain"},
 }
 grade.fields = fields
 local field_keys = {}

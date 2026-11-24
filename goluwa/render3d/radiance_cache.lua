@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local ray_materials = import("goluwa/render3d/scene/ray_materials.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local indirect_look = import("goluwa/render3d/indirect_look.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -193,7 +194,6 @@ local strength = pvars.Setup2{
 	max = 4,
 	help = "scales the light the probes give every surface (diffuse gi, the reflection fallback, translucent surfaces, traced hits, fog), the probes' own bounces are not scaled. 0 is no indirect light from them",
 }
-radiance_cache.SKY_INTENSITY = 1.0
 radiance_cache.RANDOM_ROTATION = true
 local shade_ray_generation = pvars.Setup2{
 	key = "radiance_cache_shade_ray_generation",
@@ -388,6 +388,12 @@ end
 
 event.AddListener("ViewScaleChanged", "radiance_cache", function()
 	radiance_cache.ResetHistory()
+end)
+
+event.AddListener("PersistentVariableChanged", "radiance_cache_indirect_look", function(key)
+	if key == "gi_bounce_gain" or key == "gi_bounce_saturation" or key == "gi_sky_gain" then
+		radiance_cache.ResetHistory()
+	end
 end)
 
 do
@@ -955,6 +961,13 @@ function radiance_cache.GetCommonGLSL()
 			return stored.rgb * stored.a * radiance_cache_data.radiance_cache_sky_intensity;
 		}
 
+		vec3 radiance_cache_bounce_albedo(vec3 albedo) {
+			float grey = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+			vec3 boosted = max(vec3(grey) + (albedo - grey) * radiance_cache_data.radiance_cache_bounce_saturation, vec3(0.0)) * radiance_cache_data.radiance_cache_bounce_gain;
+			// an albedo of 1 or more makes the multi-bounce feedback create light and run away
+			return min(boosted, max(albedo, vec3(0.95)));
+		}
+
 		vec3 radiance_cache_fog_ambient() {
 			return sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, vec3(0.0, 1.0, 0.0)) / 3.14159265359;
 		}
@@ -1427,6 +1440,8 @@ function radiance_cache.GetProbeBlockLayout()
 		{"radiance_cache_relocation_distance", "float"},
 		{"radiance_cache_max_offset", "float"},
 		{"radiance_cache_sky_intensity", "float"},
+		{"radiance_cache_bounce_gain", "float"},
+		{"radiance_cache_bounce_saturation", "float"},
 		{"radiance_cache_strength", "float"},
 		{"radiance_cache_light_radius", "float"},
 		{"radiance_cache_cascade_blend", "float"},
@@ -1533,7 +1548,9 @@ function radiance_cache.WriteProbeBlock(self, block)
 	block.radiance_cache_backface_threshold = radiance_cache.BACKFACE_THRESHOLD
 	block.radiance_cache_relocation_distance = relocation:Get() and radiance_cache.RELOCATION_DISTANCE or 0
 	block.radiance_cache_max_offset = relocation:Get() and radiance_cache.PROBE_MAX_OFFSET or 0
-	block.radiance_cache_sky_intensity = radiance_cache.SKY_INTENSITY
+	block.radiance_cache_sky_intensity = indirect_look.sky_gain:Get()
+	block.radiance_cache_bounce_gain = indirect_look.bounce_gain:Get()
+	block.radiance_cache_bounce_saturation = indirect_look.bounce_saturation:Get()
 	block.radiance_cache_strength = strength:Get()
 	block.radiance_cache_light_radius = light_radius:Get()
 	block.radiance_cache_cascade_blend = radiance_cache.CASCADE_BLEND
