@@ -495,6 +495,89 @@ T.Test("Cry level parser keeps entities without geometry with archetype properti
 	T(entity.properties.Options.bActivate)["=="]("1")
 end)
 
+T.Test("Cry areas in editor layers and compiled missions keep their shape, group and links", function()
+	local editor = crylevel.ParseLayerData([[
+<ObjectLayer>
+	<Layer Name="sound" Hidden="0">
+		<LayerObjects>
+			<Object Type="Shape" Name="shape" Id="{S}" Pos="10,20,30" Height="5" GroupId="1" Priority="20" EntityClass="AreaShape">
+				<Points>
+					<Point Pos="0,0,0"/>
+					<Point Pos="4,0,0"/>
+					<Point Pos="4,4,0"/>
+				</Points>
+				<Entities>
+					<Entity Id="{A}"/>
+				</Entities>
+			</Object>
+			<Object Type="AreaSphere" Name="sphere" Id="{P}" Pos="1,2,3" Radius="6" GroupId="2" Priority="5" EntityClass="AreaSphere">
+				<Entities>
+					<Entity Id="{B}"/>
+				</Entities>
+			</Object>
+		</LayerObjects>
+	</Layer>
+</ObjectLayer>
+]])
+	local _, extra = crylevel.ExtractVisualObjects(editor, empty_libraries)
+	local shape, sphere = extra.entities[1], extra.entities[2]
+	T(shape.id)["=="]("{S}")
+	T(shape.area.kind)["=="]("shape")
+	T(shape.area.height)["=="](5)
+	T(shape.area.group)["=="](1)
+	T(shape.area.priority)["=="](20)
+	T(shape.area.links[1])["=="]("{A}")
+	T((shape.area.points[2] - Vec3(14, 20, 30)):GetLength())["~"](0, 0.001)
+	T(sphere.area.radius)["=="](6)
+	T((sphere.area.center - Vec3(1, 2, 3)):GetLength())["~"](0, 0.001)
+	local compiled = crylevel.ParseMissionObjects(assert(
+		xml.Decode([[
+<Mission>
+	<Objects>
+		<Entity Name="box" Pos="100,0,0" EntityClass="AreaBox" EntityId="7">
+			<Area Group="3" Priority="10" BoxMin="-1,-2,0" BoxMax="1,2,3">
+				<Entities>
+					<Entity Id="9"/>
+				</Entities>
+			</Area>
+		</Entity>
+		<Entity Name="ambience" Pos="100,0,0" EntityClass="AmbientVolume" EntityId="9">
+			<Properties soundName="Sounds/environment:amb:wind" OuterRadius="15" bEnabled="1"/>
+		</Entity>
+	</Objects>
+</Mission>
+			]])
+	).children[1], empty_libraries)
+	local _, compiled_extra = crylevel.ExtractVisualObjects(compiled, empty_libraries)
+	local box, volume = compiled_extra.entities[1], compiled_extra.entities[2]
+	T(box.area.kind)["=="]("box")
+	T(box.area.group)["=="](3)
+	T(box.area.links[1])["=="]("9")
+	T((box.area.corners[1] - Vec3(99, -2, 0)):GetLength())["~"](0, 0.001)
+	T((box.area.corners[4] - Vec3(99, -2, 3)):GetLength())["~"](0, 0.001)
+	T(volume.id)["=="]("9")
+	local records = import("lua/crysis_loader/ambience.lua").BuildRecords(compiled_extra.entities)
+	T(#records)["=="](1)
+	T(records[1].component.Sound)["=="]("Sounds/environment:amb:wind")
+	T(records[1].component.OuterRadius)["=="](15)
+	T(records[1].component.Areas[1].kind)["=="]("box")
+end)
+
+T.Test("Cry editor layers hidden in the editor keep their objects apart", function()
+	local visible, hidden = crylevel.ParseLayerData([[
+<ObjectLayer>
+	<Layer Name="sound" Hidden="1">
+		<LayerObjects>
+			<Object Type="AmbientVolume" Name="wind" Id="{W}" Pos="0,0,0" EntityClass="AmbientVolume"/>
+		</LayerObjects>
+	</Layer>
+</ObjectLayer>
+]])
+	T(#visible)["=="](0)
+	T(#hidden)["=="](1)
+	T(hidden[1].attrs.Name)["=="]("wind")
+end)
+
 T.Test("Cry brush list parser reads materials, models and transforms", function()
 	local brush_list = import("lua/crysis_loader/brush_list.lua")
 

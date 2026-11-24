@@ -63,6 +63,14 @@ Warhead's ice shaders map to the engine's `medium` feature (the `ice` preset, se
 - `Sounds.pak` (`Warhead_Sounds.pak`) holds FSB banks (see [audio.md](audio.md), Decoding) and the FMOD Designer projects (`.fdp`, XML) that name the sounds. `fmod_events.Get("Sounds/environment:random_oneshots_natural:chicken_cluck")` (project dir, then event groups and the event) parses the project once and returns the event's bank sample paths, volume and pitch (octaves). The binary `.fev` is not read.
 - An event's layers name sound definitions, whose waveforms name a bank and a file; only the file's base name is in the bank. Dialog events mostly do not resolve (localized and programmer sounds).
 
+## Ambience
+
+- `AmbientVolume` (a loop) and `RandomSoundVolume` (one-shots every `MinWaitTime` to `MaxWaitTime` seconds, `DiscRadius` from the listener or at the entity) become `cry_ambience` entities under the level's `Ambience` folder (`ambience.lua`). Gameplay triggered sounds, music and reverb volumes are not loaded.
+- A volume plays from the areas that link to it (`AreaShape` prism, `AreaBox`, `AreaSphere`; `level.ExtractEntity` reads them from editor layers and compiled missions). An area shape of height 0 is unbounded vertically. Loops play non-spatially at full level inside and fade over `OuterRadius` outside; one-shots only fire inside. Areas of one group are exclusive: of those containing the listener, only the highest priority ones count, so an indoor ambience silences the outdoor one around it.
+- Sound layers are usually hidden in the editor but still play in game, so the loader keeps these classes from hidden layers.
+- Events are evaluated with `fmod_events.Evaluate`: a layer plays the sounds whose range on its control parameter contains the value, scaled by its volume envelopes. `battle` is 0 and `daylight` follows the sun; `distance` envelopes are left to the engine's attenuation.
+- Levels: an event at 0 dB is `cry_ambience.LoopLevel` dB SPL (loudness normalized), one-shots `OneShotLevel` at 1 m. Crysis mixes ambience events 25 to 40 dB down.
+
 ## Entities
 
 Entities without geometry that the loader does not handle itself (`level.ExtractEntity`, with archetype properties merged under the instance's) are offered to addons through `event.Call("CryEntity", {class, name, world_matrix, properties})`; a listener returns a component table and the entity is added under the level's `Entities` folder (the `boids` addon claims `Chickens` and `Turtles`).

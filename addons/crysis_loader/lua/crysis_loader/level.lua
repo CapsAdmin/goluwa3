@@ -393,6 +393,46 @@ do
 		end
 	end
 
+	local AREA_KINDS = {AreaShape = "shape", AreaBox = "box", AreaSphere = "sphere"}
+
+	-- editor layers keep an area's shape in the object's attributes, compiled missions in an Area child
+	local function extract_area(node, world_matrix, kind)
+		local holder = find_child_by_tag(node, "Area") or node
+		local attrs = holder.attrs
+		local area = {
+			kind = kind,
+			group = tonumber(attrs.Group or attrs.GroupId) or 0,
+			priority = tonumber(attrs.Priority) or 0,
+			links = {},
+		}
+
+		for entity in iter_children_by_tag(find_child_by_tag(holder, "Entities"), "Entity") do
+			area.links[#area.links + 1] = entity.attrs.Id
+		end
+
+		if kind == "sphere" then
+			area.center = world_matrix:TransformVector(parse_vec3(attrs.SphereCenter, 0, 0, 0))
+			area.radius = tonumber(attrs.SphereRadius or attrs.Radius) or 0
+		elseif kind == "box" then
+			local min, max = parse_vec3(attrs.BoxMin), parse_vec3(attrs.BoxMax)
+			area.corners = {
+				world_matrix:TransformVector(min),
+				world_matrix:TransformVector(Vec3(max.x, min.y, min.z)),
+				world_matrix:TransformVector(Vec3(min.x, max.y, min.z)),
+				world_matrix:TransformVector(Vec3(min.x, min.y, max.z)),
+			}
+		else
+			area.points = {}
+			area.height = tonumber(attrs.Height) or 0
+
+			for point in iter_children_by_tag(find_child_by_tag(holder, "Points"), "Point") do
+				area.points[#area.points + 1] = world_matrix:TransformVector(parse_vec3(point.attrs.Pos))
+			end
+		end
+
+		return area
+	end
+
 	function level.ExtractEntity(node, world_matrix, libraries)
 		local attrs = node.attrs
 		local archetype = attrs.Type == "EntityArchetype" and libraries.archetype_nodes[attrs.Prototype]
@@ -405,9 +445,11 @@ do
 		merge_properties(properties, find_child_by_tag(node, "Properties"))
 		return {
 			class = class,
+			id = attrs.Id or attrs.EntityId,
 			name = attrs.Name,
 			world_matrix = world_matrix,
 			properties = properties,
+			area = AREA_KINDS[class] and extract_area(node, world_matrix, AREA_KINDS[class]),
 		}
 	end
 end
@@ -749,15 +791,19 @@ function level.ParseLayerDocument(document)
 	local layer = root and find_child_by_tag(root, "Layer") or nil
 	local layer_attrs = layer and layer.attrs or {}
 	local layer_objects = layer and find_child_by_tag(layer, "LayerObjects") or nil
-	local out = {}
+	local out, hidden = {}, {}
 
-	if layer_attrs.Hidden == "1" or not layer_objects then return out end
+	if not layer_objects then return out, hidden end
 
 	for node in iter_children_by_tag(layer_objects, "Object") do
-		out[#out + 1] = node
+		if layer_attrs.Hidden == "1" then
+			hidden[#hidden + 1] = node
+		else
+			out[#out + 1] = node
+		end
 	end
 
-	return out
+	return out, hidden
 end
 
 function level.ParseLayerData(data)
@@ -795,7 +841,7 @@ function level.ParseEditorObjectsDocument(document)
 		find_child_by_tag(mission, "Objects") or
 		find_child_by_tag(root, "Objects")
 	local hidden_layers = {}
-	local out = {}
+	local out, hidden = {}, {}
 
 	for layer in iter_children_by_tag(object_layers, "Layer") do
 		local attrs = layer.attrs or {}
@@ -803,15 +849,19 @@ function level.ParseEditorObjectsDocument(document)
 		if attrs.Name and attrs.Hidden == "1" then hidden_layers[attrs.Name] = true end
 	end
 
-	if not objects then return out end
+	if not objects then return out, hidden end
 
 	for node in iter_children_by_tag(objects, "Object") do
 		local attrs = node.attrs or {}
 
-		if not hidden_layers[attrs.Layer] then out[#out + 1] = node end
+		if hidden_layers[attrs.Layer] then
+			hidden[#hidden + 1] = node
+		else
+			out[#out + 1] = node
+		end
 	end
 
-	return out
+	return out, hidden
 end
 
 function level.ParseEditorObjectsData(data)
@@ -1550,6 +1600,13 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 end
 local loaded_levels = {}
 local libraries_by_game = {}
+local HIDDEN_LAYER_CLASSES = {
+	AmbientVolume = true,
+	RandomSoundVolume = true,
+	AreaShape = true,
+	AreaBox = true,
+	AreaSphere = true,
+}
 
 function level.Load(level_dir)
 	startup.Begin("mount cry paks")
@@ -1561,6 +1618,7 @@ function level.Load(level_dir)
 	local compiled = not vfs.IsDirectory(game.GetEditorDirectory(level_dir))
 	startup.Begin("read layers")
 	local nodes = {}
+	local hidden_nodes = {}
 	local layers_dir = level_dir .. "Layers/"
 
 	for _, file_name in ipairs(vfs.Find(layers_dir) or {}) do
@@ -1573,6 +1631,7 @@ function level.Load(level_dir)
 
 				if layer_nodes then
 					list.extend(nodes, layer_nodes)
+					list.extend(hidden_nodes, parse_err)
 				else
 					wlog("failed to parse cry layer " .. tostring(path) .. ": " .. tostring(parse_err))
 				end
@@ -1592,6 +1651,7 @@ function level.Load(level_dir)
 
 		if editor_nodes then
 			list.extend(nodes, editor_nodes)
+			list.extend(hidden_nodes, parse_err)
 		else
 			wlog(
 				"failed to parse cry editor level objects %s: %s",
@@ -1628,6 +1688,19 @@ function level.Load(level_dir)
 	end
 
 	local entries, extra = level.ExtractVisualObjects(nodes, libraries)
+
+	-- editor layers hidden in the editor still play in game, and sound layers usually are hidden
+	for _, node in ipairs(hidden_nodes) do
+		if
+			HIDDEN_LAYER_CLASSES[node.attrs.EntityClass] and
+			not level.IsObjectHidden(node.attrs)
+		then
+			list.insert(
+				extra.entities,
+				level.ExtractEntity(node, level.ComposeCryWorldMatrix(nil, node.attrs), libraries)
+			)
+		end
+	end
 
 	if brush_entries then list.extend(entries, brush_entries) end
 

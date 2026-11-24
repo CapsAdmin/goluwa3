@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local level = import("lua/crysis_loader/level.lua")
+local ambience = import("lua/crysis_loader/ambience.lua")
 local units = import("lua/crysis_loader/units.lua")
 local foliage_field = import("goluwa/foliage_field.lua")
 local cry_water = import("lua/crysis_loader/water.lua")
@@ -522,6 +523,25 @@ function cry_scene.Translate(data, level_name, level_path, options)
 						Rotation = transform_data.rotation,
 					},
 					spawn_point = {Group = "spawn"},
+				},
+			}
+		end
+	end
+
+	if RENDER_3D and data.entities and data.entities[1] then
+		local ambience_guid
+
+		for index, record in ipairs(ambience.BuildRecords(data.entities)) do
+			ambience_guid = ambience_guid or add_folder(level_guid, "Ambience")
+			add{
+				guid = level_guid .. ":ambience:" .. index,
+				parent = ambience_guid,
+				properties = {Name = record.name},
+				components = {
+					transform = {
+						Position = level.ConvertCryWorldMatrixToEngineTransform(record.world_matrix).position,
+					},
+					cry_ambience = record.component,
 				},
 			}
 		end
