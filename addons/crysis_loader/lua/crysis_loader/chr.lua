@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local vfs = import("goluwa/vfs.lua")
+local xml = import("goluwa/codecs/xml.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Skeleton = import("goluwa/render3d/skeleton.lua")
@@ -155,7 +156,7 @@ function chr.AddAnimations(skeleton, model_path)
 	end
 end
 
-function chr.Decode(path, full_path, mesh_callback, physics_callback, skeleton_callback)
+local function decode(path, full_path, material_name, mesh_callback, skeleton_callback)
 	local file = assert(vfs.Open(full_path))
 	local model_path = file.path_used or full_path
 	local parsed = cgf.Parse(file)
@@ -223,15 +224,39 @@ function chr.Decode(path, full_path, mesh_callback, physics_callback, skeleton_c
 		polygon:SetName(path)
 		mesh_callback(
 			polygon,
-			entry.material_name and
+			(
+					material_name or
+					entry.material_name
+				)
+				and
 				cgf.LoadMaterial(
 					model_path,
-					entry.material_name,
+					material_name or entry.material_name,
 					entry.subset_material_id,
 					resolved_material_paths
 				)
 		)
 	end
+end
+
+function chr.Decode(path, full_path, mesh_callback, physics_callback, skeleton_callback)
+	decode(path, full_path, nil, mesh_callback, skeleton_callback)
+end
+
+-- a character definition names a .chr and optionally a material for all of it; attachments are not loaded
+function chr.DecodeDefinition(path, full_path, mesh_callback, physics_callback, skeleton_callback)
+	local document = assert(xml.Decode(assert(vfs.Read(full_path))))
+	local model
+
+	for _, node in ipairs(document.children[1].children) do
+		if node.tag == "Model" then model = node.attrs end
+	end
+
+	assert(model and model.File, full_path .. " names no model")
+	local model_path = vfs.FindMixedCasePath(file_path.FixPathSlashes(model.File))
+	assert(model_path, full_path .. ": model " .. model.File .. " not found")
+	local material = model.Material ~= "" and model.Material or nil
+	decode(path, model_path, material, mesh_callback, skeleton_callback)
 end
 
 return chr

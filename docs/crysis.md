@@ -56,6 +56,7 @@ Warhead's ice shaders map to the engine's `medium` feature (the `ice` preset, se
 
 - `.chr` files are skinned cgf chunk files (`chr.lua`, decoder `model_decoders/chr.lua`): `CompiledBones` (0xACDC0000) holds the skeleton (bone to world 3x4, relative parent offsets, controller id = CRC32 of the case sensitive bone name), `CompiledIntSkinVertices` plus `CompiledExt2IntMap` give four global bone ids and float weights per mesh vertex. The mesh's bone mapping stream uses per subset bone lists; it is not read.
 - The stored world to bone matrix is stale in some models (turtle); the inverse bind is derived from bone to world.
+- `.cdf` character definitions (`chr.DecodeDefinition`, decoder `model_decoders/cdf.lua`) name a `.chr` and optionally a material for all of it; attachments are not loaded.
 - Animations are `.caf` files listed in the model's `.cal` (`name = file`, relative to `#filepath`, which is game root relative); each becomes a clip of that name. Controllers 0x827 store centimeters and the log of the inverse local rotation; `caf.lua` bakes them to frames at the timing chunk's rate. `.lmg`, `.dba` (the shark) and `Animations.pak` are not supported.
 
 ## Sounds
