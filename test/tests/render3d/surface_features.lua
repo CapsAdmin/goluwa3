@@ -134,40 +134,39 @@ T.Test("gbuffer layout packs every kind into its own slot", function()
 	end
 
 	local targets = gbuffer_layout.Pack(fields)
-	local slots = {}
+	local bits_used = {}
 
 	for _, field in ipairs(fields) do
+		local shift = field.shift or 0
+		local bits = field.bits or 16
+
 		for i = 1, #field.swizzle do
-			local slot = field.target.texture .. "." .. field.swizzle:sub(i, i) .. "." .. tostring(field.nibble or "")
-			T(slots[slot])["=="](nil)
-			slots[slot] = field.name
+			local channel = field.target.texture .. "." .. field.swizzle:sub(i, i)
+			bits_used[channel] = bits_used[channel] or {}
+
+			for bit = shift, shift + bits - 1 do
+				T(bits_used[channel][bit])["=="](nil)
+				bits_used[channel][bit] = field.name
+			end
+
+			T(shift + bits <= 16)["=="](true)
 		end
 	end
 
-	T(fields[6].target)["=="](fields[7].target)
-	T(fields[6].swizzle)["=="](fields[7].swizzle)
-	T(fields[6].nibble)["=="](0)
-	T(fields[7].nibble)["=="](1)
+	T(fields[1].swizzle)["=="](fields[2].swizzle)
+	T(fields[2].shift)["=="](8)
+	T(fields[6].target)["=="](fields[5].target)
+	T(fields[6].swizzle)["=="](fields[5].swizzle)
+	T(fields[6].shift)["=="](8)
+	T(fields[7].shift)["=="](12)
 	T(fields[8].swizzle ~= fields[6].swizzle or fields[8].target ~= fields[6].target)["=="](true)
 
 	for _, target in ipairs(targets) do
 		T(#target.channels > 0)["=="](true)
-
-		if target.class == "8" then
-			T(target.format)["=="]("r8g8b8a8_unorm")
-		else
-			T(target.format:find("r16g16", 1, true) ~= nil)["=="](true)
-		end
+		T(target.format:find("r16g16", 1, true) ~= nil)["=="](true)
 	end
 
-	local count = {["8"] = 0, ["16"] = 0}
-
-	for _, target in ipairs(targets) do
-		count[target.class] = count[target.class] + 1
-	end
-
-	T(count["8"])["=="](2)
-	T(count["16"])["=="](2)
+	T(#targets)["=="](3)
 end)
 
 T.Test("the medium feature takes its optical data from a media slot", function()

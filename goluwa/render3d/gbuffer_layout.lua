@@ -1,4 +1,3 @@
-local render3d = import("goluwa/render3d/render3d.lua")
 local render = import("goluwa/render/render.lua")
 local gbuffer_layout = {}
 local surface_features = import("goluwa/render3d/surface_features.lua")
@@ -201,33 +200,6 @@ if gbuffer_layout.visibility then
 	gbuffer_layout.VISIBILITY_FORMAT = "r32g32b32a32_uint"
 	table.insert(gbuffer_layout.color_format, {gbuffer_layout.VISIBILITY_FORMAT, {"visibility", "rgba"}})
 	gbuffer_layout.attachment_index.visibility = #gbuffer_layout.color_format
-end
-
-function gbuffer_layout.GetTexture(name)
-	return render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(gbuffer_layout.attachment_index[name])
-end
-
-function gbuffer_layout.GetDepthTexture()
-	return render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture()
-end
-
-function gbuffer_layout.WriteBlock(self, block)
-	local framebuffer = render3d.pipelines.gbuffer:GetFramebuffer()
-	block.depth_tex = self:GetTextureIndex(framebuffer:GetDepthTexture())
-
-	for i, target in ipairs(gbuffer_layout.targets) do
-		block[target.texture .. "_tex"] = self:GetTextureIndex(framebuffer:GetAttachment(i))
-	end
-
-	for _, field in ipairs(gbuffer_layout.fields) do
-		if field.kind == "velocity_alpha" then
-			block[field.name .. "_tex"] = self:GetTextureIndex(framebuffer:GetAttachment(gbuffer_layout.attachment_index.velocity))
-		end
-	end
-
-	if not render3d.velocity_enabled:Get() then block.velocity_tex = -1 end
-
-	return block
 end
 
 do
@@ -511,6 +483,36 @@ do
 		)
 		return table.concat(lines, "\n")
 	end
+end
+
+import.loaded["goluwa/render3d/gbuffer_layout.lua"] = gbuffer_layout
+local render3d = import("goluwa/render3d/render3d.lua")
+
+function gbuffer_layout.GetTexture(name)
+	return render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(gbuffer_layout.attachment_index[name])
+end
+
+function gbuffer_layout.GetDepthTexture()
+	return render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture()
+end
+
+function gbuffer_layout.WriteBlock(self, block)
+	local framebuffer = render3d.pipelines.gbuffer:GetFramebuffer()
+	block.depth_tex = self:GetTextureIndex(framebuffer:GetDepthTexture())
+
+	for i, target in ipairs(gbuffer_layout.targets) do
+		block[target.texture .. "_tex"] = self:GetTextureIndex(framebuffer:GetAttachment(i))
+	end
+
+	for _, field in ipairs(gbuffer_layout.fields) do
+		if field.kind == "velocity_alpha" then
+			block[field.name .. "_tex"] = self:GetTextureIndex(framebuffer:GetAttachment(gbuffer_layout.attachment_index.velocity))
+		end
+	end
+
+	if not render3d.velocity_enabled:Get() then block.velocity_tex = -1 end
+
+	return block
 end
 
 return gbuffer_layout
