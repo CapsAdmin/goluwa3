@@ -1,1 +1,0 @@
-return import("goluwa/nattlua/init.lua")

@@ -1,9 +1,6 @@
 {
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "unpublished.nattlua",
-  "search.exclude": {
-    "goluwa/nattlua": true
-  },
   "runOnSave.commands": [
     {
       "globMatch": "**/*",

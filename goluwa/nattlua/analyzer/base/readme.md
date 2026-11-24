@@ -1,1 +1,0 @@
-This tries to be independent from Lua semantics. The assumptions it makes are that the language is procedural based with lexical scopes.

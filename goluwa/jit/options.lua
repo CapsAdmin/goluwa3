@@ -1,6 +1,3 @@
---[[HOTRELOAD
-os.execute("luajit nattlua.lua test")
-]]
 local type = _G.type
 local table_insert = _G.table.insert
 local tostring = _G.tostring

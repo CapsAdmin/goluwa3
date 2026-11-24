@@ -4,7 +4,6 @@ config.ignorefiles = {
 	"^%./addons/love/games/",
 	"^%./tmp/",
 	"^%./addons/gmod/src/",
-	"^%./goluwa/nattlua/",
 	"^%./local_stuff/",
 	"^%./storage/",
 }
