@@ -435,12 +435,26 @@ function META:CanFight()
 	return self:IsArmed() or #self.Attacks > 0
 end
 
-function META:CastAt(target, element, damage)
+function META:CastAt(target, element, amount)
 	local owner = self.Owner
 	local eye = owner.rigid_body:GetOriginPosition() + owner.character_movement:GetViewOffset()
 	local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0)
 	local direction = (aim - eye):GetNormalized()
-	import("lua/components/magic_projectile.lua").Cast(eye + direction * 0.6, owner, direction, target, nil, element, damage)
+	self:Cast(eye + direction * 0.6, direction, target, aim, element, amount)
+end
+
+function META:Cast(position, direction, target, aim, element, amount)
+	damage.Deal(
+		target,
+		{
+			Attacker = self.Owner,
+			Inflictor = self.Owner,
+			Damage = amount,
+			Position = aim,
+			Normal = direction * -1,
+			Force = direction * 3,
+		}
+	)
 end
 
 function META:GetReach(position, target, flat_distance)
