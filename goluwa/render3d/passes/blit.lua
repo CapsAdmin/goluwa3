@@ -9,6 +9,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local grade = import("goluwa/render3d/grade.lua")
+local local_adaptation = import("goluwa/render3d/local_adaptation.lua")
 local scopes = import("goluwa/render3d/scopes.lua")
 local afterimage = import("goluwa/render3d/passes/afterimage.lua")
 local lens_flare = import("goluwa/render3d/passes/lens_flare.lua")
@@ -576,7 +577,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 16) uniform sampler2D lens_bloom_tex;
 	const float LENS_WARP_ENTRIES = ]] .. lens.WARP_ENTRIES .. [[.0;
 	const vec2 LENS_VIGNETTE_SIZE = vec2(]] .. lens.VIGNETTE_FIELDS .. [[.0, ]] .. lens.VIGNETTE_APERTURES .. [[.0);
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12, 17, 18) .. scopes.GetGLSL("compute", 19) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12, 17, 18) .. scopes.GetGLSL("compute", 19) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. local_adaptation.GetApplyGLSL("compute", 20) .. [[
 
 	float effective_paper_white;
 
@@ -712,6 +713,8 @@ local compute_shader = [[
 			vec3 bloom_share = lens_data.lens_bloom != 0 ? min(texelFetch(lens_bloom_tex, ivec2(0, 0), 0).rgb * lens_data.bloom_scale, vec3(1.0)) : compute.bloom_strength.rgb;
 			col = max(col - bloom_share * bloomed + texture(glare_tex, glare_uv).rgb * glare_keep / exposure, vec3(0.0));
 		}
+
+		if (compute.debug_passthrough == 0 && compute.local_adaptation != 0) col = apply_local_adaptation(col, uv, exposure);
 
 		if (compute.debug_passthrough == 0 && compute.has_afterimage != 0) col = apply_afterimage(col, texture_catmull_rom(afterimage_tex, uv).rgb, texture_catmull_rom(afterimage_bleach_tex, uv).rgb, texture_catmull_rom(afterimage_source_tex, uv), exposure, compute.afterimage_intensity);
 
@@ -892,6 +895,10 @@ for _, pass in ipairs(afterimage.passes) do
 	r[#r + 1] = pass
 end
 
+for _, pass in ipairs(import("goluwa/render3d/passes/local_adaptation.lua")) do
+	r[#r + 1] = pass
+end
+
 for _, pass in ipairs{
 	{
 		name = "blit_compute",
@@ -976,6 +983,16 @@ for _, pass in ipairs{
 			},
 			{binding_index = 16, get_texture = lens_flare.GetBloomWeightsTexture},
 			{binding_index = 17, get_texture = grade.GetCurveTexture},
+			{
+				binding_index = 20,
+				get_texture = function()
+					local pipeline = render3d.pipelines.local_adaptation_blur
+					return pipeline and
+						pipeline.framebuffers and
+						pipeline:GetFramebuffer():GetAttachment(1) or
+						nil
+				end,
+			},
 		},
 		uniform_buffers = {
 			{
@@ -1042,6 +1059,7 @@ for _, pass in ipairs{
 			{"eye_defocus", "int"},
 			{"pixels_per_degree", "float"},
 			exposure_model.camera_block,
+			local_adaptation.block,
 			grade.block,
 			scopes.block,
 		},
@@ -1083,6 +1101,14 @@ for _, pass in ipairs{
 			block.eye_defocus = exposure_model.IsEye() and eye_defocus:Get() and 1 or 0
 			block.pixels_per_degree = exposure_model.GetPixelsPerDegree(render.GetRenderImageSize().y)
 			exposure_model.WriteCameraBlock(block)
+			local pipeline = render3d.pipelines.local_adaptation_blur
+			local_adaptation.WriteBlock(
+				block,
+				block.has_exposure_tex == 1 and
+					local_adaptation.IsEnabled() and
+					pipeline and
+					pipeline.framebuffers ~= nil
+			)
 			grade.WriteBlock(block)
 			scopes.WriteBlock(block)
 
@@ -1091,6 +1117,7 @@ for _, pass in ipairs{
 				block.night_vision = 0
 				block.white_balance_on = 0
 				block.grade_on = 0
+				block.local_adaptation = 0
 				block.lut_mode = 0
 			end
 

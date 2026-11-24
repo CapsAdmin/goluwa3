@@ -3,6 +3,7 @@ local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 import("goluwa/render3d/indirect_look.lua")
+import("goluwa/render3d/local_adaptation.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local vfs = import("goluwa/vfs.lua")
 local lut_codec = import("goluwa/codecs/lut.lua")
@@ -683,6 +684,10 @@ local fields = {
 	{key = "gi_bounce_gain"},
 	{key = "gi_bounce_saturation"},
 	{key = "gi_sky_gain"},
+	{key = "r_local_shadows"},
+	{key = "r_local_highlights"},
+	{key = "r_local_detail"},
+	{key = "r_local_white_balance"},
 }
 grade.fields = fields
 local field_keys = {}
