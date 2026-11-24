@@ -15,6 +15,7 @@ local material = {}
 local infos = {}
 local materials = {}
 local BLEND_SHADERS = {["vr_simple_2way_blend.vfx"] = true}
+local SKY_WINDOWS = {["materials/glass/glass_painted_window_001.vmat"] = {roughness_min = 0.85}}
 local INCHES = 0.0254
 local SOFT_ALPHA_EDGE_STRENGTH = 0.5
 local TREE_HEIGHT = 5.2
@@ -491,6 +492,14 @@ function material.FromVMAT(path)
 		if illum_tint then
 			self:SetEmissiveMultiplier(Color(illum_tint[1] * scale, illum_tint[2] * scale, illum_tint[3] * scale, 1))
 		end
+	end
+
+	local sky_window = SKY_WINDOWS[key]
+
+	if sky_window then
+		self:SetSkyWindow(1)
+		self:SetEmissiveAlbedoFactor(0)
+		self:SetRoughnessMin(sky_window.roughness_min)
 	end
 
 	return self
