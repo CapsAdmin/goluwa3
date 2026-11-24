@@ -1054,7 +1054,7 @@ function META:build_rows_panel(entries, indent)
 end
 
 local function is_block(node)
-	return node.IsGroup or node.Type == "list" or node.Type == "add"
+	return node.IsGroup or node.Type == "list" or node.Type == "add" or node.Type == "panel"
 end
 
 local function open_node_menu(actions, items)
@@ -1257,6 +1257,8 @@ function META:build_blocks(nodes, path, level)
 			children[#children + 1] = self:build_list_panel(block, block_path, level, is_last)
 		elseif block.Type == "add" then
 			children[#children + 1] = self:build_add_panel(block, block_path)
+		elseif block.Type == "panel" then
+			children[#children + 1] = block.Build(block, self)
 		else
 			children[#children + 1] = self:build_group_panel(block, block_path, level, is_last)
 		end
