@@ -74,7 +74,7 @@ Warhead's ice shaders map to the engine's `medium` feature (the `ice` preset, se
 
 ## Entities
 
-Entities without geometry that the loader does not handle itself (`level.ExtractEntity`, with archetype properties merged under the instance's) are offered to addons through `event.Call("CryEntity", {class, name, world_matrix, properties})`; a listener returns a component table and the entity is added under the level's `Entities` folder (the `boids` addon claims `Chickens` and `Turtles`).
+Entities without geometry that the loader does not handle itself (`level.ExtractEntity`, with archetype properties merged under the instance's) are offered to addons through `event.Call("CryEntity", {class, name, world_matrix, properties})`; a listener returns a component table and the entity is added under the level's `Entities` folder (the `boids` addon claims the boid classes: `Chickens`, `Turtles`, `Crabs`, `Plover`, `Frogs`, `Birds`, `Fish`).
 
 ## Collision
 

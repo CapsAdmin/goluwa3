@@ -4,6 +4,7 @@ local physics = import("goluwa/physics.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local damage = import("lua/damage.lua")
+local fluid = import("goluwa/physics/fluid.lua")
 local boids = import("lua/boids.lua")
 import("lua/components/boid_flock.lua")
 boids.Register(
@@ -91,4 +92,89 @@ T.TestPhysics("a killed boid leaves the flock as a physics body", function()
 	run(flock, 0.1)
 	T(#flock.boids)["=="](2)
 	T(entity.rigid_body:GetMotionType())["=="]("dynamic")
+end)
+
+T.TestPhysics("birds fly within their height band around the flock", function()
+	create_box(Vec3(0, -0.5, 0), Vec3(200, 1, 200))
+	physics.UpdateFixed(1 / 60)
+	local flock = boids.Spawn("bird", Vec3(0, 0, 0), 10, 10, {Model = ""}).boid_flock
+	run(flock, 20)
+	T(#flock.boids)["=="](10)
+
+	for _, boid in ipairs(flock.boids) do
+		T(boid.y)[">"](5)
+		T(boid.y)["<"](60)
+		T(Vec3(boid.x, 0, boid.z):GetLength())["<"](80)
+		T(boid.speed)[">="](2)
+	end
+end)
+
+T.TestPhysics("fish stay under the water surface and above the bottom", function()
+	create_box(Vec3(0, -10.5, 0), Vec3(200, 1, 200))
+	fluid.SetOceanLevel(0)
+	physics.UpdateFixed(1 / 60)
+	local flock = boids.Spawn("fish", Vec3(0, -5, 0), 12, 5, {Model = ""}).boid_flock
+	run(flock, 10)
+	fluid.SetOceanLevel(nil)
+	T(#flock.boids)["=="](12)
+
+	for _, boid in ipairs(flock.boids) do
+		T(boid.y)["<"](0)
+		T(boid.y)[">"](-10)
+	end
+end)
+
+T.TestPhysics("frogs hop and land on the ground", function()
+	create_box(Vec3(0, -0.5, 0), Vec3(60, 1, 60))
+	physics.UpdateFixed(1 / 60)
+	local flock = boids.Spawn("frog", Vec3(0, 0, 0), 5, 2, {Model = ""}).boid_flock
+	run(flock, 0.1)
+	local start = {}
+
+	for i, boid in ipairs(flock.boids) do
+		start[i] = Vec3(boid.x, 0, boid.z)
+	end
+
+	Entity.New{transform = {Position = Vec3(0, 0, 0)}, health = {}}
+	run(flock, 3)
+	local moved = 0
+
+	for i, boid in ipairs(flock.boids) do
+		if boid.on_ground then T(math.abs(boid.y))["<"](0.01) end
+
+		if (Vec3(boid.x, 0, boid.z) - start[i]):GetLength() > 0.5 then
+			moved = moved + 1
+		end
+	end
+
+	T(moved)[">"](0)
+end)
+
+T.Test("Crysis flock archetype properties become flock settings", function()
+	local settings = boids.SettingsFromCryProperties{
+		Boid = {nCount = "20", object_Model = "", Size = "1.2", SizeRandom = "0.2"},
+		Movement = {
+			SpeedMin = "2.5",
+			SpeedMax = "10",
+			HeightMin = "5",
+			HeightMax = "40",
+			MaxAnimSpeed = "0.15",
+		},
+		Flocking = {
+			bEnableFlocking = "0",
+			FactorAlign = "20",
+			FactorCohesion = "40",
+			FieldOfViewAngle = "120",
+		},
+		Options = {VisibilityDist = "100", bObstacleAvoidance = "0"},
+	}
+	T(settings.Model)["=="](nil)
+	T(settings.Scale)["=="](1.2)
+	T(settings.MinSpeed)["=="](2.5)
+	T(settings.HeightMax)["=="](40)
+	T(settings.AnimSpeed)["=="](0.15)
+	T(settings.Align)["=="](0)
+	T(settings.Cohesion)["=="](40)
+	T(settings.ObstacleAvoidance)["=="](false)
+	T(settings.VisibilityDistance)["=="](100)
 end)
