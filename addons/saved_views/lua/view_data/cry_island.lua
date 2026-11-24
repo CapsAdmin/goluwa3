@@ -29,5 +29,33 @@ return {
 			rot = Quat(0, -0.83867057, 0, 0.54463904),
 			time = 1794903275.4672048,
 		},
+		spawn = {
+			climate = {
+				ground_fog_visibility = 22486.68901849655,
+				wind = Vec3(2, 0, 0),
+			},
+			ev = 13.194473494423484,
+			fov = 1.3089969389957472,
+			latitude = -66.31835890465366,
+			longitude = 106.070245,
+			note = "island spawn, for checking terrain against vegetation albedo",
+			pos = Vec3(1526.1229, 120.720984, -2616.3933),
+			rot = Quat(0, 0.025237393, 0, 0.9996815),
+			time = 1794903275.4672048,
+		},
+		spawn_overview = {
+			climate = {
+				ground_fog_visibility = 22486.68901849655,
+				wind = Vec3(2, 0, 0),
+			},
+			ev = 14.150970633900883,
+			fov = 1.3089969389957472,
+			latitude = -66.31835890465366,
+			longitude = 106.070245,
+			note = "island spawn_overview, for checking terrain against vegetation albedo",
+			pos = Vec3(1521.077, 169.00098445262705, -2716.2659),
+			rot = Quat(-0.005798365, -0.972939, -0.229679741, 0.024562268),
+			time = 1794903275.4672048,
+		},
 	},
 }
