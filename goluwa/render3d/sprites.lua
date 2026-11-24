@@ -69,6 +69,7 @@ local function build(batch, capacity)
 	end
 
 	local polygon = Polygon3D.New()
+	polygon.Dynamic = true
 	polygon:UploadVertexArray(vertices, vertex_count, indices, capacity * 6, false, "owned")
 	local entity = Entity.New{Name = "sprite_batch"}
 	entity:SetTransient(true)

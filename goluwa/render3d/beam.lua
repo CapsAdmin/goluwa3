@@ -181,6 +181,7 @@ function Beam.New(config)
 	self:SetMaterial(config.Material)
 	self.tint_r, self.tint_g, self.tint_b, self.tint_a = 1, 1, 1, 1
 	local polygon = Polygon3D.New()
+	polygon.Dynamic = true
 	local entity = Entity.New{Name = "beam", Parent = config.Parent}
 	entity:SetTransient(true)
 	entity:AddComponent("transform")
