@@ -575,7 +575,7 @@ local compute_shader = [[
 	layout(set = 0, binding = 16) uniform sampler2D lens_bloom_tex;
 	const float LENS_WARP_ENTRIES = ]] .. lens.WARP_ENTRIES .. [[.0;
 	const vec2 LENS_VIGNETTE_SIZE = vec2(]] .. lens.VIGNETTE_FIELDS .. [[.0, ]] .. lens.VIGNETTE_APERTURES .. [[.0);
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute", 11, 12, 17) .. test_chart.GetGLSL() .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
 
 	float effective_paper_white;
 
@@ -964,6 +964,7 @@ for _, pass in ipairs{
 				end,
 			},
 			{binding_index = 16, get_texture = lens_flare.GetBloomWeightsTexture},
+			{binding_index = 17, get_texture = grade.GetCurveTexture},
 		},
 		uniform_buffers = {
 			{

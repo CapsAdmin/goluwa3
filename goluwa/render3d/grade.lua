@@ -5,6 +5,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local vfs = import("goluwa/vfs.lua")
 local lut_codec = import("goluwa/codecs/lut.lua")
+local curve = import("goluwa/math/curve.lua")
 local grade = {}
 grade.BLEND_TIME = 2
 pvars.StartGroup("Post", "Grade", {store = false, prefix = "grade_"})
@@ -44,6 +45,19 @@ local warmth = pvars.Setup2{
 	help = "warms (above 0, orange) or cools (below 0, blue) the image",
 }
 pvars.EndGroup()
+pvars.StartGroup("Post", "Tone curve", {store = false, prefix = "grade_"})
+local curve_help = "points of a tone curve on the tonemapped image as \"x y, x y, ...\" in sRGB encoded display values where 1 is white (paper white on HDR outputs, which go on above it up to the display's peak). Between points it is a smooth curve that never overshoots, past the first and last point it goes on one to one. Empty is no change"
+local curves = {
+	pvars.Setup2{
+		key = "r_grade_curve",
+		default = "",
+		help = curve_help .. ". Applied to all three channels, before the per channel curves",
+	},
+	pvars.Setup2{key = "r_grade_curve_r", default = "", help = curve_help .. ". Red only"},
+	pvars.Setup2{key = "r_grade_curve_g", default = "", help = curve_help .. ". Green only"},
+	pvars.Setup2{key = "r_grade_curve_b", default = "", help = curve_help .. ". Blue only"},
+}
+pvars.EndGroup()
 pvars.StartGroup("Post", "Look LUT", {store = false, prefix = "grade_"})
 local lut_path = pvars.Setup2{
 	key = "r_grade_lut",
@@ -74,6 +88,7 @@ grade.block = {
 	{"grade_brightness", "float"},
 	{"grade_contrast", "float"},
 	{"grade_contrast_pivot", "float"},
+	{"grade_curve", "int"},
 	{"grade_saturation", "float"},
 	{"grade_warmth", "float"},
 	{"lut_mode", "int"},
@@ -208,6 +223,107 @@ function grade.GetLutTexture1D()
 	return lut_state.texture_1d
 end
 
+grade.CURVE_SIZE = 4096
+grade.CURVE_RANGE = 8
+
+function grade.ParseCurve(text)
+	local points = {}
+
+	for x, y in text:gmatch("([^%s,]+)%s+([^%s,]+)") do
+		points[#points + 1] = {assert(tonumber(x), text), assert(tonumber(y), text)}
+	end
+
+	for i = 2, #points do
+		assert(points[i][1] > points[i - 1][1], "tone curve points must have increasing x: " .. text)
+	end
+
+	return points
+end
+
+function grade.FormatCurve(points)
+	local parts = {}
+
+	for i, point in ipairs(points) do
+		parts[i] = string.format("%.4g %.4g", point[1], point[2])
+	end
+
+	return table.concat(parts, ", ")
+end
+
+function grade.CompileCurve(text)
+	if text == "" then return nil end
+
+	local points = grade.ParseCurve(text)
+
+	if not points[1] then return nil end
+
+	return {points = points, tangents = curve.MonotoneTangents(points)}
+end
+
+function grade.EvaluateCurve(compiled, x)
+	if not compiled then return x end
+
+	return curve.EvaluateMonotone(compiled.points, compiled.tangents, x, 1)
+end
+
+function grade.GetCurveDisplayRange()
+	local render = import("goluwa/render/render.lua")
+
+	if not render.target or not render.target:IsHDR() then return 1 end
+
+	local peak = pvars.Get("r_hdr_peak") / pvars.Get("r_hdr_paper_white")
+	return peak <= 0.0031308 and peak * 12.92 or 1.055 * peak ^ (1 / 2.4) - 0.055
+end
+
+local curve_state = {key = ""}
+
+function grade.GetCurveTexture()
+	local key = curves[1]:Get() .. "|" .. curves[2]:Get() .. "|" .. curves[3]:Get() .. "|" .. curves[4]:Get()
+
+	if key == curve_state.key then return curve_state.texture end
+
+	if curve_state.texture then curve_state.texture:Remove() end
+
+	curve_state = {key = key}
+
+	if key == "|||" then return nil end
+
+	local ok, compiled = pcall(function()
+		return {
+			grade.CompileCurve(curves[1]:Get()),
+			grade.CompileCurve(curves[2]:Get()),
+			grade.CompileCurve(curves[3]:Get()),
+			grade.CompileCurve(curves[4]:Get()),
+		}
+	end)
+
+	if not ok then
+		wlog("grade curve: %s", compiled)
+		return nil
+	end
+
+	local size = grade.CURVE_SIZE
+	local pixels = ffi.new("float[?]", size * 4)
+
+	for i = 0, size - 1 do
+		local x = grade.EvaluateCurve(compiled[1], i / (size - 1) * grade.CURVE_RANGE)
+		pixels[i * 4] = grade.EvaluateCurve(compiled[2], x)
+		pixels[i * 4 + 1] = grade.EvaluateCurve(compiled[3], x)
+		pixels[i * 4 + 2] = grade.EvaluateCurve(compiled[4], x)
+		pixels[i * 4 + 3] = 1
+	end
+
+	local Texture = import("goluwa/render/texture.lua")
+	curve_state.texture = Texture.New{
+		buffer = pixels,
+		width = size,
+		height = 1,
+		format = "r32g32b32a32_sfloat",
+		sampler = LUT_SAMPLER,
+	}
+	return curve_state.texture
+end
+
 function grade.WriteBlock(block)
 	update_lut()
 	block.grade_brightness = brightness:Get() / 100
@@ -224,6 +340,7 @@ function grade.WriteBlock(block)
 		and
 		1 or
 		0
+	block.grade_curve = grade.GetCurveTexture() and 1 or 0
 	local lut = lut_state.lut
 	local strength = lut_strength:Get() / 100
 	block.lut_strength = strength
@@ -339,10 +456,39 @@ local LUT_STUB = [[
 		return plain;
 	}
 ]]
+local CURVE_GLSL = [[
+	layout(set = 0, binding = %d) uniform sampler2D grade_curve_tex;
 
--- binding_3d and binding_1d are the bindings of the table samplers, a shader that gives none has no table
-function grade.GetGLSL(block_name, binding_3d, binding_1d)
+	vec3 grade_curve(vec3 x) {
+		if (BLOCK.grade_curve == 0) return x;
+
+		int last = %d;
+		vec3 f = clamp(x / %s, 0.0, 1.0) * float(last);
+		ivec3 i0 = ivec3(floor(f));
+		ivec3 i1 = min(i0 + 1, ivec3(last));
+		vec3 w = f - vec3(i0);
+		return vec3(
+			mix(texelFetch(grade_curve_tex, ivec2(i0.x, 0), 0).r, texelFetch(grade_curve_tex, ivec2(i1.x, 0), 0).r, w.x),
+			mix(texelFetch(grade_curve_tex, ivec2(i0.y, 0), 0).g, texelFetch(grade_curve_tex, ivec2(i1.y, 0), 0).g, w.y),
+			mix(texelFetch(grade_curve_tex, ivec2(i0.z, 0), 0).b, texelFetch(grade_curve_tex, ivec2(i1.z, 0), 0).b, w.z)
+		) + max(x - %s, 0.0);
+	}
+]]
+local CURVE_STUB = [[
+	vec3 grade_curve(vec3 x) {
+		return x;
+	}
+]]
+
+-- binding_3d and binding_1d are the bindings of the table samplers and binding_curve the tone curve's, a shader that gives none has no table or curve
+function grade.GetGLSL(block_name, binding_3d, binding_1d, binding_curve)
 	local lut = binding_3d and LUT_GLSL:format(binding_3d, binding_1d) or LUT_STUB
+	local range = string.format("%.1f", grade.CURVE_RANGE)
+	lut = lut .. (
+			binding_curve and
+			CURVE_GLSL:format(binding_curve, grade.CURVE_SIZE - 1, range, range) or
+			CURVE_STUB
+		)
 	return (
 		(
 			lut .. [[
@@ -365,18 +511,21 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d)
 			return x * vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
 		}
 
-		vec3 grade_display(vec3 c) {
-			if (BLOCK.grade_on == 0 && (BLOCK.lut_mode & 1) == 0) return c;
-
-			vec3 x = LinearToSRGB(clamp(c, 0.0, 1.0));
-
+		vec3 grade_encoded(vec3 x) {
 			if ((BLOCK.lut_mode & 3) == 3) x = grade_lut(x);
 
 			x = grade_controls(x);
 
 			if ((BLOCK.lut_mode & 3) == 1) x = grade_lut(x);
 
-			return SRGBToLinear(clamp(x, 0.0, 1.0));
+			return x;
+		}
+
+		vec3 grade_display(vec3 c) {
+			if (BLOCK.grade_on == 0 && BLOCK.grade_curve == 0 && (BLOCK.lut_mode & 1) == 0) return c;
+
+			vec3 x = clamp(grade_curve(LinearToSRGB(clamp(c, 0.0, 1.0))), 0.0, 1.0);
+			return SRGBToLinear(clamp(grade_encoded(x), 0.0, 1.0));
 		}
 
 		vec3 grade_display_log(vec3 encoded, vec3 plain) {
@@ -386,12 +535,17 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d)
 
 			if ((BLOCK.lut_mode & 1) != 0) x = grade_lut_log(encoded, x);
 
+			x = clamp(grade_curve(x), 0.0, 1.0);
 			return SRGBToLinear(clamp(grade_controls(x), 0.0, 1.0));
 		}
 
 		vec3 grade_display_hdr(vec3 c) {
+			if (BLOCK.grade_curve != 0) c = SRGBToLinear(max(grade_curve(LinearToSRGB(max(c, vec3(0.0)))), vec3(0.0)));
+
+			if (BLOCK.grade_on == 0 && (BLOCK.lut_mode & 1) == 0) return c;
+
 			vec3 sdr = min(c, vec3(1.0));
-			return grade_display(sdr) + (c - sdr);
+			return SRGBToLinear(clamp(grade_encoded(LinearToSRGB(sdr)), 0.0, 1.0)) + (c - sdr);
 		}
 	]]
 		):gsub("BLOCK", block_name)
@@ -404,6 +558,10 @@ local fields = {
 	{key = "r_grade_contrast_pivot"},
 	{key = "r_grade_saturation"},
 	{key = "r_grade_warmth"},
+	{key = "r_grade_curve", curve = true},
+	{key = "r_grade_curve_r", curve = true},
+	{key = "r_grade_curve_g", curve = true},
+	{key = "r_grade_curve_b", curve = true},
 	{key = "camera.white_balance", exposure = true, white_balance = true},
 	{key = "camera.white_balance_tint", exposure = true},
 	{key = "r_tonemapper"},
@@ -498,12 +656,42 @@ local function resolve(preset)
 	return state
 end
 
+function grade.BlendCurves(from, to, t)
+	if from == to then return from end
+
+	if t <= 0 then return from end
+
+	if t >= 1 then return to end
+
+	local a, b = grade.CompileCurve(from), grade.CompileCurve(to)
+	local xs = {}
+
+	for _, compiled in ipairs{a or {points = {{0, 0}, {1, 1}}}, b or {points = {{0, 0}, {1, 1}}}} do
+		for _, point in ipairs(compiled.points) do
+			xs[#xs + 1] = point[1]
+		end
+	end
+
+	table.sort(xs)
+	local points = {}
+
+	for _, x in ipairs(xs) do
+		if not points[1] or x > points[#points][1] then
+			points[#points + 1] = {x, math.lerp(t, grade.EvaluateCurve(a, x), grade.EvaluateCurve(b, x))}
+		end
+	end
+
+	return grade.FormatCurve(points)
+end
+
 local function apply(a, b, t)
 	for _, field in ipairs(fields) do
 		local from, to = a[field.key], b[field.key]
 		local value
 
-		if type(from) ~= "number" then
+		if field.curve then
+			value = grade.BlendCurves(from, to, t)
+		elseif type(from) ~= "number" then
 			value = t < 0.5 and from or to
 		elseif field.white_balance then
 			if from == 0 or to == 0 then

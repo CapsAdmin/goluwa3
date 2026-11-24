@@ -40,6 +40,18 @@ local function reference(c, p)
 		x[i] = linear_to_srgb(clamp(c[i], 0, 1))
 	end
 
+	if p.curve and not p.curve_applied then
+		local compiled = {}
+
+		for i = 1, 4 do
+			compiled[i] = grade.CompileCurve(p.curve[i] or "")
+		end
+
+		for i = 1, 3 do
+			x[i] = clamp(grade.EvaluateCurve(compiled[i + 1], grade.EvaluateCurve(compiled[1], x[i])), 0, 1)
+		end
+	end
+
 	if brightness ~= 0 then
 		for i = 1, 3 do
 			x[i] = math.max(x[i], 0) ^ 2 ^ (-0.8 * brightness)
@@ -71,6 +83,28 @@ local function reference(c, p)
 end
 
 local function reference_hdr(c, p)
+	if p.curve then
+		local compiled = {}
+
+		for i = 1, 4 do
+			compiled[i] = grade.CompileCurve(p.curve[i] or "")
+		end
+
+		local curved = {}
+
+		for i = 1, 3 do
+			curved[i] = srgb_to_linear(
+				math.max(
+					grade.EvaluateCurve(compiled[i + 1], grade.EvaluateCurve(compiled[1], linear_to_srgb(math.max(c[i], 0)))),
+					0
+				)
+			)
+		end
+
+		c = curved
+		p = table.merge(table.copy(p), {curve_applied = true})
+	end
+
 	local sdr = {math.min(c[1], 1), math.min(c[2], 1), math.min(c[3], 1)}
 	local graded = reference(sdr, p)
 	return {graded[1] + c[1] - sdr[1], graded[2] + c[2] - sdr[2], graded[3] + c[3] - sdr[3]}
@@ -84,6 +118,12 @@ local function set(p)
 		"warmth",
 	} do
 		if p[name] then pvars.SetSession("r_grade_" .. name, p[name]) end
+	end
+
+	if p.curve then
+		for i, key in ipairs{"r_grade_curve", "r_grade_curve_r", "r_grade_curve_g", "r_grade_curve_b"} do
+			pvars.SetSession(key, p.curve[i] or "")
+		end
 	end
 
 	if p.pivot then pvars.SetSession("r_grade_contrast_pivot", p.pivot) end
@@ -178,6 +218,44 @@ T.Test("Graphics render3d grade tone sliders keep black and white and never reve
 	end
 end)
 
+T.Test("Graphics render3d grade tone curve goes through its points without overshoot and on one to one past them", function()
+	local compiled = grade.CompileCurve("0 0.05, 0.25 0.2, 0.5 0.55, 0.75 0.95, 1 1")
+
+	for _, point in ipairs(compiled.points) do
+		T(grade.EvaluateCurve(compiled, point[1]))["~"](point[2], 1e-9)
+	end
+
+	local previous = -1
+
+	for i = 0, 1000 do
+		local v = grade.EvaluateCurve(compiled, i / 1000)
+		T(v >= previous - 1e-9)["=="](true)
+		previous = v
+	end
+
+	T(grade.EvaluateCurve(compiled, 1.5))["~"](1.5, 1e-9)
+	local flat = grade.CompileCurve("0 0, 0.4 0.5, 0.6 0.5, 1 1")
+
+	for i = 0, 100 do
+		local x = 0.4 + 0.2 * i / 100
+		T(grade.EvaluateCurve(flat, x))["~"](0.5, 1e-9)
+	end
+
+	T(grade.CompileCurve(""))["=="](nil)
+	T(pcall(grade.ParseCurve, "0.5 0, 0.5 1"))["=="](false)
+	T(grade.ParseCurve(grade.FormatCurve{{0, 0.1}, {0.333333, 0.4}, {1, 1}})[2][1])["~"](0.3333, 1e-9)
+end)
+
+T.Test("Graphics render3d grade tone curves blend through their shapes", function()
+	local half = grade.CompileCurve(grade.BlendCurves("", "0 0, 0.5 0.7, 1 1", 0.5))
+	T(grade.EvaluateCurve(half, 0.5))["~"](0.6, 1e-6)
+	T(grade.BlendCurves("0 0, 1 0.8", "", 0))["=="]("0 0, 1 0.8")
+	T(grade.BlendCurves("0 0, 1 0.8", "", 1))["=="]("")
+	grade.Blend({r_grade_curve = "0 0.1, 1 1"}, {}, 0.5)
+	T(grade.EvaluateCurve(grade.CompileCurve(pvars.Get("r_grade_curve")), 0))["~"](0.05, 1e-6)
+	reset()
+end)
+
 local INPUTS = [[
 	vec3 inputs[5] = vec3[5](vec3(0.5), vec3(1.0, 0.0, 0.0), SRGBToLinear(vec3(0.25)), vec3(0.2), vec3(2.0, 0.5, 0.5));
 ]]
@@ -196,6 +274,7 @@ local grade_pass = {
 	framebuffer_count = 1,
 	LocalSize = {x = 8, y = 1, z = 1},
 	storage_images = {{binding_index = 0, dst_stage = "compute"}},
+	sampled_images = {{binding_index = 2, get_texture = grade.GetCurveTexture}},
 	uniform_buffers = {
 		{
 			name = "grade_data",
@@ -209,7 +288,7 @@ local grade_pass = {
 	custom_declarations = [[
 		layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_graded;
 	]],
-	shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data") .. [[
+	shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data", nil, nil, 2) .. [[
 		void main() {
 			int x = int(gl_GlobalInvocationID.x);
 			]] .. INPUTS .. [[
@@ -260,6 +339,9 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 			{saturation = 100},
 			{warmth = 100},
 			{warmth = -60},
+			{curve = {"0 0, 0.3 0.4, 0.7 0.8, 1 1"}},
+			{curve = {"0 0.05, 0.5 0.45, 1 0.9", "0 0, 0.5 0.6, 1 1", "", "0.1 0, 1 1"}},
+			{curve = {"0 0, 0.5 0.5, 1 0.9, 1.3 1.1"}, contrast = 20},
 			{contrast = 50, pivot = 0.3},
 			{contrast = -40, pivot = 0.75, brightness = 20},
 			{
@@ -906,11 +988,11 @@ local function interpolate(map, size, v, tetrahedral)
 	end
 
 	local function corner(dr, dg, db)
-		return map({
+		return map{
 			math.min(i0[1] + dr, n) / n,
 			math.min(i0[2] + dg, n) / n,
 			math.min(i0[3] + db, n) / n,
-		})
+		}
 	end
 
 	local c = {}
@@ -934,18 +1016,54 @@ local function interpolate(map, size, v, tetrahedral)
 		if tetrahedral then
 			if r > g then
 				if g > b then
-					out[i] = at("000") + (at("100") - at("000")) * r + (at("110") - at("100")) * g + (at("111") - at("110")) * b
+					out[i] = at("000") + (
+							at("100") - at("000")
+						) * r + (
+							at("110") - at("100")
+						) * g + (
+							at("111") - at("110")
+						) * b
 				elseif r > b then
-					out[i] = at("000") + (at("100") - at("000")) * r + (at("101") - at("100")) * b + (at("111") - at("101")) * g
+					out[i] = at("000") + (
+							at("100") - at("000")
+						) * r + (
+							at("101") - at("100")
+						) * b + (
+							at("111") - at("101")
+						) * g
 				else
-					out[i] = at("000") + (at("001") - at("000")) * b + (at("101") - at("001")) * r + (at("111") - at("101")) * g
+					out[i] = at("000") + (
+							at("001") - at("000")
+						) * b + (
+							at("101") - at("001")
+						) * r + (
+							at("111") - at("101")
+						) * g
 				end
 			elseif r > b then
-				out[i] = at("000") + (at("010") - at("000")) * g + (at("110") - at("010")) * r + (at("111") - at("110")) * b
+				out[i] = at("000") + (
+						at("010") - at("000")
+					) * g + (
+						at("110") - at("010")
+					) * r + (
+						at("111") - at("110")
+					) * b
 			elseif g > b then
-				out[i] = at("000") + (at("010") - at("000")) * g + (at("011") - at("010")) * b + (at("111") - at("011")) * r
+				out[i] = at("000") + (
+						at("010") - at("000")
+					) * g + (
+						at("011") - at("010")
+					) * b + (
+						at("111") - at("011")
+					) * r
 			else
-				out[i] = at("000") + (at("001") - at("000")) * b + (at("011") - at("001")) * g + (at("111") - at("011")) * r
+				out[i] = at("000") + (
+						at("001") - at("000")
+					) * b + (
+						at("011") - at("001")
+					) * g + (
+						at("111") - at("011")
+					) * r
 			end
 		else
 			local function lerp(a, d, t)
@@ -976,15 +1094,16 @@ local TETRA_COLORS = {
 local tetra_pass = table.copy(lut_pass)
 tetra_pass.name = "grade_tetra_test"
 tetra_pass.FramebufferSize = {x = #TETRA_COLORS, y = 1}
-tetra_pass.shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data", 2, 3) .. (function()
-	local colors = {}
+tetra_pass.shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grade_data", 2, 3) .. (
+		function()
+			local colors = {}
 
-	for i, c in ipairs(TETRA_COLORS) do
-		colors[i] = string.format("vec3(%.9f, %.9f, %.9f)", c[1], c[2], c[3])
-	end
+			for i, c in ipairs(TETRA_COLORS) do
+				colors[i] = string.format("vec3(%.9f, %.9f, %.9f)", c[1], c[2], c[3])
+			end
 
-	return string.format(
-		[[
+			return string.format(
+				[[
 	void main() {
 		int x = int(gl_GlobalInvocationID.x);
 		vec3 colors[%d] = vec3[%d](%s);
@@ -992,12 +1111,13 @@ tetra_pass.shader = compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("grad
 		if (x < %d) imageStore(out_graded, ivec2(x, 0), vec4(grade_display(SRGBToLinear(colors[x])), 1.0));
 	}
 ]],
-		#TETRA_COLORS,
-		#TETRA_COLORS,
-		table.concat(colors, ", "),
-		#TETRA_COLORS
-	)
-end)()
+				#TETRA_COLORS,
+				#TETRA_COLORS,
+				table.concat(colors, ", "),
+				#TETRA_COLORS
+			)
+		end
+	)()
 
 T.Test3D("Graphics render3d grade look up table is interpolated tetrahedrally and keeps greys neutral", function(draw)
 	render3d.Initialize{
@@ -1046,4 +1166,3 @@ T.Test3D("Graphics render3d grade look up table is interpolated tetrahedrally an
 
 	if not ok then error(err, 0) end
 end)
-
