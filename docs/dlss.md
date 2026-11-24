@@ -1,41 +1,34 @@
 # DLSS
 
-NVIDIA DLSS super resolution and ray reconstruction through NGX, bound with ffi (`goluwa/bindings/ngx.lua`), driven by `goluwa/render3d/dlss.lua` and the passes in `goluwa/render3d/passes/dlss.lua`. It is optional: nothing loads until `r_aa` is `dlss` or `dlss_rr`, and it needs an NVIDIA gpu with the DLSS SDK feature libraries.
+NVIDIA DLSS super resolution and ray reconstruction through NGX, bound with ffi (`goluwa/bindings/ngx.lua`), driven by `goluwa/render3d/dlss.lua` and the passes in `goluwa/render3d/passes/dlss.lua`. It is optional: nothing loads until `r_aa` is `dlss` or `dlss_rr`, and it needs an NVIDIA gpu with the DLSS SDK feature libraries. Test: `test/tests/render3d/dlss.lua`.
 
 ## Setup
 
-- The driver ships the NGX core (`libnvidia-ngx.so.1`). The feature libraries (`libnvidia-ngx-dlss.so.*`, `libnvidia-ngx-dlssd.so.*`) come from the DLSS SDK (github.com/NVIDIA/DLSS, `lib/Linux_x86_64/rel`) and are not redistributable here. `r_dlss_library_directory` (default `local_stuff/DLSS/lib/Linux_x86_64/rel`) says where they are, relative to the repository root. The Streamline repository is Windows only and is not needed.
-- The device needs `VK_NVX_binary_import`, `VK_NVX_image_view_handle`, `VK_KHR_push_descriptor` and `VK_KHR_buffer_device_address`; `vulkan_instance.lua` requests them when the gpu has them. Without them NGX loads but reports `FeatureInitResult` `PlatformError`.
+- The driver ships the NGX core (`libnvidia-ngx.so.1`). The feature libraries (`libnvidia-ngx-dlss.so.*`, `libnvidia-ngx-dlssd.so.*`) come from the DLSS SDK (github.com/NVIDIA/DLSS, `lib/Linux_x86_64/rel`) and are not redistributable. `r_dlss_library_directory` (relative to the repository root) says where they are. Streamline is not needed.
+- The device needs `VK_NVX_binary_import`, `VK_NVX_image_view_handle`, `VK_KHR_push_descriptor` and `VK_KHR_buffer_device_address`; `vulkan_instance.lua` requests them when available. Without them NGX loads but reports `FeatureInitResult` `PlatformError`.
 - `r_dlss_logging` writes NGX's logs to `storage/logs/ngx`, the first place to look when a feature does not initialize.
 
 ## NGX on Linux
 
-- The feature library directory is only found through `NVSDK_NGX_FeatureCommonInfo` in `NVSDK_NGX_VULKAN_Init_ProjectID_Ext` (arguments: project id, engine type, engine version, data path, instance, physical device, device, the two proc addrs, api version, feature info). A config file or the app directory does not work on NixOS.
-- The snippets require a valid app id: use a GUID-like project id with the custom engine type, not `Init_Ext2` with app id 0.
-- Of the discovery functions only `GetFeatureRequirements` and the deprecated `RequiredExtensions` are implemented by the driver core; the newer extension queries return `NotImplemented`. Availability is read from the capability parameters (`SuperSampling.Available`, `SuperSamplingDenoising.Available`, with `FeatureInitResult` 1).
-- `NVSDK_NGX_Parameter` is a vtable; the setters and getters are slot calls (see the binding). `NVSDK_NGX_VULKAN_Shutdown1` crashed in a probe, so the binding does not call it.
+- The feature library directory is only found through `NVSDK_NGX_FeatureCommonInfo` passed to `NVSDK_NGX_VULKAN_Init_ProjectID_Ext`; a config file or the app directory is not searched (notably on NixOS).
+- A valid app id is required: use a GUID-like project id with the custom engine type, not `Init_Ext2` with app id 0.
+- Of the discovery functions the driver core implements only `GetFeatureRequirements` and the deprecated `RequiredExtensions`; availability is read from the capability parameters (`SuperSampling.Available`, `SuperSamplingDenoising.Available`).
+- `NVSDK_NGX_Parameter` is a vtable; setters and getters are slot calls (see the binding). The binding does not call `NVSDK_NGX_VULKAN_Shutdown1`, which crashed.
 
 ## The passes
 
-- `r_aa dlss` replaces taa: jittered color, the gbuffer depth (reversed) and velocity in, an output sized image out. With `r_upscale_height` below the window height the same pass upscales (the feature is created from the color and output texture sizes, DLAA when equal). `r_upscale_height` must be set before the pipelines are built (stored pvar or `GOLUWA_PVARS`), a runtime change leaves the textures at the old size.
-- `r_aa dlss_rr` is ray reconstruction: it also takes diffuse albedo, specular albedo and normal with perceptual roughness in alpha (`dlss_guides`, built from the gbuffer at the render size) and denoises the color itself. Feed it noisy radiance: with `dlss_rr` the path tracer writes the current frame's samples instead of its progressive mean (`pt_raw`), the mean keeps accumulating for the views.
-- Signs verified against a native resolution render: the jitter is taa's in pixels, the velocity (current minus previous in uv) is scaled by minus the render size to pixels. The color is the pre-exposed scene color with `Pre.Exposure` 1 and the auto exposure flag.
+- `r_aa dlss` replaces taa: jittered color, gbuffer depth (reversed) and velocity in, an output sized image out. With `r_upscale_height` below the window height it also upscales (DLAA when equal). `r_upscale_height` must be set before the pipelines are built (stored pvar or `GOLUWA_PVARS`).
+- `r_aa dlss_rr` is ray reconstruction: it also takes diffuse albedo, specular albedo, normal with roughness, specular motion and the reflection hit distance (`dlss_guides`, at the render size) and denoises the color itself.
+- Conventions: the jitter is taa's in pixels, the velocity (current minus previous in uv) is scaled by minus the render size; the color is pre-exposed with `Pre.Exposure` 1 and auto exposure.
 - A feature is created with the command buffer of the frame that first needs it and recreated (after a device wait) when the render or output size changes.
 
 ## Raw samples for ray reconstruction
 
-`render3d.IsDenoisingBypassed()` (true with `r_aa dlss_rr`) switches the passes' own denoisers off so the network sees noisy but unbiased light:
+`render3d.IsDenoisingBypassed()` (true with `dlss_rr`) switches the engine's own denoisers off so the network sees noisy but unbiased light: the screen GI (`radiance`) skips temporal reuse, accumulation and filtering, ray shadows are traced per light in the lighting pass instead of the filtered `ray_shadow_*` passes, caustics drop their temporal history, and the path tracer writes the current frame's samples (`pt_raw`). Probe GI is not bypassed since its probes are already smooth. The principle: the network needs noise that is new every frame; anything carried over frames (reservoirs, history) looks like detail to it and survives as blotches. Judge sampler changes under `dlss_rr` by the output, not by the input's noise.
 
-- ReSTIR GI keeps its candidate and spatial resampling and skips the temporal reuse (`temporal` 0), the accumulation (`accumulation` 1) and the a-trous filters (`filter_enabled` 0). The network needs noise that is new every frame: a reservoir carried over frames is a sample that stays put, which it keeps as detail (low frequency blotches), and the spatial reuse copies each into a cluster of bright pixels (speckle that survives the network in dim rooms). Without temporal reuse the input is noisier but the output is clean; measure any change to the sampler under `dlss_rr` by speckle in the output, not by the input's noise.
-- reflections: with `dlss_rr` the radiance accumulation keeps no history and the filter is off (`accumulation` 1, `filter_enabled` 0), so the specular channel is the single ray per pixel. `lighting_debug_reflections` shows the specular the lighting reads.
-- seeing what the network does: `lighting_debug_indirect` replaces the lit scene by the indirect light alone (gi diffuse and reflection, each times its albedo, so it is still a valid color input for ray reconstruction's demodulation; `radiance_debug` and `lighting_debug_reflections` are not, they show radiance without albedo). `r_dlss_show_input` makes the post chain read the scene DLSS is given instead of its output, so toggling it compares the same frame before and after; DLSS keeps running, so its history stays warm.
-- ray shadows: the `ray_shadow_*` passes are disabled and the lighting traces its own ray per light (`ray_shadow_tex` -1).
-- caustics keep the spatial photon density filter (it is the estimator) and drop the temporal history (`history_tex` -1).
-- DDGI is not bypassed: its probes are already smooth.
+Inspecting: `lighting_debug_indirect` shows the indirect light times albedo (still a valid input for demodulation); `lighting_debug_reflections` shows the specular the lighting reads; `r_dlss_show_input` makes the post chain show what DLSS is given instead of its output while DLSS keeps running, so toggling it compares the same frame.
 
-The guides also hold the specular motion (the virtual image of the reflection: the surface point pushed along the view ray by the reflection hit distance, reprojected with the previous camera, `dlss_guides` attachment 4) and the reflection trace's hit distance (`RayTracingHitDistance`, only while the reflections pass runs).
+## Limitations
 
-## Not done
-
-- no exposure texture (the feature uses its auto exposure on the pre-exposed color), no transparency, particle or alpha masks.
-- the specular motion assumes a static reflected scene.
+- No exposure texture, no transparency, particle or alpha masks are passed.
+- The specular motion assumes a static reflected scene.

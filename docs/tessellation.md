@@ -1,42 +1,37 @@
 # Tessellated height maps
 
-A material with a height map and `HeightTessellate` (or every height mapped material with `r_tessellation_all`) is drawn as real displaced geometry instead of the parallax march. `goluwa/render3d/scene/tessellation.lua` owns it; it is a gbuffer extra with its own pipeline variant set (`gbuffer_tessellated`, registered in `passes/gbuffer.lua`).
+A material with a height map and `HeightTessellate` (or every height mapped material with `r_tessellation_all`) is drawn as real displaced geometry instead of the parallax march. `goluwa/render3d/scene/tessellation.lua` owns it; it is a gbuffer extra with its own pipeline variant set (`gbuffer_tessellated`, registered in `passes/gbuffer.lua`). `tessellation.IsEligible` decides which entries qualify. Test: `test/tests/render3d/tessellation.lua`.
 
 ## How it is drawn
 
-- `bridge.set_raster` routes eligible rows to `tessellation.SetRow` and drops `RASTER_DRAW` for them. They keep `RASTER_SHADOW` and stay in the ray traced scene, both as the base mesh.
-- Per mesh a topology buffer is built once on the CPU (keyed by mesh: static world batches re-upload theirs when decals change): per triangle the welded position id of each corner and, per edge, the vertex indices of the triangle on the other side (its uvs); per welded position the displacement direction (area weighted face normals), the uv scale (world size of one uv unit, so `HeightScale` means what it means for parallax) and the list of vertices that share it.
-- Each frame two compute passes run in `PreDraw`: one copies world matrices from the instance tables (`draw.WORLD_FROM_GLSL`), one culls every base triangle against the frustum, gives each edge a power of two rate from its screen space error (see below) and appends the triangle to the bucket of its largest rate. `Draw` is one `DrawIndirect` of the buckets; the vertex stage builds the lattice point from `gl_VertexIndex` and pulls everything from the mesh's own buffers. It outputs what the multi draw stage does; the fragment shader is the plain one with the parallax march removed and shades with the base normal plus the height derived normal.
+- `bridge.set_raster` routes eligible rows to `tessellation.SetRow` and drops their `RASTER_DRAW`. They keep `RASTER_SHADOW` and stay in the ray traced scene as the base mesh.
+- Per mesh a topology buffer is built once on the cpu: welded position ids per corner, edge neighbours, per welded position a displacement direction (area weighted face normals) and a uv scale (world size of one uv unit, so `HeightScale` means the same as for parallax).
+- Each frame `PreDraw` runs compute passes that copy world matrices, cull base triangles against the frustum, give each edge a power of two rate and append triangles to buckets by their largest rate. `Draw` is one indirect draw per bucket; the vertex stage builds lattice points from `gl_VertexIndex` and pulls everything from the mesh's own buffers. The fragment stage is the plain one without the parallax march. With the visibility buffer on, tessellation draws ids and small patches can be rasterized in compute ([render3d-pipeline.md](render3d-pipeline.md)).
 
 ## Edge rates
 
-- The rate is error driven and `r_cluster_lod_error` (`r_cluster_lod_rt_error` for the traced build) is the only knob, shared with cluster LOD. An edge whose relief (`height_scale` times the uv scale, or `TerrainShell`) projects to no more than the error stays uncut, so relief that cannot move a pixel costs nothing. Otherwise relief amplitude is assumed to shrink with the square root of its wavelength (rough natural surfaces; a linear falloff flattened close up relief visibly): a cut every `uv_size * (error / relief_pixels)^2` (one uv repeat of the height map, for terrain the layer with the largest relief) keeps the error under the threshold. Cuts never go below one height texel or below `error` pixels on screen, and at most 64 (8 traced) per edge.
-- `tess_edge_rate` holds the formula for both passes; its inputs come from the job (`uv_size`, `texel`) and the welded position's scale, taken symmetrically over the edge's endpoints so both triangles agree.
+- Rates are error driven and `r_cluster_lod_error` (`r_cluster_lod_rt_error` for the traced build) is the only knob, shared with [cluster-lod.md](cluster-lod.md). An edge whose relief projects to less than the error stays uncut; otherwise the cut spacing comes from a model of how relief amplitude falls with wavelength, bounded by the height texel size and the pixel error. `tess_edge_rate` holds the formula for both raster and ray tracing.
+- The rate is capped per edge (`tessellation.MAX_LOG`), so coarse base meshes stay coarse up close.
 
 ## Terrain
 
-- Terrain tiles with a shell (`TerrainShell`, the finest `ShellLevels`) are always tessellated when the path is available (`r_tessellation` and the `multiDrawIndirect` and `drawIndirectFirstInstance` device features, which the bucket draws need); coarser levels keep their flat path. Their vertices are written on the gpu (see terrain-streaming.md), so the topology comes from the tile template (`polygon3d.TopologySource`, the template's vertices with the skirts lowered so they weld like a real tile's) and is shared by every tile of it: on a tile grid only the heights differ, and the weld and the neighbours do not depend on them. The shell's base copy (every corner `|tangent.w| > 1.5`) is skipped and skirt bottoms are not displaced, so skirts hang from the displaced edge.
-- The relief is `terrain_shell_relief` at the base world point along the coarse terrain normal, the same function the shell march uses (`model_pipeline.TERRAIN_RELIEF_GLSL`, shared by the fragment shader and the vertex stage). It depends only on the world position, so vertices shared inside a tile match; tile borders are covered by the skirts.
-- Terrain jobs draw with the `TERRAIN` feature variant, the rest with the plain one.
+- Terrain tiles with a shell (`TerrainShell`, the finest `ShellLevels`) are always tessellated when the path is available (`r_tessellation` and the `multiDrawIndirect` and `drawIndirectFirstInstance` device features). Their vertices are written on the gpu ([terrain-streaming.md](terrain-streaming.md)), so the topology comes from the tile template (`polygon3d.TopologySource`) and is shared by every tile; only heights differ on a tile grid. The shell's base copy is skipped and skirt bottoms are not displaced, so skirts hang from the displaced edge.
+- The relief is `terrain_shell_relief`, shared with the shell march (`model_pipeline.TERRAIN_RELIEF_GLSL`). It depends only on world position, so shared vertices match.
 
 ## Rules that keep it watertight
 
-- An edge's rate is computed from its endpoints in welded id order, so both triangles get the same rate; vertices on an edge are snapped to that rate.
-- Edge points are evaluated in welded id order (positions, directions, scales, uvs), so both sides produce the same bits.
-- On a uv seam an edge point averages the height sampled on both sides' uvs (each side with its own lod from its uv length and the edge rate); a corner averages every uv of its welded position. Interior heights blend toward the seam average within `r_tessellation_seam_band`, so there is no wall along the seam.
+- An edge's rate and its points are computed from its endpoints in welded id order, so both triangles produce the same rate and the same bits; vertices on an edge snap to that rate.
+- On a uv seam an edge point averages the heights sampled on both sides' uvs, a corner averages every uv of its welded position, and interior heights blend toward the seam average within `r_tessellation_seam_band`.
 - Displacement runs along the welded direction, never the vertex normal, so hard edges do not open.
 
 ## Ray tracing
 
-- With `VK_NV_cluster_acceleration_structure` (`r_tessellation_rt`), tessellated models within `r_tessellation_rt_distance` of the camera are traced with their relief. Each frame `tessellation_rt_select` gives every base triangle distance based edge rates (`r_cluster_lod_rt_error`, at most 8 per edge, so a patch is one cluster of at most 64 triangles and 45 vertices), `tessellation_rt_vertices` evaluates the lattice with the same `tess_evaluate` the raster vertex stage uses and writes core and extras vertices and global indices, one cluster acceleration structure per patch is built against a static index template per rate, and one BLAS per model from its patches. Budgets are fixed (32768 patches a frame); models that do not fit keep their base mesh.
-- Cluster ids of tessellated patches have the top bit set; `scene_hit_row` routes those hits to mesh row 0 (`meshes.TESSELLATION_ROW`), which describes the per frame vertex and index buffers.
-- Shadow maps still draw the base mesh.
-- The ray traced build (`tessellation.BuildRT`, from `instances.Build`) runs before the raster draw in a frame, so it refreshes the shared batch table itself: a job list that grew since the last draw would otherwise read batch records past the end (null vertex and extras addresses, device lost while terrain tiles stream in).
+- With `VK_NV_cluster_acceleration_structure` (`r_tessellation_rt`), tessellated models within `r_tessellation_rt_distance` are traced with their relief: `tessellation_rt_select` picks distance based rates (a lower cap than raster, so a patch fits one cluster), `tessellation_rt_vertices` evaluates the lattice with the same `tess_evaluate` the raster uses, and one cluster acceleration structure per patch builds one BLAS per model. The patch budget is fixed; models that do not fit keep their base mesh.
+- Cluster ids of tessellated patches have the top bit set; `scene_hit_row` routes those hits to `meshes.TESSELLATION_ROW`, which describes the per frame vertex and index buffers.
+- `tessellation.BuildRT` (from `instances.Build`) runs before the raster draw in a frame, so it refreshes the shared batch table itself; otherwise a grown job list reads batch records past the end.
 
-## Pitfalls
+## Limits
 
-- The relief rises out of the base surface (height times thickness, the midlevel is ignored). Shadow maps and rays only see the base mesh; relief sunk below it is covered by it and goes black in GI.
-- Shadow maps have no relief; rays only have it within `r_tessellation_rt_distance` and with the cluster extension.
-- Decals (`Decal`) are tessellated; their vertices are pulled toward the eye by the parallax path's decal depth bias, since the variant does not write fragment depth and zero relief would z-fight the surface below. Their height is multiplied by the albedo alpha so the relief fades out with the decal instead of leaving an invisible shelf at its dithered edge.
+- The relief rises out of the base surface (midlevel ignored). Shadow maps always see the base mesh, rays only see relief within `r_tessellation_rt_distance` with the cluster extension, so relief sunk below the base would be hidden in shadows and GI.
+- Decals are tessellated; they are biased toward the eye like parallax decals since the variant does not write fragment depth, and their height fades with albedo alpha.
 - Not tessellated: double sided, transparent and vertex animated materials, height shells, skinned polygons and LOD chains.
-- A base triangle is cut at most 64 times per edge; coarse base meshes stay coarse up close.
