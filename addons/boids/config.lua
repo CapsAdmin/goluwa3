@@ -1,1 +1,1 @@
-return {dependencies = {"game"}}
+return {dependencies = {"game", "crysis_loader"}}

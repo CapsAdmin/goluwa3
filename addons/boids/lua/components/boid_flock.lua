@@ -7,6 +7,8 @@ local Entity = import("goluwa/entities/entity.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Health = import("lua/components/health.lua")
+local sounds = import("lua/sounds.lua")
+local fmod_events = import("lua/crysis_loader/fmod_events.lua")
 local boids = import("lua/boids.lua")
 local META = objects.CreateTemplate("boid_flock")
 META:StartStorable()
@@ -39,6 +41,9 @@ local DROP_HEIGHT = 1.5
 local MIN_GROUND_NORMAL_Y = 0.6
 local SPAWN_HEIGHT = 5
 local SPAWN_RETRY = 1
+local IDLE_SOUND_RATE = 0.12
+local SCARED_IDLE_SOUND_RATE = 0.24
+local SCARED_SOUND_RATE = 0.23
 local UP = Vec3(0, 1, 0)
 local DOWN = Vec3(0, -1, 0)
 local GROUND_OPTIONS = {IgnoreRigidBodies = false}
@@ -86,6 +91,20 @@ end
 function META.ScareAll(position, radius)
 	for _, flock in ipairs(META.Instances) do
 		flock:Scare(position, radius)
+	end
+end
+
+function META:PlaySound(boid, role)
+	local definition = self:GetDefinition()
+	local event = fmod_events.Get(definition.Sounds[role])
+
+	if event then
+		sounds.PlayRandom(
+			event.Paths,
+			Vec3(boid.x, boid.y + definition.Center.y, boid.z),
+			sounds.SPLToVolume(definition.SoundLevel) * event.Volume,
+			fmod_events.GetPitch(event)
+		)
 	end
 end
 
@@ -210,11 +229,17 @@ function META:CollectThreats()
 end
 
 function META:OnUpdate(dt)
+	local definition = self:GetDefinition()
+
 	if self.dirty then
 		self.dirty = false
 		self:RemoveBoids()
 		self.spawned = 0
 		self.next_spawn = 0
+
+		for _, name in pairs(definition.Sounds or {}) do
+			fmod_events.Get(name)
+		end
 	end
 
 	if self.spawned < self.Count and system.GetElapsedTime() >= self.next_spawn then
@@ -223,7 +248,6 @@ function META:OnUpdate(dt)
 
 	if dt <= 0 then return end
 
-	local definition = self:GetDefinition()
 	self:CollectThreats()
 	self.scare_ratio = self.scare_ratio * SCARE_DECAY ^ dt
 
@@ -336,6 +360,22 @@ function META:UpdateBoid(boid, definition, origin, dt, smooth)
 		end
 	elseif scared and boid.idle then
 		start_walking(boid, definition)
+	end
+
+	if definition.Sounds then
+		if scared and not boid.scared and definition.FreezeWhenScared then
+			self:PlaySound(boid, "Scared")
+		elseif
+			scared and
+			not definition.FreezeWhenScared and
+			math.random() < dt * SCARED_SOUND_RATE
+		then
+			self:PlaySound(boid, "Scared")
+		end
+
+		if math.random() < dt * (scared and SCARED_IDLE_SOUND_RATE or IDLE_SOUND_RATE) then
+			self:PlaySound(boid, "Idle")
+		end
 	end
 
 	boid.scared = scared

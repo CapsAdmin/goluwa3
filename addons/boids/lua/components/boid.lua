@@ -14,6 +14,9 @@ end
 function META:OnDeath(info)
 	local entity = self.Owner
 	self.dead = true
+
+	if self.flock:GetDefinition().Sounds then self.flock:PlaySound(self, "Die") end
+
 	entity.animator:SetPlaying(false)
 	local body = entity.rigid_body
 	body:SetMotionType("dynamic")

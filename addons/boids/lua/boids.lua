@@ -26,6 +26,12 @@ boids.Register(
 	{
 		Model = "Objects/Characters/animals/Birds/chicken/chicken.chr",
 		CryClass = "Chickens",
+		Sounds = {
+			Idle = "Sounds/environment:random_oneshots_natural:chicken_cluck",
+			Scared = "Sounds/environment:random_oneshots_natural:chicken_run",
+			Die = "Sounds/environment:random_oneshots_natural:chicken_dies",
+		},
+		SoundLevel = 80,
 		ClipSpeed = 0.37,
 		MinSpeed = 0.8,
 		MaxSpeed = 2.5,
@@ -39,6 +45,12 @@ boids.Register(
 	{
 		Model = "Objects/Characters/animals/turtle/turtle.chr",
 		CryClass = "Turtles",
+		Sounds = {
+			Idle = "Sounds/environment:random_oneshots_natural:turtle_idle",
+			Scared = "Sounds/environment:random_oneshots_natural:turtle_scared",
+			Die = "Sounds/environment:random_oneshots_natural:turtle_scared",
+		},
+		SoundLevel = 70,
 		ClipSpeed = 0.055,
 		MinSpeed = 0.1,
 		MaxSpeed = 0.15,

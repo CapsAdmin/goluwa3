@@ -8,6 +8,7 @@ The `boids` addon (depends on `game`) spawns flocks of small ambient animals tha
 - `lua/components/boid_flock.lua`: one component per flock simulates all its animals in one update (`Kind`, `Count`, `Radius`). Animals are root level entities (transform, visual, animator, kinematic hitbox, health, `boid`), so bullets hit them.
 - `lua/components/boid.lua`: per animal state; on death the hitbox becomes a dynamic body that tumbles and is removed after `CorpseTime`.
 - Crysis levels: the loader turns entities it does not translate into `CryEntity` events (see [crysis.md](crysis.md)); a definition's `CryClass` (`Chickens`, `Turtles`) claims them, reading `Boid.nCount` and `Options.Radius` from the archetype.
+- Sounds: a definition's `Sounds` names Crysis FMOD events (`Idle`, `Scared`, `Die`) played at `SoundLevel` (dB SPL at 1 m) times the event's volume, with CryEngine's trigger rates. A flock resolves its events when it spawns, since the first lookup parses the project.
 - Tests: `luajit glw test boids/`.
 
 ## Rules
