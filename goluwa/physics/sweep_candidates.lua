@@ -428,29 +428,31 @@ end
 
 local candidate_query = {}
 
+-- the bounds test comes before the filter: it rejects nearly every overflow entry, and filters can be slow
 local function append_rigid_body_candidate(entry)
 	local body = entry.body
 	local query = candidate_query
-	local include_body = (
-			query.effective_options.IgnoreRigidBodies == false
-		)
-		or
-		should_query_body_as_world(body, query.effective_options)
+
+	if not body:IsValid() then return end
+
+	local bounds = entry.bounds
+	local position = body.Position
+
+	if entry.px ~= position.x or entry.py ~= position.y or entry.pz ~= position.z then
+		bounds = get_rigid_body_candidate_aabb(body) or bounds
+	end
 
 	if
-		include_body and
+		bounds and
+		AABB.IsBoxIntersecting(query.world_aabb, bounds) and
+		(
+			query.effective_options.IgnoreRigidBodies == false or
+			should_query_body_as_world(body, query.effective_options)
+		)
+		and
 		not should_skip_rigid_body(body, query.ignore_entity, query.filter_fn, query.options)
 	then
-		local bounds = entry.bounds
-		local position = body.Position
-
-		if entry.px ~= position.x or entry.py ~= position.y or entry.pz ~= position.z then
-			bounds = get_rigid_body_candidate_aabb(body) or bounds
-		end
-
-		if bounds and AABB.IsBoxIntersecting(query.world_aabb, bounds) then
-			query.out[#query.out + 1] = body
-		end
+		query.out[#query.out + 1] = body
 	end
 end
 

@@ -46,6 +46,8 @@ The rigid body solver lives in `goluwa/physics/` (`physics.lua` the world and it
 - Hinge and ragdoll joints take an optional spring (`joint:SetSpring(neutral, hertz, limit_hertz, damping, zone)`, `rows.SpringRow`) that stiffens near the limits so limbs land on them softly. It is not solved in the relax pass (which would damp it dead) and only sees inertia about the body centres.
 - Mesh contacts: every contact path must agree on the same rest gap (collision margin plus slop), or a body gets two resting states and rocks awake. Contacts against meshes are grouped by normal into several manifolds (`ResolvePairClusters`) and reduced to points spanning the footprint. The relax pass treats every contact as touching, so open contacts must be filtered at creation.
 
+- Rays and sweeps with `IgnoreRigidBodies = false` visit every overflow entry, while the default (world geometry only) visits just the world bodies. On big levels, use world-only traces where props don't matter.
+
 ## Impacts and contacts
 
 - `PhysicsImpact` (global event, after each step) reports collisions above `CollisionPairs.ImpactSpeed`, at most one per entity pair per step. Every path that removes approach velocity (manifolds, CCD and penetration impulses, support contacts, grounding) must record it, or that kind of hit goes silent.
