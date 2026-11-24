@@ -1,6 +1,4 @@
 local geo = import("lua/earth/geo.lua")
--- the methods of a set of web mercator tiles at one zoom (Zoom), which tile sources (overture_tiles.lua,
--- canopy_tiles.lua) inherit through META
 local map_tiles = {}
 local META = {}
 META.__index = META
@@ -14,8 +12,7 @@ local function nearest_first(a, b)
 	return a.distance < b.distance
 end
 
--- the tiles within radius meters of a world position, nearest first ({tile, distance}), made in tiles ({x, y, state =
--- "new"}) by key when not there; tiles beyond keep_radius are taken out of tiles and passed to removed
+-- returns {tile, distance} nearest first; tiles beyond keep_radius move from tiles to removed
 function META:GetTilesAround(source, x, z, tiles, radius, keep_radius, removed)
 	local zoom = self.Zoom
 	local lat, lon = source:WorldToLatLon(x, z)
@@ -53,7 +50,7 @@ function META:GetTilesAround(source, x, z, tiles, radius, keep_radius, removed)
 	return wanted
 end
 
--- the world box a tile covers: min x, min z, max x, max z, nil when it is not in front of the origin's frame
+-- nil when the tile is not in front of the origin's frame
 function META:GetWorldBox(source, tile)
 	local min_x, min_z, max_x, max_z = math.huge, math.huge, -math.huge, -math.huge
 

@@ -80,7 +80,6 @@ function inventory_menu.IsMount(place)
 	return place ~= "right" and place ~= "left"
 end
 
--- the candidates for a place: weapons that fit, then the empty hand
 function inventory_menu.GetCandidates(place)
 	local candidates = {}
 

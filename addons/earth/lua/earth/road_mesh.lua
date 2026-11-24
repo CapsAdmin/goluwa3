@@ -4,8 +4,6 @@ local geo = import("lua/earth/geo.lua")
 local road_grid = import("lua/earth/road_grid.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
--- roads as ribbons lying on the terrain, built on the thread pool: Decode turns a transportation tile into the lines of
--- its roads on the ground, Build turns the lines crossing one cell into ribbons over the terrain's own heights there
 local road_mesh = {}
 -- the marking styles, one material each: none (tinted by the class), a centre line, edge lines and a centre line,
 -- edge lines and lanes
@@ -21,13 +19,11 @@ road_mesh.STYLE = {
 	secondary = road_mesh.MAIN,
 	tertiary = road_mesh.CENTER,
 }
--- meters of road one repeat of the texture covers along it
 road_mesh.V_PERIOD = 24
 -- how far a ribbon lies above the ground, and how much higher each class above the last lies, so the larger road is on
 -- top where two meet
 road_mesh.LIFT = 0.05
 road_mesh.CLASS_LIFT = 0.004
--- the longest piece a ribbon is cut into along and across, meters
 road_mesh.PIECE = 3
 local FloatArray = ffi.typeof("float[?]")
 local RAIL = #road_grid.CLASSES
@@ -36,7 +32,6 @@ local function by_start(a, b)
 	return a[1] < b[1]
 end
 
--- the polyline between two fractions of a line's length
 local function cut(line, from, to)
 	local total = 0
 
@@ -71,8 +66,7 @@ local function cut(line, from, to)
 	return out
 end
 
--- the runs of a polyline inside [0, extent) on both axes (Liang-Barsky per segment), so a road in two tiles' buffers
--- is kept once
+-- Liang-Barsky per segment, so a road in two tiles' buffers is kept once
 local function clip(line, extent, out)
 	local run
 
@@ -115,8 +109,8 @@ local function clip(line, extent, out)
 	end
 end
 
--- input: data (the tile's mvt), x, y, zoom, anchor_lat, anchor_lon; returns meta {lines} and a blob of floats per line:
--- the class value (road_grid's, plus UNPAVED), the point count, then x, z per point in the world
+-- returns meta {lines} and a blob of floats per line: class value (road_grid's, plus UNPAVED), point count, then x, z
+-- per point in the world
 function road_mesh.Decode(input)
 	local layer = #input.data > 0 and mvt.Decode(input.data).segment
 	local anchor = geo.NewAnchor(input.anchor_lat, input.anchor_lon)
@@ -180,10 +174,9 @@ road_mesh.DECODE_JOB = [[
 	return import("lua/earth/road_mesh.lua").Decode(...)
 ]]
 
--- input: min_x, min_z, size (the cell in the world), grid_x, grid_z, grid_samples (the terrain's heights around it at a
--- meter apart, floats as a string, rows along z), lines (floats as a string, as Decode writes them, of every line near
--- the cell); returns meta {counts per style: vertices, indices} and a blob of each style's vertices then indices, in
--- style order, positions from the cell's min corner
+-- input: min_x, min_z, size, grid_x, grid_z, grid_samples (heights a meter apart, floats, rows along z), lines (as
+-- Decode writes them); returns meta {counts per style: vertices, indices} and a blob of each style's vertices then
+-- indices, in style order, positions from the cell's min corner
 function road_mesh.Build(input)
 	local heights = ffi.cast("const float *", input.heights)
 	local n = input.grid_samples
@@ -260,7 +253,6 @@ function road_mesh.Build(input)
 
 		local lift = road_mesh.LIFT + (#road_grid.CLASSES - id) * road_mesh.CLASS_LIFT
 		local columns = math.max(1, math.ceil(2 * half / road_mesh.PIECE))
-		-- the left edge at each point (miter), and the distance along the line
 		local left_x, left_z, along = {}, {}, {}
 		local distance = 0
 
@@ -324,7 +316,6 @@ function road_mesh.Build(input)
 							local t = end_ == 0 and t0 or t1
 							local cx, cz = math.lerp(t, ax, bx), math.lerp(t, az, bz)
 							local lx, lz = math.lerp(t, left_x[k], left_x[k + 1]), math.lerp(t, left_z[k], left_z[k + 1])
-							-- the right edge mirrors the left through the centre
 							local rx, rz = 2 * cx - lx, 2 * cz - lz
 							local v = math.lerp(t, along[k], along[k + 1]) / road_mesh.V_PERIOD
 
@@ -345,7 +336,6 @@ function road_mesh.Build(input)
 			end
 		end
 
-		-- round ends, so the ends of segments meeting at a junction close over it
 		for _, k in ipairs{0, count - 1} do
 			local x, z = points[k * 2], points[k * 2 + 1]
 
@@ -364,7 +354,6 @@ function road_mesh.Build(input)
 
 					for step = 0, steps do
 						local angle = math.pi * step / steps
-						-- from the left edge around the end to the right edge
 						local sx, sz = dz, -dx
 						local ox = sx * math.cos(angle) + dx * math.sin(angle)
 						local oz = sz * math.cos(angle) + dz * math.sin(angle)

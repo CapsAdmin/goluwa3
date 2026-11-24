@@ -406,8 +406,7 @@ function vtf.DecodeBuffer(input_buffer)
 	data_buffer
 end
 
--- the mean colour and alpha of a texture (0 to 1, as stored) from its smallest mip, which comes first in the image data,
--- so a prefix of the file is enough; nil for formats that are not decoded
+-- as stored, from the smallest mip, which comes first, so a prefix of the file is enough; nil for formats not decoded
 function vtf.GetMeanColor(bytes)
 	local input_buffer = Buffer.New(bytes, #bytes)
 	local header = parse_header(input_buffer)

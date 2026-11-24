@@ -8,9 +8,6 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local water = import("goluwa/render3d/water.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local TileSet = import("lua/earth/tile_set.lua")
--- the weather over the origin from Open-Meteo, hourly and followed as the weather's clock moves: temperature, rain,
--- snow, snow on the ground, wetness from the rain of the last hours, wind, haze from the aerosol optical depth (its
--- air quality model), fog from the forecast's visibility and the ocean's swell (its marine model, none inland)
 local weather_feed = {}
 weather_feed.ATTRIBUTION = "Weather: Open-Meteo.com (CC BY 4.0; ECMWF, DWD, NOAA, Copernicus CAMS)"
 local HOST_LIMIT = 2
@@ -92,7 +89,7 @@ local function fetch(name, lat, lon, callback)
 	)
 end
 
--- a series' value at a time, linear between its hours, nil without the series
+-- nil without the series
 local function sample(hourly, key, time)
 	local series = hourly and hourly[key]
 

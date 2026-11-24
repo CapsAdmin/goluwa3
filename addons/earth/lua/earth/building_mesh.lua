@@ -6,7 +6,6 @@ local planet = import("goluwa/planet.lua")
 local geo = import("lua/earth/geo.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
--- a building tile's blocks as wall and roof meshes, built on the thread pool (BuildJob)
 local building_mesh = {}
 building_mesh.FLOOR_HEIGHT = 3.2
 -- a wall's uv has a whole number of bays about this wide across and a floor per unit up, the wall's bottom at -FOOTING
@@ -103,7 +102,6 @@ local function to_linear(c)
 	return c <= 0.04045 and c / 12.92 or ((c + 0.055) / 1.055) ^ 2.4
 end
 
--- an sRGB colour weighted from a list by a hash, with a little brightness jitter, as linear rgb
 local function pick(list, id, salt)
 	local total = 0
 
@@ -130,7 +128,7 @@ local function pick(list, id, salt)
 	to_linear(chosen[4] * jitter)
 end
 
--- a mapped colour ("#rrggbb" or a name) muted toward grey, as linear rgb, nil when unknown
+-- nil when unknown
 local function parse_color(value)
 	if type(value) ~= "string" then return end
 
@@ -156,8 +154,7 @@ local function parse_color(value)
 	to_linear(math.lerp(mute, b, grey))
 end
 
--- the mean colour of a roof in the photo (its pixels inside the outline, inset, out of shadow) as linear rgb, nil when
--- too few are left; rings are flat {x, y, ...} in the photo's pixels
+-- nil when too few are left; rings are flat {x, y, ...} in the photo's pixels
 local function photo_color(photo, rings)
 	local pixels = photo.data
 	local width, height = photo.width, photo.height
@@ -217,7 +214,6 @@ local function photo_color(photo, rings)
 	to_linear(b / count / 255)
 end
 
--- walls from bottom to top (a height, or a height per ring vertex)
 local function add_walls(mesh, ring, bottom, top)
 	local n = #ring / 2
 	tint_mesh.Reserve(mesh, n * 4, n * 6)
@@ -270,7 +266,6 @@ local function add_walls(mesh, ring, bottom, top)
 	end
 end
 
--- a flat roof at top over rings, or facing down (the underside of a part off the ground)
 local function add_roof(mesh, rings, top, down)
 	local triangles = math2d.TriangulateContoursEvenOdd(rings)
 	local count = #triangles / 6
@@ -294,7 +289,6 @@ local function add_roof(mesh, rings, top, down)
 	end
 end
 
--- a roof triangle at its own heights, facing up
 local function add_roof_triangle(mesh, ax, ay, az, bx, by, bz, cx, cy, cz)
 	local ux, uy, uz = bx - ax, by - ay, bz - az
 	local vx, vy, vz = cx - ax, cy - ay, cz - az
@@ -361,7 +355,6 @@ local function section_height(section, t)
 	end
 end
 
--- the polygon (convex, flat {x, z, ...}) on the side of the line d = cut (d along ux, uz) that keep says
 local function clip(poly, ux, uz, cut, keep_below)
 	local out = {}
 	local n = #poly / 2
@@ -388,7 +381,6 @@ local function clip(poly, ux, uz, cut, keep_below)
 	return out
 end
 
--- every ring with a vertex added where it crosses one of the cuts (d along ux, uz)
 local function split_rings(rings, ux, uz, cuts)
 	local out = {}
 
@@ -424,8 +416,6 @@ local function split_rings(rings, ux, uz, cuts)
 	return out
 end
 
--- a roof of a cross section over rings (the first the outline) up to top, at most max_roof tall: the rings split where
--- the section bends and the walls' tops per vertex of them
 local function add_section_roof(mesh, rings, top, max_roof, section, properties)
 	local outline = rings[1]
 	local n = #outline / 2
@@ -529,8 +519,7 @@ local function add_section_roof(mesh, rings, top, max_roof, section, properties)
 	return split, tops
 end
 
--- a roof of rings toward the outline's centre (its holes are covered) up to top, at most max_roof tall; returns the eaves'
--- height
+-- returns the eaves' height
 local function add_ring_roof(mesh, outline, top, max_roof, rings_profile, properties)
 	local n = #outline / 2
 	local cx, cz, area = 0, 0, 0
@@ -594,7 +583,6 @@ local function add_ring_roof(mesh, outline, top, max_roof, rings_profile, proper
 	return eave
 end
 
--- the ground height under a latitude and longitude from the tile's grid of heights, bilinear
 local function sample_ground(input, heights, lat, lon)
 	local n = input.grid_size
 	local gx = math.clamp((lon - input.grid_lon0) / input.grid_dlon, 0, n - 1.001)
@@ -609,12 +597,11 @@ local function sample_ground(input, heights, lat, lon)
 	)
 end
 
--- input: path (the tile's decoded mvt), x, y, zoom, anchor_lat, anchor_lon, origin_x, origin_z (the meshes' origin in
--- the world) and a grid of ground heights over the tile (grid_size, grid_lat0, grid_lon0, grid_dlat, grid_dlon, grid:
--- floats as a string); returns the counts, the walls' and roofs' bounds and one blob with sections (byte offsets in
--- meta.sections): the walls' and roofs' vertices in the gpu layout (core and extras), their indices, every position
--- (walls then roofs) and the indices of both into them, per building its wall and roof ranges into those (vertex first,
--- count, index first, count; uint32) and per building its outline's bounds (min x, min z, max x, max z; floats)
+-- input: path, x, y, zoom, anchor_lat, anchor_lon, origin_x, origin_z, grid_size, grid_lat0, grid_lon0, grid_dlat,
+-- grid_dlon, grid (floats as a string); returns the counts, bounds and one blob with sections (byte offsets in
+-- meta.sections): walls' and roofs' vertices (core and extras), their indices, every position (walls then roofs), the
+-- indices of both into them, per building its wall and roof ranges (vertex first, count, index first, count; uint32)
+-- and per building its outline's bounds (min x, min z, max x, max z; floats)
 function building_mesh.Build(input)
 	local file = assert(io.open(input.path, "rb"))
 	local data = file:read("*a")

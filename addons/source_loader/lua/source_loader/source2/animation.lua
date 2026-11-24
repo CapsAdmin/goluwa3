@@ -136,7 +136,6 @@ local function build_channels(decode_key, bones)
 	return channels
 end
 
--- sets one decoded value of a segment on the pose, frame is relative to the frame block
 local function read_segment(segment, decoder_names, channels, pose, frame)
 	local container = segment.m_container
 	local words = ffi.cast(u16_ptr_t, container)
@@ -227,7 +226,6 @@ local function model_space(bones, locals)
 	return result
 end
 
--- source (x, y, z) in inches is engine (-y, z, -x) in meters, a proper rotation, so quaternions swap axes the same way
 local function write_engine_pose(position, rotation, out, offset)
 	out[offset], out[offset + 1], out[offset + 2] = -position[2] * SCALE, position[3] * SCALE, -position[1] * SCALE
 	out[offset + 3], out[offset + 4], out[offset + 5], out[offset + 6] = -rotation[2], rotation[3], -rotation[1], rotation[4]
@@ -266,7 +264,6 @@ function animation.ReadBones(model_data, cloth_parents)
 	return bones
 end
 
--- the bones a model's skin needs: the ones its vertices are weighted to and their ancestors, in skeleton order
 function animation.GetKeptBones(bones, used)
 	local keep = {}
 
@@ -338,7 +335,6 @@ function animation.GetBindData(bones, kept, new_index)
 	return names, parents, bind_local, inverse_bind
 end
 
--- the model's sequences that play one non delta animation: name, animation index, fps, frame count and looping
 function animation.GetClips(res)
 	local sequences = resource.ReadKV3(res, "ASEQ")
 	local animations = resource.ReadKV3(res, "ANIM").m_animArray
@@ -376,7 +372,6 @@ end
 local Decoder = {}
 Decoder.__index = Decoder
 
--- reads single frames of a model's animations as engine local poses of the kept bones
 function animation.NewDecoder(res, bones, kept)
 	local anim_data = resource.ReadKV3(res, "ANIM")
 	local decoder_names = {}
@@ -552,7 +547,7 @@ function animation.ReadCloth(model_data, fe)
 	return cloth
 end
 
--- the cloth as flat arrays for the kept bones (bone indices are engine skeleton indices, -1 for none)
+-- bone indices are engine skeleton indices, -1 for none
 function animation.PackCloth(cloth, new_index)
 	local count = cloth.count
 	local node_bone = ffi.new("int32_t[?]", count)
@@ -645,7 +640,6 @@ function animation.PackCloth(cloth, new_index)
 	}
 end
 
--- the model bone a mesh's local bone index refers to
 function animation.GetMeshBones(model_data, mesh_index)
 	local starts, remap = model_data.m_remappingTableStarts, model_data.m_remappingTable
 	local first = starts[mesh_index + 1]

@@ -101,7 +101,7 @@ local function build_atmosphere_record(data)
 		properties.GroundFogStartHeight = fog_base_height
 		properties.GroundFogEndHeight = fog_base_height + 8 * scale_height
 		properties.Climate = properties.Climate or {}
-		-- half of CryEngine's 0.01 * density: matched by eye against a Crysis screenshot of Quarry, the full value veils nearby hills
+		-- half of CryEngine's 0.01 * density; the full value veils nearby hills
 		properties.Climate.ground_fog_visibility = -math.log(0.02) / (0.005 * editor_level.fog_density)
 	end
 

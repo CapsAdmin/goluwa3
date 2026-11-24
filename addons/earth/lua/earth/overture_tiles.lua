@@ -4,15 +4,12 @@ local fs = import("goluwa/filesystem/fs.lua")
 local deflate = import("goluwa/codecs/deflate.lua")
 local Archive = import("lua/earth/pmtiles_archive.lua")
 local map_tiles = import("lua/earth/map_tiles.lua")
--- the vector tiles of one of Overture's themes (base: water, land, land use, land cover, infrastructure; buildings;
--- transportation) at one zoom, cached on disk and shared by everything that reads them
 local overture_tiles = {}
 overture_tiles.RELEASE = "2026-10-21.0"
 local META = setmetatable({}, {__index = map_tiles.META})
 META.__index = META
 local themes = {}
 
--- the tiles of a theme at a zoom, one object per theme and zoom
 function overture_tiles.Get(theme, zoom)
 	local key = theme .. ":" .. zoom
 
@@ -45,7 +42,7 @@ function META:GetPath(x, y)
 	return string.format("%s%d/%d/%d.mvt", self.directory, self.Zoom, x, y)
 end
 
--- calls done(err) once the tile's file is on disk (an empty file where the archive has no tile), at once when it is
+-- an empty file where the archive has no tile
 function META:Fetch(x, y, done)
 	local path = self:GetPath(x, y)
 

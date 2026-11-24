@@ -101,9 +101,7 @@ local DECODE_JOB = [=[
 		end
 	end
 
-	-- haze and thin cloud taken out by the dark channel prior: where even the darkest channel around a pixel is far from
-	-- black, the pixel is that much the haze's colour (air), which is taken back out; the haze's colour is fixed per source
-	-- (not estimated per tile) so neighbouring tiles agree
+	-- dark channel prior; the air colour is fixed per source, not estimated per tile, so neighbouring tiles agree
 	if dehaze then
 		local width, height = image.width, image.height
 		local n = width * height
@@ -222,7 +220,7 @@ do
 	end
 end
 
--- fetches a tile from its url: done("ok", body), done("missing") on a 404, done("error", reason)
+-- done("ok", body), done("missing") on a 404, done("error", reason)
 function TileSet.UrlFetch(set, tile, done)
 	TileSet.HostRequest(
 		set.Url(tile.z, tile.x, tile.y),
@@ -243,14 +241,9 @@ function TileSet.UrlFetch(set, tile, done)
 	)
 end
 
--- config: name (the cache folder), url(z, x, y) or fetch(set, tile, done) (see UrlFetch, done also takes "unavailable":
--- the tile exists at no zoom this deep there, it is not cached), extension, tile_size, max_zoom,
--- kind ("terrarium", "image" or "photo": an image whose blank tiles count as missing), bounds ({south, west, north,
--- east}: it has no tiles outside), min_zoom, host_limit (requests at once to its host), max_resident (decoded tiles kept in memory),
--- missing_is_sea (a tile that does not exist is open sea rather than a hole),
--- native_zoom(lat, lon) (the zoom whose pixels match the resolution of the source data there, max_zoom by default),
--- dehaze ({air (the haze's sRGB colour, 0-255), strength, floor (the least transmission), radius (texels of the dark
--- channel's minimum), blur}: haze taken out of photos as they are decoded)
+-- fetch's done also takes "unavailable": the tile exists at no zoom this deep there and is not cached. kind "photo" is an
+-- image whose blank tiles count as missing. missing_is_sea: a tile that does not exist is open sea rather than a hole.
+-- dehaze: {air (sRGB 0-255), strength, floor (the least transmission), radius (texels of the dark channel's minimum), blur}
 function TileSet.New(config)
 	local self = setmetatable({}, TileSet)
 	self.Name = config.name
@@ -294,7 +287,7 @@ function TileSet:Touch(tile)
 	tile.stamp = self.Stamp
 end
 
--- the tile if it is decoded, else nil; state is "ready", "loading", "missing" (does not exist), "unavailable" or "failed"
+-- state is "ready", "loading", "missing" (does not exist), "unavailable" or "failed"
 function TileSet:Get(z, x, y)
 	local tile = self.Tiles[tile_key(z, x, y)]
 
@@ -309,7 +302,6 @@ function TileSet:GetState(z, x, y)
 	return tile and tile.state or nil
 end
 
--- starts loading a tile (disk, else network) and returns its state
 function TileSet:Request(z, x, y)
 	local key = tile_key(z, x, y)
 	local tile = self.Tiles[key]

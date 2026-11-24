@@ -67,7 +67,7 @@ local function height_above(data, x, y, z)
 	return y - HeightmapSource.SampleHeight(data, x, z)
 end
 
--- distance along the ray to a heightmap terrain's surface, nil when it does not hit within MAX_RAY
+-- nil when it does not hit within MAX_RAY
 local function march_terrain(data, origin, direction)
 	local ox, oy, oz = origin.x, origin.y, origin.z
 	local dx, dy, dz = direction.x, direction.y, direction.z
@@ -106,7 +106,6 @@ local function is_brush_target(entity)
 	return not player or owner ~= player and not owner:ContainsParent(player)
 end
 
--- the nearest surface: any visual or any terrain
 local function cast_surface(origin, direction)
 	raycast.SetLODCamera(origin)
 	local hit = raycast.CastClosestSolid(origin, direction, MAX_RAY, is_brush_target)

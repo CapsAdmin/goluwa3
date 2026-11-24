@@ -23,7 +23,6 @@ for _, profile in ipairs{rig_profiles.ValveBiped, rig_profiles.Alyx} do
 end
 
 local NO_BONES = {}
--- a Network table is what makes the component part of the spawn packet
 META.Network = {Scale = {"number", 0.1, "reliable", to_owner = true}}
 META:GetSet("Outfit", nil)
 META:GetSet("Scale", 1)

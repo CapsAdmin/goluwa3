@@ -6,7 +6,6 @@ local mcp = import("addons/mcp/lua/mcp.lua")
 local ui_driver = import("addons/mcp/lua/ui_driver.lua")
 local ui_steps = {}
 
--- "<tool> <json arguments>" lines, # comments and blank lines skipped
 function ui_steps.Parse(text)
 	local steps = {}
 
@@ -34,8 +33,6 @@ local function first_line(result)
 	return tostring(result):match("^[^\n]*")
 end
 
--- replays a steps file through the same tools MCP calls, with the overlay showing each step, waiting delay seconds
--- between steps; stops at the first step that fails
 function ui_steps.Run(path, delay)
 	local steps = ui_steps.Parse(assert(fs.read_file(path), "could not read " .. path))
 

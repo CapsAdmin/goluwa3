@@ -5,8 +5,6 @@ local system = import("goluwa/system.lua")
 local TileSet = import("lua/earth/tile_set.lua")
 local Archive = import("lua/earth/pmtiles_archive.lua")
 local geo = import("lua/earth/geo.lua")
--- Mapterhorn's terrain tiles read out of its pmtiles archives with range requests, as its maintainer asks apps to:
--- planet.pmtiles holds zoom 0-12, the 6-x-y.pmtiles archives the deeper zooms where national lidar exists
 local mapterhorn = {}
 local LIST_URL = "https://download.mapterhorn.com/download_urls.json"
 local LIST_MAX_AGE = 7 * 24 * 3600
@@ -96,7 +94,7 @@ local function with_list(callback)
 	)
 end
 
--- the archive item holding a tile, or nil and "unavailable" when no archive goes this deep there
+-- nil and "unavailable" when no archive goes this deep there
 local function find_item(parsed, z, x, y)
 	if z <= parsed.planet.max_zoom then return parsed.planet end
 
@@ -127,7 +125,7 @@ local function get_archive(item)
 	return archive
 end
 
--- a TileSet fetch: tiles where Mapterhorn has no data (the open sea) are "missing", zooms deeper than its data there "unavailable"
+-- the open sea is "missing", zooms deeper than the data there "unavailable"
 function mapterhorn.Fetch(set, tile, done)
 	with_list(function(parsed)
 		if not parsed then return done("error", "no mapterhorn archive list") end
@@ -140,7 +138,7 @@ function mapterhorn.Fetch(set, tile, done)
 	end)
 end
 
--- the deepest zoom of the data at a latitude and longitude (the national lidar's), the planet's until the list is read
+-- the planet's zoom until the list is read
 function mapterhorn.GetNativeZoom(lat, lon)
 	if not list then return 12 end
 

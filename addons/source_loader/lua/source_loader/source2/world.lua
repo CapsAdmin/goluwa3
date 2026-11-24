@@ -168,7 +168,6 @@ local function parse_vector(value)
 	return Vec3(value[1], value[2], value[3])
 end
 
--- the map names its skybox in a skybox_reference entity, as a path under maps/ without the extension
 function world.FindSkybox(name)
 	local world_data = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/world.vwrld_c"))
 

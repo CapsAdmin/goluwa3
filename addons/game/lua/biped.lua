@@ -399,7 +399,7 @@ function biped.HasBone(rig, name)
 	return source ~= nil and rig.bone_indices[source:lower()] ~= nil
 end
 
--- the bone in the canonical frame of its biped name (what the pose code works with), not the rig's own axes
+-- in the canonical frame of its biped name, not the rig's own axes
 function biped.GetBone(rig, name, out)
 	local profile = rig_profiles.Get(rig.skeleton)
 	local matrix = rig:GetBone(profile.Bones[name], out)
@@ -410,7 +410,6 @@ function biped.GetBone(rig, name, out)
 	return matrix
 end
 
--- turns a matrix in the canonical frame of a biped bone into the rig's frame, in place
 function biped.ToRigFrame(rig, name, matrix)
 	local frame = rig_profiles.Get(rig.skeleton).Frames[name]
 

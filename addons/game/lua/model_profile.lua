@@ -54,7 +54,6 @@ local function get_limit(axis)
 	return math.clamp(range * LIMIT_SHARE, MIN_LIMIT, MAX_LIMIT)
 end
 
--- a capsule along the longest direction of the solid, in the frame of its bone
 local function fit_capsule(solid)
 	local points = {}
 	local centroid = Vec3()

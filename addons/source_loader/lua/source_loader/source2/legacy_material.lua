@@ -7,9 +7,7 @@ local f32_t = ffi.typeof("const float *")
 local u64_t = ffi.typeof("const uint64_t *")
 local i64_t = ffi.typeof("const int64_t *")
 
--- Older compiled materials keep DATA as a binary struct (MaterialResourceData_t, described by the NTRO block) instead of
--- KV3. Fields are offsets relative to themselves, arrays are an offset and a count. Textures are resource ids that the
--- RERL block maps to paths. The result has the shape of the KV3 data.
+-- fields are offsets relative to themselves, arrays are an offset and a count
 function legacy_material.Read(res)
 	local src = ffi.cast(u8_t, res.data)
 	local base = res.blocks.DATA.offset

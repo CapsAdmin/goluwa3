@@ -36,7 +36,6 @@ local function to_engine(x, y, z, pose)
 	return Vec3(-y * SCALE, z * SCALE, -x * SCALE)
 end
 
--- shapes of a part are in the space of its bone; the bind pose (3x4, row major) places them in the model
 local function get_part_pose(data, part_index)
 	local poses = data.m_bindPose
 	local pose = poses and poses[#poses == #data.m_parts and part_index or 1]

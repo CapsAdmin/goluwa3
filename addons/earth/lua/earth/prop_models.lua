@@ -3,8 +3,6 @@ local assets = import("goluwa/assets.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
--- plain models of the things the earth places (models/earth/<name>.lua): tapered boxes in vertex colours, stand-ins
--- until there are real ones
 local prop_models = {}
 local VertexType = Polygon3D.VertexType
 local Index32Array = ffi.typeof("uint32_t[?]")

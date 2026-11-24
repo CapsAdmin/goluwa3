@@ -65,7 +65,7 @@ local function take_decode(vtex_path)
 	local entry = pending[vtex_path] or start_decode(vtex_path)
 	pending[vtex_path] = nil
 	pending_count = pending_count - 1
-	-- a task wait here lets whole frames render between the conversion's gpu submits
+	-- Block, not tasks.Wait: a task wait lets whole frames render between the conversion's gpu submits
 	entry.job:Block()
 	assert(not entry.job.err, entry.job.err)
 	return assert(codec.AttachBlob(entry.job.meta, entry.job.blob))

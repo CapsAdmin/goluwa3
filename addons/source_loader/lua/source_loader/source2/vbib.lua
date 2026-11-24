@@ -101,7 +101,6 @@ local function half(h)
 	return s * (1 + m / 1024) * 2 ^ (e - 15)
 end
 
--- returns the value of an attribute of one vertex as up to 4 numbers
 function vbib.Read(buffer, field, vertex)
 	local p = buffer.data + vertex * buffer.element_size + field.offset
 	local f = field.format
@@ -167,7 +166,6 @@ local function decompress_normal(x, y)
 	return x * inv * x_sign, y * inv * y_sign, z * inv * z_sign
 end
 
--- normal x y z, tangent x y z, tangent sign (v1 compressed R8G8B8A8, or raw floats)
 function vbib.ReadNormalTangent(buffer, field, vertex)
 	local F = vbib.FORMAT
 	local p = buffer.data + vertex * buffer.element_size + field.offset

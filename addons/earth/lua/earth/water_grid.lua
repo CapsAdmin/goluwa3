@@ -1,9 +1,6 @@
 local ffi = require("ffi")
 local mvt = import("goluwa/codecs/mvt.lua")
 local geo = import("lua/earth/geo.lua")
--- the lakes, ponds and rivers of one map tile (Overture's water layer) as grids over the tile and a margin around it: the
--- signed distance to the shore (meters, negative in the water) and the level of the nearest water, which the terrain is
--- carved by (water_grid.Carve), and boxes of one level each that cover the water for water volumes
 local water_grid = {}
 water_grid.SIZE = 1024
 water_grid.MARGIN = 16
@@ -88,7 +85,7 @@ float earth_water_noise(float sd) {
 	water_grid.NOISE_FADE
 )
 
--- the water features of a decoded tile worth carving: {kind ("lake" or "river"), medium, id, rings}
+-- returns {kind ("lake" or "river"), medium, id, rings}
 function water_grid.GetFeatures(layers, texel_meters)
 	local layer = layers.water
 	local out = {}
@@ -152,7 +149,6 @@ function water_grid.GetFeatures(layers, texel_meters)
 	return out
 end
 
--- chamfer distance (in texels) to the texels where dist starts at 0, carrying their source along
 local function chamfer(dist, source, width)
 	local diagonal = math.sqrt(2)
 
@@ -236,11 +232,10 @@ local function percentile(values, p)
 	return values[math.clamp(math.floor(#values * p) + 1, 1, #values)]
 end
 
--- input: {zoom, x, y (the tile), features (water_grid.GetFeatures), dem = {pixels (float string, NO_DATA for the sea),
--- x0, y0, width, height, zoom, tile_size}, known_levels ({[feature id] = level} of lakes already levelled in other
--- tiles)}; returns meta {levels ({[feature id] = level} of the lakes), boxes ({x0, y0, x1, y1 (tile texels, end
--- exclusive), level, medium}), water (whether any texel is near water)} and a blob of the signed distance then the level
--- grids, (SIZE + 2 * MARGIN)^2 floats each
+-- input: {zoom, x, y, features, dem = {pixels (float string, NO_DATA for the sea), x0, y0, width, height, zoom,
+-- tile_size}, known_levels ({[feature id] = level})}; returns meta {levels, boxes ({x0, y0, x1, y1 (tile texels, end
+-- exclusive), level, medium}), water} and a blob of the signed distance then the level grids, (SIZE + 2 * MARGIN)^2
+-- floats each
 function water_grid.Build(input)
 	local size, margin = water_grid.SIZE, water_grid.MARGIN
 	local width = size + margin * 2
@@ -292,7 +287,6 @@ function water_grid.Build(input)
 	end
 
 	chamfer(inside, scratch, width)
-	-- a lake is one region, a river one per block of RIVER_BLOCK texels, as it falls along its course
 	local region = Int32Array(count)
 	local regions = {}
 	local region_keys = {}
@@ -516,7 +510,6 @@ function water_grid.Build(input)
 		if sd[i] < water_grid.NOISE_FADE then near_water = true end
 	end
 
-	-- boxes of one level each that flood no ground the carved terrain keeps dry
 	local boxes = {}
 
 	local function ok(i, level)
@@ -539,8 +532,6 @@ function water_grid.Build(input)
 			)
 	end
 
-	-- greedy rectangles: from each water texel not yet covered, grow a side at a time over texels of its level not yet
-	-- covered and over ground the box may reach
 	local covered = ffi.new("uint8_t[?]", count)
 	local first, last = margin, margin + size - 1
 

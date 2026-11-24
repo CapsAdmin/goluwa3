@@ -19,7 +19,6 @@ local aim_pose = import("lua/aim_pose.lua")
 local knockout_pose = import("lua/knockout_pose.lua")
 local character_scale = import("lua/character_scale.lua")
 local META = objects.CreateTemplate("ragdoll")
--- an empty Network table is what makes the component part of the spawn packet
 META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
 META:IsSet("Limp", false)
 META:StartStorable()
@@ -407,7 +406,6 @@ function META:GetPartTarget(definition)
 	return world_offset, world_rotation
 end
 
--- the pose targets of every part in the world, and how fast the pose moves
 function META:UpdateTargets(dt)
 	self:ComputePose()
 
@@ -1780,7 +1778,7 @@ function META:CheckImpact()
 	if worst > 0 then self.Owner.character_movement:Impact(worst) end
 end
 
--- turns a dynamic part towards the pose through its angular velocity only, relative to its parent as it is now
+-- through angular velocity only, relative to its parent as it is now
 function META:DrivePose(part, dt)
 	local body = part.body
 	local strength = math.max(1 - part.limp, 0)
@@ -2090,7 +2088,6 @@ function META:OnPhysicsUpdate(dt)
 	end
 end
 
--- parts a client has been told about, and which of them are limp
 function META:GetPresentParts()
 	if network.HasAuthority() then return self.parts end
 
@@ -2228,7 +2225,6 @@ do
 		frame.calibrated = true
 	end
 
-	-- puts the bones of the limp parts, and of what hangs on them, over the bones in out
 	function META:ReadBones(out)
 		if not self.frames then
 			self:ComputePose()
@@ -2326,7 +2322,6 @@ do
 		end
 	end
 
-	-- sets the rig bones of the limp parts on top of the animation and frees what hangs on them from the aim overrides
 	function META:DriveRig(rig, armature)
 		local entity_rotation = get_entity_frame(self)
 

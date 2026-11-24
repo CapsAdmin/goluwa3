@@ -15,9 +15,6 @@ local overture_tiles = import("lua/earth/overture_tiles.lua")
 local road_mesh = import("lua/earth/road_mesh.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local AABB = import("goluwa/structs/aabb.lua")
--- Overture's roads near the camera as ribbons over the terrain (road_mesh.lua), in cells whose heights are read back
--- from the terrain itself, so a ribbon lies on the ground the terrain draws; farther away the roads are the terrain's
--- painted ones (road_grid.lua)
 local roads = {}
 local ZOOM = 14
 -- road tiles are decoded out to RADIUS plus a tile, cells are built within RADIUS and kept to KEEP_RADIUS
@@ -163,7 +160,7 @@ local function create_cell_entity(cell, meta, blob)
 	return entity
 end
 
--- the lines near a cell from the decoded tiles, as Decode's floats; nil while a tile over it is not decoded
+-- nil while a tile over it is not decoded
 local function gather_lines(cell)
 	local min_x, min_z = cell.x * CELL - MARGIN, cell.z * CELL - MARGIN
 	local max_x, max_z = min_x + CELL + MARGIN * 2, min_z + CELL + MARGIN * 2
@@ -511,7 +508,6 @@ function roads.Start(source, terrain)
 	event.AddListener("TerrainInvalidated", "earth_road_mesh", on_invalidated)
 end
 
--- the lines and cells are built again around the new origin
 function roads.SetSource(source, terrain)
 	roads.Start(source, terrain)
 end
@@ -541,7 +537,6 @@ function roads.Stop()
 	roads.terrain = nil
 end
 
--- built, pending (waiting for lines, heights or building) and empty cells
 function roads.GetStats()
 	local stats = {built = 0, pending = 0, empty = 0}
 

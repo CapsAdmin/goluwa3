@@ -13,8 +13,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local TileSet = import("lua/earth/tile_set.lua")
--- the cloud cover of a weather model (Open-Meteo: low, mid and high cloud in percent, hourly) on a lat/lon grid around
--- the origin, drawn into the clouds' coverage map; the procedural clouds add the shapes
 local cloud_cover = {}
 cloud_cover.ATTRIBUTION = "Weather: Open-Meteo.com (CC BY 4.0)"
 cloud_cover.LAYERS = {
@@ -75,7 +73,7 @@ local LAYER_UPDATE_INTERVAL = 10
 local directory = vfs.GetStorageDirectory("cache") .. "earth/open_meteo/"
 local FloatArray = ffi.typeof("float[?]")
 
--- grid: lat0, lon0 (its south west point), times (unix seconds), cover[channel] = floats of [time][row][column] in 0..1
+-- cover[channel] = floats of [time][row][column] in 0..1; lat0, lon0 is the south west point
 local function parse_responses(lat0, lon0, bodies)
 	local grid = {lat0 = lat0, lon0 = lon0, cover = {}}
 	local points = {}
@@ -233,10 +231,8 @@ local function sample(grid, lat, lon, time, out)
 	return out
 end
 
--- the map is drawn on the gpu: every texel goes from the world to its latitude and longitude on the sphere under the
--- tangent plane (geo.WorldToLatLon) and reads the grid there through the b-spline, from the two hours around the time
--- blended into one plane; the params are the anchor's basis (east, north, up), its longitude, the radius, the map's
--- size, the grid's south west corner, step and side and the map's texels, then the plane's three channels
+-- params: the anchor's basis (east, north, up), its longitude, the radius, the map's size, the grid's south west corner,
+-- step and side, the map's texels, then the plane's three channels
 local PARAMS = 17
 local GROUP = 8
 local SHADER = [=[
@@ -310,8 +306,7 @@ local function get_pipeline()
 	return pipeline
 end
 
--- the params of the map at the time it is drawn for, into this frame's buffer (the ones of frames still in flight are
--- left alone)
+-- into this frame's buffer, so frames still in flight keep theirs
 local function write_params(slot, time)
 	local grid = cloud_cover.grid
 	local anchor = cloud_cover.source.Anchor
@@ -355,7 +350,6 @@ local function write_params(slot, time)
 	return buffer
 end
 
--- records the map's drawing into the frame, when a build asked for one
 local function draw_map()
 	local time = cloud_cover.draw_time
 	local cmd = time and render.GetCommandBuffer()
@@ -390,7 +384,6 @@ local function build_map()
 	cloud_cover.built_time = cloud_cover.draw_time
 end
 
--- the layers' own coverage is the cover over the camera: what the sky light, the shadow fallback and the estimates use
 local function update_layers()
 	local position = render3d.GetCamera():GetPosition()
 	local lat, lon = cloud_cover.source:WorldToLatLon(position.x, position.z)
@@ -434,7 +427,6 @@ local function update()
 	end
 end
 
--- fetches the grid around the source's anchor unless the one it has is near enough, and draws the map again
 local function refetch()
 	local lat, lon = cloud_cover.source.Anchor.lat, cloud_cover.source.Anchor.lon
 	local grid = cloud_cover.grid
@@ -476,7 +468,6 @@ function cloud_cover.Start(source)
 	event.AddListener("PreRenderPass", "earth_cloud_cover", draw_map)
 end
 
--- the origin moved: the map is drawn again in the new frame, from a new grid when the old one is too far
 function cloud_cover.SetSource(source)
 	cloud_cover.source = source
 	refetch()

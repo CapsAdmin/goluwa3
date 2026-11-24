@@ -27,7 +27,6 @@ local function normalize(path)
 	return (path:lower():gsub("\\", "/"))
 end
 
--- reads the parameters of a vmat once: textures and flags by name, and what a mesh has to provide
 function material.GetInfo(path)
 	path = normalize(path)
 
@@ -255,7 +254,7 @@ end
 local MEAN_COLOR_PREFIX = 65536
 local texture_means = {}
 
--- the linear mean colour of a vtex, which the emitters need because they cannot see the texture; nil if it cannot be decoded
+-- the emitters cannot see the texture; nil if it cannot be decoded
 local function get_mean_color(path)
 	local cached = texture_means[path]
 

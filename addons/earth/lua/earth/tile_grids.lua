@@ -4,18 +4,13 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
--- grids made from map tiles around the camera on the thread pool (Overture's: land_grid.lua, road_grid.lua; the canopy
--- map's: canopy_tiles.lua), which EarthSource bakes from as a mosaic over each chunk
 local tile_grids = {}
 local META = {}
 META.__index = META
 local UPDATE_INTERVAL = 0.25
 local MAX_MOSAIC = 256
 
--- config: Name, Tiles (a tile source: overture_tiles.Get, canopy_tiles.Get), Size (grid texels across a tile), Bytes
--- (per texel), Job (a thread pool job given {data (the tile's file), x, y, zoom} returning meta {any (whether the grid
--- has anything)} and the grid's bytes, rows from the tile's north), Radius and KeepRadius (meters around the camera tiles are made and kept within),
--- MaxBuilding (jobs at once), MaxMosaicStep (chunks so large that their mosaic would skip more texels than this get none)
+-- Job: given {data, x, y, zoom}, returns meta {any} and the grid's bytes, rows from the tile's north
 function tile_grids.New(config)
 	return setmetatable(
 		{
@@ -34,7 +29,6 @@ function tile_grids.New(config)
 	)
 end
 
--- the terrain bakes the tile's area again
 function META:Invalidate(tile)
 	local min_x, min_z, max_x, max_z = self.tiles_source:GetWorldBox(self.source, tile)
 
@@ -130,9 +124,7 @@ function META:Update()
 	end
 end
 
--- the mosaic over a chunk's height mosaic: the grids' texels, every so many so it stays small; nil while a tile under it
--- is on its way, false where none has anything or the chunk is too large. Tiles not wanted (yet, or any more, and so
--- not built) are taken as empty, and the terrain bakes them again once they are built
+-- nil while a tile under it is on its way, false where no grid has anything or the chunk is too large
 function META:PlanMosaic(heights)
 	local size = self.Size
 	local tiles = self.tiles
@@ -177,7 +169,6 @@ function META:PlanMosaic(heights)
 	}
 end
 
--- writes the planned mosaic's texels into bytes, rows of stride texels, zeros where no tile has a grid
 function META:FillMosaic(plan, pixels, stride)
 	local size = self.Size
 	local bytes = self.Bytes
@@ -218,7 +209,6 @@ function META:FillMosaic(plan, pixels, stride)
 	end
 end
 
--- source[field] is set to this while it runs
 function META:Start(source, terrain, field)
 	self:Stop()
 	self.tiles = {}
@@ -237,7 +227,6 @@ function META:Start(source, terrain, field)
 	end)
 end
 
--- the grids are in map tiles, so they stay when the origin moves
 function META:SetSource(source, terrain)
 	if self.source then self.source[self.field] = nil end
 
@@ -264,7 +253,6 @@ function META:Stop()
 	self.terrain = nil
 end
 
--- built, pending (wanted and fetching or building) and failed tiles
 function META:GetStats()
 	local stats = {built = 0, pending = 0, failed = 0}
 

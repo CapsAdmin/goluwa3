@@ -86,7 +86,7 @@ local function cross(a, b)
 	return {a[2] * b[3] - a[3] * b[2], a[3] * b[1] - a[1] * b[3], a[1] * b[2] - a[2] * b[1]}
 end
 
--- an orthonormal basis (columns, row major) whose first axis is a and whose second lies in the plane of a and b
+-- columns, row major: the first axis is a, the second lies in the plane of a and b
 local function triad(a, b)
 	local second = normalize(cross(a, b))
 	local third = cross(a, second)
@@ -141,7 +141,6 @@ local function quaternion_matrix(x, y, z, w)
 	}
 end
 
--- model space bind rotations and positions of every bone of a skeleton
 local function get_bind(skeleton)
 	local bind = skeleton.BindLocal
 	local rotations, positions = {}, {}

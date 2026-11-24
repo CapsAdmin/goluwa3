@@ -4,10 +4,7 @@ local fs = import("goluwa/filesystem/fs.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
 local TileSet = import("lua/earth/tile_set.lua")
 local map_tiles = import("lua/earth/map_tiles.lua")
--- Meta and WRI's global canopy height map (1 m, CC BY 4.0) as zoom 14 tiles of SIZE^2 texel pairs: the tallest canopy
--- in the texel and the canopy around it blurred to about the 30 m height data's scale, in meters (0 for none). The map
--- is a BigTIFF per zoom 9 tile, 65536 rows of one deflated strip each across all of it, so a zoom 14 row of tiles is read
--- at once (a band, about 10 MB) and all 32 of its tiles cached on disk
+-- zoom 14 tiles of SIZE^2 texel pairs: the tallest canopy in the texel and the canopy around it blurred, in meters
 local canopy_tiles = {}
 canopy_tiles.ATTRIBUTION = "Canopy height: Meta and World Resources Institute (CC BY 4.0)"
 canopy_tiles.SIZE = 512
@@ -62,7 +59,6 @@ local function request(url, offset, length, callback)
 	)
 end
 
--- a file's strip offsets and byte counts (BigTIFF, one row per strip), cached on disk as two u64 arrays
 local function get_strips(file, callback)
 	local path = directory .. file.key .. ".strips"
 
@@ -128,9 +124,8 @@ local function get_strips(file, callback)
 	)
 end
 
--- input: data (the band's strips), first (the first strip's offset), strips (the band's offsets then counts as u64 pairs),
--- rows, width (texels of the file), file_x, file_y, band (row of zoom 14 tiles in the file), directory; writes the band's
--- tiles to directory/<x>/<y>.bin
+-- input: data, first, strips (offsets then counts, u64), rows, width, file_x, file_y, band, directory; writes the
+-- band's tiles to directory/<x>/<y>.bin
 canopy_tiles.JOB = [=[
 	local input = ...
 	local ffi = require("ffi")
@@ -220,7 +215,6 @@ canopy_tiles.JOB = [=[
 
 	return {}
 ]=]
--- the tile grid job (tile_grids.lua): a tile's file is its grid
 canopy_tiles.GRID_JOB = [[
 	local input = ...
 	local data = input.data
@@ -239,7 +233,7 @@ function META:GetPath(x, y)
 	return string.format("%s%d/%d.bin", directory, x, y)
 end
 
--- calls done(err) once the tile's file is on disk (empty where the map has no data)
+-- the file is empty where the map has no data
 function META:Fetch(x, y, done)
 	local path = self:GetPath(x, y)
 

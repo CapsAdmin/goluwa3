@@ -30,17 +30,12 @@ local LINEAR = {
 	wrap_s = "clamp_to_edge",
 	wrap_t = "clamp_to_edge",
 }
--- texture0: the chunk's map, GRID x GRID texels of (height mosaic x, y, imagery mosaic x, y) in mosaic pixels over the
--- chunk's domain and one more row: (origin x, z, grid step, the spacing of the finest height data there),
--- (height mosaic pixel size, the height mosaic's width and height in texels: the texture is a pooled size at least that),
--- (water mosaic texels per height mosaic texel, water mosaic offset x, y, 1 when there is a water mosaic),
--- (the water mosaic's width and height in texels), (land mosaic texels per height mosaic texel, land mosaic offset x, y,
--- 1 when there is a land mosaic), (the land mosaic's width and height in texels), the same two for the road mosaic;
--- texture1: the height mosaic (meters), texture2: the imagery mosaic, texture3: the water mosaic (signed distance to the
--- shore, water level; see water_grid.lua), texture4: the land mosaic (land_grid.lua's classes over 255), texture5: the
--- road mosaic (road_grid.lua's distance and class over 255), texture6: the canopy mosaic (canopy_tiles.lua's tallest and
--- blurred canopy in meters over 255); a second extra row: (canopy mosaic texels per height mosaic texel, offset x, y, 1
--- when there is one), (its width and height in texels)
+-- texture0: GRID x GRID texels of (height mosaic x, y, imagery mosaic x, y) in mosaic pixels over the chunk's domain,
+-- then a row of: (origin x, z, grid step, finest height spacing), (height mosaic pixel size, width, height),
+-- (water mosaic texels per height texel, offset x, y, present), (water mosaic width, height), the same two for the land
+-- and the road mosaics; then a second row: the same two for the canopy mosaic.
+-- texture1: heights (meters), texture2: imagery, texture3: water (signed distance, level), texture4: land (class / 255),
+-- texture5: roads (distance and class / 255), texture6: canopy (tallest and blurred, meters / 255)
 local HEADER = noise.WORLD .. road_grid.GLSL .. [=[
 vec4 earth_info(int x, int y) {
 	return texelFetch(TEXTURE(terrain_bake.texture0), ivec2(x, y), 0);
@@ -228,10 +223,7 @@ vec2 earth_water(vec2 m) {
 // sand, rock, wetland, snow)
 const float EARTH_LAND_RELIEF[11] = float[](1.0, 1.0, 1.0, 0.7, 0.25, 0.25, 1.0, 0.6, 1.5, 0.3, 1.0);
 
-// coarse height data is a surface model, with the trees in it: it is lowered by a share of the canopy blurred to its
-// scale (not near water, whose levels come from the data as it is); then relief finer than the data: noise below the
-// data's own spacing, stronger on steep ground and by the land class, none at the sea, near water or on roads (whose ground is the data's, blending to the relief beside over a shoulder); then
-// the ground is carved under lakes and rivers
+// height data coarser than 4 m is a surface model with the trees in it (objects.lua relies on the same threshold)
 float terrain_height(vec2 p) {
 	vec2 m = earth_map(p).xy;
 	float ground = earth_mosaic_height(m);
@@ -268,10 +260,7 @@ float terrain_height(vec2 p) {
 	return earth_carve(h, water.x, water.y);
 }
 ]=]
--- the earth's eight layers: grass, forest floor, rock, crop (the four a scatter set reads, so it can grow meadows,
--- woods, scree and fields apart), then sand, snow, dirt and gravel; a land class says which, the photo says how green
--- the ground is within it, and without a class the photo's colour decides alone. Under the canopy map's trees the
--- ground is forest floor, under water the bed is dirt
+-- layers: grass, forest floor, rock, crop, then sand, snow, dirt and gravel
 local LAYERS_GLSL = [=[
 // layers 1 to 4 in a, 5 to 8 in b; veg is how green the photo is, snow how snow-like
 void earth_class_layers(int land_class, float veg, float snow, float sandy, float low, out vec4 a, out vec4 b) {
@@ -410,15 +399,7 @@ vec3 terrain_color(vec2 p, float h, vec3 n) {
 }
 ]=]
 
--- config: Anchor ({lat, lon}), Heights (a TileSet), Imagery (TileSets in the order they are tried: a chunk takes the
--- first whose bounds hold it at a zoom it serves, the next where its tiles are missing; optional), Layers (eight,
--- see LAYERS_GLSL), Bathymetry (a TileSet whose
--- heights fill the sea where Heights has none, optional: with it a missing height tile is sea and a height of exactly 0
--- is the sea's surface, as in Mapterhorn's data), BathymetryMaxZoom,
--- HeightDetailDivisor (the height data's pixels across a chunk are its detail size divided by this, at least its mesh samples);
--- source.Water may be set to an object that carves water into the chunks (PlanMosaic, FillMosaic, see water_bodies.lua),
--- source.Land, source.Roads and source.Canopy to tile grids (tile_grids.lua) of land_grid.lua, road_grid.lua and
--- canopy_tiles.lua
+-- Bathymetry: with it a missing height tile is sea and a height of exactly 0 is the sea's surface, as in Mapterhorn's data
 function EarthSource.New(config)
 	assert(not config.Layers or #config.Layers == 8, "the earth has eight layers")
 	local layer_ids = {0, 1, 2, 3, 4, 5, 6, 7}
@@ -461,7 +442,6 @@ function EarthSource:LatLonToWorld(lat, lon)
 	return geo.LatLonToWorld(self.Anchor, lat, lon)
 end
 
--- the grid of latitudes and longitudes over a chunk's domain (the chunk and a 16th of it around, where its bakes read)
 local function build_domain(self, request)
 	local margin = request.size / 16
 	local step = (request.size + margin * 2) / (GRID - 1)
@@ -488,7 +468,6 @@ local function build_domain(self, request)
 	}
 end
 
--- the mosaic of a tile set at a zoom over the domain: its pixel rectangle and the tiles under it
 local function plan_mosaic(set, domain, zoom)
 	local size = set.TileSize
 	local world = size * 2 ^ zoom
@@ -549,7 +528,6 @@ local function choose_zoom(set, domain, request, pixels)
 	return 0, plan_mosaic(set, domain, 0)
 end
 
--- "ready" when every tile of the mosaic is decoded, "loading" while any is on its way, "failed" when any will not come
 local function mosaic_state(mosaic)
 	local set = mosaic.set
 	local state = "ready"
@@ -574,7 +552,7 @@ local function mosaic_state(mosaic)
 	return state
 end
 
--- the mosaic of the finest zoom at or below the planned one whose tiles all exist, or nil while it is loading
+-- nil while it is loading
 local function resolve_mosaic(item, kind)
 	local mosaic = item[kind]
 
@@ -606,7 +584,6 @@ local function get_scratch(name, bytes)
 	return entry.data
 end
 
--- the mosaic's pixels in rows of stride pixels (at least its width), into the named scratch array if one is given
 local function compose(mosaic, bytes_per_pixel, stride, rows, scratch_name)
 	local set = mosaic.set
 	local size = set.TileSize
@@ -884,8 +861,7 @@ local function inside(domain, bounds)
 	return true
 end
 
--- plans the chunk's imagery from the first source from index on whose bounds hold it and that serves its zoom; the last
--- source is taken whatever its bounds and zooms, false when there is no source after index
+-- the last source is taken whatever its bounds and zooms; false when there is no source after index
 local function choose_imagery(self, item, index)
 	local chain = self.Imagery
 	local request = item.request
@@ -912,7 +888,6 @@ local function choose_imagery(self, item, index)
 	return false
 end
 
--- the imagery mosaic once its tiles are in: missing tiles move it down the chain, at the last source to coarser zooms
 local function resolve_imagery(self, item)
 	while item.imagery_index < #self.Imagery do
 		local state = mosaic_state(item.imagery)
@@ -927,7 +902,7 @@ local function resolve_imagery(self, item)
 	return resolve_mosaic(item, "imagery")
 end
 
--- returns true when the item was baked (or dropped)
+-- true when the item was baked (or dropped)
 local function try_resolve(self, item)
 	if item.request.cancelled then return true end
 
@@ -1047,7 +1022,6 @@ function EarthSource:GetPendingCount()
 	return batches, chunks + #self.Waiting
 end
 
--- a GRID x GRID domain over a latitude, longitude box {south, west, north, east}
 local function latlon_domain(box)
 	local lats, lons = {}, {}
 
@@ -1061,10 +1035,9 @@ local function latlon_domain(box)
 	return {lats = lats, lons = lons, center_lat = (box.south + box.north) / 2}
 end
 
--- the height data over a latitude, longitude box at a zoom, or the finest coarser one that has it: state = {south,
--- west, north, east, zoom} is kept by the caller between calls; nil while its tiles load, false when not even zoom 0
--- has them, else {pixels (float string, -32768 where there is no land data), x0, y0 (in global mercator pixels),
--- width, height, zoom, tile_size}
+-- state ({south, west, north, east, zoom}) is kept by the caller between calls; nil while its tiles load, false when
+-- not even zoom 0 has them, else {pixels (float string, NO_DATA where there is no land), x0, y0 (global mercator
+-- pixels), width, height, zoom, tile_size}
 function EarthSource:RequestHeights(state)
 	if not state.domain then
 		state.domain = latlon_domain(state)
@@ -1086,9 +1059,8 @@ function EarthSource:RequestHeights(state)
 	}
 end
 
--- a photo over a latitude, longitude box for colouring things on the ground: state = {south, west, north, east, meters
--- (the pixel size wanted)} is kept by the caller between calls; nil while its tiles load, false when no source of the
--- imagery chain has the box this sharp, else {pixels (rgba string), x0, y0 (in global mercator pixels), width, height,
+-- state ({south, west, north, east, meters}) is kept by the caller between calls; nil while its tiles load, false when
+-- no imagery source has the box this sharp, else {pixels (rgba string), x0, y0 (global mercator pixels), width, height,
 -- zoom, tile_size, meters}
 function EarthSource:RequestPhoto(state)
 	if not state.domain then
@@ -1146,7 +1118,6 @@ function EarthSource:RequestPhoto(state)
 	end
 end
 
--- the imagery sets a chunk was baked from in the last seconds
 function EarthSource:GetImageryInUse(seconds)
 	local now = system.GetElapsedTime()
 	local used = {}
@@ -1194,7 +1165,7 @@ local function sample_set(set, lat, lon)
 	end
 end
 
--- the height above sea level at a world x, z from the finest decoded tiles there, nil when none are
+-- nil when no tile there is decoded
 function EarthSource:SampleLocalHeight(x, z)
 	return self:SampleLatLonHeight(geo.WorldToLatLon(self.Anchor, x, z))
 end

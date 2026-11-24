@@ -75,7 +75,7 @@ function ui_driver.IsShown(pnl)
 	return current == Panel.World
 end
 
--- the part of a panel that is on screen (clipped by scroll viewports), nil when none of it is
+-- clipped by scroll viewports, nil when none of it is on screen
 function ui_driver.GetScreenRect(pnl)
 	local transform = pnl.transform
 
@@ -211,8 +211,6 @@ local function matches(pnl, query)
 	return true
 end
 
--- query: {id, type, name, text, exact, icon, tooltip, editable, within (a query for an ancestor), hidden}
--- shown panels only unless hidden is true, front most (drawn last) first
 function ui_driver.Find(query, root)
 	for key in pairs(query) do
 		if not QUERY_KEYS[key] then error("unknown query field " .. tostring(key), 2) end
@@ -272,7 +270,6 @@ function ui_driver.Find(query, root)
 	return results
 end
 
--- items drawn by virtual widgets (grids, tree tables) that are not panels, matched by query.item
 function ui_driver.FindItems(query)
 	local scopes = query.within and ui_driver.FindAll(query.within) or {Panel.World}
 	local wanted = query.item:lower()
@@ -307,7 +304,6 @@ function ui_driver.FindItems(query)
 	return exact
 end
 
--- the value control of a property editor row, by the row's label
 function ui_driver.FindPropertyControl(query)
 	local labels = ui_driver.Find{
 		type = "panel_text",
@@ -346,7 +342,6 @@ function ui_driver.FindAll(query)
 	return ui_driver.Find(query)
 end
 
--- a match that is scrolled out of view is scrolled into view first, like a user would
 function ui_driver.FindOne(query)
 	local found = ui_driver.FindAll(query)
 
@@ -492,7 +487,6 @@ function ui_driver.Release(button)
 	window:OnMouseInput(button, false)
 end
 
--- a cursor, click rings and a caption drawn over everything while the overlay is on, so a replay can be watched
 do
 	local event = import("goluwa/event.lua")
 	local render2d = import("goluwa/render2d/render2d.lua")
@@ -636,7 +630,6 @@ local MODIFIERS = {
 	alt = "left_alt",
 }
 
--- "ctrl+s", "escape", "shift+tab"
 function ui_driver.Key(combo)
 	local window = ui_driver.Attach()
 	local keys = combo:split("+")

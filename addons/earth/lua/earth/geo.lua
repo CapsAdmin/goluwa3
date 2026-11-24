@@ -37,7 +37,6 @@ local function wrap_degrees(a)
 	return (a + 180) % 360 - 180
 end
 
--- the latitude and longitude under a world x, z (on the sphere straight below the tangent plane, as planet.GetDrop),
 -- the longitude is unwrapped to be within 180 degrees of the anchor's
 function geo.WorldToLatLon(anchor, x, z)
 	local e, n = x / R, -z / R
@@ -50,7 +49,7 @@ function geo.WorldToLatLon(anchor, x, z)
 	return lat, anchor.lon + wrap_degrees(lon - anchor.lon)
 end
 
--- the world x, z of a latitude and longitude, nil on the far hemisphere
+-- nil on the far hemisphere
 function geo.LatLonToWorld(anchor, lat, lon)
 	local phi, lambda = rad(lat), rad(lon)
 	local cp = cos(phi)
@@ -64,7 +63,7 @@ function geo.LatLonToWorld(anchor, lat, lon)
 	return e * R, -n * R
 end
 
--- the global web mercator position at a zoom in pixels of tile_size, x is not wrapped
+-- x is not wrapped
 function geo.ToMercator(lat, lon, zoom, tile_size)
 	local world = tile_size * 2 ^ zoom
 	local phi = rad(math.clamp(lat, -geo.MAX_LATITUDE, geo.MAX_LATITUDE))
@@ -79,14 +78,12 @@ function geo.FromMercator(x, y, zoom, tile_size)
 	return lat, lon
 end
 
--- meters of ground per mercator pixel at a latitude
 function geo.GetPixelSize(lat, zoom, tile_size)
 	return 2 * pi * R * cos(rad(math.min(math.abs(lat), geo.MAX_LATITUDE))) / (
 			tile_size * 2 ^ zoom
 		)
 end
 
--- the zoom whose pixels are no larger than meters, clamped to max_zoom
 function geo.GetZoomFor(lat, meters, tile_size, max_zoom)
 	local zoom = math.ceil(
 		math.log(
@@ -98,8 +95,7 @@ function geo.GetZoomFor(lat, meters, tile_size, max_zoom)
 	return math.clamp(zoom, 0, max_zoom)
 end
 
--- the rigid transform from one anchor's world to another's (both on the same sphere): p' = M p + t,
--- with M as rows m[1..9], its quaternion and t
+-- p' = M p + t: returns M as rows m[1..9], its quaternion and t
 function geo.Relate(from, to)
 	local axes_from = {
 		{from.ex, from.ey, from.ez},

@@ -340,7 +340,7 @@ function kv3.Is(str, start)
 	return magic == 0x03564B56 or magic - magic % 256 == MAGIC_BASE
 end
 
--- the flat tables returned by Decode are plain lua tables: objects have string keys, arrays are 1 based
+-- arrays are 1 based
 function kv3.Decode(str, start, finish)
 	start = start or 0
 

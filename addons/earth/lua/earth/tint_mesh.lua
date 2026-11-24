@@ -1,7 +1,5 @@
 local ffi = require("ffi")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
--- growing vertex and index arrays in the core vertex layout with a current vertex colour, for meshes drawn with
--- VertexTint materials (buildings, the earth's objects and their models), written on the thread pool
 local tint_mesh = {}
 local VertexType = vertex_layout.ArrayType
 tint_mesh.VERTEX_SIZE = ffi.sizeof(VertexType(1))
@@ -40,7 +38,6 @@ function tint_mesh.SetColor(mesh, r, g, b)
 	mesh.color[1], mesh.color[2], mesh.color[3] = r, g, b
 end
 
--- tx, tz: the tangent's horizontal direction
 function tint_mesh.AddVertex(mesh, x, y, z, nx, ny, nz, u, v, tx, tz)
 	local vertex = mesh.vertices[mesh.count]
 	local color = mesh.color
@@ -60,7 +57,7 @@ function tint_mesh.AddTriangle(mesh, a, b, c)
 	mesh.index_count = i + 3
 end
 
--- a flat quad from four corners going round its front face (counter clockwise seen from the front), normal n
+-- corners counter clockwise seen from the front
 function tint_mesh.AddQuad(mesh, ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, nx, ny, nz)
 	tint_mesh.Reserve(mesh, 4, 6)
 	local tx, tz = bx - ax, bz - az
@@ -76,8 +73,6 @@ function tint_mesh.AddQuad(mesh, ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz,
 	tint_mesh.AddTriangle(mesh, a, d, c)
 end
 
--- a box from y0 to y1 standing on the segment from (ax, az) to (bx, bz) (its length and direction), half_width across
--- it, the bottom at its own height at each end (y0a, y0b) so it follows the ground
 function tint_mesh.AddWall(mesh, ax, y0a, az, bx, y0b, bz, height, half_width)
 	local dx, dz = bx - ax, bz - az
 	local length = math.sqrt(dx * dx + dz * dz)
@@ -143,7 +138,6 @@ function tint_mesh.AddWall(mesh, ax, y0a, az, bx, y0b, bz, height, half_width)
 	)
 end
 
--- an upright box tapering from half sizes (bx, bz) at y0 to (tx, tz) at y1 around (cx, cz), sides and top
 function tint_mesh.AddTaperedBox(mesh, cx, cz, y0, y1, bx, bz, tx, tz)
 	local slope_x, slope_z = (bx - tx) / (y1 - y0), (bz - tz) / (y1 - y0)
 	local lx, lz = 1 / math.sqrt(1 + slope_x * slope_x), 1 / math.sqrt(1 + slope_z * slope_z)

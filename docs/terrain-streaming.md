@@ -63,6 +63,9 @@ The splat texture says where a layer is allowed; per layer values in `tiles.Crea
 - Feature modules: `buildings.lua`/`building_mesh.lua`, `water_bodies.lua`/`water_grid.lua`, `land_grid.lua`, `road_grid.lua`, `canopy_tiles.lua`, `objects.lua` and friends, `cloud_cover.lua`, `weather_feed.lua`. Overture data goes through `overture_tiles.lua` and `tile_grids.lua`; meshes are built on the thread pool from heights the main thread samples. Data that arrives after a chunk baked calls `Terrain:Invalidate` on its area.
 - `earth.Recenter(lat, lon)` moves the origin: the old terrain is frozen (`Terrain:Freeze`) and drawn rigidly moved until the new one has loaded; listeners follow through the `EarthRecenter` event.
 - `png.DecodeBuffer` writes rows bottom up; jpg and webp decode top down.
+- Data sources: Mapterhorn's `planet.pmtiles` holds the coarse zooms and its `6-x-y` archives the deeper lidar zooms; pmtiles reads are pinned to the first ETag, so a replaced archive fails instead of mixing releases. The canopy height map is a BigTIFF per zoom 9 tile, read a zoom 14 row of tiles (a band) at a time. Open-Meteo counts every location as a call, so cloud and weather requests are batched.
+- The bake shapes the ground in order: coarse height data is a surface model (trees included), so it is lowered by the blurred canopy (not near water); then relief finer than the data is added as noise, stronger on steep ground and scaled by land class, none at sea, near water or on roads; last the ground is carved under lakes and rivers.
+- Ground layers: a land class picks the layers and the photo's greenness weights them within it; without a class the photo's colour decides alone. Under canopy trees the ground is forest floor, under water dirt. The first four layers (grass, forest floor, rock, crop) are the ones scatter sets read.
 
 ## Verifying
 

@@ -168,7 +168,7 @@ local function load_texture(gltf_data, texture_ref, srgb, view)
 	return texture
 end
 
--- a texture with only red and green cannot hold glTF's metallic in blue: texproc packs roughness in red, metallic in green
+-- a red/green texture cannot hold glTF metallic in blue, so two channel sources carry roughness in red, metallic in green
 local TWO_CHANNEL_METALLIC_ROUGHNESS = {component_r = "zero", component_g = "r", component_b = "g", component_a = "one"}
 local TWO_CHANNEL_FORMATS = {bc5_unorm_block = true, bc5_snorm_block = true}
 

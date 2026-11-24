@@ -12,8 +12,6 @@ local water = import("goluwa/render3d/water.lua")
 local geo = import("lua/earth/geo.lua")
 local overture_tiles = import("lua/earth/overture_tiles.lua")
 local water_grid = import("lua/earth/water_grid.lua")
--- Overture's lakes, ponds and rivers around the camera: the terrain is carved under them (EarthSource bakes the water
--- mosaic this hands it) and the nearest are filled with water volumes, boxes of one level each
 local water_bodies = {}
 water_bodies.ATTRIBUTION = "Water: Overture Maps Foundation (OpenStreetMap contributors ODbL)"
 local ZOOM = 13
@@ -30,19 +28,17 @@ local MAX_MOSAIC_STEP = 4
 local SIZE, MARGIN = water_grid.SIZE, water_grid.MARGIN
 local WIDTH = SIZE + MARGIN * 2
 local FloatArray = ffi.typeof("float[?]")
+
 local function tile_key(x, y)
 	return base:GetKey(x, y)
 end
 
--- the terrain bakes the tile's area again
 local function invalidate(tile)
 	local min_x, min_z, max_x, max_z = base:GetWorldBox(water_bodies.source, tile)
 
 	if min_x then water_bodies.terrain:Invalidate(min_x, min_z, max_x, max_z) end
 end
 
--- the world placement of a box: the center of its top (at its level, under which the planet's surface drops away),
--- its size and its turn about the vertical
 local function place_box(tile, box)
 	local source = water_bodies.source
 
@@ -85,7 +81,6 @@ local function finish_tile(tile, meta, blob)
 	if tile.water then invalidate(tile) end
 end
 
--- the job's input, nil while the ground under the tile is not loaded
 local function build_input(tile)
 	local source = water_bodies.source
 	local margin = MARGIN / SIZE
@@ -243,8 +238,7 @@ local function update()
 	update_volumes(camera)
 end
 
--- the water mosaic over a chunk's height mosaic: the water grids' texels, every so many so it stays small, nil where no
--- built tile has water near or the chunk is too large to carve
+-- nil where no built tile has water near or the chunk is too large to carve
 function water_bodies.PlanMosaic(_, heights)
 	local tiles = water_bodies.tiles
 	local per_pixel = SIZE / (heights.set.TileSize * 2 ^ (heights.zoom - ZOOM))
@@ -280,7 +274,6 @@ function water_bodies.PlanMosaic(_, heights)
 	}
 end
 
--- writes the planned mosaic's (signed distance, level) pairs into pixels, rows of stride texels
 function water_bodies.FillMosaic(_, plan, pixels, stride)
 	local tiles = water_bodies.tiles
 	local far = water_grid.FAR
@@ -339,7 +332,6 @@ function water_bodies.Start(source, terrain)
 	end)
 end
 
--- the tiles are built again around the new origin
 function water_bodies.SetSource(source, terrain)
 	water_bodies.Start(source, terrain)
 end
@@ -364,7 +356,6 @@ function water_bodies.Stop()
 	water_bodies.terrain = nil
 end
 
--- built, pending (on its way: fetching, waiting for the ground, building) and failed tiles, and the water volumes
 function water_bodies.GetStats()
 	local stats = {built = 0, pending = 0, failed = 0, boxes = 0, volumes = 0}
 

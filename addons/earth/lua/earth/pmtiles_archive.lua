@@ -2,8 +2,6 @@ local fs = import("goluwa/filesystem/fs.lua")
 local pmtiles = import("goluwa/codecs/pmtiles.lua")
 local TileSet = import("lua/earth/tile_set.lua")
 local thread_pool = import("goluwa/thread_pool.lua")
--- a remote pmtiles archive read with range requests: its header and directories are kept on disk, every read is pinned to
--- the ETag of the first one, so an archive replaced under its url fails instead of mixing releases
 local Archive = {}
 Archive.__index = Archive
 local MAX_LEAF_DEPTH = 4
@@ -66,7 +64,6 @@ function Archive:Load(head, etag)
 	self.etag = etag
 end
 
--- callback(header) once the header is read, or callback(nil, reason)
 function Archive:WithHeader(callback)
 	if self.header then return callback(self.header) end
 

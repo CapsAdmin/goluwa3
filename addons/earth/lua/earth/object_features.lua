@@ -3,8 +3,6 @@ local mvt = import("goluwa/codecs/mvt.lua")
 local planet = import("goluwa/planet.lua")
 local geo = import("lua/earth/geo.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
--- the things of one map tile that stand at a point or run along a line (Overture's infrastructure and land layers):
--- points become placed instances of a model, lines (power lines, fences, walls, hedges) meshes, built on the thread pool
 local object_features = {}
 local NO_DATA = -32768
 -- kind of instance by layer and class; a row of trees is trees every TREE_ROW_SPACING meters
@@ -43,8 +41,7 @@ local function hash(x, z)
 	return h - math.floor(h)
 end
 
--- input: x, y, zoom (the tile), anchor_lat, anchor_lon, dem (EarthSource:RequestHeights over the tile); returns
--- place(layer, tx, ty): a tile coordinate in the world, x, the ground's y there, z, nil behind the origin's frame
+-- returns place(layer, tx, ty): x, the ground's y there, z; nil behind the origin's frame
 function object_features.NewPlacer(input)
 	local anchor = geo.NewAnchor(input.anchor_lat, input.anchor_lon)
 	local dem = input.dem
@@ -77,9 +74,8 @@ function object_features.NewPlacer(input)
 	return place
 end
 
--- input: data (the tile's mvt), x, y, zoom, anchor_lat, anchor_lon, dem (EarthSource:RequestHeights over the tile);
--- returns meta {origin_x, origin_z (the line mesh's origin in the world), points ({[kind] = {x, y, z, yaw, scale (0 for
--- the kind's own range), ...}} in the world), vertices, indices} and a blob of the line mesh's vertices then indices
+-- input: data, x, y, zoom, anchor_lat, anchor_lon, dem; returns meta {origin_x, origin_z, points ({[kind] = {x, y, z,
+-- yaw, scale (0 for the kind's own range), ...}}), vertices, indices} and a blob of the line mesh's vertices then indices
 function object_features.Build(input)
 	local layers = mvt.Decode(input.data)
 	local origin_x, origin_z = geo.LatLonToWorld(
@@ -241,9 +237,7 @@ function object_features.Build(input)
 	blob
 end
 
--- the trees of a canopy tile (canopy_tiles.lua): one at each peak of the tallest canopy at least MIN_TREE meters tall,
--- scaled to its height (tree_height: the models' own); the same input with sink (how much the bake lowers the ground
--- by the blurred canopy, 0 where the height data is fine) and output as Build
+-- input as Build plus sink (how much the bake lowers the ground by the blurred canopy) and tree_height; output as Build
 object_features.MIN_TREE = 4
 
 function object_features.BuildCanopyTrees(input)

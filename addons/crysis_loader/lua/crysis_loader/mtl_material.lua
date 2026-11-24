@@ -12,7 +12,7 @@ local FOLIAGE_WIND_EMISSION = Vec3(0.3, 0.6, 0.8)
 local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local mtl_material = {}
--- CryEngine colors are gamma space values lit at about twice their value (a grey material renders at 216/128 under the sky)
+-- CryEngine colors are gamma space values lit at about twice their value
 mtl_material.GAMMA_ALBEDO_SCALE = 2
 local cry_mtl_document_cache = {}
 local cry_mtl_material_cache = {}

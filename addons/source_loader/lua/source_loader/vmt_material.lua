@@ -755,8 +755,7 @@ local SELFILLUM_ALPHA_FLOOR = 0.1
 local MEAN_COLOR_PREFIX = 65536
 local texture_means = {}
 
--- the mean colour and alpha of a vtf, which the emitters need because they cannot see the whole texture; nil if it
--- cannot be decoded
+-- the emitters cannot see the texture; nil if it cannot be decoded
 local function get_mean_color(path)
 	if not path then return nil end
 

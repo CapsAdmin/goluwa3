@@ -1,7 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local biped = import("lua/biped.lua")
 local META = objects.CreateTemplate("attachment_points")
--- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}
 META:StartStorable()
 META:GetSet("Profile", "biped")

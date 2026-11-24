@@ -4,9 +4,7 @@ local geo = import("lua/earth/geo.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
 local road_grid = import("lua/earth/road_grid.lua")
 local object_features = import("lua/earth/object_features.lua")
--- the bridges of one transportation tile (the parts of segments marked as bridges or above level 0, which the road grid
--- leaves out) as decks from one end's ground to the other's, lifted over the ground between, with railings and piers;
--- the same output as object_features.Build, built on the thread pool
+-- the same output as object_features.Build
 local bridge_features = {}
 bridge_features.CLEARANCE = 1.5
 bridge_features.DECK = 1
@@ -16,7 +14,7 @@ bridge_features.PIECE = 6
 bridge_features.DECK_COLOR = {0.16, 0.16, 0.155}
 bridge_features.CONCRETE_COLOR = {0.36, 0.35, 0.33}
 
--- the polyline between two fractions of a line's length (tile units), nil when it is shorter than a unit
+-- nil when it is shorter than a unit
 local function cut(line, from, to)
 	local total = 0
 
@@ -81,7 +79,7 @@ function bridge_features.Build(input)
 							part[middle] < layer.extent and
 							part[middle + 1] < layer.extent
 						then
-							-- samples along the bridge: x, ground, z, distance from its start
+							-- x, ground, z, distance from the start
 							local samples = {}
 							local distance = 0
 

@@ -16,8 +16,6 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local AABB = import("goluwa/structs/aabb.lua")
--- Overture's buildings (OpenStreetMap, Microsoft's and Google's machine learned footprints, Esri) as blocks: the
--- footprints of the zoom 14 tiles around the camera extruded to their height, or their floors, or a guess by class
 local buildings = {}
 buildings.ATTRIBUTION = "Buildings: Overture Maps Foundation (OpenStreetMap contributors ODbL, Microsoft, Google, Esri)"
 local ZOOM = 14
@@ -188,7 +186,6 @@ local function create_tile_entity(tile, meta, blob)
 	}
 end
 
--- a static mesh collider for one building of a built tile, a child of the tile's entity
 local function create_collider(tile, part)
 	local collision = tile.collision
 	local positions, indices, ranges = collision.positions, collision.indices, collision.ranges
@@ -223,7 +220,6 @@ local function create_collider(tile, part)
 	return entity
 end
 
--- the job's input, nil while the ground under the tile or the photo over it is not loaded
 local function build_input(tile)
 	local source = buildings.source
 	local north, west = geo.FromMercator(tile.x - GRID_MARGIN, tile.y - GRID_MARGIN, ZOOM, 1)
@@ -389,7 +385,6 @@ local function update_colliders(camera)
 		end
 	end
 
-	-- the buildings nearest to something get theirs first
 	table.sort(missing, by_distance)
 
 	for i = 1, math.min(#missing, COLLIDER_BUDGET) do
@@ -492,7 +487,6 @@ function buildings.Start(source)
 	end)
 end
 
--- the tiles are built again around the new origin
 function buildings.SetSource(source)
 	buildings.Start(source)
 end
@@ -513,7 +507,6 @@ function buildings.Stop()
 	buildings.source = nil
 end
 
--- built, pending (on its way: fetching, waiting for the ground, building) and failed tiles
 function buildings.GetStats()
 	local stats = {built = 0, pending = 0, failed = 0}
 

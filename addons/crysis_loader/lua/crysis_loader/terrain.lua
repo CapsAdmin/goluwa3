@@ -191,7 +191,7 @@ function terrain.Translate(level_data)
 	}
 end
 
--- puts the level's terrain into the terrain component of parent, returns parent when it added the component
+-- returns parent when it added the component
 function terrain.SpawnTerrain(level_data, parent)
 	local source = level_data and level_data.terrain
 

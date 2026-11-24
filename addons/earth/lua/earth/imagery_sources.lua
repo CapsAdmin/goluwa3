@@ -1,6 +1,4 @@
--- keyless national and state orthophoto services with open or permissive licences, each limited to its bounding box
--- (south, west, north, east), in the order they are tried; where one has nothing (outside its country inside the box:
--- blank tiles) the next one, and at last the worldwide Sentinel-2 mosaic, fills in. The list is BeamNG.Earth's
+-- tried in order, each limited to its box (south, west, north, east); the list is BeamNG.Earth's
 -- (server/imagery_regional.py). kind: "xyz" a tile cache ({ty} is the TMS row), "wms" a Web Mercator WMS or ArcGIS
 -- export of a tile's box ({bbox}), "wms4326" a WMS 1.3.0 in latitude and longitude ({bbox4326})
 local WMS = "SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH={size}&HEIGHT={size}&FORMAT=image/jpeg"

@@ -691,8 +691,6 @@ local Editor = react.Component(
 					}
 				end
 
-				-- a box brush standing on the surface in front of the camera, in the static world of target or the
-				-- first one in the scene; a new static world is made when there is none
 				function h.create_brush(target)
 					local world = target.static_world or static_world.Find(target)
 
@@ -732,7 +730,6 @@ local Editor = react.Component(
 					h.set_selected_target(entity)
 				end
 
-				-- subtracts the brush from the brushes it overlaps, the brush stays as it is
 				function h.carve(entity)
 					editor_history.Begin("carve with " .. entity:GetName())
 

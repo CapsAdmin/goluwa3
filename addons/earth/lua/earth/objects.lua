@@ -18,11 +18,8 @@ local canopy_tiles = import("lua/earth/canopy_tiles.lua")
 local EarthSource = import("lua/earth/source.lua")
 local prop_models = import("lua/earth/prop_models.lua")
 local tint_mesh = import("lua/earth/tint_mesh.lua")
--- the things around the camera that stand at a point or run along a line (object_features.lua) and the bridges of
--- the roads (bridge_features.lua): points are placed instances in the scatter, the rest a mesh per map tile
 local objects = {}
 objects.ATTRIBUTION = "Objects: Overture Maps Foundation (OpenStreetMap contributors ODbL)"
--- the tiles each job is run on
 local SOURCES = {
 	{
 		tiles = overture_tiles.Get("base", 13),
@@ -40,7 +37,6 @@ local SOURCES = {
 local UPDATE_INTERVAL = 0.25
 local MAX_BUILDING = 2
 local HEIGHT_MAX_ZOOM = 14
--- placed prototype settings by kind of instance
 objects.KINDS = {
 	power_tower = {max_distance = 3000},
 	power_pole = {max_distance = 600},
@@ -128,7 +124,6 @@ local function place_points(tile, points)
 	end
 end
 
--- the job's input, nil while the ground under the tile is not loaded
 local function build_input(tile)
 	local source = objects.source
 
@@ -338,7 +333,6 @@ function objects.Start(source, config)
 	end)
 end
 
--- the objects are placed again around the new origin
 function objects.SetSource(source)
 	objects.Start(source, objects.config)
 end
@@ -363,7 +357,6 @@ function objects.Stop()
 	objects.source = nil
 end
 
--- built, pending (fetching, waiting for the ground, building) and failed tiles
 function objects.GetStats()
 	local stats = {built = 0, pending = 0, failed = 0}
 

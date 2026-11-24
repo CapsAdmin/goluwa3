@@ -172,7 +172,6 @@ end
 do
 	local indices, weights = {}, {}
 
-	-- the MAX_INFLUENCES heaviest bones of a vertex, largest weight first, in indices and weights
 	local function select_influences(i1, i2, i3, i4, w1, w2, w3, w4)
 		indices[1], indices[2], indices[3], indices[4] = i1, i2, i3, i4
 		weights[1], weights[2], weights[3], weights[4] = w1, w2, w3, w4

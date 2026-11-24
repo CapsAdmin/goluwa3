@@ -95,7 +95,7 @@ for _, x in ipairs{-0.25, 0.25} do
 	end
 end
 
--- far npcs are not simulated and never fight
+-- the default budget would freeze far npcs so they never fight
 simulation_lod.MaxSimulated = 1000
 View.New{
 	Priority = 100,

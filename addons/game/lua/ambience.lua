@@ -6,7 +6,7 @@ local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local sounds = import("lua/sounds.lua")
 local ambience = {}
--- levels in dB against the reference loudness for a radiance of 1 over the whole sphere, calibrated once on open ground
+-- levels in dB against the reference loudness for a radiance of 1 over the whole sphere
 ambience.RAIN_LEVEL = -12
 ambience.RAIN_REFERENCE_RATE = 10
 ambience.WIND_LEVEL = -20

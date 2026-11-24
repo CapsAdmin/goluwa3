@@ -48,8 +48,7 @@ vtex_c.thread_job = [[
 ]]
 local decode
 
--- the mean colour of a texture (sRGB encoded, 0 to 1) from its smallest mip, which sits right after the header, so a
--- prefix of the file is enough; nil for formats that are not decoded
+-- sRGB encoded, from the smallest mip right after the header, so a prefix of the file is enough; nil when not decoded
 function vtex_c.GetMeanColor(bytes)
 	local meta, data = decode(Buffer.New(bytes, #bytes), 1)
 

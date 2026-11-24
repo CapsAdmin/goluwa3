@@ -5,7 +5,6 @@ local biped = import("lua/biped.lua")
 local eye_pose = import("lua/eye_pose.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("procedural_pose")
--- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}
 local LIMP_GRIP_ROTATION = Quat(0, 0, 0, 1):Rotate(math.pi / 2, 1, 0, 0)
 local GRIP_SIDES = {

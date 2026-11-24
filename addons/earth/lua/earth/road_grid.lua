@@ -1,9 +1,6 @@
 local ffi = require("ffi")
 local mvt = import("goluwa/codecs/mvt.lua")
 local geo = import("lua/earth/geo.lua")
--- the roads, paths and railways of one map tile (Overture's transportation segments, which have no widths: the class
--- gives one) as a grid over the tile: the distance to the nearest edge in meters (negative on it, within RANGE) and that
--- road's class; bridges, tunnels and anything above or below the ground are left out
 local road_grid = {}
 road_grid.ATTRIBUTION = "Roads: Overture Maps Foundation (OpenStreetMap contributors ODbL)"
 road_grid.SIZE = 1024
@@ -78,7 +75,7 @@ const vec3 EARTH_ROAD_UNPAVED = vec3(%f, %f, %f);
 	)
 end
 
--- a segment's class id, nil for what is not drawn
+-- nil for what is not drawn
 function road_grid.Classify(p)
 	if p.subtype == "rail" then return RAIL_CLASSES[p.class] and CLASS.rail end
 
@@ -94,9 +91,7 @@ local function add_range(ranges, rule, raised)
 	ranges[#ranges + 1] = {tonumber(a) or 0, tonumber(b) or 1, raised = raised}
 end
 
--- the parts along a segment (fractions of its length, {from, to, raised}) that are not on the ground: bridges and levels
--- above 0 (raised), tunnels and levels below, from Overture's rules ([{values or value, between}], a rule without between
--- holds for the whole segment)
+-- returns {from, to, raised} as fractions of the segment's length; a rule without between holds for the whole segment
 function road_grid.GetOffGround(p)
 	local ranges = {}
 
@@ -119,7 +114,6 @@ function road_grid.GetOffGround(p)
 	return ranges
 end
 
--- whether a segment's surface is unpaved, from its data or else its class
 function road_grid.IsUnpaved(p, id)
 	local surface = p.road_surface and p.road_surface:match("\"value\":\"([%w_]+)\"")
 
@@ -128,9 +122,8 @@ function road_grid.IsUnpaved(p, id)
 	return road_grid.CLASSES[id][6] == true
 end
 
--- layers: a decoded tile (mvt.Decode), x, y, zoom: the tile; returns meta {any (whether any road is on it)} and a blob
--- of SIZE^2 texel pairs (distance from -RANGE to RANGE over 0 to 255, class id plus UNPAVED for unpaved surfaces), rows
--- from the tile's north
+-- returns meta {any} and SIZE^2 texel pairs (distance -RANGE..RANGE over 0..255, class id plus UNPAVED), rows from
+-- the tile's north
 function road_grid.Build(layers, x, y, zoom)
 	local size = road_grid.SIZE
 	local range = road_grid.RANGE

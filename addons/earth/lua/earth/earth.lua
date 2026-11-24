@@ -218,18 +218,6 @@ local function update()
 	end
 end
 
--- config: lat, lon (the world origin, the weather's location when not given; the weather's location follows the origin),
--- Layers, Terrain (any Terrain config), Clouds (cloud layers whose cover comes from a weather model, see cloud_cover.lua),
--- Buildings (blocks extruded from Overture's footprints around the camera, see buildings.lua),
--- Water (Overture's lakes, ponds and rivers carved into the terrain and filled with water volumes, see water_bodies.lua),
--- Land (what the ground is from Overture's land cover, land use and land, picking the layers and the fine relief, see
--- land_grid.lua), Roads (Overture's roads, paths and railways flattened into and painted on the terrain, see road_grid.lua),
--- RoadMesh (the roads near the camera as textured ribbons lying on that terrain, see roads.lua),
--- Weather (rain, snow, wetness, wind, temperature, haze, fog and the ocean's swell over the origin from Open-Meteo, see
--- weather_feed.lua), Canopy (Meta's canopy height map lowers the coarse height data under trees and puts forest floor
--- under them, see canopy_tiles.lua), Objects (power lines and towers, lamps, signals, mapped trees, fences and walls
--- around the camera: {Trees = model paths, Canopy (trees at the canopy map's peaks too), TreeHeight}, see objects.lua),
--- RecenterDistance (meters from the origin the camera may go before the origin moves under it, nil never moves it)
 function earth.Start(config)
 	earth.Stop()
 	earth.config = config

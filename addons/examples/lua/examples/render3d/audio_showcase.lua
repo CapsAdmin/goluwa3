@@ -159,7 +159,6 @@ local function lowpass(samples, frames, frequency)
 end
 
 do
-	-- the track: two straights joined by half circles, the car runs it with a speed and gear model
 	local ORIGIN = Vec3(0, 0, 0)
 	local STRAIGHT = 700
 	local RADIUS = 120
@@ -346,7 +345,6 @@ do
 end
 
 do
-	-- a narrow canyon: one cliff close behind, the other far in front
 	local ORIGIN = Vec3(3000, 0, 0)
 	local NEAR = 15
 	local FAR = 170
@@ -408,7 +406,6 @@ do
 end
 
 do
-	-- a jet passing low over open ground: you see it before you hear it, and far away it is dull
 	local ORIGIN = Vec3(-3000, 0, 0)
 	local ALTITUDE = 120
 	local SPEED = 170
@@ -442,7 +439,6 @@ do
 			low_b = low_b + (low_a - low_b) * roar_k
 			until_swell = until_swell - 1
 
-			-- turbulence: the roar drifts in level a few times a second
 			if until_swell <= 0 then
 				seed = (seed * 16807) % 2147483647
 				swell_target = 0.75 + 0.5 * seed / 2147483647
@@ -523,7 +519,6 @@ do
 end
 
 do
-	-- a free standing wall in a field: walk around it and hear the sound bend around the edges
 	local ORIGIN = Vec3(0, 0, 3000)
 	local frames = SAMPLE_RATE * 2
 	local radio = ffi.new("float[?]", frames)
@@ -581,7 +576,6 @@ do
 end
 
 do
-	-- a wooden shelter with a metal roof in the rain: the rain moves to the door and drums through the roof
 	local ORIGIN = Vec3(0, 0, -3000)
 	local W, H, D = 4, 2.6, 5
 	box("shelter ground", ORIGIN + Vec3(0, -0.5, 0), Vec3(200, 1, 200), MATERIALS.grass)
@@ -614,7 +608,6 @@ do
 	)
 	local climate = import("goluwa/render3d/climate.lua")
 	local ambience = import("lua/ambience.lua")
-	-- rain: thousands of drop impacts a second, each a short click or a ringing bubble, over a hiss of the distant ones
 	local RAIN_SECONDS = 4
 	local rain_frames = SAMPLE_RATE * RAIN_SECONDS
 	local rain = looping_noise(rain_frames, 41)
@@ -700,7 +693,6 @@ do
 end
 
 do
-	-- a city grid: an ambulance circles the four middle blocks while you stand at the crossing between them
 	local ORIGIN = Vec3(3000, 0, 3000)
 	local BLOCK = 40
 	local STREET = 14
@@ -750,7 +742,6 @@ do
 		end
 	end
 
-	-- the street ring between the middle four blocks and the outer ones
 	local corners = {
 		ORIGIN + Vec3(-PITCH, 1.3, -PITCH),
 		ORIGIN + Vec3(PITCH, 1.3, -PITCH),
