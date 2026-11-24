@@ -20,7 +20,14 @@ local contrast = pvars.Setup2{
 	default = 0,
 	min = -100,
 	max = 100,
-	help = "an S curve around mid grey, black and white stay, below 0 it flattens",
+	help = "an S curve around the pivot, black and white stay, below 0 it flattens",
+}
+local contrast_pivot = pvars.Setup2{
+	key = "r_grade_contrast_pivot",
+	default = 0.5,
+	min = 0.01,
+	max = 0.99,
+	help = "the display value contrast turns around, it stays where it is. 0.5 is about 21% grey, lower keeps the shadows and spreads the highlights, higher the other way",
 }
 local saturation = pvars.Setup2{
 	key = "r_grade_saturation",
@@ -110,6 +117,7 @@ grade.block = {
 	{"grade_on", "int"},
 	{"grade_brightness", "float"},
 	{"grade_contrast", "float"},
+	{"grade_contrast_pivot", "float"},
 	{"grade_saturation", "float"},
 	{"grade_warmth", "float"},
 	{"grade_lift_r", "float"},
@@ -254,6 +262,7 @@ function grade.WriteBlock(block)
 	update_lut()
 	block.grade_brightness = brightness:Get() / 100
 	block.grade_contrast = contrast:Get() / 100
+	block.grade_contrast_pivot = contrast_pivot:Get()
 	block.grade_saturation = saturation:Get() / 100
 	block.grade_warmth = warmth:Get() / 100
 	block.grade_lift_r = lift_r:Get()
@@ -406,9 +415,11 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d)
 
 			if (BLOCK.grade_contrast != 0.0) {
 				float p = exp2(0.75 * BLOCK.grade_contrast);
-				vec3 a = pow(x, vec3(p));
-				vec3 b = pow(1.0 - x, vec3(p));
-				x = a / (a + b);
+				float to_pivot = -1.0 / log2(BLOCK.grade_contrast_pivot);
+				vec3 t = pow(max(x, vec3(0.0)), vec3(to_pivot));
+				vec3 a = pow(t, vec3(p));
+				vec3 b = pow(1.0 - t, vec3(p));
+				x = pow(a / (a + b), vec3(1.0 / to_pivot));
 			}
 
 			float saturation = max(1.0 + BLOCK.grade_saturation, 0.0);
@@ -453,6 +464,7 @@ end
 local fields = {
 	{key = "r_grade_brightness"},
 	{key = "r_grade_contrast"},
+	{key = "r_grade_contrast_pivot"},
 	{key = "r_grade_saturation"},
 	{key = "r_grade_warmth"},
 	{key = "r_grade_lift_r"},

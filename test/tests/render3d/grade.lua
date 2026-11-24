@@ -49,10 +49,12 @@ local function reference(c, p)
 
 	if contrast ~= 0 then
 		local power = 2 ^ (0.75 * contrast)
+		local to_pivot = -1 / math.log(p.pivot or 0.5, 2)
 
 		for i = 1, 3 do
-			local a, b = x[i] ^ power, (1 - x[i]) ^ power
-			x[i] = a / (a + b)
+			local t = math.max(x[i], 0) ^ to_pivot
+			local a, b = t ^ power, (1 - t) ^ power
+			x[i] = (a / (a + b)) ^ (1 / to_pivot)
 		end
 	end
 
@@ -84,6 +86,8 @@ local function set(p)
 	} do
 		if p[name] then pvars.SetSession("r_grade_" .. name, p[name]) end
 	end
+
+	if p.pivot then pvars.SetSession("r_grade_contrast_pivot", p.pivot) end
 
 	for i, channel in ipairs{"r", "g", "b"} do
 		if p.lift then pvars.SetSession("r_grade_lift_" .. channel, p.lift[i]) end
@@ -163,17 +167,22 @@ end)
 T.Test("Graphics render3d grade tone sliders keep black and white and never reverse the tones", function()
 	local values = {-100, -50, 0, 50, 100}
 
+	local function check(p)
+		T(reference({0, 0, 0}, p)[1])["~"](0, 1e-6)
+		T(reference({1, 1, 1}, p)[1])["~"](1, 1e-6)
+		local previous = -1
+
+		for i = 0, 100 do
+			local v = reference({i / 100, i / 100, i / 100}, p)[1]
+			T(v >= previous - 1e-9)["=="](true)
+			previous = v
+		end
+	end
+
 	for _, brightness in ipairs(values) do
 		for _, contrast in ipairs(values) do
-			local p = {brightness = brightness, contrast = contrast}
-			T(reference({0, 0, 0}, p)[1])["~"](0, 1e-6)
-			T(reference({1, 1, 1}, p)[1])["~"](1, 1e-6)
-			local previous = -1
-
-			for i = 0, 100 do
-				local v = reference({i / 100, i / 100, i / 100}, p)[1]
-				T(v >= previous - 1e-9)["=="](true)
-				previous = v
+			for _, pivot in ipairs{0.2, 0.5, 0.8} do
+				check{brightness = brightness, contrast = contrast, pivot = pivot}
 			end
 		end
 	end
@@ -262,6 +271,8 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 			{warmth = 100},
 			{warmth = -60},
 			{lift = {0.1, 0, -0.05}, gain = {1.2, 0.8, 1}},
+			{contrast = 50, pivot = 0.3},
+			{contrast = -40, pivot = 0.75, brightness = 20},
 			{
 				brightness = 20,
 				contrast = 30,
