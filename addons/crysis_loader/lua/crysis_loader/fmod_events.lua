@@ -14,7 +14,7 @@ local NUMBER_FIELDS = {
 function fmod_events.ParseProject(xml)
 	local sounddefs, events = {}, {}
 	local stack, groups = {}, {}
-	local sounddef, waveform, event
+	local sounddef, waveform, event, layer, sound, envelope
 
 	for close, tag, text in xml:gmatch("<(/?)([%w_]+)>([^<]*)") do
 		if close == "" then
@@ -29,21 +29,37 @@ function fmod_events.ParseProject(xml)
 			elseif tag == "eventgroup" then
 				groups[#groups + 1] = ""
 			elseif tag == "event" then
-				event = {sounds = {}}
+				event = {layers = {}}
+			elseif tag == "layer" and event then
+				layer = {sounds = {}, envelopes = {}}
+				event.layers[#event.layers + 1] = layer
+			elseif tag == "sound" and layer then
+				sound = {}
+				layer.sounds[#layer.sounds + 1] = sound
+			elseif tag == "envelope" and layer then
+				envelope = {points = {}}
+				layer.envelopes[#layer.envelopes + 1] = envelope
 			elseif tag == "name" and parent == "sounddef" and sounddef then
 				sounddef.name = text
 			elseif tag == "name" and parent == "eventgroup" then
 				groups[#groups] = text
 			elseif tag == "name" and parent == "event" and event then
 				event.name = text
-			elseif tag == "name" and parent == "sound" and event then
-				event.sounds[#event.sounds + 1] = text
+			elseif parent == "sound" and sound then
+				sound[tag] = text
+			elseif parent == "envelope" and envelope then
+				if tag == "point" then
+					local x, y = text:match("^([^,]+),([^,]+)")
+					envelope.points[#envelope.points + 1] = {tonumber(x), tonumber(y)}
+				else
+					envelope[tag] = text
+				end
+			elseif tag == "controlparameter" and parent == "layer" and layer then
+				layer.control = text
 			elseif parent == "waveform" and waveform then
 				waveform[tag] = text
 			elseif parent == "event" and event and NUMBER_FIELDS[tag] then
 				event[tag] = tonumber(text)
-			elseif parent == "sounddef" and sounddef and tag == "volume_db" then
-				sounddef.volume_db = tonumber(text)
 			end
 		else
 			stack[#stack] = nil
@@ -53,6 +69,12 @@ function fmod_events.ParseProject(xml)
 				sounddef = nil
 			elseif tag == "waveform" then
 				waveform = nil
+			elseif tag == "sound" then
+				sound = nil
+			elseif tag == "envelope" then
+				envelope = nil
+			elseif tag == "layer" then
+				layer = nil
 			elseif tag == "event" and event then
 				events[(table.concat(groups, ":") .. ":" .. event.name):lower()] = event
 				event = nil
@@ -133,17 +155,43 @@ do
 		end
 
 		local paths = {}
-		local volume_db = event.volume_db or 0
+		local layers = {}
 
-		for _, sound_name in ipairs(event.sounds) do
-			local sounddef = project.sounddefs[sound_name]
+		for _, layer in ipairs(event.layers) do
+			local sounds, envelopes = {}, {}
 
-			for _, waveform in ipairs(sounddef and sounddef.waveforms or {}) do
-				local bank = get_bank(project_dir, waveform.soundbankname)
-				local path = bank and vfs.FindMixedCasePath(bank .. "/" .. bank_entry_name(waveform.filename))
+			for _, sound in ipairs(layer.sounds) do
+				local sounddef = project.sounddefs[sound.name]
+				local sound_paths = {}
 
-				if path then paths[#paths + 1] = path end
+				for _, waveform in ipairs(sounddef and sounddef.waveforms or {}) do
+					local bank = get_bank(project_dir, waveform.soundbankname)
+					local path = bank and vfs.FindMixedCasePath(bank .. "/" .. bank_entry_name(waveform.filename))
+
+					if path then
+						sound_paths[#sound_paths + 1] = path
+						paths[#paths + 1] = path
+					end
+				end
+
+				if sound_paths[1] then
+					local from = tonumber(sound.x) or 0
+					sounds[#sounds + 1] = {
+						Paths = sound_paths,
+						From = from,
+						To = from + (tonumber(sound.width) or 1),
+						Loop = sound.loopmode == "0",
+					}
+				end
 			end
+
+			for _, envelope in ipairs(layer.envelopes) do
+				if envelope.dsp_name == "Volume" and envelope.points[1] then
+					envelopes[#envelopes + 1] = {Parameter = envelope.parametername, Points = envelope.points}
+				end
+			end
+
+			layers[#layers + 1] = {Control = layer.control, Sounds = sounds, Envelopes = envelopes}
 		end
 
 		if not paths[1] then
@@ -154,7 +202,8 @@ do
 
 		cached = {
 			Paths = paths,
-			Volume = 10 ^ (volume_db / 20),
+			Layers = layers,
+			Volume = 10 ^ ((event.volume_db or 0) / 20),
 			Pitch = event.pitch or 0,
 			PitchRandomization = event.pitch_randomization or 0,
 		}
@@ -167,6 +216,52 @@ function fmod_events.GetPitch(event)
 	return 2 ^ (
 			event.Pitch + math.randomf(-event.PitchRandomization, event.PitchRandomization)
 		)
+end
+
+do
+	local function envelope_value(points, x)
+		if x <= points[1][1] then return points[1][2] end
+
+		for i = 2, #points do
+			local a, b = points[i - 1], points[i]
+
+			if x <= b[1] then
+				return a[2] + (b[2] - a[2]) * (x - a[1]) / math.max(b[1] - a[1], 0.000001)
+			end
+		end
+
+		return points[#points][2]
+	end
+
+	function fmod_events.Evaluate(event, parameters)
+		local out = {}
+
+		for layer_index, layer in ipairs(event.Layers) do
+			local value = layer.Control and parameters[layer.Control] or 0
+			local gain = 1
+
+			for _, envelope in ipairs(layer.Envelopes) do
+				local x = parameters[envelope.Parameter]
+
+				if x then gain = gain * envelope_value(envelope.Points, x) end
+			end
+
+			if gain > 0 then
+				for sound_index, sound in ipairs(layer.Sounds) do
+					if value >= sound.From and value <= sound.To then
+						out[#out + 1] = {
+							Key = layer_index .. ":" .. sound_index,
+							Paths = sound.Paths,
+							Gain = gain,
+							Loop = sound.Loop,
+						}
+					end
+				end
+			end
+		end
+
+		return out
+	end
 end
 
 return fmod_events

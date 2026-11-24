@@ -51,14 +51,44 @@ T.Test("FMOD projects map nested event groups to the waveforms of their sound de
 	local event = project.events["farm:birds:chicken"]
 	T(event ~= nil)["=="](true)
 	T(event.name)["=="]("Chicken")
-	T(#event.sounds)["=="](1)
-	T(event.sounds[1])["=="]("cluck")
+	T(#event.layers)["=="](1)
+	T(event.layers[1].sounds[1].name)["=="]("cluck")
 	T(event.volume_db)["=="](-10)
 	T(event.pitch)["=="](-0.25)
 	local sounddef = project.sounddefs.cluck
 	T(#sounddef.waveforms)["=="](2)
 	T(sounddef.waveforms[2].filename)["=="]("random\\cluck_02.wav")
 	T(sounddef.waveforms[1].soundbankname)["=="]("animals_bank")
+end)
+
+T.Test("FMOD events play the sounds of each layer at the parameter values, scaled by their envelopes", function()
+	local event = {
+		Layers = {
+			{
+				Control = "battle",
+				Sounds = {
+					{Paths = {"calm.wav"}, From = 0, To = 0.4, Loop = false},
+					{Paths = {"scared.wav"}, From = 0.9, To = 1, Loop = false},
+				},
+				Envelopes = {
+					{Parameter = "daylight", Points = {{0, 0}, {1, 1}}},
+					{Parameter = "distance", Points = {{0, 1}, {1, 0}}},
+				},
+			},
+			{Sounds = {{Paths = {"bed.wav"}, From = 0, To = 1, Loop = true}}, Envelopes = {}},
+		},
+	}
+	local day = fmod_events.Evaluate(event, {battle = 0, daylight = 0.75})
+	T(#day)["=="](2)
+	T(day[1].Paths[1])["=="]("calm.wav")
+	T(day[1].Gain)["=="](0.75)
+	T(day[2].Paths[1])["=="]("bed.wav")
+	T(day[2].Loop)["=="](true)
+	local night = fmod_events.Evaluate(event, {battle = 0, daylight = 0})
+	T(#night)["=="](1)
+	T(night[1].Paths[1])["=="]("bed.wav")
+	local battle = fmod_events.Evaluate(event, {battle = 1, daylight = 1})
+	T(battle[1].Paths[1])["=="]("scared.wav")
 end)
 
 T.Test("Crysis FSB3 sound banks list their samples and decode MPEG layer II", function()
