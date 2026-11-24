@@ -505,6 +505,8 @@ T.Test3DRayTracing("Graphics render3d radiance_cache material buffer carries med
 				return 0
 			end,
 		}
+		local system = import("goluwa/system.lua")
+		system.SetFrameNumber(system.GetFrameNumber() + 1)
 		local buffer = ray_materials.WriteMaterialBuffer(pipeline)
 		local entries = ray_materials.GetMaterialEntries(buffer)
 		local entry = entries[id]

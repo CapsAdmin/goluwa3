@@ -860,12 +860,13 @@ local function write_layer_record(volume)
 end
 
 local function refresh_volumes(state)
+	local header, volumes = ray_materials.GetOpticalVolumes(state.buffer)
+	header.glass, header.media = glass_count, medium_count
 	local frame_number = system.GetFrameNumber()
 
 	if state.volume_frame == frame_number then return end
 
 	state.volume_frame = frame_number
-	local header, volumes = ray_materials.GetOpticalVolumes(state.buffer)
 	local count = 0
 
 	if render3d.IsOceanEnabled() then
@@ -905,7 +906,7 @@ local function refresh_volumes(state)
 		end
 	end
 
-	header.glass, header.media, header.volumes = glass_count, medium_count, count
+	header.volumes = count
 	header.water_first, header.water_count = water_first, fog_first - water_first
 	header.fog_first, header.fog_count = fog_first, count - fog_first
 	header.layer = layer
