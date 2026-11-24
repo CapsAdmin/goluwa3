@@ -10,9 +10,6 @@ local world_to_screen_matrix = Matrix44()
 local world_to_screen_clip = Matrix44()
 local line_view_a = Matrix44()
 local line_view_b = Matrix44()
-local screen_to_world_inverse = Matrix44()
-local screen_to_world_near = Matrix44()
-local screen_to_world_far = Matrix44()
 
 do
 	META:StartStorable()
@@ -219,31 +216,27 @@ do
 		)
 	end
 
-	local function clip_to_world(matrix, x, y, z, out)
-		out = matrix:MultiplyVector(x, y, z, 1, out)
-		local w = out.m03
-
-		if math.abs(w) > 1e-6 then
-			out.m00 = out.m00 / w
-			out.m01 = out.m01 / w
-			out.m02 = out.m02 / w
-			out.m03 = 1
-		end
-
-		return out
-	end
-
 	function META:ScreenToWorldDirection(screen_pos, screen_width, screen_height)
 		screen_width = screen_width or render.GetWidth()
 		screen_height = screen_height or render.GetHeight()
 		local viewport_x, viewport_y, viewport_width, viewport_height = resolve_viewport(self, screen_width, screen_height)
-		local ndc_x = ((screen_pos.x - viewport_x) / viewport_width) * 2 - 1
-		local ndc_y = ((screen_pos.y - viewport_y) / viewport_height) * 2 - 1
-		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)
-		world_to_screen_matrix:GetInverse(screen_to_world_inverse)
-		local near_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 1, screen_to_world_near)
-		local far_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 0, screen_to_world_far)
-		return Vec3(far_pos.m00 - near_pos.m00, far_pos.m01 - near_pos.m01, far_pos.m02 - near_pos.m02):GetNormalized()
+		local x, y = 0, 0
+
+		-- unprojected from the projection's terms rather than inverting view * projection: the float matrix loses the ray to the far plane at 1e8
+		if not self.OrthoMode then
+			local ndc_x = ((screen_pos.x - viewport_x) / viewport_width) * 2 - 1
+			local ndc_y = ((screen_pos.y - viewport_y) / viewport_height) * 2 - 1
+			local p = self:BuildProjectionMatrix()
+			x = (p.m20 - ndc_x * p.m23) / p.m00
+			y = (p.m21 - ndc_y * p.m23) / p.m11
+		end
+
+		local v = self:BuildViewMatrix()
+		return Vec3(
+			x * v.m00 + y * v.m01 - v.m02,
+			x * v.m10 + y * v.m11 - v.m12,
+			x * v.m20 + y * v.m21 - v.m22
+		):GetNormalized()
 	end
 end
 
