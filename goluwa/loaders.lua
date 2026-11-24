@@ -31,6 +31,11 @@ local function get_loader(name)
 	return registered[name]
 end
 
+function loaders.IsMounted(name)
+	local loader = get_loader(name)
+	return loader ~= nil and loader.IsMounted()
+end
+
 local function get_registered()
 	for _, module in pairs(vfs.GetAddonModules("loaders")) do
 		import(module)

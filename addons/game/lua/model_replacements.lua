@@ -1,6 +1,6 @@
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
-local cry_game = import("lua/crysis_loader/game.lua")
+local loaders = import("goluwa/loaders.lua")
 local model_replacements = {}
 local entries = {}
 
@@ -17,7 +17,7 @@ local function is_mounted(game)
 		return false
 	end
 
-	if game == "crysis" then return cry_game.IsMounted() end
+	if game == "crysis" then return loaders.IsMounted("cry") end
 
 	return steam.IsSourceGameMounted(game) == true
 end

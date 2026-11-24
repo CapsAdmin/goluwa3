@@ -71,6 +71,7 @@ loaders.Register(
 		end,
 		MountGame = game.MountContent,
 		UnmountGame = game.UnmountContent,
+		IsMounted = game.IsMounted,
 		GetMaps = function()
 			local maps = {}
 
