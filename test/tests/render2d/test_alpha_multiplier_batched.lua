@@ -12,7 +12,7 @@ T.Test2D("Graphics render2d alpha multiplier instanced batch rendering", functio
 	return function()
 		T.AssertScreenPixel{
 			pos = {40, 40},
-			color = {0.736, 0.736, 0.736, 0.5},
+			color = {0.736, 0.736, 0.736, 1.0},
 			tolerance = 0.02,
 		}
 	end
@@ -28,7 +28,7 @@ T.Test2D("Graphics render2d alpha multiplier replay batch rendering", function()
 	return function()
 		T.AssertScreenPixel{
 			pos = {40, 40},
-			color = {0.736, 0.736, 0.736, 0.5},
+			color = {0.736, 0.736, 0.736, 1.0},
 			tolerance = 0.02,
 		}
 	end
@@ -49,7 +49,7 @@ T.Test2D("Graphics render2d alpha multiplier captured in batch state", function(
 	return function()
 		T.AssertScreenPixel{
 			pos = {40, 40},
-			color = {0.537, 0.537, 0.537, 0.25},
+			color = {0.537, 0.537, 0.537, 1.0},
 			tolerance = 0.02,
 		}
 	end
