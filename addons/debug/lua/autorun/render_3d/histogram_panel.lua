@@ -114,6 +114,7 @@ local HistogramWindow = react.Component(
 		return ui.Window{
 			Title = "HISTOGRAM",
 			Pinnable = true,
+			HudFitHeight = false,
 			Padding = "none",
 			Size = Vec2(WIDTH, HEIGHT + HEADER),
 			MinSize = Vec2(240, 120),

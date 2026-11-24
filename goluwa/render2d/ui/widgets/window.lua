@@ -26,6 +26,7 @@ META:GetSet("Maximizable", true)
 META:GetSet("Closable", true)
 META:GetSet("Pinnable", false)
 META:GetSet("Pinned", false)
+META:GetSet("HudFitHeight", true)
 META:GetSet("Headerless", false)
 META:GetSet("MinSize", nil)
 META:GetSet("Padding", nil)
@@ -203,15 +204,30 @@ function META:TogglePin()
 end
 
 function META:SetHud(hud)
-	if hud and not self.Hud then
+	if hud == (self.Hud == true) then return self end
+
+	local header_height = self._header and self._header.transform:GetHeight() or 0
+
+	if hud then
 		self._size_before_hud = self.transform:GetSize():Copy()
+		self._position_before_hud = self.transform:GetPosition():Copy()
 	end
 
 	self.Hud = hud
-	self.layout:SetFitHeight(hud)
 
-	if not hud and self._size_before_hud then
+	if self.HudFitHeight then
+		self.layout:SetFitHeight(hud)
+	elseif hud then
+		self.transform:SetPosition(self._position_before_hud + Vec2(0, header_height))
+		self.transform:SetSize(self._size_before_hud - Vec2(0, header_height))
+	end
+
+	if not hud then
 		self.transform:SetSize(self._size_before_hud)
+
+		if not self.HudFitHeight then
+			self.transform:SetPosition(self._position_before_hud)
+		end
 	end
 
 	if self._header then self._header.visual:SetVisible(not hud) end

@@ -375,6 +375,7 @@ local LookView = react.Component(
 		return ui.Window{
 			Title = "LOOK",
 			Pinnable = true,
+			HudFitHeight = false,
 			Padding = "none",
 			Size = size,
 			Position = Vec2(0, DESKTOP_BAR),
