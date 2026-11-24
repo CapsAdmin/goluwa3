@@ -34,7 +34,6 @@ local function reference(c, p)
 	(p.contrast or 0) / 100,
 	(p.saturation or 0) / 100,
 	(p.warmth or 0) / 100
-	local lift, gain = p.lift or {0, 0, 0}, p.gain or {1, 1, 1}
 	local x = {}
 
 	for i = 1, 3 do
@@ -65,7 +64,7 @@ local function reference(c, p)
 
 	for i = 1, 3 do
 		local v = (grey + (x[i] - grey) * amount) * scale[i]
-		out[i] = srgb_to_linear(clamp(v * gain[i] + lift[i], 0, 1))
+		out[i] = srgb_to_linear(clamp(v, 0, 1))
 	end
 
 	return out
@@ -88,12 +87,6 @@ local function set(p)
 	end
 
 	if p.pivot then pvars.SetSession("r_grade_contrast_pivot", p.pivot) end
-
-	for i, channel in ipairs{"r", "g", "b"} do
-		if p.lift then pvars.SetSession("r_grade_lift_" .. channel, p.lift[i]) end
-
-		if p.gain then pvars.SetSession("r_grade_gain_" .. channel, p.gain[i]) end
-	end
 end
 
 T.Test("Graphics render3d grade a preset leaves out what the defaults give", function()
@@ -158,9 +151,6 @@ T.Test("Graphics render3d grade is off at the defaults", function()
 	pvars.SetSession("r_grade_warmth", 10)
 	T(grade.WriteBlock(block).grade_on)["=="](1)
 	T(block.grade_warmth)["~"](0.1, 1e-6)
-	reset()
-	pvars.SetSession("r_grade_gain_g", 1.5)
-	T(grade.WriteBlock(block).grade_on)["=="](1)
 	reset()
 end)
 
@@ -270,7 +260,6 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 			{saturation = 100},
 			{warmth = 100},
 			{warmth = -60},
-			{lift = {0.1, 0, -0.05}, gain = {1.2, 0.8, 1}},
 			{contrast = 50, pivot = 0.3},
 			{contrast = -40, pivot = 0.75, brightness = 20},
 			{

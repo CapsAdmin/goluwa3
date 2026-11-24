@@ -44,50 +44,6 @@ local warmth = pvars.Setup2{
 	help = "warms (above 0, orange) or cools (below 0, blue) the image",
 }
 pvars.EndGroup()
-pvars.StartGroup("Post", "Color balance", {store = false, prefix = "grade_"})
-local lift_r = pvars.Setup2{
-	key = "r_grade_lift_r",
-	default = 0,
-	min = -0.5,
-	max = 0.5,
-	help = "red added to the tonemapped image, mostly seen in the shadows",
-}
-local lift_g = pvars.Setup2{
-	key = "r_grade_lift_g",
-	default = 0,
-	min = -0.5,
-	max = 0.5,
-	help = "green added to the tonemapped image, mostly seen in the shadows",
-}
-local lift_b = pvars.Setup2{
-	key = "r_grade_lift_b",
-	default = 0,
-	min = -0.5,
-	max = 0.5,
-	help = "blue added to the tonemapped image, mostly seen in the shadows",
-}
-local gain_r = pvars.Setup2{
-	key = "r_grade_gain_r",
-	default = 1,
-	min = 0,
-	max = 4,
-	help = "scales the red of the tonemapped image, mostly seen in the highlights",
-}
-local gain_g = pvars.Setup2{
-	key = "r_grade_gain_g",
-	default = 1,
-	min = 0,
-	max = 4,
-	help = "scales the green of the tonemapped image, mostly seen in the highlights",
-}
-local gain_b = pvars.Setup2{
-	key = "r_grade_gain_b",
-	default = 1,
-	min = 0,
-	max = 4,
-	help = "scales the blue of the tonemapped image, mostly seen in the highlights",
-}
-pvars.EndGroup()
 pvars.StartGroup("Post", "Look LUT", {store = false, prefix = "grade_"})
 local lut_path = pvars.Setup2{
 	key = "r_grade_lut",
@@ -120,12 +76,6 @@ grade.block = {
 	{"grade_contrast_pivot", "float"},
 	{"grade_saturation", "float"},
 	{"grade_warmth", "float"},
-	{"grade_lift_r", "float"},
-	{"grade_lift_g", "float"},
-	{"grade_lift_b", "float"},
-	{"grade_gain_r", "float"},
-	{"grade_gain_g", "float"},
-	{"grade_gain_b", "float"},
 	{"lut_mode", "int"},
 	{"lut_strength", "float"},
 	{"lut_size_3d", "int"},
@@ -265,23 +215,11 @@ function grade.WriteBlock(block)
 	block.grade_contrast_pivot = contrast_pivot:Get()
 	block.grade_saturation = saturation:Get() / 100
 	block.grade_warmth = warmth:Get() / 100
-	block.grade_lift_r = lift_r:Get()
-	block.grade_lift_g = lift_g:Get()
-	block.grade_lift_b = lift_b:Get()
-	block.grade_gain_r = gain_r:Get()
-	block.grade_gain_g = gain_g:Get()
-	block.grade_gain_b = gain_b:Get()
 	block.grade_on = (
 			block.grade_brightness ~= 0 or
 			block.grade_contrast ~= 0 or
 			block.grade_saturation ~= 0 or
-			block.grade_warmth ~= 0 or
-			block.grade_lift_r ~= 0 or
-			block.grade_lift_g ~= 0 or
-			block.grade_lift_b ~= 0 or
-			block.grade_gain_r ~= 1 or
-			block.grade_gain_g ~= 1 or
-			block.grade_gain_b ~= 1
+			block.grade_warmth ~= 0
 		)
 		and
 		1 or
@@ -424,8 +362,7 @@ function grade.GetGLSL(block_name, binding_3d, binding_1d)
 
 			float saturation = max(1.0 + BLOCK.grade_saturation, 0.0);
 			x = mix(vec3(dot(x, vec3(0.2126, 0.7152, 0.0722))), x, saturation);
-			x *= vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
-			return x * vec3(BLOCK.grade_gain_r, BLOCK.grade_gain_g, BLOCK.grade_gain_b) + vec3(BLOCK.grade_lift_r, BLOCK.grade_lift_g, BLOCK.grade_lift_b);
+			return x * vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
 		}
 
 		vec3 grade_display(vec3 c) {
@@ -467,12 +404,6 @@ local fields = {
 	{key = "r_grade_contrast_pivot"},
 	{key = "r_grade_saturation"},
 	{key = "r_grade_warmth"},
-	{key = "r_grade_lift_r"},
-	{key = "r_grade_lift_g"},
-	{key = "r_grade_lift_b"},
-	{key = "r_grade_gain_r"},
-	{key = "r_grade_gain_g"},
-	{key = "r_grade_gain_b"},
 	{key = "camera.white_balance", exposure = true, white_balance = true},
 	{key = "camera.white_balance_tint", exposure = true},
 	{key = "r_tonemapper"},
