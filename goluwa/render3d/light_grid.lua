@@ -29,7 +29,9 @@ function light_grid.GetBuffer(cmd)
 	if not buffer then
 		rt_stage = render.GetDevice().ray_tracing_supported and "ray_tracing_shader_khr" or nil
 		buffer = render.CreateBuffer{
-			byte_size = HEADER_BYTES + light_grid.LEVELS * light_grid.DIM ^ 3 * light_grid.words * 4,
+			byte_size = HEADER_BYTES + (
+					light_grid.LEVELS * light_grid.DIM ^ 3 + 1
+				) * light_grid.words * 4,
 			buffer_usage = {"storage_buffer", "transfer_dst"},
 			memory_property = {"device_local"},
 			label = "light_grid",
@@ -86,7 +88,7 @@ function light_grid.GetGLSL(binding)
 				}
 			}
 
-			return -1;
+			return light_grid_info.x == 0 ? -1 : LIGHT_GRID_LEVELS * LIGHT_GRID_DIM * LIGHT_GRID_DIM * LIGHT_GRID_DIM;
 		}
 
 		int light_grid_words(int light_count) {
@@ -168,67 +170,100 @@ light_grid.pass = {
 	end,
 	custom_declarations = declarations(BINDING_GRID, ""),
 	shader = scene_lights.GetLightGLSLCode() .. [[
+		const int LIGHT_GRID_GROUP = 64;
+		shared vec4 group_position[LIGHT_GRID_GROUP];
+		shared vec4 group_direction[LIGHT_GRID_GROUP];
+		shared vec4 group_params[LIGHT_GRID_GROUP];
+
+		bool light_grid_reaches(int i, vec3 box_min, vec3 box_max, float radius) {
+			vec4 position = group_position[i];
+			int type = int(position.w);
+
+			if (type == 0) return true;
+
+			float range = group_params[i].x;
+			vec3 d = position.xyz - clamp(position.xyz, box_min, box_max);
+
+			if (dot(d, d) >= range * range) return false;
+
+			if (type == 1) return true;
+
+			vec3 from_light = (box_min + box_max) * 0.5 - position.xyz;
+			vec3 direction = normalize(group_direction[i].xyz);
+			float axial = dot(from_light, direction);
+
+			if (type == 2) return axial - radius <= 0.2 * (length(from_light) + radius);
+
+			float cosine = clamp(group_params[i].z, -1.0, 1.0);
+
+			if (cosine < 0.0) return true;
+
+			float radial = length(from_light - direction * axial);
+			float sine = sqrt(max(1.0 - cosine * cosine, 0.0));
+			return axial >= -radius && radial * cosine - axial * sine <= radius;
+		}
+
 		void main() {
 			ivec3 id = ivec3(gl_GlobalInvocationID);
 			int l = id.z / LIGHT_GRID_DIM;
-
-			if (id.x >= LIGHT_GRID_DIM || id.y >= LIGHT_GRID_DIM || l >= LIGHT_GRID_LEVELS) return;
-
+			int local_index = int(gl_LocalInvocationIndex);
+			int count = light_grid_data.light_count;
+			int words = light_grid_data.words;
 			ivec3 c = ivec3(id.xy, id.z % LIGHT_GRID_DIM);
 			vec4 level = light_grid_data.levels[l];
+			vec3 box_min = level.xyz + vec3(c) * level.w;
+			vec3 box_max = box_min + level.w;
+			float radius = level.w * 0.86602540378;
+			int cell = ((l * LIGHT_GRID_DIM + c.z) * LIGHT_GRID_DIM + c.y) * LIGHT_GRID_DIM + c.x;
+			bool far = id == ivec3(0);
+			vec4 outer = light_grid_data.levels[LIGHT_GRID_LEVELS - 1];
+			vec3 outer_min = outer.xyz;
+			vec3 outer_max = outer.xyz + outer.w * float(LIGHT_GRID_DIM);
+			int far_cell = LIGHT_GRID_LEVELS * LIGHT_GRID_DIM * LIGHT_GRID_DIM * LIGHT_GRID_DIM;
 
-			if (id == ivec3(0)) {
+			if (far) {
 				for (int i = 0; i < LIGHT_GRID_LEVELS; i++) {
 					light_grid_levels[i] = light_grid_data.levels[i];
 				}
 
-				light_grid_info = ivec4(LIGHT_GRID_LEVELS, light_grid_data.words, 0, 0);
+				light_grid_info = ivec4(LIGHT_GRID_LEVELS, words, 0, 0);
 			}
 
-			vec3 box_min = level.xyz + vec3(c) * level.w;
-			vec3 box_max = box_min + level.w;
-			int cell = ((l * LIGHT_GRID_DIM + c.z) * LIGHT_GRID_DIM + c.y) * LIGHT_GRID_DIM + c.x;
+			for (int base = 0; base < count; base += LIGHT_GRID_GROUP) {
+				barrier();
 
-			for (int w = 0; w < (light_grid_data.light_count + 31) / 32; w++) {
-				uint bits = 0u;
+				if (base + local_index < count) {
+					lights_t light = scene_light(light_grid_data.lights, base + local_index);
+					group_position[local_index] = light.position;
+					group_direction[local_index] = light.direction;
+					group_params[local_index] = light.params;
+				}
 
-				for (int b = 0; b < 32; b++) {
-					int i = w * 32 + b;
+				barrier();
+				int n = min(LIGHT_GRID_GROUP, count - base);
 
-					if (i >= light_grid_data.light_count) break;
+				for (int half_word = 0; half_word < 2 && half_word * 32 < n; half_word++) {
+					uint bits = 0u;
+					uint far_bits = 0u;
 
-					lights_t light = scene_light(light_grid_data.lights, i);
-					int type = int(light.position.w);
-					bool reaches = type == 0;
+					for (int b = 0; b < 32 && half_word * 32 + b < n; b++) {
+						int k = half_word * 32 + b;
 
-					if (!reaches) {
-						vec3 d = light.position.xyz - clamp(light.position.xyz, box_min, box_max);
-						reaches = dot(d, d) < light.params.x * light.params.x;
-					}
+						if (light_grid_reaches(k, box_min, box_max, radius)) bits |= 1u << uint(b);
 
-					if (reaches && (type == 2 || type == 3)) {
-						vec3 from_light = (box_min + box_max) * 0.5 - light.position.xyz;
-						vec3 direction = normalize(light.direction.xyz);
-						float radius = level.w * 0.86602540378;
-						float axial = dot(from_light, direction);
+						if (far) {
+							vec4 position = group_position[k];
+							float range = group_params[k].x;
 
-						if (type == 2) {
-							reaches = axial - radius <= 0.2 * (length(from_light) + radius);
-						} else {
-							float cosine = clamp(light.params.z, -1.0, 1.0);
-
-							if (cosine >= 0.0) {
-								float radial = length(from_light - direction * axial);
-								float sine = sqrt(max(1.0 - cosine * cosine, 0.0));
-								reaches = axial >= -radius && radial * cosine - axial * sine <= radius;
-							}
+							if (int(position.w) == 0 || int(position.w) == 2 || any(lessThan(position.xyz - range, outer_min)) || any(greaterThan(position.xyz + range, outer_max))) far_bits |= 1u << uint(b);
 						}
 					}
 
-					if (reaches) bits |= 1u << uint(b);
-				}
+					int w = base / 32 + half_word;
+					light_grid_cells[cell * words + w] = bits;
 
-				light_grid_cells[cell * light_grid_data.words + w] = bits;
+					if (far) light_grid_cells[far_cell * words + w] = far_bits;
+				}
 			}
 		}
 	]],
