@@ -7,7 +7,7 @@ local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
 local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local gpu_timing = {}
 local serialized = os.getenv("GOLUWA_GPU_SERIALIZE") == "1"
-local MAX_SCOPES = 128
+local MAX_SCOPES = 256
 local STALE_SECONDS = 1
 local RESULT_FLAGS = bit.bor(
 	vulkan.vk.VkQueryResultFlagBits.VK_QUERY_RESULT_64_BIT,
