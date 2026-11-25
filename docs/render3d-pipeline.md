@@ -1,6 +1,6 @@
 # Render3D pipeline, Vulkan pitfalls, LOD, surface features and test scenes
 
-How the 3D frame is put together and the invariants that are easy to break. Pass sources are in `goluwa/render3d/passes/`; the list and order is `default_passes` in `render3d.lua`. Each pass has an `r_pass_<name>` pvar; a disabled pass is still built, except `optional` entries, which are only built while on (toggling one rebuilds the pipelines). The ray traced scene store and the culled draw path are in [gpu-scene.md](gpu-scene.md); lighting is in [render3d-lighting.md](render3d-lighting.md); measurement is in [performance.md](performance.md).
+How the 3D frame is put together and the invariants that are easy to break. Pass sources are in `goluwa/render3d/passes/`; the list and order is `default_passes` in `render3d.lua`. Each pass has an `r_pass_<name>` pvar; a disabled pass is still built, except `optional` entries, which are only built while on. Toggling one, or a build time pvar like `r_ray_shadows`, rebuilds the bundle in the background (`render3d.RebuildPipelineBundleAsync`): the old pipelines keep drawing until every new one has compiled, then they swap. Code that toggles and draws at once calls `render3d.FinishPipelineRebuilds()` first (the Test3D `draw()` does; `Shot.WaitLoaded` waits for it). The ray traced scene store and the culled draw path are in [gpu-scene.md](gpu-scene.md); lighting is in [render3d-lighting.md](render3d-lighting.md); measurement is in [performance.md](performance.md).
 
 ## Frame structure
 

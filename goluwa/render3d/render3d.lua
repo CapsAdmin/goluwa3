@@ -436,7 +436,7 @@ pvars.StartGroup("Rendering", "Passes", {store = false, prefix = "pass_"})
 local function rebuild_default_bundles()
 	for bundle in pairs(render3d.bundles) do
 		if not bundle.options.passes then
-			local ok, err = pcall(render3d.RebuildPipelineBundle, bundle)
+			local ok, err = pcall(render3d.RebuildPipelineBundleAsync, bundle)
 
 			if not ok then logn("failed to rebuild pipelines: ", err) end
 		end
@@ -786,7 +786,18 @@ function render3d.CreatePipelineBundle(options)
 	return bundle
 end
 
-function render3d.RebuildPipelineBundle(bundle)
+local pending_rebuilds = {}
+
+local function build_whole_bundle(bundle)
+	for i = #pending_rebuilds, 1, -1 do
+		local entry = pending_rebuilds[i]
+
+		if entry.bundle == bundle and entry.whole then
+			table.remove(pending_rebuilds, i)
+			remove_pipeline_bundle(entry.fresh)
+		end
+	end
+
 	local fresh = {
 		pipelines = {},
 		pipelines_i = {},
@@ -800,6 +811,10 @@ function render3d.RebuildPipelineBundle(bundle)
 		error(err, 0)
 	end
 
+	return fresh
+end
+
+local function adopt_whole_bundle(bundle, fresh)
 	render.GetDevice():WaitIdle()
 	remove_pipeline_bundle(bundle)
 	table.clear(bundle.passes)
@@ -820,6 +835,22 @@ function render3d.RebuildPipelineBundle(bundle)
 	collectgarbage()
 end
 
+function render3d.RebuildPipelineBundle(bundle)
+	adopt_whole_bundle(bundle, build_whole_bundle(bundle))
+end
+
+function render3d.RebuildPipelineBundleAsync(bundle)
+	local fresh = build_whole_bundle(bundle)
+	local size = render3d.GetInternalRenderSize()
+	pending_rebuilds[#pending_rebuilds + 1] = {
+		bundle = bundle,
+		fresh = fresh,
+		whole = true,
+		width = size.x,
+		height = size.y,
+	}
+end
+
 function render3d.ReloadPasses(paths)
 	local fresh = {}
 
@@ -837,7 +868,7 @@ function render3d.ReloadPasses(paths)
 			if fresh[pass] then bundle.options.passes[i] = fresh[pass] end
 		end
 
-		local ok, err = pcall(render3d.RebuildPipelineBundle, bundle)
+		local ok, err = pcall(render3d.RebuildPipelineBundleAsync, bundle)
 
 		if not ok then logn("failed to rebuild pipelines: ", err) end
 	end
@@ -873,7 +904,7 @@ function render3d.RebuildPipeline(bundle, name)
 end
 
 do
-	local pending = {}
+	local pending = pending_rebuilds
 
 	function render3d.RebuildPipelinesAsync(bundle, names, on_done)
 		local include_names = {}
@@ -903,12 +934,12 @@ do
 		return false
 	end
 
-	event.AddListener("Update", "render3d_async_pipelines", function()
+	local function adopt_ready_rebuilds()
 		for i = #pending, 1, -1 do
 			local entry = pending[i]
 			local ready = true
 
-			for _, pipeline in pairs(entry.fresh.pipelines) do
+			for _, pipeline in ipairs(entry.fresh.pipelines_i) do
 				if not render3d.IsPipelineReady(pipeline) then
 					ready = false
 
@@ -920,7 +951,18 @@ do
 				table.remove(pending, i)
 				local bundle, fresh = entry.bundle, entry.fresh
 
-				if render3d.bundles[bundle] then
+				if entry.whole and render3d.bundles[bundle] then
+					adopt_whole_bundle(bundle, fresh)
+					local size = render3d.GetInternalRenderSize()
+
+					if size.x ~= entry.width or size.y ~= entry.height then
+						for _, pipeline in ipairs(bundle.pipelines_i) do
+							if pipeline.config.internal_resolution and pipeline.framebuffers then
+								pipeline:RecreateFramebuffers()
+							end
+						end
+					end
+				elseif render3d.bundles[bundle] then
 					render.GetDevice():WaitIdle()
 
 					for name, pipeline in pairs(fresh.pipelines) do
@@ -947,7 +989,21 @@ do
 				if entry.on_done then entry.on_done() end
 			end
 		end
-	end)
+	end
+
+	event.AddListener("Update", "render3d_async_pipelines", adopt_ready_rebuilds)
+
+	function render3d.FinishPipelineRebuilds()
+		for _, entry in ipairs(pending) do
+			for _, pipeline in ipairs(entry.fresh.pipelines_i) do
+				local job = pipeline.pipeline.pipeline.job
+
+				if job then job:Block() end
+			end
+		end
+
+		adopt_ready_rebuilds()
+	end
 end
 
 event.AddListener("ModulesReloaded", "render3d_pipelines", function(paths)

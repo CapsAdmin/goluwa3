@@ -105,6 +105,7 @@ function test_render.Draw2DFrames(frame_count, cb, after_frame)
 end
 
 local function draw_3d_func()
+	render3d.FinishPipelineRebuilds()
 	system.SetFrameNumber(system.GetFrameNumber() + 1)
 	render.Draw(1)
 	event.Call("PostUpdate")

@@ -8,6 +8,7 @@ local scene = import("goluwa/entities/scene.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local Shot = {}
 local defaults = {
 	settle = 2,
@@ -43,6 +44,7 @@ function Shot.WaitLoaded(quiet, cb)
 			not scene_rt.readied or
 			scene_loading.IsLoading() or
 			scene.IsSpawning() or
+			render3d.IsRebuildingPipelines(render3d.main_pipeline_bundle) or
 			instances.version ~= last_version
 		then
 			last_version = instances.version
