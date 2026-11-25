@@ -1,8 +1,50 @@
 local mtl_material = import("lua/crysis_loader/mtl_material.lua")
 local Color = import("goluwa/structs/color.lua")
 local Texture = import("goluwa/render/texture.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local ffi = require("ffi")
 local terrain = {}
+local relief = pvars.Setup2{
+	key = "cry_terrain_relief",
+	category = "Rendering",
+	group = "Crysis",
+	default = 0,
+	help = "tessellated relief on Crysis terrain layers that have no height map, from their normal map integrated into heights (as the Source loader does for rock), times this. 0 is off, 1 is the relief the normals describe. Read when a level loads",
+}
+local height_multiplier = pvars.Setup2{
+	key = "cry_terrain_height_scale",
+	category = "Rendering",
+	group = "Crysis",
+	default = 1,
+	help = "multiplies the tessellated relief of every Crysis terrain layer, the ones with Crysis' own height maps and the ones from cry_terrain_relief. Read when a level loads",
+}
+local get_relief_height_texture
+
+do
+	local codec = import("goluwa/codec.lua")
+	local height_from_normals = import("goluwa/render/height_from_normals.lua")
+	local cache = {}
+
+	function get_relief_height_texture(normal_path)
+		if cache[normal_path] == nil then
+			local decoded = codec.DecodeFile(normal_path, "dds")
+			local normals = Texture.New{decoded = decoded, srgb = false}
+			local size = normals:GetWidth()
+
+			if size == normals:GetHeight() and bit.band(size, size - 1) == 0 then
+				local height, amount = height_from_normals.CreateHeightTexture(normals, 1 / 32, "cry_height|" .. normal_path)
+				cache[normal_path] = {height = height, amount = amount}
+			else
+				cache[normal_path] = false
+			end
+
+			normals:Remove()
+		end
+
+		return cache[normal_path] or nil
+	end
+end
+
 local get_or_create_cry_albedo_texture
 
 do
@@ -147,6 +189,19 @@ local function get_or_create_cry_terrain_layers(terrain)
 				local side_z = axes[2] or top
 				local material = top.material
 				local detail_bump = material:GetDetailTexture()
+				local height = material:HasHeightMap() and material:GetHeightTexture() or nil
+				local height_scale = material:GetHeightScale()
+				local normal_map = material.cry_texture_maps.Bumpmap or material.cry_texture_maps.Normalmap
+
+				if not height and relief:Get() > 0 and normal_map and normal_map.resolved then
+					local generated = get_relief_height_texture(normal_map.resolved)
+
+					if generated then
+						height = generated.height
+						height_scale = generated.amount * relief:Get()
+					end
+				end
+
 				layers[i] = {
 					albedo = top.albedo,
 					normal = material:GetNormalTexture(),
@@ -154,8 +209,8 @@ local function get_or_create_cry_terrain_layers(terrain)
 					normal_side_x = side_x.material:GetNormalTexture(),
 					albedo_side_z = side_z.albedo,
 					normal_side_z = side_z.material:GetNormalTexture(),
-					height = material:HasHeightMap() and material:GetHeightTexture() or nil,
-					height_scale = material:GetHeightScale(),
+					height = height,
+					height_scale = height_scale * height_multiplier:Get(),
 					detail_bump = detail_bump,
 					detail_bump_tiling = detail_bump and material:GetDetailTiling().x or nil,
 					detail_bump_scale = detail_bump and material:GetDetailBumpScale() or nil,
