@@ -353,16 +353,17 @@ function GraphicsPipeline:Wait()
 end
 
 function GraphicsPipeline:OnRemove()
-	pcall(self.Wait, self)
-
 	if self.device:IsValid() then
 		local device = self.device
 		local device_ptr = device.ptr[0]
-		local pipeline_ptr = self.ptr[0]
-		self.ptr[0] = nil
+		local ptr = self.ptr
+		local keep = self.keep
 
-		device:DeferRelease(function()
-			vulkan.lib.vkDestroyPipeline(device_ptr, pipeline_ptr, nil)
+		device:DeferPipelineRelease(function()
+			vulkan.lib.vkDestroyPipeline(device_ptr, ptr[0], nil)
+			ptr[0] = nil
+			-- holds the create info alive, a worker may still be reading it
+			keep = nil
 		end)
 	end
 end

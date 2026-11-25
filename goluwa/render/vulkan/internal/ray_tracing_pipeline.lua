@@ -296,15 +296,22 @@ function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_s
 end
 
 function RayTracingPipeline:OnRemove()
-	pcall(self.Wait, self)
+	local keep = self.keep
 
-	if self.pipeline and self.device:IsValid() then
+	if keep then for _, module in ipairs(keep[5]) do
+		module:Remove()
+	end end
+
+	if self.device:IsValid() then
 		local device = self.device
-		local pipeline = self.pipeline
+		local ptr = self.ptr
 		self.pipeline = nil
 
-		device:DeferRelease(function()
-			vulkan.lib.vkDestroyPipeline(device.ptr[0], pipeline, nil)
+		device:DeferPipelineRelease(function()
+			vulkan.lib.vkDestroyPipeline(device.ptr[0], ptr[0], nil)
+			ptr[0] = nil
+			-- holds the create info alive, a worker may still be reading it
+			keep = nil
 		end)
 	end
 

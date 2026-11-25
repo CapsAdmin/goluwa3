@@ -727,6 +727,18 @@ function Device:DeferRelease(callback, serial)
 	table.insert(self.deferred_releases, {serial = serial, callback = callback})
 end
 
+-- the driver reads shader modules and layouts until a pipeline create returns, so while one compiles on a worker they are released after it
+function Device:DeferPipelineRelease(callback)
+	local cache = self.pipeline_cache
+
+	if cache and cache:IsValid() and cache:HasJobsInFlight() then
+		table.insert(cache.held_releases, callback)
+		return
+	end
+
+	self:DeferRelease(callback)
+end
+
 -- a collection that lets go of hundreds of resources at once queues them all here, and vkFreeMemory is slow,
 -- so a flush that is not forced stops after a budget and leaves the rest for the next one
 local FLUSH_BUDGET = 0.002

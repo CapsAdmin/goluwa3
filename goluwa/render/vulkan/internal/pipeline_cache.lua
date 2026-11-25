@@ -150,12 +150,24 @@ function PipelineCache.New(device, initial_data)
 		ptr = ptr,
 		generation = 0,
 		jobs = {},
+		held_releases = {},
 	}
 end
 
 do
 	local function on_job_done(job)
-		job.pipeline_cache.generation = job.pipeline_cache.generation + 1
+		local cache = job.pipeline_cache
+		cache.generation = cache.generation + 1
+
+		if not cache:HasJobsInFlight() and cache.held_releases[1] then
+			local held = cache.held_releases
+			cache.held_releases = {}
+
+			for _, callback in ipairs(held) do
+				cache.device:DeferRelease(callback)
+			end
+		end
+
 		event.Call("PipelineCompiled")
 	end
 
@@ -205,6 +217,10 @@ function PipelineCache:GetData()
 end
 
 function PipelineCache:OnRemove()
+	for _, job in ipairs(self.jobs) do
+		pcall(job.Block, job)
+	end
+
 	if self.device:IsValid() then
 		vulkan.lib.vkDestroyPipelineCache(self.device.ptr[0], self.ptr[0], nil)
 	end

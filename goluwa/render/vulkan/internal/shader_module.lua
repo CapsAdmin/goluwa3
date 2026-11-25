@@ -274,7 +274,7 @@ function ShaderModule:OnRemove()
 			local shader_module_ptr = self.ptr[0]
 			self.ptr[0] = nil
 
-			device:DeferRelease(function()
+			device:DeferPipelineRelease(function()
 				vulkan.lib.vkDestroyShaderModule(device_ptr, shader_module_ptr, nil)
 			end)
 		end
@@ -304,7 +304,7 @@ function ShaderModule:OnRemove()
 		local shader_module_ptr = record.ptr[0]
 		record.ptr[0] = nil
 
-		device:DeferRelease(function()
+		device:DeferPipelineRelease(function()
 			vulkan.lib.vkDestroyShaderModule(device_ptr, shader_module_ptr, nil)
 		end)
 	end

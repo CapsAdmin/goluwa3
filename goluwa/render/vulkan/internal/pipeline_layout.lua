@@ -57,7 +57,7 @@ function PipelineLayout:OnRemove()
 		local layout_ptr = self.ptr[0]
 		self.ptr[0] = nil
 
-		device:DeferRelease(function()
+		device:DeferPipelineRelease(function()
 			vulkan.lib.vkDestroyPipelineLayout(device_ptr, layout_ptr, nil)
 		end)
 	end
