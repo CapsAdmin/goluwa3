@@ -447,7 +447,7 @@ local function pass_shade()
 				}
 				#endif
 
-				store_ray(pos, vec4(radiance * glass + optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true), t));
+				store_ray(pos, vec4(radiance * glass + optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true, emitter_random(hit_index, uint(radiance_cache_data.radiance_cache_frame), 1u).x), t));
 			}
 		]],
 	}

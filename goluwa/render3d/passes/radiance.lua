@@ -775,7 +775,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				if (restir_data.optical_tint != 0) {
 					s.L *= get_optical_tint(origin, dir, t, hit);
 
-					if (hit) s.L += optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true);
+					if (hit) s.L += optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true, scene_hit_random(origin + dir * t, 0x51));
 				}
 
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
@@ -1003,7 +1003,7 @@ local function pass_candidates()
 			}
 
 			vec4 radiance_specular_finish(radiance_specular_ray ray, vec3 radiance, float hit_t, int index, vec3 emitter_origin, vec3 emitter_N, int triangles[EMITTER_CANDIDATES], float weights[EMITTER_CANDIDATES]) {
-				radiance = scene_radiance_through_air(radiance, ray.origin, ray.R, hit_t, SCENE_HIT_MAX_DISTANCE);
+				radiance = scene_radiance_through_air(radiance, ray.origin, ray.R, hit_t, SCENE_HIT_MAX_DISTANCE, ray.roughness > REFLECTION_MIRROR_THRESHOLD * 3.0 ? scene_hit_random(ray.origin + ray.R * hit_t, 0x53) : -1.0);
 
 				if (ray.roughness > REFLECTION_MIRROR_THRESHOLD && hit_t < SCENE_HIT_MAX_DISTANCE) {
 					radiance = reflection_limit_hit(radiance, radiance_specular_hit_limit());

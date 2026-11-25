@@ -177,7 +177,8 @@ function optical_rays.GetGLSL()
 			return get_light_transmittance_with(origin, dir, distance, search_radius, true, true, true);
 		}
 
-		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
+		// segment_pick in [0, 1) traces the visibility of one of the three segments and weighs it by three, below 0 traces all of them
+		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer, float segment_pick) {
 			if (get_optical_header().y + get_optical_header().z == 0) return vec3(0.0);
 
 			// what scatters in is what the volumes take out along the ray: a ray that loses nothing to them needs none of the visibility rays below
@@ -185,16 +186,19 @@ function optical_rays.GetGLSL()
 
 			if (min(through.r, min(through.g, through.b)) > 0.9999) return vec3(0.0);
 
+			int first = segment_pick < 0.0 ? 0 : min(int(segment_pick * 3.0), 2);
+			int last = segment_pick < 0.0 ? 2 : first;
+			float visible = segment_pick < 0.0 ? 1.0 : 3.0;
 			vec3 sun_visibility = vec3(0.0);
 
 			if (dot(sun_radiance, sun_radiance) > 0.0) {
-				for (int k = 0; k < 3; k++) sun_visibility[k] = scene_occluded(origin + dir * (distance * (float(k) + 0.5) / 3.0), sun_dir, 0.01, 1.0e4) ? 0.0 : 1.0;
+				for (int k = first; k <= last; k++) sun_visibility[k] = scene_occluded(origin + dir * (distance * (float(k) + 0.5) / 3.0), sun_dir, 0.01, 1.0e4) ? 0.0 : visible;
 			}
 
 			vec3 ambient_visibility = vec3(0.0);
 
 			if (dot(ambient, ambient) > 0.0) {
-				for (int k = 0; k < 3; k++) ambient_visibility[k] = scene_occluded(origin + dir * (distance * (float(k) + 0.5) / 3.0), vec3(0.0, 1.0, 0.0), 0.01, 1.0e4) ? 0.0 : 1.0;
+				for (int k = first; k <= last; k++) ambient_visibility[k] = scene_occluded(origin + dir * (distance * (float(k) + 0.5) / 3.0), vec3(0.0, 1.0, 0.0), 0.01, 1.0e4) ? 0.0 : visible;
 			}
 
 			return optical_inscatter(origin, dir, distance, ambient, ambient_visibility, sun_radiance, sun_dir, sun_visibility, with_layer);
@@ -221,7 +225,7 @@ function optical_rays.GetStubGLSL()
 			return vec3(1.0);
 		}
 
-		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
+		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer, float segment_pick) {
 			return vec3(0.0);
 		}
 
