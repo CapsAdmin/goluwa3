@@ -201,7 +201,7 @@ function scene_hits.GetDirectionGLSL()
 end
 
 scene_hits.block = {
-	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+	{"lights", "uint64_t"},
 	{"light_count", "int"},
 	{"reflection_screenspace_roughness", "float"},
 	{"hit_max_distance", "float"},
@@ -213,14 +213,14 @@ scene_hits.block = {
 
 function scene_hits.WriteBlock(self, block)
 	local lights = render3d.GetLights()
-	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	block.light_count = #lights
 	block.reflection_screenspace_roughness = screenspace_roughness:Get()
 	block.hit_max_distance = scene_hits.max_distance:Get()
 	block.hit_fog = scene_hits.fog:Get() and 1 or 0
 	block.light_transmittance = ray_materials.HasDirectTint() and 1 or 0
 	block.optical_tint = (ray_materials.HasGlass() or ray_materials.HasMedium()) and 1 or 0
 	block.refraction_rays = scene_hits.refraction:Get() and 1 or 0
-	scene_lights.WriteLightsBlock(block.lights, lights)
+	block.lights = scene_lights.GetAddress(lights)
 end
 
 function scene_hits.WriteProbeBlock(self, block)
@@ -483,7 +483,7 @@ function scene_hits.GetGLSL(block_name, shared)
 					while (light_bits != 0u) {
 						int i = w * 32 + findLSB(light_bits);
 						light_bits &= light_bits - 1u;
-						lights_t light = ]] .. block_name .. [[.lights[i];
+						lights_t light = scene_light(]] .. block_name .. [[.lights, i);
 
 						if (get_light_type(light) == 0) continue;
 
@@ -527,7 +527,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					vec3 contribution = picked_light[k];
 
-					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= caustic_hit_covered(picked_index[k], ]] .. block_name .. [[.lights[picked_index[k] ].position.xyz, P) ? get_light_transmittance_local_caustic(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0) : get_light_transmittance_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= caustic_hit_covered(picked_index[k], scene_light(]] .. block_name .. [[.lights, picked_index[k]).position.xyz, P) ? get_light_transmittance_local_caustic(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0) : get_light_transmittance_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -542,7 +542,7 @@ function scene_hits.GetGLSL(block_name, shared)
 				while (light_bits != 0u) {
 					int i = w * 32 + findLSB(light_bits);
 					light_bits &= light_bits - 1u;
-					lights_t light = ]] .. block_name .. [[.lights[i];
+					lights_t light = scene_light(]] .. block_name .. [[.lights, i);
 
 					if (get_light_type(light) == 0) continue;
 

@@ -250,7 +250,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				float u = pt_random();
 
 				for (int i = 0; i < lighting_data.light_count; i++) {
-					lights_t light = lighting_data.lights[i];
+					lights_t light = scene_light(lighting_data.lights, i);
 					int type = get_light_type(light);
 
 					if (type == 0) {
@@ -298,7 +298,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 				if (picked < 0) return radiance;
 
-				lights_t light = lighting_data.lights[picked];
+				lights_t light = scene_light(lighting_data.lights, picked);
 				vec3 L = picked_one_minus_cos > 0.0 ? pt_sample_cone(picked_axis, picked_one_minus_cos) : picked_axis;
 				float bsdf_pdf;
 				vec3 f = pt_bsdf(v, L, bsdf_pdf);
@@ -330,7 +330,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				vec3 radiance = vec3(0.0);
 
 				for (int i = 0; i < lighting_data.light_count; i++) {
-					lights_t light = lighting_data.lights[i];
+					lights_t light = scene_light(lighting_data.lights, i);
 					int type = get_light_type(light);
 
 					if (type != 1 && type != 3) continue;
@@ -364,7 +364,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				vec3 radiance = vec3(0.0);
 
 				for (int i = 0; i < lighting_data.light_count; i++) {
-					lights_t light = lighting_data.lights[i];
+					lights_t light = scene_light(lighting_data.lights, i);
 					int type = get_light_type(light);
 
 					if (type != 1 && type != 3) continue;
@@ -407,7 +407,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				vec3 radiance = vec3(0.0);
 
 				for (int i = 0; i < lighting_data.light_count; i++) {
-					lights_t light = lighting_data.lights[i];
+					lights_t light = scene_light(lighting_data.lights, i);
 
 					if (get_light_type(light) != 0 || 1.0 - dot(dir, -get_light_direction(light)) > PT_SUN_ONE_MINUS_COS) continue;
 
@@ -784,7 +784,7 @@ local function write_block(self, block, photons)
 	surface_weather.WriteRainSurfaceBlock(self, block)
 	render3d.WriteLastFrameBlock(self, block)
 
-	if photons then path_trace.Update(block.lights) end
+	if photons then path_trace.Update(render3d.GetLights()) end
 
 	local before, trace = path_trace.GetFrame()
 	local caustic = path_trace.caustics:Get() and optical_rays.IsEnabled()

@@ -427,7 +427,7 @@ local scatter_pass = {
 				{"froxel_size", "vec2"},
 				{"frame", "int"},
 				{"water_distance_tex", "int"},
-				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+				{"lights", "uint64_t"},
 				{"light_count", "int"},
 				{"shadows", scene_lights.BuildShadowsBlockLayout()},
 				atmosphere.GetBlockLayout(),
@@ -440,7 +440,8 @@ local scatter_pass = {
 				block.froxel_size[1] = froxels.height
 				block.frame = system.GetFrameNumber()
 				write_water_distance_texture(self, block, "water_distance_tex")
-				light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
+				medium_lighting.WriteLightsBlock(self, block)
+				light_occlusion.WriteOcclusionBlock(block)
 				return block
 			end,
 		},
@@ -891,7 +892,7 @@ local composite_pass = {
 					{"source_tex", "int"},
 					{"water_distance_tex", "int"},
 					{"gi_screen_tex", "int"},
-					{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+					{"lights", "uint64_t"},
 					{"light_count", "int"},
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					atmosphere.GetBlockLayout(),

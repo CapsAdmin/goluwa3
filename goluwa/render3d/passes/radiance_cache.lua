@@ -280,12 +280,12 @@ local function pass_shade()
 					int i = w * 32 + findLSB(light_bits);
 					light_bits &= light_bits - 1u;
 
-					vec4 light_position = radiance_cache_data.lights[i].position;
+					vec4 light_position = scene_light(radiance_cache_data.lights, i).position;
 					vec3 to_light = light_position.xyz - P;
 
-					if (light_position.w == 0.0 || dot(to_light, to_light) >= radiance_cache_data.lights[i].params.x * radiance_cache_data.lights[i].params.x || (light_position.w != 2.0 && dot(N, to_light) <= 0.0)) continue;
+					if (light_position.w == 0.0 || dot(to_light, to_light) >= scene_light(radiance_cache_data.lights, i).params.x * scene_light(radiance_cache_data.lights, i).params.x || (light_position.w != 2.0 && dot(N, to_light) <= 0.0)) continue;
 
-					lights_t light = radiance_cache_data.lights[i];
+					lights_t light = scene_light(radiance_cache_data.lights, i);
 
 					vec3 light_to_surface;
 					float attenuation;
@@ -338,7 +338,7 @@ local function pass_shade()
 					if (visible) {
 						vec3 sample_light = picked_light[k];
 
-						if (radiance_cache_data.light_transmittance != 0) sample_light *= caustic_hit_covered(picked_index[k], radiance_cache_data.lights[picked_index[k] ].position.xyz, P) ? get_light_transmittance_local_caustic(P, picked_ray[k].xyz, shadow_distance, 0.0) : get_light_transmittance_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
+						if (radiance_cache_data.light_transmittance != 0) sample_light *= caustic_hit_covered(picked_index[k], scene_light(radiance_cache_data.lights, picked_index[k]).position.xyz, P) ? get_light_transmittance_local_caustic(P, picked_ray[k].xyz, shadow_distance, 0.0) : get_light_transmittance_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
 
 						direct += sample_light * (total / (picked_weight[k] * float(RADIANCE_CACHE_LIGHT_SAMPLES)));
 					}

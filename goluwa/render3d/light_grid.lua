@@ -1,22 +1,35 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = {}
+import.loaded["goluwa/render3d/light_grid.lua"] = light_grid
+local scene_lights = import("goluwa/render3d/scene_lights.lua")
 light_grid.LEVELS = 4
 light_grid.DIM = 32
 light_grid.CELL_SIZE = 2
-light_grid.WORDS = scene_lights.MAX_LIGHTS / 32
+light_grid.words = scene_lights.capacity / 32
 local HEADER_BYTES = 16 * light_grid.LEVELS + 16
 local BINDING_UNIFORM = 0
 local BINDING_GRID = 1
 local rt_stage = nil
 local buffer = nil
 
+function light_grid.SetCapacity(cmd, capacity)
+	if capacity / 32 == light_grid.words then return end
+
+	light_grid.words = capacity / 32
+
+	if buffer then
+		buffer:Remove()
+		buffer = nil
+		light_grid.GetBuffer(cmd)
+	end
+end
+
 function light_grid.GetBuffer(cmd)
 	if not buffer then
 		rt_stage = render.GetDevice().ray_tracing_supported and "ray_tracing_shader_khr" or nil
 		buffer = render.CreateBuffer{
-			byte_size = HEADER_BYTES + light_grid.LEVELS * light_grid.DIM ^ 3 * light_grid.WORDS * 4,
+			byte_size = HEADER_BYTES + light_grid.LEVELS * light_grid.DIM ^ 3 * light_grid.words * 4,
 			buffer_usage = {"storage_buffer", "transfer_dst"},
 			memory_property = {"device_local"},
 			label = "light_grid",
@@ -48,7 +61,6 @@ local function declarations(binding, access)
 		[[
 		#define LIGHT_GRID_LEVELS %d
 		#define LIGHT_GRID_DIM %d
-		#define LIGHT_GRID_WORDS %d
 		layout(std430, set = 0, binding = %d) %s buffer LightGrid {
 			vec4 light_grid_levels[LIGHT_GRID_LEVELS];
 			ivec4 light_grid_info;
@@ -57,7 +69,6 @@ local function declarations(binding, access)
 	]],
 		light_grid.LEVELS,
 		light_grid.DIM,
-		light_grid.WORDS,
 		binding,
 		access
 	)
@@ -79,11 +90,11 @@ function light_grid.GetGLSL(binding)
 		}
 
 		int light_grid_words(int light_count) {
-			return min((light_count + 31) / 32, LIGHT_GRID_WORDS);
+			return (light_count + 31) / 32;
 		}
 
 		uint light_grid_word(int cell, int w, int light_count) {
-			if (cell >= 0) return light_grid_cells[cell * LIGHT_GRID_WORDS + w];
+			if (cell >= 0) return light_grid_cells[cell * light_grid_info.y + w];
 
 			int n = light_count - w * 32;
 			return n >= 32 ? 0xFFFFFFFFu : n <= 0 ? 0u : (1u << uint(n)) - 1u;
@@ -105,14 +116,16 @@ light_grid.pass = {
 			name = "light_grid_data",
 			binding_index = BINDING_UNIFORM,
 			block = {
-				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+				{"lights", "uint64_t"},
 				{"light_count", "int"},
+				{"words", "int"},
 				{"levels", "vec4", light_grid.LEVELS},
 			},
 			write = function(self, block)
 				local lights = render3d.GetLights()
-				scene_lights.WriteLightsBlock(block.lights, lights)
-				block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+				block.lights = scene_lights.GetAddress(lights)
+				block.light_count = #lights
+				block.words = light_grid.words
 				local camera = render3d.GetCamera():GetPosition()
 
 				for l = 0, light_grid.LEVELS - 1 do
@@ -154,7 +167,7 @@ light_grid.pass = {
 		}
 	end,
 	custom_declarations = declarations(BINDING_GRID, ""),
-	shader = [[
+	shader = scene_lights.GetLightGLSLCode() .. [[
 		void main() {
 			ivec3 id = ivec3(gl_GlobalInvocationID);
 			int l = id.z / LIGHT_GRID_DIM;
@@ -169,7 +182,7 @@ light_grid.pass = {
 					light_grid_levels[i] = light_grid_data.levels[i];
 				}
 
-				light_grid_info = ivec4(LIGHT_GRID_LEVELS, 0, 0, 0);
+				light_grid_info = ivec4(LIGHT_GRID_LEVELS, light_grid_data.words, 0, 0);
 			}
 
 			vec3 box_min = level.xyz + vec3(c) * level.w;
@@ -184,7 +197,7 @@ light_grid.pass = {
 
 					if (i >= light_grid_data.light_count) break;
 
-					lights_t light = light_grid_data.lights[i];
+					lights_t light = scene_light(light_grid_data.lights, i);
 					int type = int(light.position.w);
 					bool reaches = type == 0;
 
@@ -215,7 +228,7 @@ light_grid.pass = {
 					if (reaches) bits |= 1u << uint(b);
 				}
 
-				light_grid_cells[cell * LIGHT_GRID_WORDS + w] = bits;
+				light_grid_cells[cell * light_grid_data.words + w] = bits;
 			}
 		}
 	]],

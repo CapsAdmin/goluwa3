@@ -49,7 +49,7 @@ surface_lighting.PASS_PATHS = {
 }
 surface_lighting.block = {
 	render3d.camera_block,
-	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+	{"lights", "uint64_t"},
 	{"light_count", "int"},
 	{"shadows", scene_lights.BuildShadowsBlockLayout()},
 	{"env_tex", "int"},
@@ -95,8 +95,8 @@ surface_lighting.block = {
 function surface_lighting.WriteBlock(self, block)
 	render3d.WriteCameraBlock(self, block)
 	local lights = render3d.GetLights()
-	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-	scene_lights.WriteLightsBlock(block.lights, lights)
+	block.lights = scene_lights.GetAddress(lights)
+	block.light_count = #lights
 	scene_lights.WriteShadowBlock(self, block.shadows, lights)
 	block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 	block.brdf_lut_tex = self:GetTextureIndex(
@@ -106,7 +106,7 @@ function surface_lighting.WriteBlock(self, block)
 		)
 	)
 	render3d.WriteCommonBlock(self, block)
-	light_occlusion.WriteOcclusionBlock(block, lights)
+	light_occlusion.WriteOcclusionBlock(block)
 	local primary_sun = directional_shadows.GetPrimarySun(lights)
 	local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
 	sun_direction:CopyToFloatPointer(block.primary_sun_direction)
@@ -456,7 +456,8 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			if (type == 0) {
 				if (i == ]] .. block_name .. [[.shadows.directional_shadow_light_index && ]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0) return calculateShadow(position, L, L);
 			} else if (type == 1 || type == 3) {
-				return light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light_position, light_range, position, ]] .. block_name .. [[.lights[i].direction.w, vec3(0.0));
+				lights_t light = scene_light(]] .. block_name .. [[.lights, i);
+				return light_oct_shadow_factor(light.slots.x, light_position, light_range, position, light.direction.w, vec3(0.0));
 			}
 
 			return 1.0;
@@ -473,7 +474,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				while (light_bits != 0u) {
 					int i = w * 32 + findLSB(light_bits);
 					light_bits &= light_bits - 1u;
-					lights_t light = ]] .. block_name .. [[.lights[i];
+					lights_t light = scene_light(]] .. block_name .. [[.lights, i);
 					int type = get_light_type(light);
 					vec3 L;
 					float attenuation = 1.0;
@@ -520,7 +521,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			while (light_bits != 0u) {
 				int i = w * 32 + findLSB(light_bits);
 				light_bits &= light_bits - 1u;
-				lights_t light = ]] .. block_name .. [[.lights[i];
+				lights_t light = scene_light(]] .. block_name .. [[.lights, i);
 				int type = get_light_type(light);
 				vec3 L;
 				float attenuation = 1.0;
@@ -584,7 +585,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 					shadow_factor = calculateLocalDirectionalShadow(s.world_pos, shadow_N, L);
 					screen_marchable = false;
 				} else if (type == 1 || type == 3) {
-					shadow_factor = light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos, light.direction.w, shadow_N);
+					shadow_factor = light_oct_shadow_factor(light.slots.x, light.position.xyz, light.params.x, s.world_pos, light.direction.w, shadow_N);
 
 					if (scatter_floor <= 0.0 && brightest * shadow_factor * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 

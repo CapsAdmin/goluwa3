@@ -5,7 +5,6 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local water = import("goluwa/render3d/water.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
-local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local medium_surface = import("goluwa/render3d/medium_surface.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
@@ -390,7 +389,7 @@ local function prepare()
 	local sun, sun_index = directional_shadows.GetPrimarySun(lights)
 	local count = 0
 
-	if sun and sun_index < scene_lights.MAX_LIGHTS then
+	if sun then
 		frame_state.sun_index = sun_index
 		local to_sun = directional_shadows.GetPrimarySunDirection(lights)
 
@@ -412,7 +411,7 @@ local function prepare()
 		end
 	end
 
-	for i = 1, math.min(#lights, scene_lights.MAX_LIGHTS) do
+	for i = 1, #lights do
 		count = add_lamp_entries(count, caster_count, lights[i], i - 1)
 	end
 
@@ -960,7 +959,7 @@ function caustics.GetGLSL(block_name)
 			stratum = (float(bayer) + caustic_random()) / 64.0;
 			vec2 uv = (cell_index + vec2(caustic_random(), caustic_random())) * cell.xy;
 			int light_index = int(meta.z);
-			lights_t light = $B.lights[light_index];
+			lights_t light = scene_light($B.lights, light_index);
 
 			if (meta.w > 0.5) {
 				float one_minus_cos = uv.x * (1.0 - rect.w);
@@ -1042,7 +1041,7 @@ function caustics.GetGLSL(block_name)
 			vec3 L;
 			float attenuation;
 
-			if (!get_light_vector_and_attenuation($B.lights[lamp], $B.lights[lamp].position.xyz + emitted * travelled, L, attenuation)) return false;
+			if (!get_light_vector_and_attenuation(scene_light($B.lights, lamp), scene_light($B.lights, lamp).position.xyz + emitted * travelled, L, attenuation)) return false;
 
 			flux *= attenuation * travelled * travelled;
 			return true;

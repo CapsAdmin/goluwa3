@@ -196,10 +196,12 @@ local function bind_surface(surface, cmd)
 
 	surface.surface_lighting_sets = surface.surface_lighting_sets or {}
 	froxel_fog.BindVolume(surface, frame)
+	local grid = light_grid.GetBuffer(cmd)
+	local occlusion = light_occlusion.GetOcclusionTexture()
+	local bound = surface.surface_lighting_sets[frame]
 
-	if not surface.surface_lighting_sets[frame] then
-		surface.surface_lighting_sets[frame] = true
-		local grid = light_grid.GetBuffer(cmd)
+	if not bound or bound.grid ~= grid or bound.occlusion ~= occlusion then
+		surface.surface_lighting_sets[frame] = {grid = grid, occlusion = occlusion}
 		surface:UpdateDescriptorSet("storage_buffer", frame, BINDING_LIGHT_GRID, 0, grid, grid:GetSize())
 		surface:UpdateDescriptorSet(
 			"combined_image_sampler",

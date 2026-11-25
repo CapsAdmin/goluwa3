@@ -1,15 +1,19 @@
+local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
-local system = import("goluwa/system.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
 local scene_lights = {}
-scene_lights.MAX_LIGHTS = 256
+import.loaded["goluwa/render3d/scene_lights.lua"] = scene_lights
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
+local light_grid
+scene_lights.MIN_CAPACITY = 64
+scene_lights.capacity = scene_lights.MIN_CAPACITY
 scene_lights.MAX_CASCADES = directional_shadows.MAX_CASCADES
 scene_lights.MAX_POINT_SHADOWS = 32
 
@@ -21,14 +25,18 @@ local function sort_lights(a, b)
 	return a.light_index < b.light_index
 end
 
-function scene_lights.BuildLightsBlockLayout()
-	return {
-		{"position", "vec4"},
-		{"direction", "vec4"},
-		{"color", "vec4"},
-		{"params", "vec4"},
-		{"falloff", "vec4"},
-	}
+function scene_lights.FitCapacity(count, capacity)
+	local needed = scene_lights.MIN_CAPACITY
+
+	while needed < count do
+		needed = needed * 2
+	end
+
+	if not capacity or needed > capacity then return needed end
+
+	if needed * 4 <= capacity then return needed * 2 end
+
+	return capacity
 end
 
 function scene_lights.BuildShadowsBlockLayout()
@@ -66,6 +74,21 @@ end
 
 function scene_lights.GetLightGLSLCode()
 	return [=[
+			struct lights_t {
+				vec4 position;
+				vec4 direction;
+				vec4 color;
+				vec4 params;
+				vec4 falloff;
+				ivec4 slots;
+			};
+
+			layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer SceneLights { lights_t l[]; };
+
+			lights_t scene_light(uint64_t lights, int i) {
+				return SceneLights(lights).l[i];
+			}
+
 			int get_light_type(lights_t light) {
 				return int(light.position.w);
 			}
@@ -155,107 +178,141 @@ function scene_lights.GetLightGLSLCode()
 		]=]
 end
 
-local cached_bytes
-local cached_size = 0
-local cached_frame = -1
-local cached_lights
-local light_rotation = Quat()
-local light_direction = Vec3()
-local light_forward = orientation.FORWARD_VECTOR
-local light_backward = -orientation.FORWARD_VECTOR
+do
+	local LightRecord = ffi.typeof([[struct {
+		float position[4];
+		float direction[4];
+		float color[4];
+		float params[4];
+		float falloff[4];
+		int32_t slots[4];
+	}]])
+	local LightRecordArray = ffi.typeof("$[?]", LightRecord)
+	local Uint32Pointer = ffi.typeof("const uint32_t*")
+	local RECORD_SIZE = ffi.sizeof(LightRecord)
+	local RING = 4
+	local light_rotation = Quat()
+	local light_direction = Vec3()
+	local light_forward = orientation.FORWARD_VECTOR
+	local light_backward = -orientation.FORWARD_VECTOR
+	local uploads = setmetatable({}, {__mode = "k"})
 
-function scene_lights.WriteLightsBlock(lights_block, lights)
-	local size = ffi.sizeof(lights_block)
+	local function write_record(data, light, index)
+		local world = light.Owner.transform:GetWorldMatrix()
+		data.position[0], data.position[1], data.position[2] = world:GetTranslation()
+		Quat.SetVecMul(
+			light_direction,
+			world:GetRotation(light_rotation),
+			light.Type == "light_directional" and light_backward or light_forward
+		):CopyToFloatPointer(data.direction)
+		data.falloff[0] = light.SourceRadius ^ 2 + light.ConstantFalloff
+		data.falloff[1] = light.LinearFalloff
+		data.falloff[2] = light.QuadraticFalloff
+		data.falloff[3] = light.GlowRadius
+		data.direction[3] = light.SourceRadius
 
-	if
-		cached_frame == system.GetFrameNumber() and
-		cached_lights == lights and
-		cached_size == size
-	then
-		ffi.copy(lights_block, cached_bytes, size)
-		return
-	end
-
-	for i = 0, scene_lights.MAX_LIGHTS - 1 do
-		local data = lights_block[i]
-		local light = lights[i + 1]
-
-		if light then
-			local world = light.Owner.transform:GetWorldMatrix()
-			data.position[0], data.position[1], data.position[2] = world:GetTranslation()
-			Quat.SetVecMul(
-				light_direction,
-				world:GetRotation(light_rotation),
-				light.Type == "light_directional" and light_backward or light_forward
-			):CopyToFloatPointer(data.direction)
-			data.falloff[0] = light.SourceRadius ^ 2 + light.ConstantFalloff
-			data.falloff[1] = light.LinearFalloff
-			data.falloff[2] = light.QuadraticFalloff
-			data.falloff[3] = light.GlowRadius
-			data.direction[3] = light.SourceRadius
-
-			if light.Type == "light_sun" then
-				data.position[3] = 0
-				data.params[0] = 0
-				data.params[1] = 0
-				data.params[2] = 0
-			elseif light.Type == "light_point" then
-				data.position[3] = 1
-				data.params[0] = light:GetEffectiveRange()
-				data.params[1] = 0
-				data.params[2] = 0
-			elseif light.Type == "light_directional" then
-				data.position[3] = 2
-				data.params[0] = light:GetEffectiveRange()
-				data.params[1] = 0
-				data.params[2] = 0
-			elseif light.Type == "light_spot" then
-				data.position[3] = 3
-				data.params[0] = light:GetEffectiveRange()
-				data.params[1] = math.cos(math.rad(light.InnerCone))
-				data.params[2] = math.cos(math.rad(light.OuterCone))
-			else
-				error("Unknown light type: " .. tostring(light.Type), 2)
-			end
-
-			local color_scale = light:GetColorScale()
-			data.color[0] = light.Color.r * color_scale
-			data.color[1] = light.Color.g * color_scale
-			data.color[2] = light.Color.b * color_scale
-			data.color[3] = light:GetPhotometricAmount()
-			data.params[3] = light:GetInverseEmissionSolidAngle()
-		else
-			data.position[0] = 0
-			data.position[1] = 0
-			data.position[2] = 0
+		if light.Type == "light_sun" then
 			data.position[3] = 0
-			data.direction[0] = 0
-			data.direction[1] = 0
-			data.direction[2] = 1
-			data.direction[3] = 0
-			data.color[0] = 0
-			data.color[1] = 0
-			data.color[2] = 0
-			data.color[3] = 0
 			data.params[0] = 0
 			data.params[1] = 0
 			data.params[2] = 0
-			data.params[3] = 0
-			data.falloff[0] = 0
-			data.falloff[1] = 0
-			data.falloff[2] = 0
-			data.falloff[3] = 0
+		elseif light.Type == "light_point" then
+			data.position[3] = 1
+			data.params[0] = light:GetEffectiveRange()
+			data.params[1] = 0
+			data.params[2] = 0
+		elseif light.Type == "light_directional" then
+			data.position[3] = 2
+			data.params[0] = light:GetEffectiveRange()
+			data.params[1] = 0
+			data.params[2] = 0
+		elseif light.Type == "light_spot" then
+			data.position[3] = 3
+			data.params[0] = light:GetEffectiveRange()
+			data.params[1] = math.cos(math.rad(light.InnerCone))
+			data.params[2] = math.cos(math.rad(light.OuterCone))
+		else
+			error("Unknown light type: " .. tostring(light.Type), 2)
 		end
+
+		local color_scale = light:GetColorScale()
+		data.color[0] = light.Color.r * color_scale
+		data.color[1] = light.Color.g * color_scale
+		data.color[2] = light.Color.b * color_scale
+		data.color[3] = light:GetPhotometricAmount()
+		data.params[3] = light:GetInverseEmissionSolidAngle()
+		data.slots[0] = light_occlusion.GetMapLayer(index, light)
+		data.slots[1] = -1
+		data.slots[2] = -1
+		data.slots[3] = -1
 	end
 
-	if cached_size ~= size then
-		cached_bytes = ffi.new("uint8_t[?]", size)
-		cached_size = size
+	function scene_lights.GetAddress(lights)
+		local count = #lights
+
+		if count == 0 then return 0 end
+
+		local upload = uploads[lights]
+
+		if not upload then
+			upload = {buffers = {}, serial = -1, address = 0}
+			uploads[lights] = upload
+		end
+
+		if upload.serial == render.frame_serial then return upload.address end
+
+		local capacity = scene_lights.FitCapacity(count, upload.capacity)
+
+		if capacity ~= upload.capacity then
+			upload.capacity = capacity
+			upload.host = LightRecordArray(capacity)
+		end
+
+		local slot = render.frame_serial % RING + 1
+		local buffer = upload.buffers[slot]
+
+		if not buffer or buffer:GetSize() ~= upload.capacity * RECORD_SIZE then
+			if buffer then buffer:Remove() end
+
+			buffer = render.CreateBuffer{
+				byte_size = upload.capacity * RECORD_SIZE,
+				buffer_usage = {"storage_buffer", "shader_device_address"},
+				memory_property = {"host_visible", "host_coherent"},
+				label = "scene_lights",
+			}
+			upload.buffers[slot] = buffer
+		end
+
+		local host = upload.host
+
+		for i = 1, count do
+			write_record(host[i - 1], lights[i], i - 1)
+		end
+
+		ffi.copy(buffer:Map(), host, count * RECORD_SIZE)
+		upload.serial = render.frame_serial
+		upload.address = buffer:GetDeviceAddress()
+		return upload.address
 	end
 
-	ffi.copy(cached_bytes, lights_block, size)
-	cached_frame = system.GetFrameNumber()
-	cached_lights = lights
+	function scene_lights.GetHash(lights)
+		if scene_lights.GetAddress(lights) == 0 then return 0 end
+
+		local words = ffi.cast(Uint32Pointer, uploads[lights].host)
+		local hash = #lights
+
+		for i = 0, #lights * RECORD_SIZE / 4 - 1 do
+			hash = bit.bxor(bit.rol(hash, 5), words[i])
+		end
+
+		return hash
+	end
+end
+
+function scene_lights.Update(cmd)
+	scene_lights.capacity = scene_lights.FitCapacity(#render3d.GetLights(), scene_lights.capacity)
+	light_grid.SetCapacity(cmd, scene_lights.capacity)
+	light_occlusion.SetCapacity(cmd, scene_lights.capacity)
 end
 
 local function write_sun_shadows(self, shadow_block, sun)
@@ -342,8 +399,6 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	shadow_block.point_shadow_count = 0
 
 	for light_index, light in ipairs(lights) do
-		if light_index > scene_lights.MAX_LIGHTS then break end
-
 		local light_maps = maps_by_light[light.Owner]
 
 		if
@@ -508,4 +563,6 @@ function scene_lights.GetPointShadowGLSL(data_block)
 		)
 end
 
+-- light_grid builds its pass from this module when it loads
+light_grid = import("goluwa/render3d/light_grid.lua")
 return scene_lights

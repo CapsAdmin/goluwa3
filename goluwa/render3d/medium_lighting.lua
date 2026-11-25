@@ -8,7 +8,7 @@ function medium_lighting.GetSunHelpersGLSL(data_block)
 	return [[
 		int get_current_primary_sun_index() {
 			for (int i = 0; i < ]] .. data_block .. [[.light_count; i++) {
-				if (get_light_type(]] .. data_block .. [[.lights[i]) == 0) return i;
+				if (get_light_type(scene_light(]] .. data_block .. [[.lights, i)) == 0) return i;
 			}
 
 			return -1;
@@ -19,20 +19,20 @@ function medium_lighting.GetSunHelpersGLSL(data_block)
 
 			if (sun_index < 0) return vec3(0.0, 1.0, 0.0);
 
-			return normalize(-]] .. data_block .. [[.lights[sun_index].direction.xyz);
+			return normalize(-scene_light(]] .. data_block .. [[.lights, sun_index).direction.xyz);
 		}
 
 		float get_current_primary_sun_illuminance() {
 			int sun_index = get_current_primary_sun_index();
-			return sun_index < 0 ? ]] .. string.format("%.17g", atmosphere.GetSunIlluminance()) .. [[ : ]] .. data_block .. [[.lights[sun_index].color.a;
+			return sun_index < 0 ? ]] .. string.format("%.17g", atmosphere.GetSunIlluminance()) .. [[ : scene_light(]] .. data_block .. [[.lights, sun_index).color.a;
 		}
 	]]
 end
 
 function medium_lighting.WriteLightsBlock(self, block)
 	local lights = render3d.GetLights()
-	scene_lights.WriteLightsBlock(block.lights, lights)
-	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
+	block.lights = scene_lights.GetAddress(lights)
+	block.light_count = #lights
 	scene_lights.WriteShadowBlock(self, block.shadows, lights)
 	atmosphere.WriteBlock(
 		self,
@@ -58,7 +58,7 @@ function medium_lighting.GetLightVisibilityGLSL(data_block)
 		}
 
 		float get_medium_light_visibility(int i, lights_t light, vec3 world_pos, vec3 L) {
-			float occlusion = light_oct_shadow_factor(]] .. data_block .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos, 0.0, vec3(0.0));
+			float occlusion = light_oct_shadow_factor(light.slots.x, light.position.xyz, light.params.x, world_pos, 0.0, vec3(0.0));
 
 			if (occlusion <= 0.0) return 0.0;
 
@@ -105,7 +105,7 @@ function medium_lighting.GetLocalLightsGLSL(data_block, limit, options)
 			while (light_bits != 0u && processed < ]] .. limit .. [[) {
 				int i = word * 32 + findLSB(light_bits);
 				light_bits &= light_bits - 1u;
-				lights_t light = ]] .. data_block .. [[.lights[i];
+				lights_t light = scene_light(]] .. data_block .. [[.lights, i);
 				int type = get_light_type(light);
 
 				if (type == 0) continue;

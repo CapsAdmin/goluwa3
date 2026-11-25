@@ -875,7 +875,7 @@ local function get_pipelines()
 					binding_index = 10,
 					block = {
 						render3d.camera_block,
-						{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+						{"lights", "uint64_t"},
 						{"light_count", "int"},
 						{"shadows", scene_lights.BuildShadowsBlockLayout()},
 						atmosphere.GetBlockLayout(),
@@ -883,7 +883,8 @@ local function get_pipelines()
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
-						light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
+						medium_lighting.WriteLightsBlock(self, block)
+						light_occlusion.WriteOcclusionBlock(block)
 						return block
 					end,
 				},
@@ -955,7 +956,7 @@ local function get_pipelines()
 
 						if (i < 0) continue;
 
-						lights_t light = light_data.lights[i];
+						lights_t light = scene_light(light_data.lights, i);
 						vec3 light_grid_pos = ((fluid.to_local * vec4(light.position.xyz, 1.0)).xyz + fluid.half_size.xyz) / fluid.half_size.w;
 						slot_depth[k] = march_to(vec3(c) + 0.5, light_grid_pos);
 
@@ -1494,7 +1495,7 @@ local function choose_light_slots(volume, state)
 	local half = Vec3(state.nx, state.ny, state.nz) * (state.cell / 2)
 	local lights = render3d.GetLights()
 
-	for index = 1, math.min(#lights, scene_lights.MAX_LIGHTS) do
+	for index = 1, #lights do
 		local light = lights[index]
 
 		if light.Type ~= "light_sun" and light.Type ~= "light_directional" then
@@ -2098,7 +2099,6 @@ function fluid_volumes.Simulate(cmd)
 			{[0] = state.obstacles, [1] = state.motion, [2] = state.static_obstacles}
 		)
 		barrier(cmd)
-
 		local fill_key = not simulated and
 			volume:GetNoiseAmount() == 0 and
 			table.concat(

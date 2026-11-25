@@ -589,7 +589,7 @@ function particles.BuildSimulationPasses()
 				{"dt", "float"},
 				{"env_irradiance_tex", "int"},
 				post_source.pre_exposure_block,
-				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+				{"lights", "uint64_t"},
 				{"light_count", "int"},
 				{"shadows", scene_lights.BuildShadowsBlockLayout()},
 				atmosphere.GetBlockLayout(),
@@ -608,7 +608,8 @@ function particles.BuildSimulationPasses()
 				surface_weather.WriteBlock(self, block)
 				gbuffer_layout.WriteBlock(self, block)
 				block.bvh_ready = bvh_ready and 1 or 0
-				light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
+				medium_lighting.WriteLightsBlock(self, block)
+				light_occlusion.WriteOcclusionBlock(block)
 				particles.WriteSystems(block)
 				return block
 			end,

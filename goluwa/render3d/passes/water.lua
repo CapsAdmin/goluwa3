@@ -881,7 +881,7 @@ list.insert(
 						0
 
 					if RAY_QUERY then
-						light_occlusion.WriteOcclusionBlock(block, lights)
+						light_occlusion.WriteOcclusionBlock(block)
 						scene_hits.WriteBlock(self, block)
 						atmosphere.WriteBlock(
 							self,
@@ -2010,7 +2010,7 @@ if (w.volume >= 0) {
 						while (light_bits != 0u && shaded < WATER_LIGHT_MAX_PER_SAMPLE) {
 							int li = word * 32 + findLSB(light_bits);
 							light_bits &= light_bits - 1u;
-							lights_t light = water_data.lights[li];
+							lights_t light = scene_light(water_data.lights, li);
 
 							if (get_light_type(light) == 0) continue;
 

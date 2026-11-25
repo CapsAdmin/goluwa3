@@ -1138,6 +1138,8 @@ function render3d.Initialize(config)
 			scene_rt.PrepareScene(render.GetCommandBuffer())
 		end
 
+		import("goluwa/render3d/scene_lights.lua").Update(render.GetCommandBuffer())
+
 		if not (render3d.camera_stack and #render3d.camera_stack > 1) then
 			local camera = render3d.GetCamera()
 			local view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()

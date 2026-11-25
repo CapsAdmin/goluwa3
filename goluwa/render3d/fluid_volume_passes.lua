@@ -203,7 +203,7 @@ fluid_volume_passes.view = {
 				{"froxel_size", "vec2"},
 				{"frame", "int"},
 				{"water_distance_tex", "int"},
-				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+				{"lights", "uint64_t"},
 				{"light_count", "int"},
 				{"shadows", scene_lights.BuildShadowsBlockLayout()},
 				atmosphere.GetBlockLayout(),

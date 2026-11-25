@@ -438,7 +438,7 @@ return {
 				for (int k = 0; k < lighting_data.caustic_caster_count; k++) {
 					vec4 meta = lighting_data.caustic_rects[k * 2 + 1];
 					vec4 rect = lighting_data.caustic_rects[k * 2];
-					lights_t light = lighting_data.lights[int(meta.z)];
+					lights_t light = scene_light(lighting_data.lights, int(meta.z));
 					vec3 L;
 					float attenuation;
 

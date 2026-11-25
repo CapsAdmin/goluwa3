@@ -4,7 +4,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local Texture = import("goluwa/render/texture.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
@@ -12,6 +11,7 @@ local rt = import("goluwa/render3d/scene/rt.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local light_occlusion = {}
+light_occlusion.capacity = 64
 pvars.StartGroup("Lighting", "Light occlusion", {store = false, prefix = "light_occlusion_"})
 local enabled = pvars.Setup2{
 	key = "light_occlusion",
@@ -75,7 +75,6 @@ pvars.EndGroup()
 local LIGHT_OCCL_MAX_TRACES_PER_FRAME = 4
 local LIGHT_OCCL_RETRACE_INTERVAL = 4
 local LIGHT_OCCL_MOVE_TOLERANCE_SQ = 0.02 * 0.02
-local MAX_LIGHTS = scene_lights.MAX_LIGHTS
 local BINDING_UNIFORM = 0
 local BINDING_MAP = 1
 local BINDING_TLAS = 2
@@ -180,7 +179,7 @@ local function process_geometry_change(lights)
 
 	if not dirty_all and not boxes[1] then return end
 
-	for light_index = 1, math.min(#lights, MAX_LIGHTS) do
+	for light_index = 1, math.min(#lights, light_occlusion.capacity) do
 		local light = lights[light_index]
 
 		if is_occlusion_light(light) then
@@ -222,29 +221,27 @@ local function build_trace_pipeline()
 				name = "oct_data",
 				binding_index = BINDING_UNIFORM,
 				block = {
-					{"oct_positions", "vec4", MAX_LIGHTS},
+					{"trace_positions", "vec4", LIGHT_OCCL_MAX_TRACES_PER_FRAME},
 					{"slot_at_z", "int", LIGHT_OCCL_MAX_TRACES_PER_FRAME},
 					{"oct_size", "int"},
 				},
 				write = function(self, block)
 					local lights = render3d.GetLights()
 
-					for i = 0, MAX_LIGHTS - 1 do
-						local light = lights[i + 1]
+					for i = 0, LIGHT_OCCL_MAX_TRACES_PER_FRAME - 1 do
+						local slot = slot_at_z[i + 1] or 0
+						local light = lights[slot + 1]
+						block.slot_at_z[i] = slot
 
 						if is_occlusion_light(light) then
-							light.Owner.transform:GetWorldPosition():CopyToFloatPointer(block.oct_positions[i])
-							block.oct_positions[i][3] = light:GetEffectiveRange()
+							light.Owner.transform:GetWorldPosition():CopyToFloatPointer(block.trace_positions[i])
+							block.trace_positions[i][3] = light:GetEffectiveRange()
 						else
-							block.oct_positions[i][0] = 0
-							block.oct_positions[i][1] = 0
-							block.oct_positions[i][2] = 0
-							block.oct_positions[i][3] = 0
+							block.trace_positions[i][0] = 0
+							block.trace_positions[i][1] = 0
+							block.trace_positions[i][2] = 0
+							block.trace_positions[i][3] = 0
 						end
-					end
-
-					for i = 0, LIGHT_OCCL_MAX_TRACES_PER_FRAME - 1 do
-						block.slot_at_z[i] = slot_at_z[i + 1] or 0
 					end
 
 					block.oct_size = get_map_size()
@@ -279,7 +276,7 @@ local function build_trace_pipeline()
 			void main() {
 				ivec2 p = ivec2(gl_GlobalInvocationID.xy);
 				int slot = oct_data.slot_at_z[gl_GlobalInvocationID.z];
-				vec4 light = oct_data.oct_positions[slot];
+				vec4 light = oct_data.trace_positions[gl_GlobalInvocationID.z];
 				int size = oct_data.oct_size;
 
 				if (p.x >= size || p.y >= size) return;
@@ -451,18 +448,34 @@ local function build_mip_pipeline(levels)
 	}
 end
 
+local function create_map_layers(size, levels, capacity)
+	light_occlusion.map_texture = create_map_texture(
+		size,
+		capacity,
+		"light_occlusion_map",
+		{"sampled", "storage", "transfer_src", "transfer_dst"},
+		MAP_SAMPLER_CONFIG,
+		levels
+	)
+	light_occlusion.map_capacity = capacity
+	light_occlusion.mip_views = {}
+
+	for level = 0, levels - 1 do
+		light_occlusion.mip_views[level] = light_occlusion.map_texture:GetImage():CreateView{
+			view_type = "2d_array",
+			base_mip_level = level,
+			level_count = 1,
+			base_array_layer = 0,
+			layer_count = capacity,
+		}
+	end
+end
+
 local function ensure_map_texture()
 	if not light_occlusion.map_texture then
 		local size = oct_size:Get()
 		local levels = get_mip_count(size)
-		light_occlusion.map_texture = create_map_texture(
-			size,
-			MAX_LIGHTS,
-			"light_occlusion_map",
-			{"sampled", "storage", "transfer_src", "transfer_dst"},
-			MAP_SAMPLER_CONFIG,
-			levels
-		)
+		create_map_layers(size, levels, light_occlusion.capacity)
 		light_occlusion.scratch_texture = create_map_texture(
 			size,
 			LIGHT_OCCL_MAX_TRACES_PER_FRAME,
@@ -473,17 +486,52 @@ local function ensure_map_texture()
 		)
 		light_occlusion.map_size = size
 		light_occlusion.map_levels = levels
-		light_occlusion.mip_views = {}
+	end
+end
 
-		for level = 0, levels - 1 do
-			light_occlusion.mip_views[level] = light_occlusion.map_texture:GetImage():CreateView{
-				view_type = "2d_array",
-				base_mip_level = level,
-				level_count = 1,
-				base_array_layer = 0,
-				layer_count = MAX_LIGHTS,
-			}
-		end
+function light_occlusion.SetCapacity(cmd, capacity)
+	light_occlusion.capacity = capacity
+	local old = light_occlusion.map_texture
+
+	if not old or light_occlusion.map_capacity == capacity then return end
+
+	local old_capacity = light_occlusion.map_capacity
+	local old_views = light_occlusion.mip_views
+	local size = light_occlusion.map_size
+	create_map_layers(size, light_occlusion.map_levels, capacity)
+	local new = light_occlusion.map_texture
+	render.TransitionResource(old, "transfer_src_optimal", {cmd = cmd})
+	render.TransitionResource(new, "transfer_dst_optimal", {cmd = cmd})
+
+	for level = 0, light_occlusion.map_levels - 1 do
+		cmd:CopyImageToImage{
+			src_image = old:GetImage(),
+			dst_image = new:GetImage(),
+			width = math.max(bit.rshift(size, level), 1),
+			height = math.max(bit.rshift(size, level), 1),
+			src_mip_level = level,
+			dst_mip_level = level,
+			layer_count = math.min(old_capacity, capacity),
+		}
+	end
+
+	render.TransitionResource(
+		new,
+		"shader_read_only_optimal",
+		{cmd = cmd, dstStage = "all_commands", dstAccess = "shader_read"}
+	)
+
+	for _, view in pairs(old_views) do
+		view:Remove()
+	end
+
+	old:Remove()
+
+	for light_index = capacity + 1, old_capacity do
+		state[light_index] = nil
+		stamps[light_index] = nil
+		move_frame[light_index] = nil
+		geom_stale[light_index] = nil
 	end
 end
 
@@ -522,7 +570,7 @@ function light_occlusion.Draw(cmd)
 	local dirty_count = 0
 	local camera_pos = render3d.GetCamera():GetPosition()
 
-	for light_index = 1, MAX_LIGHTS do
+	for light_index = 1, light_occlusion.capacity do
 		local light = lights[light_index]
 
 		if not is_occlusion_light(light) then
@@ -614,7 +662,10 @@ function light_occlusion.Draw(cmd)
 	local map_texture = light_occlusion.map_texture
 	local scratch_texture = light_occlusion.scratch_texture
 	local slot = get_descriptor_slot()
-	render.TransitionResourceToComputeStorage(map_texture, {cmd = cmd, base_array_layer = 0, layer_count = MAX_LIGHTS})
+	render.TransitionResourceToComputeStorage(
+		map_texture,
+		{cmd = cmd, base_array_layer = 0, layer_count = light_occlusion.map_capacity}
+	)
 	render.TransitionResourceToComputeStorage(
 		scratch_texture,
 		{cmd = cmd, base_array_layer = 0, layer_count = LIGHT_OCCL_MAX_TRACES_PER_FRAME}
@@ -734,7 +785,7 @@ function light_occlusion.Draw(cmd)
 			dstStage = "compute",
 			dstAccess = "shader_read",
 			base_array_layer = 0,
-			layer_count = MAX_LIGHTS,
+			layer_count = light_occlusion.map_capacity,
 		}
 	)
 
@@ -780,7 +831,7 @@ function light_occlusion.GetDebugState()
 		lights = {},
 	}
 
-	for light_index = 1, MAX_LIGHTS do
+	for light_index = 1, light_occlusion.capacity do
 		local light = lights[light_index]
 
 		if is_occlusion_light(light) then
@@ -834,8 +885,6 @@ end
 
 function light_occlusion.GetBlockLayout()
 	return {
-		{"bvh_oct_slot", "int", MAX_LIGHTS},
-		{"bvh_oct_active", "int"},
 		{"bvh_oct_size", "int"},
 		{"bvh_oct_bias", "float"},
 		{"bvh_oct_bleed_reduction", "float"},
@@ -843,35 +892,23 @@ function light_occlusion.GetBlockLayout()
 	}
 end
 
-function light_occlusion.WriteOcclusionBlock(block, lights)
-	for i = 0, MAX_LIGHTS - 1 do
-		block.bvh_oct_slot[i] = -1
-	end
-
-	local active = 0
-
-	if hit.IsSupported() and enabled:Get() then
-		for light_index = 1, math.min(#lights, MAX_LIGHTS) do
-			local info = state[light_index]
-
-			if info and info.light == lights[light_index] then
-				block.bvh_oct_slot[light_index - 1] = light_index - 1
-				active = 1
-			end
-		end
-	end
-
-	block.bvh_oct_active = active
+function light_occlusion.WriteOcclusionBlock(block)
 	block.bvh_oct_size = get_map_size()
 	block.bvh_oct_bias = bias:Get()
 	block.bvh_oct_bleed_reduction = bleed_reduction:Get()
 	block.bvh_oct_soft = soft:Get() and 1 or 0
 end
 
+function light_occlusion.GetMapLayer(index, light)
+	if not (enabled:Get() and hit.IsSupported()) then return -1 end
+
+	local info = state[index + 1]
+	return info and info.light == light and index or -1
+end
+
 function light_occlusion.GetSamplingGLSL(data_block)
 	return (
 			[[
-		const int LIGHT_OCCL_MAX_SLOTS = ]] .. MAX_LIGHTS .. [[;
 		const int LIGHT_OCCL_TAPS = 12;
 
 		]] .. glsl_common.GetOctahedralGLSL() .. [[
@@ -908,7 +945,7 @@ function light_occlusion.GetSamplingGLSL(data_block)
 		}
 
 		float light_oct_shadow_factor(int slot, vec3 light_pos, float range, vec3 world_pos, float source_radius, vec3 normal) {
-			if (slot < 0 || slot >= LIGHT_OCCL_MAX_SLOTS || ]] .. data_block .. [[.bvh_oct_active == 0) return 1.0;
+			if (slot < 0) return 1.0;
 			vec3 to_pos = world_pos - light_pos;
 			float dist = length(to_pos);
 

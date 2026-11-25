@@ -1485,7 +1485,7 @@ function radiance_cache.GetBlockLayout()
 	local layout = {
 		render3d.camera_block,
 		gbuffer_layout.block,
-		{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+		{"lights", "uint64_t"},
 		{"light_count", "int"},
 	}
 	table.add(layout, radiance_cache.GetProbeBlockLayout())
@@ -1594,8 +1594,8 @@ function radiance_cache.WriteBlock(self, block)
 	render3d.WriteCameraBlock(self, block)
 	gbuffer_layout.WriteBlock(self, block)
 	local lights = render3d.GetLights()
-	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
-	scene_lights.WriteLightsBlock(block.lights, lights)
+	block.lights = scene_lights.GetAddress(lights)
+	block.light_count = #lights
 	post_source.WritePreExposureBlock(self, block)
 	block.light_transmittance = ray_materials.HasDirectTint() and 1 or 0
 	block.medium_gi = ray_materials.HasMedium() and 1 or 0

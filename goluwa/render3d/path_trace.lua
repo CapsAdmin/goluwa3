@@ -1,10 +1,10 @@
-local ffi = require("ffi")
 local pvars = import("goluwa/cli/pvars.lua")
 local commands = import("goluwa/cli/commands.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local Material = import("goluwa/render3d/material.lua")
+local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local path_trace = {}
 path_trace.VIEWS = {"path", "raster", "split", "difference"}
 pvars.StartGroup("Lighting", "Path tracer", {store = false, prefix = "path_trace_"})
@@ -81,18 +81,6 @@ commands.Add("path_trace_reset", function()
 end)
 
 do
-	local Uint32Pointer = ffi.typeof("const uint32_t*")
-
-	local function hash_bytes(hash, data)
-		local words = ffi.cast(Uint32Pointer, data)
-
-		for i = 0, ffi.sizeof(data) / 4 - 1 do
-			hash = bit.bxor(bit.rol(hash, 5), words[i])
-		end
-
-		return hash
-	end
-
 	local function changed(signature, i, value)
 		if signature[i] == value then return false end
 
@@ -100,7 +88,7 @@ do
 		return true
 	end
 
-	function path_trace.Update(lights_block)
+	function path_trace.Update(lights)
 		local camera = render3d.GetCamera()
 		local position = camera:GetPosition()
 		local rotation = camera:GetRotation()
@@ -120,7 +108,7 @@ do
 		any = changed(signature, 10, viewport.h) or any
 		any = changed(signature, 11, size.x) or any
 		any = changed(signature, 12, size.y) or any
-		any = changed(signature, 13, hash_bytes(0, lights_block)) or any
+		any = changed(signature, 13, scene_lights.GetHash(lights)) or any
 		any = changed(signature, 14, Material.ray_material_generation) or any
 		any = changed(signature, 15, instances.GetCount()) or any
 		any = changed(signature, 16, render3d.GetEnvironmentTexture()) or any
