@@ -33,7 +33,8 @@ commands.Add("crysis_sync=boolean[true]", function(on)
 		assert(fs.write_file(autoexec_path, autoexec .. autoexec_line .. "\n"))
 	end
 
-	print("in Crysis run: #Script.ReloadScript(\"Scripts/goluwa_sync.lua\")")
+	-- autoexec.cfg loads the script at startup, Script.ReloadScript does nothing for a loaded script outside the editor, and loading a level drops its timer
+	print("in Crysis run #sync_goluwa() once the level has loaded")
 
 	timer.Repeat(
 		"crysis_sync",
