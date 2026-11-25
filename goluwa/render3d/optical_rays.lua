@@ -146,35 +146,21 @@ function optical_rays.GetGLSL()
 			return get_optical_tint_ray(origin, dir, distance, true, false) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false, with_layer, false);
 		}
 
-		vec3 get_light_transmittance_with(vec3 origin, vec3 dir, float distance, float search_radius, bool with_layer, bool caustic_glass, bool caustic_water) {
-			vec3 transmitted = get_optical_tint_ray(origin, dir, distance, false, caustic_glass);
+		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius, bool local, bool caustic) {
+			vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))) * search_radius;
+			vec3 bitangent = normalize(cross(dir, tangent)) * search_radius;
+			vec3 transmitted = vec3(1.0);
 
-			if (search_radius > 0.0 && min(transmitted.r, min(transmitted.g, transmitted.b)) > 0.999) {
-				vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))) * search_radius;
-				vec3 bitangent = normalize(cross(dir, tangent)) * search_radius;
-				transmitted = min(transmitted, get_optical_tint_ray(origin + tangent, dir, distance, false, caustic_glass));
-				transmitted = min(transmitted, get_optical_tint_ray(origin - tangent, dir, distance, false, caustic_glass));
-				transmitted = min(transmitted, get_optical_tint_ray(origin + bitangent, dir, distance, false, caustic_glass));
-				transmitted = min(transmitted, get_optical_tint_ray(origin - bitangent, dir, distance, false, caustic_glass));
+			// a single call site: each call of the traversal is inlined and the driver compiles every copy
+			for (int k = 0; k < 5; k++) {
+				vec3 offset = k == 0 ? vec3(0.0) : (k < 3 ? tangent : bitangent) * (k % 2 == 1 ? 1.0 : -1.0);
+				vec3 through = get_optical_tint_ray(origin + offset, dir, distance, false, caustic);
+				transmitted = k == 0 ? through : min(transmitted, through);
+
+				if (k == 0 && !(search_radius > 0.0 && min(transmitted.r, min(transmitted.g, transmitted.b)) > 0.999)) break;
 			}
 
-			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, with_layer, caustic_water);
-		}
-
-		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_light_transmittance_with(origin, dir, distance, search_radius, false, false, false);
-		}
-
-		vec3 get_light_transmittance_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_light_transmittance_with(origin, dir, distance, search_radius, false, true, true);
-		}
-
-		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_light_transmittance_with(origin, dir, distance, search_radius, true, false, false);
-		}
-
-		vec3 get_light_transmittance_local_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_light_transmittance_with(origin, dir, distance, search_radius, true, true, true);
+			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, local, caustic);
 		}
 
 		// segment_pick in [0, 1) traces the visibility of one of the three segments and weighs it by three, below 0 traces all of them
@@ -209,19 +195,7 @@ end
 
 function optical_rays.GetStubGLSL()
 	return [[
-		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return vec3(1.0);
-		}
-
-		vec3 get_light_transmittance_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return vec3(1.0);
-		}
-
-		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return vec3(1.0);
-		}
-
-		vec3 get_light_transmittance_local_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
+		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius, bool local, bool caustic) {
 			return vec3(1.0);
 		}
 

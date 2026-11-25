@@ -211,19 +211,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 		]] .. directional_shadows.GetLocalDirectionalShadowGLSL(block_name) .. [[
 
 		#ifndef OPTICAL_RAYS
-		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return vec3(1.0);
-		}
-
-		vec3 get_light_transmittance_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return vec3(1.0);
-		}
-
-		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return vec3(1.0);
-		}
-
-		vec3 get_light_transmittance_local_caustic(vec3 origin, vec3 dir, float distance, float search_radius) {
+		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius, bool local, bool caustic) {
 			return vec3(1.0);
 		}
 		#endif
@@ -634,13 +622,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 					float glass_search = type == 0 && shadow_factor < 0.999 ? clamp(shadow_texel_world_size * 3.0, 0.05 * ]] .. block_name .. [[.view_scale, 0.5 * ]] .. block_name .. [[.view_scale) : 0.0;
 					vec3 glass_origin = s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale;
 
-					bool covered = ]] .. block_name .. [[.caustics != 0 && caustic_covered(i, light.position.xyz, s.world_pos);
-
-					if (type != 0) {
-						radiance *= covered ? get_light_transmittance_local_caustic(glass_origin, L, glass_distance, glass_search) : get_light_transmittance_local(glass_origin, L, glass_distance, glass_search);
-					} else {
-						radiance *= covered ? get_light_transmittance_caustic(glass_origin, L, glass_distance, glass_search) : get_light_transmittance(glass_origin, L, glass_distance, glass_search);
-					}
+					radiance *= get_light_transmittance(glass_origin, L, glass_distance, glass_search, type != 0, ]] .. block_name .. [[.caustics != 0 && caustic_covered(i, light.position.xyz, s.world_pos));
 				}
 				#endif
 

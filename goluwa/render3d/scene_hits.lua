@@ -456,7 +456,7 @@ function scene_hits.GetGLSL(block_name, shared)
 				vec3 response = sun_NoL > 0.0 ? hit_brdf_light(brdf, hit_N, -dir, sun_L, brdf.alpha + ]] .. string.format("%.9e", atmosphere.SUN_ANGULAR_RADIUS * 0.5) .. [[) : transmitted * transmission_phase(-dir, sun_L, -sun_NoL, material.transmission_scattering) * -sun_NoL;
 				vec3 sun_radiance = response * radiance_cache_data.radiance_cache_sun_radiance.rgb * get_cloud_shadow(P) * radiance_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);
 
-				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0) : get_light_transmittance(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
+				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= get_light_transmittance(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0, false, caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P));
 
 				radiance += sun_radiance;
 			}
@@ -527,7 +527,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					vec3 contribution = picked_light[k];
 
-					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= caustic_hit_covered(picked_index[k], scene_light(]] .. block_name .. [[.lights, picked_index[k]).position.xyz, P) ? get_light_transmittance_local_caustic(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0) : get_light_transmittance_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0, true, caustic_hit_covered(picked_index[k], scene_light(]] .. block_name .. [[.lights, picked_index[k]).position.xyz, P));
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -564,7 +564,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
-					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= caustic_hit_covered(i, light.position.xyz, P) ? get_light_transmittance_local_caustic(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0) : get_light_transmittance_local(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0, true, caustic_hit_covered(i, light.position.xyz, P));
 
 					radiance += contribution * light_weight;
 				}

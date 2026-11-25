@@ -1022,7 +1022,7 @@ local function candidate_glsl()
 
 				if (!(total > 0.0) || chosen_dist <= 0.02 * restir_data.view_scale || !scene_hit_visible(origin, chosen_dir, chosen_dist - 0.02 * restir_data.view_scale)) return vec3(0.0);
 
-				if (restir_data.light_transmittance != 0) chosen *= get_light_transmittance_local(origin, chosen_dir, chosen_dist, 0.0);
+				if (restir_data.light_transmittance != 0) chosen *= get_light_transmittance(origin, chosen_dir, chosen_dist, 0.0, true, false);
 
 								return chosen * (total / float(EMITTER_CANDIDATES)) / chosen_target * radiance_specular_weight(N, V, roughness, chosen_dir);
 			}
@@ -1470,7 +1470,7 @@ local function pass_candidates()
 
 							vec3 L = ray_hit_emission(tri, ray_material_albedo(material, point), point, emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED, L_dir);
 
-							if (restir_data.light_transmittance != 0) L *= get_light_transmittance_local(origin, L_dir, dist, 0.0);
+							if (restir_data.light_transmittance != 0) L *= get_light_transmittance(origin, L_dir, dist, 0.0, true, false);
 
 							float target = luminance(L) * cosine;
 							float w = target * weight / (max(emitter_luminance(e, tri), 1e-6) * max(cosine, 1e-3));

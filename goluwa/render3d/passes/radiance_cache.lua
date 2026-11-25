@@ -252,7 +252,7 @@ local function pass_shade()
 					vec3 shadow_origin = P + N * ((sun_NoL > 0.0 ? 0.02 : -0.06) * radiance_cache_data.radiance_cache_view_scale);
 					direct += radiance_cache_data.radiance_cache_sun_radiance.rgb * response * get_cloud_shadow(P) * fog;
 
-					if (radiance_cache_data.light_transmittance != 0) direct *= caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P) ? get_light_transmittance_caustic(shadow_origin, L, radiance_cache_data.radiance_cache_max_distance, 0.0) : get_light_transmittance(shadow_origin, L, radiance_cache_data.radiance_cache_max_distance, 0.0);
+					if (radiance_cache_data.light_transmittance != 0) direct *= get_light_transmittance(shadow_origin, L, radiance_cache_data.radiance_cache_max_distance, 0.0, false, caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P));
 				}
 
 				direct += (hit_brdf_ambient_diffuse(brdf) + brdf.specular_albedo) * caustic_world_irradiance(P, N) / 3.14159265359;
@@ -338,7 +338,7 @@ local function pass_shade()
 					if (visible) {
 						vec3 sample_light = picked_light[k];
 
-						if (radiance_cache_data.light_transmittance != 0) sample_light *= caustic_hit_covered(picked_index[k], scene_light(radiance_cache_data.lights, picked_index[k]).position.xyz, P) ? get_light_transmittance_local_caustic(P, picked_ray[k].xyz, shadow_distance, 0.0) : get_light_transmittance_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
+						if (radiance_cache_data.light_transmittance != 0) sample_light *= get_light_transmittance(P, picked_ray[k].xyz, shadow_distance, 0.0, true, caustic_hit_covered(picked_index[k], scene_light(radiance_cache_data.lights, picked_index[k]).position.xyz, P));
 
 						direct += sample_light * (total / (picked_weight[k] * float(RADIANCE_CACHE_LIGHT_SAMPLES)));
 					}
@@ -383,7 +383,7 @@ local function pass_shade()
 						vec3 emission = ray_hit_emission(tri, ray_hit_albedo(ray_materials[tri.material], point, emitter_instance, emitter_triangle), point, emitter_instance, emitter_triangle, dir);
 						float emissive_luma = emitter_luminance(emitter_index, tri);
 						vec3 estimate = emission / emissive_luma * weight;
-						if (radiance_cache_data.light_transmittance != 0) estimate *= get_light_transmittance_local(origin, dir, length(point - origin), 0.0);
+						if (radiance_cache_data.light_transmittance != 0) estimate *= get_light_transmittance(origin, dir, length(point - origin), 0.0, true, false);
 
 						result = vec4(estimate / (float(RADIANCE_CACHE_EMITTER_SAMPLES) * 3.14159265359), radiance_cache_pack_direction(dir));
 					}
