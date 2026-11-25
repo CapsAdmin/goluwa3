@@ -44,7 +44,6 @@ local NOISE_DECLARATIONS = [[
 	layout(set = 0, binding = ]] .. BINDING_BASE_NOISE .. [[) uniform sampler3D cloud_base_noise;
 	layout(set = 0, binding = ]] .. BINDING_DETAIL_NOISE .. [[) uniform sampler3D cloud_detail_noise;
 ]]
-local SUN_ILLUMINANCE_EXPR = string.format("%.17g", atmosphere.GetSunIlluminance())
 
 local function cloud_block(extra)
 	local block = {
@@ -73,7 +72,7 @@ local function write_cloud_block(self, block)
 end
 
 local function cloud_glsl()
-	return atmosphere.GetGLSLDefines("cloud_data", SUN_ILLUMINANCE_EXPR) .. atmosphere.GetAerialPerspectiveGLSLCode() .. clouds.GetGLSL("cloud_data") .. [[
+	return atmosphere.GetGLSLDefines("cloud_data", "cloud_data.atmosphere_sun_disc_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. clouds.GetGLSL("cloud_data") .. [[
 
 		float cloud_ign(vec2 pixel, int frame) {
 			pixel += 5.588238 * float(frame % 64);

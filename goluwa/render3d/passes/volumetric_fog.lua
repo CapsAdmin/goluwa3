@@ -829,7 +829,7 @@ local integrate_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_integrated;
 		layout(set = 0, binding = ]] .. BINDING_SCATTER .. [[) uniform sampler3D scatter;
 	]] .. ray_materials.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
-	shader = atmosphere.GetGLSLDefines("froxel_data", string.format("%.17g", atmosphere.GetSunIlluminance())) .. atmosphere.GetAerialPerspectiveGLSLCode() .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
+	shader = atmosphere.GetGLSLDefines("froxel_data", "froxel_data.atmosphere_sun_disc_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
