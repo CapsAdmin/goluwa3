@@ -624,40 +624,7 @@ local passes = {
 						alpha *= in_vertex_color.a;
 					}
 
-					if (SimpleLighting) {
-						Surface simple;
-						init_surface_features(simple, in_uv);
-						simple.F0 = vec3(0.04);
-						simple.NdotV = max(dot(N, V), 0.001);
-						simple.albedo = albedo * alpha;
-						simple.roughness_alpha = 1.0;
-						simple.perceptual_roughness = 1.0;
-						simple.metallic = 0.0;
-						simple.world_pos = world_pos;
-						simple.V = V;
-						simple.N = N;
-						simple.geometric_N = geometric_N;
-						finish_surface_features(simple);
-						vec3 simple_specular;
-						vec3 simple_diffuse = get_direct_light(simple, simple_specular);
-						vec3 simple_irradiance = sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
-
-						if (gi_available() && gi_in_volume(world_pos)) {
-							float simple_weight;
-							vec4 simple_probes = gi_sample_irradiance(world_pos, N, V, false, RADIANCE_CACHE_NO_VISIBILITY_RAYS, simple_weight);
-							simple_irradiance = mix(simple_irradiance, simple_probes.rgb, saturate(simple_weight / ]] .. gi.MIN_WEIGHT .. [[));
-						}
-
-						vec3 simple_color = simple_diffuse + simple_irradiance * albedo * alpha;
-						simple_color = simple_color * fog_transmittance + fog_scattered * alpha;
-						set_color(vec4(min(simple_color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
-						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
-						set_additive(vec4(0.0));
-						set_modulate(vec4(1.0));
-						return;
-					}
-
-					if (Modulate) {
+					if (Modulate && !SimpleLighting) {
 						vec3 factor = 4.5948 * albedo * color_model.ColorMultiplier.rgb;
 						set_color(vec4(0.0));
 						set_motion(vec4(0.0));
@@ -666,13 +633,17 @@ local passes = {
 						return;
 					}
 
+					if (SimpleLighting) {
+						roughness = 1.0;
+						metallic = 0.0;
+					}
+
 					float perceptual_roughness = sqrt(roughness);
-					float diffuse_transmission = get_transmission(in_uv);
 					float refraction_amount = refraction.amount * (1.0 - overlay_cover);
-					bool refractive = refraction.amount > 0.0;
+					bool refractive = !SimpleLighting && refraction.amount > 0.0;
 					float refraction_roughness = roughness;
 					float ior_f0 = (refraction.ior - 1.0) / (refraction.ior + 1.0);
-					vec3 F0 = mix(vec3(refractive ? ior_f0 * ior_f0 : get_specular(in_uv) * 0.04), albedo, metallic);
+					vec3 F0 = SimpleLighting ? vec3(0.04) : mix(vec3(refractive ? ior_f0 * ior_f0 : get_specular(in_uv) * 0.04), albedo, metallic);
 					float NdotV = max(dot(N, V), 0.001);
 					vec3 diffuse_albedo = albedo * (refractive ? 1.0 - refraction_amount : alpha);
 					float specular_coverage = refractive ? 1.0 : smoothstep(0.0, 0.1, alpha);
@@ -692,6 +663,26 @@ local passes = {
 					surface.N = N;
 					finish_surface_features(surface);
 					vec3 direct_diffuse = get_direct_light(surface, direct_specular);
+
+					if (SimpleLighting) {
+						vec3 simple_irradiance = sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
+
+						if (gi_available() && gi_in_volume(world_pos)) {
+							float simple_weight;
+							vec4 simple_probes = gi_sample_irradiance(world_pos, N, V, false, RADIANCE_CACHE_NO_VISIBILITY_RAYS, simple_weight);
+							simple_irradiance = mix(simple_irradiance, simple_probes.rgb, saturate(simple_weight / ]] .. gi.MIN_WEIGHT .. [[));
+						}
+
+						vec3 simple_color = direct_diffuse + simple_irradiance * albedo * alpha;
+						simple_color = simple_color * fog_transmittance + fog_scattered * alpha;
+						set_color(vec4(min(simple_color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
+						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
+						set_additive(vec4(0.0));
+						set_modulate(vec4(1.0));
+						return;
+					}
+
+					float diffuse_transmission = get_transmission(in_uv);
 
 					bool traced_only = false;
 					#ifdef SCENE_HITS
