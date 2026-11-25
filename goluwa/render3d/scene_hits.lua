@@ -390,6 +390,34 @@ function scene_hits.GetGLSL(block_name, shared)
 			return open_sky;
 		}
 
+		vec3 scene_hit_probe_light(vec3 P, vec3 hit_N, vec3 specular_direction, vec3 dir, bool alpha_tested, vec3 diffuse_albedo, vec3 specular_albedo) {
+			float weight;
+			vec4 specular_gi;
+			radiance_cache_lookup_at_hit = true;
+			vec4 gi = gi_sample_irradiance_pair(P, hit_N, hit_N, specular_direction, -dir, false, alpha_tested ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight, specular_gi);
+			radiance_cache_lookup_at_hit = false;
+
+			if (!gi_covers(P, weight)) {
+				float open_sky = scene_hit_open_sky(P + hit_N * 0.02 * ]] .. block_name .. [[.view_scale, hit_N, P);
+				gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, hit_N) * open_sky;
+				specular_gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, specular_direction) * open_sky;
+			}
+
+			#ifdef SCENE_HIT_GI_SHARE
+			gi.rgb /= SCENE_HIT_GI_SHARE;
+			specular_gi.rgb /= SCENE_HIT_GI_SHARE;
+			#endif
+
+			return diffuse_albedo * gi.rgb + specular_albedo * specular_gi.rgb;
+		}
+
+		#ifdef SCENE_HIT_DEFER_PROBE_LIGHT
+		bool scene_hit_probe_light_deferred = false;
+		vec3 scene_hit_deferred_specular_direction;
+		vec3 scene_hit_deferred_diffuse_albedo;
+		vec3 scene_hit_deferred_specular_albedo;
+		#endif
+
 		vec3 shade_scene_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics) {
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ray_material material = ray_materials[tri.material];
@@ -596,25 +624,17 @@ function scene_hits.GetGLSL(block_name, shared)
 			if (SCENE_HIT_GI_SHARE <= 0.0) return radiance;
 			#endif
 
-			float weight;
 			vec3 specular_direction = hit_brdf_specular_direction(brdf, hit_N, -dir);
-			vec4 specular_gi;
-			radiance_cache_lookup_at_hit = true;
-			vec4 gi = gi_sample_irradiance_pair(P, hit_N, hit_N, specular_direction, -dir, false, scene_instance_alpha_tested(hit_instance) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight, specular_gi);
-			radiance_cache_lookup_at_hit = false;
 
-			if (!gi_covers(P, weight)) {
-				float open_sky = scene_hit_open_sky(surface, hit_N, P);
-				gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, hit_N) * open_sky;
-				specular_gi.rgb = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, specular_direction) * open_sky;
-			}
-
-			#ifdef SCENE_HIT_GI_SHARE
-			gi.rgb /= SCENE_HIT_GI_SHARE;
-			specular_gi.rgb /= SCENE_HIT_GI_SHARE;
+			#ifdef SCENE_HIT_DEFER_PROBE_LIGHT
+			scene_hit_probe_light_deferred = true;
+			scene_hit_deferred_specular_direction = specular_direction;
+			scene_hit_deferred_diffuse_albedo = hit_brdf_ambient_diffuse(brdf);
+			scene_hit_deferred_specular_albedo = brdf.specular_albedo;
+			return radiance;
+			#else
+			return radiance + scene_hit_probe_light(P, hit_N, specular_direction, dir, scene_instance_alpha_tested(hit_instance), hit_brdf_ambient_diffuse(brdf), brdf.specular_albedo);
 			#endif
-
-			return radiance + hit_brdf_ambient_diffuse(brdf) * gi.rgb + brdf.specular_albedo * specular_gi.rgb;
 		}
 
 		vec3 scene_radiance_through_air(vec3 radiance, vec3 origin, vec3 dir, float hit_t, float max_distance, float segment_pick) {

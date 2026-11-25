@@ -754,6 +754,8 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				return normalize(T * (r * cos(phi)) + B * (r * sin(phi)) + N * sqrt(max(1.0 - xi.y, 0.0)));
 			}
 
+			vec3 restir_hit_tint = vec3(1.0);
+
 			restir_sample restir_hit_sample(vec3 origin, vec3 dir, bool hit, float t, uint instance, uint primitive, vec2 barycentrics, bool emitter, vec3 shaded) {
 				restir_sample s;
 
@@ -772,8 +774,11 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 						restir_sample(P, hit_N, shaded, RESTIR_SURFACE, vec3(0.0));
 				}
 
+				restir_hit_tint = vec3(1.0);
+
 				if (restir_data.optical_tint != 0) {
-					s.L *= get_optical_tint(origin, dir, t, hit);
+					restir_hit_tint = get_optical_tint(origin, dir, t, hit);
+					s.L *= restir_hit_tint;
 
 					if (hit) s.L += optical_inscatter_lit(origin, dir, t, radiance_cache_fog_ambient(), radiance_cache_data.radiance_cache_sun_radiance.rgb, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), true, scene_hit_random(origin + dir * t, 0x51));
 				}
@@ -881,6 +886,8 @@ end
 local BINDING_HIT_LIST = 14
 local BINDING_TRACE_RECORDS = 15
 local BINDING_HIT_RADIANCE = 21
+local BINDING_HIT_PROBE_LIGHT = 24
+local HIT_PROBE_LIGHT_RECORD_BYTES = 32
 local HIT_LIST_HEADER_BYTES = 16
 local HIT_SHADE_LOCAL_SIZE = 64
 -- the hit list is dispatched as rows of this many groups, one row can not hold a full resolution frame's hits
@@ -902,6 +909,13 @@ local function get_hit_list(rays)
 				hit_list.retired,
 				{buffer = hit_list.buffer, frame = render.frame_serial + HIT_LIST_RETIRE_FRAMES}
 			)
+			list.insert(
+				hit_list.retired,
+				{
+					buffer = hit_list.probe_light,
+					frame = render.frame_serial + HIT_LIST_RETIRE_FRAMES,
+				}
+			)
 		end
 
 		hit_list.capacity = rays
@@ -910,6 +924,12 @@ local function get_hit_list(rays)
 			buffer_usage = {"storage_buffer", "indirect_buffer", "transfer_dst"},
 			memory_property = {"device_local"},
 			label = "radiance_hit_list",
+		}
+		hit_list.probe_light = render.CreateBuffer{
+			byte_size = rays * HIT_PROBE_LIGHT_RECORD_BYTES,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"device_local"},
+			label = "radiance_hit_probe_light",
 		}
 	end
 
@@ -944,6 +964,78 @@ local HIT_LIST_GLSL = string.format(
 ]],
 	BINDING_HIT_LIST
 )
+
+local function hit_probe_light_glsl(access)
+	return string.format(
+			[[
+	layout(std430, set = 0, binding = %d) %s buffer RadianceHitProbeLight {
+		uvec4 records[];
+	} radiance_hit_probe_light;
+]],
+			BINDING_HIT_PROBE_LIGHT,
+			access
+		) .. glsl_common.GetOctahedralGLSL()
+end
+
+local function bind_hit_list(self, desc)
+	self:UpdateDescriptorSet(
+		"storage_buffer",
+		desc,
+		BINDING_HIT_LIST,
+		0,
+		hit_list.buffer,
+		hit_list.buffer:GetSize()
+	)
+	self:UpdateDescriptorSet(
+		"storage_buffer",
+		desc,
+		BINDING_HIT_PROBE_LIGHT,
+		0,
+		hit_list.probe_light,
+		hit_list.probe_light:GetSize()
+	)
+end
+
+local function dispatch_hit_list(self, cmd, fb, frame, desc)
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = {"compute", "draw_indirect"},
+		memoryBarrier = true,
+	}
+	self:UploadConstants()
+	self.pipeline:DispatchIndirect(cmd, hit_list.buffer, 4, desc, self.dynamic_offsets)
+end
+
+local HIT_RECORD_GLSL = [[
+	uint index = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * ]] .. HIT_SHADE_LOCAL_SIZE .. [[u + gl_LocalInvocationID.x;
+
+	if (index >= radiance_hit_list.count) return;
+
+	uint id = radiance_hit_list.ids[index];
+	ivec2 size = imageSize(diffuse_origin);
+	uint pixel = id >> 1u;
+	ivec2 pos = ivec2(int(pixel % uint(size.x)), int(pixel / uint(size.x)));
+	bool reflected = (id & 1u) != 0u;
+	uvec4 a = imageLoad(diffuse_origin, pos);
+	uvec4 b = reflected ? imageLoad(specular_ray, pos) : imageLoad(diffuse_ray, pos);
+	uvec4 c = imageLoad(diffuse_hit, pos);
+	uvec4 s = imageLoad(specular_hit, pos);
+	vec3 origin = uintBitsToFloat(a.xyz);
+	vec2 offset_z_roughness = unpackHalf2x16(s.z);
+
+	if (reflected) origin += vec3(unpackHalf2x16(c.w), offset_z_roughness.x);
+
+	uint flags = reflected ? s.w : a.w;
+	uint instance = flags >> 8u;
+	uint primitive = reflected ? s.x : c.x;
+	vec2 barycentrics = unpackUnorm2x16(reflected ? s.y : c.y);
+	vec3 dir = uintBitsToFloat(b.xyz);
+	float t = uintBitsToFloat(b.w);
+	radiance_hit_emission = (flags & RADIANCE_RAY_EMISSION) != 0u;
+	radiance_hit_bounce = (flags & RADIANCE_RAY_BOUNCE) != 0u;
+	scene_hit_coarse_alpha = (flags & RADIANCE_RAY_COARSE_ALPHA) != 0u;
+	restir_hit_gi_share = (flags & RADIANCE_RAY_GI_LOOKUP) != 0u ? 1.0 / float(max(int(round(1.0 / restir_data.hit_gi_share)), 1)) : 0.0;
+]]
 
 local function trace_records_glsl(first_binding, access)
 	local out = {
@@ -1262,74 +1354,97 @@ local function pass_hit_shade()
 			read_attachments("radiance_candidates", BINDING_HIT_RADIANCE, 3, 2)
 		),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		storage_buffers = {{binding_index = BINDING_EMITTERS}, {binding_index = BINDING_HIT_LIST}},
+		storage_buffers = {
+			{binding_index = BINDING_EMITTERS},
+			{binding_index = BINDING_HIT_LIST},
+			{binding_index = BINDING_HIT_PROBE_LIGHT},
+		},
 		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
 			bind_scene(self, cmd, frame, desc)
-			self:UpdateDescriptorSet(
-				"storage_buffer",
-				desc,
-				BINDING_HIT_LIST,
-				0,
-				hit_list.buffer,
-				hit_list.buffer:GetSize()
-			)
+			bind_hit_list(self, desc)
 		end,
-		on_draw = function(self, cmd, fb, frame, desc)
-			cmd:PipelineBarrier{
-				srcStage = "compute",
-				dstStage = {"compute", "draw_indirect"},
-				memoryBarrier = true,
-			}
-			self:UploadConstants()
-			self.pipeline:DispatchIndirect(cmd, hit_list.buffer, 4, desc, self.dynamic_offsets)
-		end,
+		on_draw = dispatch_hit_list,
 		custom_declarations = string.format(
 				"layout(set = 0, binding = %d, rgba32f) uniform writeonly image2D out_b;\nlayout(set = 0, binding = %d, rgba16f) uniform writeonly image2D out_c;\nlayout(set = 0, binding = %d, rgba32f) uniform writeonly image2D out_d;\n",
 				BINDING_HIT_RADIANCE,
 				BINDING_HIT_RADIANCE + 1,
 				BINDING_HIT_RADIANCE + 2
-			) .. trace_records_glsl(BINDING_TRACE_RECORDS, "readonly") .. HIT_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		shader = candidate_glsl() .. [[
+			) .. trace_records_glsl(BINDING_TRACE_RECORDS, "readonly") .. HIT_LIST_GLSL .. hit_probe_light_glsl("writeonly") .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = "#define SCENE_HIT_DEFER_PROBE_LIGHT\n" .. candidate_glsl() .. [[
 			void main() {
-				uint index = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * ]] .. HIT_SHADE_LOCAL_SIZE .. [[u + gl_LocalInvocationID.x;
-
-				if (index >= radiance_hit_list.count) return;
-
-				uint id = radiance_hit_list.ids[index];
-				ivec2 size = imageSize(diffuse_origin);
-				uint pixel = id >> 1u;
-				ivec2 pos = ivec2(int(pixel % uint(size.x)), int(pixel / uint(size.x)));
-				bool reflected = (id & 1u) != 0u;
-				uvec4 a = imageLoad(diffuse_origin, pos);
-				uvec4 b = reflected ? imageLoad(specular_ray, pos) : imageLoad(diffuse_ray, pos);
-				uvec4 c = imageLoad(diffuse_hit, pos);
-				uvec4 s = imageLoad(specular_hit, pos);
-				vec3 origin = uintBitsToFloat(a.xyz);
-				vec2 offset_z_roughness = unpackHalf2x16(s.z);
-
-				if (reflected) origin += vec3(unpackHalf2x16(c.w), offset_z_roughness.x);
-
-				uint flags = reflected ? s.w : a.w;
-				uint instance = flags >> 8u;
-				uint primitive = reflected ? s.x : c.x;
-				vec2 barycentrics = unpackUnorm2x16(reflected ? s.y : c.y);
-				vec3 dir = uintBitsToFloat(b.xyz);
-				float t = uintBitsToFloat(b.w);
-				radiance_hit_emission = (flags & RADIANCE_RAY_EMISSION) != 0u;
-				radiance_hit_bounce = (flags & RADIANCE_RAY_BOUNCE) != 0u;
-				scene_hit_coarse_alpha = (flags & RADIANCE_RAY_COARSE_ALPHA) != 0u;
-				restir_hit_gi_share = (flags & RADIANCE_RAY_GI_LOOKUP) != 0u ? 1.0 / float(max(int(round(1.0 / restir_data.hit_gi_share)), 1)) : 0.0;
+				]] .. HIT_RECORD_GLSL .. [[
 				vec3 L = shade_scene_hit(origin, dir, reflected ? offset_z_roughness.y : 1.0, t, instance, primitive, barycentrics);
+				vec3 tint = vec3(1.0);
 
 				if (reflected) {
 					imageStore(out_d, pos, vec4(L, 0.0));
+				} else {
+					scene_triangle tri = scene_hit_tri(instance, primitive);
+					imageStore(out_b, pos, vec4(restir_hit_sample(origin, dir, true, t, instance, primitive, barycentrics, false, L).L, 0.0));
+					imageStore(out_c, pos, vec4(dot(tri.normal, dir) > 0.0 ? -tri.normal : tri.normal, 0.0));
+					tint = restir_hit_tint;
+				}
+
+				vec3 diffuse = scene_hit_deferred_diffuse_albedo;
+				vec3 specular = scene_hit_deferred_specular_albedo;
+				radiance_hit_probe_light.records[index * 2u] = uvec4(packSnorm2x16(oct_encode(scene_hit_deferred_specular_direction)), packHalf2x16(diffuse.rg), packHalf2x16(vec2(diffuse.b, specular.r)), packHalf2x16(specular.gb));
+				radiance_hit_probe_light.records[index * 2u + 1u] = uvec4(packHalf2x16(tint.rg), packHalf2x16(vec2(tint.b, 0.0)), scene_hit_probe_light_deferred ? 1u : 0u, 0u);
+			}
+		]],
+	}
+end
+
+local function pass_hit_probe_light()
+	return {
+		name = "radiance_hit_probe_light",
+		ComputePass = true,
+		ColorFormat = {{"r8_unorm", {"restir_hit_probe_light_dummy", "r"}}},
+		FramebufferSize = {x = 1, y = 1},
+		LocalSize = {x = HIT_SHADE_LOCAL_SIZE, y = 1, z = 1},
+		storage_images = list.extend(
+			read_attachments("radiance_trace", BINDING_TRACE_RECORDS, 5),
+			read_attachments("radiance_candidates", BINDING_HIT_RADIANCE, 3, 2)
+		),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		storage_buffers = {
+			{binding_index = BINDING_EMITTERS},
+			{binding_index = BINDING_HIT_LIST},
+			{binding_index = BINDING_HIT_PROBE_LIGHT},
+		},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
+		on_pre_draw = function(self, cmd, frame, desc)
+			bind_scene(self, cmd, frame, desc)
+			bind_hit_list(self, desc)
+		end,
+		on_draw = dispatch_hit_list,
+		custom_declarations = string.format(
+				"layout(set = 0, binding = %d, rgba32f) uniform image2D out_b;\nlayout(set = 0, binding = %d, rgba32f) uniform image2D out_d;\n",
+				BINDING_HIT_RADIANCE,
+				BINDING_HIT_RADIANCE + 2
+			) .. trace_records_glsl(BINDING_TRACE_RECORDS, "readonly") .. HIT_LIST_GLSL .. hit_probe_light_glsl("readonly") .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = candidate_glsl() .. [[
+			void main() {
+				]] .. HIT_RECORD_GLSL .. [[
+				uvec4 r1 = radiance_hit_probe_light.records[index * 2u + 1u];
+
+				if (r1.z == 0u) return;
+
+				uvec4 r0 = radiance_hit_probe_light.records[index * 2u];
+				vec2 diffuse_rg = unpackHalf2x16(r0.y);
+				vec2 diffuse_b_specular_r = unpackHalf2x16(r0.z);
+				vec2 specular_gb = unpackHalf2x16(r0.w);
+				scene_triangle tri = scene_hit_tri(instance, primitive);
+				vec3 hit_N = dot(dir, -tri.normal) > 0.0 ? tri.normal : -tri.normal;
+				vec3 light = scene_hit_probe_light(origin + dir * t, hit_N, oct_decode(unpackSnorm2x16(r0.x)), dir, scene_instance_alpha_tested(instance), vec3(diffuse_rg, diffuse_b_specular_r.x), vec3(diffuse_b_specular_r.y, specular_gb));
+
+				if (reflected) {
+					imageStore(out_d, pos, vec4(imageLoad(out_d, pos).rgb + light, 0.0));
 					return;
 				}
 
-				scene_triangle tri = scene_hit_tri(instance, primitive);
-				imageStore(out_b, pos, vec4(restir_hit_sample(origin, dir, true, t, instance, primitive, barycentrics, false, L).L, 0.0));
-				imageStore(out_c, pos, vec4(dot(tri.normal, dir) > 0.0 ? -tri.normal : tri.normal, 0.0));
+				vec3 tint = vec3(unpackHalf2x16(r1.x), unpackHalf2x16(r1.y).x);
+				imageStore(out_b, pos, vec4(min(max(imageLoad(out_b, pos).rgb + tint * light, vec3(0.0)), vec3(1e9)), 0.0));
 			}
 		]],
 	}
@@ -2486,6 +2601,7 @@ return {
 	pass_pick(),
 	pass_trace(),
 	pass_hit_shade(),
+	pass_hit_probe_light(),
 	pass_candidates(),
 	pass_temporal(),
 	pass_spatial(),
