@@ -17,7 +17,6 @@ local precipitation = import("goluwa/render3d/precipitation.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local quality = import("goluwa/render3d/quality.lua")
 local weather = {}
-local SUN_TOA_ILLUMINANCE = atmosphere.DEFAULT_SUN_ILLUMINANCE
 local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
 local EARTH_RADIUS_KM = 6371
 local MOON_RADIUS_KM = 1737.4
@@ -122,6 +121,16 @@ local function get_moon_equatorial(unix_time)
 	distance
 end
 
+local function get_sun_distance_au(unix_time)
+	local mean_anomaly = math.rad(357.528 + 0.9856003 * days_since_j2000(unix_time))
+	return 1.00014 - 0.01671 * math.cos(mean_anomaly) - 0.00014 * math.cos(2 * mean_anomaly)
+end
+
+function weather.GetSunIlluminanceAt(unix_time)
+	-- whole days: every change rebuilds the cached sky views, and the distance moves at most 0.03% a day
+	return atmosphere.DEFAULT_SUN_ILLUMINANCE / get_sun_distance_au(math.floor(unix_time / 86400) * 86400) ^ 2
+end
+
 function weather.GetSunDirectionAt(unix_time, latitude, longitude)
 	return equatorial_to_world(
 		get_sun_equatorial(unix_time),
@@ -136,7 +145,13 @@ function weather.GetMoonAt(unix_time, latitude, longitude)
 	distance = topocentric:GetLength()
 	local phase_angle = math.deg(math.acos(math.clamp(-get_sun_equatorial(unix_time):GetDot(equatorial), -1, 1)))
 	local magnitude = -12.73 + 0.026 * phase_angle + 4e-9 * phase_angle ^ 4
-	local illuminance = 10 ^ (-0.4 * (magnitude + 14.18)) * (MOON_MEAN_DISTANCE_KM / distance) ^ 2
+	local illuminance = 10 ^ (
+			-0.4 * (
+				magnitude + 14.18
+			)
+		) * (
+			MOON_MEAN_DISTANCE_KM / distance
+		) ^ 2 / get_sun_distance_au(unix_time) ^ 2
 	return topocentric / distance, distance, illuminance
 end
 
@@ -451,6 +466,8 @@ end
 
 function weather.UpdateSky()
 	local sun_dir = weather.GetSunDirection()
+	local sun_illuminance = weather.GetSunIlluminanceAt(weather.time)
+	atmosphere.SetSunIlluminance(sun_illuminance)
 	local moon_dir, moon_distance, moon_illuminance = weather.GetMoonAt(weather.time, weather.latitude, weather.longitude)
 	local x, y, z = weather.GetCelestialRotationAt(weather.time, weather.latitude, weather.longitude)
 	atmosphere.SetSky{
@@ -464,11 +481,11 @@ function weather.UpdateSky()
 	}
 
 	if
-		moon_illuminance * atmosphere.GetTransmittance(moon_dir, CLOUD_LIGHT_ALTITUDE):GetLuminance() > SUN_TOA_ILLUMINANCE * atmosphere.GetTransmittance(sun_dir, CLOUD_LIGHT_ALTITUDE):GetLuminance()
+		moon_illuminance * atmosphere.GetTransmittance(moon_dir, CLOUD_LIGHT_ALTITUDE):GetLuminance() > sun_illuminance * atmosphere.GetTransmittance(sun_dir, CLOUD_LIGHT_ALTITUDE):GetLuminance()
 	then
 		clouds.SetLight(moon_dir, MOON_TINT * moon_illuminance)
 	else
-		clouds.SetLight(sun_dir, SUN_COLOR * SUN_TOA_ILLUMINANCE)
+		clouds.SetLight(sun_dir, SUN_COLOR * sun_illuminance)
 	end
 
 	if not weather.light then return end
@@ -478,11 +495,11 @@ function weather.UpdateSky()
 	local dir, color, illuminance
 
 	if
-		moon_illuminance * moon_transmittance:GetLuminance() > SUN_TOA_ILLUMINANCE * sun_transmittance:GetLuminance()
+		moon_illuminance * moon_transmittance:GetLuminance() > sun_illuminance * sun_transmittance:GetLuminance()
 	then
 		dir, color, illuminance = moon_dir, moon_transmittance * MOON_TINT, moon_illuminance
 	else
-		dir, color, illuminance = sun_dir, sun_transmittance * SUN_COLOR, SUN_TOA_ILLUMINANCE
+		dir, color, illuminance = sun_dir, sun_transmittance * SUN_COLOR, sun_illuminance
 	end
 
 	weather.syncing_light = true
@@ -659,14 +676,14 @@ function weather.Initialize()
 		transform = {},
 		light_sun = {
 			Color = Color(1.0, 0.98, 1),
-			Lux = SUN_TOA_ILLUMINANCE,
+			Lux = weather.GetSunIlluminanceAt(weather.time),
 		},
 		atmosphere_controller = {},
 		Singleton = true,
 		Transient = false,
 	}
 	weather.light:SetGUID("atmosphere")
-	atmosphere.SetSunIlluminance(SUN_TOA_ILLUMINANCE)
+	atmosphere.SetSunIlluminance(weather.GetSunIlluminanceAt(weather.time))
 	weather.BuildSunShadows()
 	weather.shelter_caster = Entity.New{Name = "shelter_caster", transform = {}}
 	weather.shelter_map = ShadowMap.New{
