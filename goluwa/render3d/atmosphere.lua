@@ -1268,9 +1268,7 @@ do
 
 	local function get_aerosol_extinction_550()
 		return math.max(
-			VISIBILITY_OPTICAL_DEPTH / (
-					atmosphere.aerosol_visibility / 1000
-				) - RAYLEIGH_550,
+			VISIBILITY_OPTICAL_DEPTH / (atmosphere.aerosol_visibility / 1000) - RAYLEIGH_550,
 			0
 		)
 	end
