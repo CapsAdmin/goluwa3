@@ -787,6 +787,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				uint instance;
 				uint primitive;
 				vec2 barycentrics;
+				scene_hit_coarse_alpha = true;
 				miss = !trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
 				return restir_hit_sample(origin, dir, !miss, t, instance, primitive, barycentrics, emitter, miss || emitter ? vec3(0.0) : shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics));
 			}
@@ -1126,6 +1127,7 @@ local function pass_candidates()
 								uint instance;
 								uint primitive;
 								vec2 barycentrics;
+								scene_hit_coarse_alpha = !reflected || specular.roughness > REFLECTION_MIRROR_THRESHOLD * 3.0;
 								bool hit = trace_scene_hit(ray_origin, ray_dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
 								vec3 L = hit ? shade_scene_hit(ray_origin, ray_dir, reflected ? specular.environment_roughness : 1.0, t, instance, primitive, barycentrics) : vec3(0.0);
 

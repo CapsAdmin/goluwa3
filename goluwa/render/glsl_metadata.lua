@@ -621,11 +621,15 @@ local function sanitize_color_blend_attachments(attachments)
 end
 
 local function build_device_defines(device)
-	if device.cluster_acceleration_structure_supported then
-		return "#define DEVICE_CLUSTER_ACCELERATION_STRUCTURE 1\n"
-	end
-
-	return ""
+	return (
+			device.cluster_acceleration_structure_supported and
+			"#define DEVICE_CLUSTER_ACCELERATION_STRUCTURE 1\n" or
+			""
+		) .. (
+			device.opacity_micromap_supported and
+			"#define DEVICE_OPACITY_MICROMAP 1\n" or
+			""
+		)
 end
 
 local function build_shader_header(

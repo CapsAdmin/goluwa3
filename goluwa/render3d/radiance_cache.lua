@@ -1694,7 +1694,14 @@ struct Payload
 };
 ]]
 radiance_cache.SCENE_FLAGS_GLSL = radiance_cache.ALPHA_TEST and
-	"#define RADIANCE_CACHE_SCENE_FLAGS 0u\n" or
+	[[
+#ifdef DEVICE_OPACITY_MICROMAP
+#extension GL_EXT_opacity_micromap : require
+#define RADIANCE_CACHE_SCENE_FLAGS gl_RayFlagsForceOpacityMicromap2StateEXT
+#else
+#define RADIANCE_CACHE_SCENE_FLAGS 0u
+#endif
+]] or
 	"#define RADIANCE_CACHE_SCENE_FLAGS gl_RayFlagsOpaqueEXT\n"
 local raygen_glsl = [[
 #extension GL_EXT_ray_tracing : require

@@ -17,7 +17,7 @@ local enabled = pvars.Setup2{
 }
 local max_level = pvars.Setup2{
 	key = "r_rt_opacity_micromap_level",
-	default = 5,
+	default = 6,
 	help = "subdivision level of an opacity micromap triangle (4^level micro triangles, 2 bits each); lowered for meshes with many triangles to stay within r_rt_opacity_micromap_megabytes",
 }
 local budget_megabytes = pvars.Setup2{
@@ -245,6 +245,24 @@ local function get_pipeline()
 							}
 
 							state = any_pass ? (any_fail ? 2u : 1u) : 0u;
+
+							// mixed micro triangles stay unknown (any hit runs the alpha test) but lean opaque or transparent by the share of the triangle that passes the same test, which rays with the 2 state flag take as is
+							if (state == 2u) {
+								int passes = 0;
+
+								for (int j = 0; j < 4; j++) {
+									for (int i = 0; i < 4 - j; i++) {
+										vec2 up = (vec2(i, j) + 1.0 / 3.0) / 4.0;
+										vec2 down = (vec2(i, j) + 2.0 / 3.0) / 4.0;
+
+										if (job.alpha * textureLod(TEXTURE(job.texture), p0 + (p1 - p0) * up.x + (p2 - p0) * up.y, 0.0).a >= job.cutoff) passes++;
+
+										if (i + j < 3 && job.alpha * textureLod(TEXTURE(job.texture), p0 + (p1 - p0) * down.x + (p2 - p0) * down.y, 0.0).a >= job.cutoff) passes++;
+									}
+								}
+
+								if (passes >= 8) state = 3u;
+							}
 						}
 					}
 

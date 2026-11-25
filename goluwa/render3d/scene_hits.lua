@@ -252,7 +252,16 @@ function scene_hits.GetGLSL(block_name, shared)
 		) .. glsl_common.GetHashGLSL() .. media.GetTransmissionPhaseGLSL() .. caustics.GetHitGLSL() .. [[
 		#define SCENE_HIT_MAX_DISTANCE (]] .. block_name .. [[.hit_max_distance)
 
-		#define SCENE_HIT_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
+		#ifdef DEVICE_OPACITY_MICROMAP
+		#extension GL_EXT_opacity_micromap : require
+		#define SCENE_HIT_COARSE_ALPHA gl_RayFlagsForceOpacityMicromap2StateEXT
+		#else
+		#define SCENE_HIT_COARSE_ALPHA gl_RayFlagsNoneEXT
+		#endif
+
+		bool scene_hit_coarse_alpha = false;
+
+		#define SCENE_HIT_FLAGS (RT_HIT_ANY_HIT == 0 ? gl_RayFlagsOpaqueEXT : scene_hit_coarse_alpha ? SCENE_HIT_COARSE_ALPHA : gl_RayFlagsNoneEXT)
 		#define SCENE_HIT_LIGHT_FULL_RADIANCE 0.02
 		#ifndef SCENE_HIT_SKY_RAYS
 		#define SCENE_HIT_SKY_RAYS 4
@@ -295,7 +304,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 		bool scene_hit_visible(vec3 origin, vec3 dir, float dist) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), SCENE_HIT_MASK, origin, 0.0, dir, dist);
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? SCENE_HIT_COARSE_ALPHA : gl_RayFlagsOpaqueEXT), SCENE_HIT_MASK, origin, 0.0, dir, dist);
 
 			SCENE_HIT_PROCEED(query)
 
