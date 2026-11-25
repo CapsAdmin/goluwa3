@@ -99,166 +99,12 @@ local thin_specular = pvars.Setup2{
 	help = "share of the ambient reflection a pixel less than two pixels wide keeps (1 is off). such a pixel, a glossy step seen at a grazing angle for one, is a bright line that appears and vanishes with the jitter",
 }
 pvars.EndGroup()
-return {
-	{
-		name = "lighting",
-		ComputePass = true,
-		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			{"r16g16b16a16_sfloat", {"subsurface_diffuse", "rgba"}},
-		},
-		framebuffer_count = 1,
-		LocalSize = COMPUTE_LOCAL_SIZE,
-		storage_images = {
-			{
-				binding_index = BINDING_OUTPUT,
-				attachment = 1,
-				dst_stage = "fragment",
-			},
-			{
-				binding_index = BINDING_OUTPUT_DIFFUSE,
-				attachment = 2,
-				dst_stage = "compute",
-			},
-		},
-		storage_buffers = {
-			{binding_index = BINDING_LIGHT_GRID},
-			{binding_index = fluid_volume_passes.BINDING_RECORDS},
-		},
-		descriptor_sets = optical_rays.RAY_QUERY and
-			scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute") or
-			nil,
-		on_pre_draw = function(self, cmd, frame, desc)
-			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
-
-			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
-			fluid_volume_passes.BindRecords(self, desc)
-
-			if optical_rays.RAY_QUERY then
-				scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
-			end
-		end,
-		sampled_images = {
-			{
-				binding_index = BINDING_OCCLUSION_MAP,
-				get_texture = function()
-					return light_occlusion.GetOcclusionTexture()
-				end,
-			},
-			unpack(fluid_volume_passes.GetSampledImages()),
-		},
-		uniform_buffers = {
-			{
-				name = "lighting_data",
-				binding_index = BINDING_UNIFORM,
-				block = {
-					surface_lighting.block,
-					gbuffer_layout.block,
-					surface_weather.rain_surface_block,
-					render3d.last_frame_block,
-					{"gi_debug", "int"},
-					{"direct_debug", "int"},
-					{"indirect_debug", "int"},
-					{"reflection_debug", "int"},
-					{"ambient_occlusion_tex", "int"},
-					{"gi_overlay_tex", "int"},
-					{"sky_clouds", "int"},
-					{"sky_air", "int"},
-					{"sky_alpha", "float"},
-					{"sky_from_environment", "int"},
-					{"screen_shadows", "int"},
-					{"screen_shadows_debug", "int"},
-					{"screen_shadow_length", "float"},
-					{"screen_shadow_steps", "int"},
-					{"thin_specular", "float"},
-					{"rough_sky", "float"},
-					{"gi_per_pixel", "int"},
-					{"caustics_tex", "int"},
-				},
-				write = function(self, block)
-					surface_lighting.WriteBlock(self, block)
-					gbuffer_layout.WriteBlock(self, block)
-					surface_weather.WriteRainSurfaceBlock(self, block)
-					render3d.WriteLastFrameBlock(self, block)
-					block.gi_debug = gi.IsDebugGI() and 1 or 0
-					block.direct_debug = debug_direct:Get() and 1 or 0
-					block.indirect_debug = debug_indirect:Get() and 1 or 0
-					block.reflection_debug = debug_reflections:Get() and 1 or 0
-					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
-					block.sky_air = (
-							render3d.GetActiveRenderContext() or
-							not render3d.IsPassEnabled("volumetric_fog")
-						)
-						and
-						1 or
-						0
-					block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
-					block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
-					block.screen_shadows = screen_shadows:Get() and quality.Get().screen_shadow_step_scale > 0 and 1 or 0
-					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
-					block.screen_shadow_length = screen_shadow_length:Get() * render3d.GetViewScale()
-					block.screen_shadow_steps = math.max(math.floor(screen_shadow_steps:Get() * quality.Get().screen_shadow_step_scale), 2)
-					block.thin_specular = thin_specular:Get()
-					block.rough_sky = rough_sky:Get()
-					block.gi_per_pixel = gi.IsPerPixel() and 1 or 0
-
-					if render3d.IsPassEnabled("ambient_occlusion") then
-						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
-					else
-						block.ambient_occlusion_tex = -1
-					end
-
-					if caustics.IsLit() then
-						block.caustics = 1
-						block.caustics_tex = self:GetTextureIndex(render3d.pipelines.caustics:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
-					else
-						block.caustics_tex = -1
-					end
-
-					if render3d.IsPassEnabled("ray_shadows") and not render3d.IsDenoisingBypassed() then
-						block.ray_shadow_tex = self:GetTextureIndex(render3d.pipelines.ray_shadow_filter:GetFramebuffer(1):GetAttachment(1))
-					end
-
-					local overlay = gi.GetDebugOverlayTexture()
-					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
-					return block
-				end,
-			},
-			scene_hits.GetRadianceCacheUniformBuffer(BINDING_RADIANCE_CACHE),
-		},
-		custom_declarations = [[
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT_DIFFUSE .. [[, rgba16f) uniform writeonly image2D out_subsurface_diffuse;
-			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. fluid_volume_passes.GetDeclarationGLSL() .. (
-				optical_rays.RAY_QUERY and
-				optical_rays.GetDeclarationGLSL(SCENE_BINDINGS) or
-				""
-			) .. [[
-		]],
-		shader = compute_helpers.GetScreenHelpersGLSL() .. [[
-			vec2 get_compute_uv() {
-				return get_screen_uv(get_screen_pos(), imageSize(out_color));
-			}
-
-			vec2 in_uv;
-			ivec2 in_pixel;
-			float in_view_depth;
-
-			vec4 subsurface_diffuse_out = vec4(0.0);
-			vec3 indirect_diffuse_light = vec3(0.0);
-
-			void set_color(vec4 value) {
-				if (lighting_data.gi_overlay_tex >= 0) {
-					vec4 overlay = texture(TEXTURE(lighting_data.gi_overlay_tex), in_uv);
-					value.rgb = mix(value.rgb, overlay.rgb, overlay.a);
-				}
-
-				imageStore(out_color, get_screen_pos(), value);
-				imageStore(out_subsurface_diffuse, get_screen_pos(), subsurface_diffuse_out);
-			}
-
-			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. surface_weather.GetRainSurfaceGLSL("lighting_data") .. [[
-
+local light_declarations = surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. fluid_volume_passes.GetDeclarationGLSL() .. (
+		optical_rays.RAY_QUERY and
+		optical_rays.GetDeclarationGLSL(SCENE_BINDINGS) or
+		""
+	)
+local screen_shadow_glsl = [[
 			#define SHADOW_SCREEN_SPACE
 
 			float screen_shadow_term = 1.0;
@@ -329,13 +175,260 @@ return {
 
 				return 1.0 - occlusion * view_fade;
 			}
+]]
+local light_glsl = (
+		optical_rays.RAY_QUERY and
+		optical_rays.GetGLSL() .. ray_materials.GetAlphaTestGLSL()
+		or
+		""
+	) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. radiance_cache.GetScreenSampleGLSL("lighting_data") .. radiance_cache.GetCommonGLSL()
+local uniform_buffers = {
+	{
+		name = "lighting_data",
+		binding_index = BINDING_UNIFORM,
+		block = {
+			surface_lighting.block,
+			gbuffer_layout.block,
+			surface_weather.rain_surface_block,
+			render3d.last_frame_block,
+			{"gi_debug", "int"},
+			{"direct_debug", "int"},
+			{"indirect_debug", "int"},
+			{"reflection_debug", "int"},
+			{"ambient_occlusion_tex", "int"},
+			{"gi_overlay_tex", "int"},
+			{"sky_clouds", "int"},
+			{"sky_air", "int"},
+			{"sky_alpha", "float"},
+			{"sky_from_environment", "int"},
+			{"screen_shadows", "int"},
+			{"screen_shadows_debug", "int"},
+			{"screen_shadow_length", "float"},
+			{"screen_shadow_steps", "int"},
+			{"thin_specular", "float"},
+			{"rough_sky", "float"},
+			{"gi_per_pixel", "int"},
+			{"caustics_tex", "int"},
+			{"direct_diffuse_tex", "int"},
+			{"direct_specular_tex", "int"},
+		},
+		write = function(self, block)
+			surface_lighting.WriteBlock(self, block)
+			gbuffer_layout.WriteBlock(self, block)
+			surface_weather.WriteRainSurfaceBlock(self, block)
+			render3d.WriteLastFrameBlock(self, block)
+			block.gi_debug = gi.IsDebugGI() and 1 or 0
+			block.direct_debug = debug_direct:Get() and 1 or 0
+			block.indirect_debug = debug_indirect:Get() and 1 or 0
+			block.reflection_debug = debug_reflections:Get() and 1 or 0
+			block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
+			block.sky_air = (
+					render3d.GetActiveRenderContext() or
+					not render3d.IsPassEnabled("volumetric_fog")
+				)
+				and
+				1 or
+				0
+			block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
+			block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
+			block.screen_shadows = screen_shadows:Get() and quality.Get().screen_shadow_step_scale > 0 and 1 or 0
+			block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
+			block.screen_shadow_length = screen_shadow_length:Get() * render3d.GetViewScale()
+			block.screen_shadow_steps = math.max(math.floor(screen_shadow_steps:Get() * quality.Get().screen_shadow_step_scale), 2)
+			block.thin_specular = thin_specular:Get()
+			block.rough_sky = rough_sky:Get()
+			block.gi_per_pixel = gi.IsPerPixel() and 1 or 0
 
-			]] .. (
+			if render3d.IsPassEnabled("ambient_occlusion") then
+				block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
+			else
+				block.ambient_occlusion_tex = -1
+			end
+
+			if caustics.IsLit() then
+				block.caustics = 1
+				block.caustics_tex = self:GetTextureIndex(render3d.pipelines.caustics:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
+			else
+				block.caustics_tex = -1
+			end
+
+			if render3d.IsPassEnabled("ray_shadows") and not render3d.IsDenoisingBypassed() then
+				block.ray_shadow_tex = self:GetTextureIndex(render3d.pipelines.ray_shadow_filter:GetFramebuffer(1):GetAttachment(1))
+			end
+
+			local direct = render3d.pipelines.lighting_direct:GetFramebuffer(1)
+			block.direct_diffuse_tex = self:GetTextureIndex(direct:GetAttachment(1))
+			block.direct_specular_tex = self:GetTextureIndex(direct:GetAttachment(2))
+			local overlay = gi.GetDebugOverlayTexture()
+			block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
+			return block
+		end,
+	},
+	scene_hits.GetRadianceCacheUniformBuffer(BINDING_RADIANCE_CACHE),
+}
+local storage_buffers = {
+	{binding_index = BINDING_LIGHT_GRID},
+	{binding_index = fluid_volume_passes.BINDING_RECORDS},
+}
+local descriptor_sets = optical_rays.RAY_QUERY and
+	scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute") or
+	nil
+local sampled_images = {
+	{
+		binding_index = BINDING_OCCLUSION_MAP,
+		get_texture = function()
+			return light_occlusion.GetOcclusionTexture()
+		end,
+	},
+	unpack(fluid_volume_passes.GetSampledImages()),
+}
+
+local function bind_lights(self, cmd, desc)
+	light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+	fluid_volume_passes.BindRecords(self, desc)
+
+	if optical_rays.RAY_QUERY then
+		scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
+	end
+end
+
+return {
+	{
+		name = "lighting_direct",
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"direct_diffuse", "rgba"}},
+			{"r16g16b16a16_sfloat", {"direct_specular", "rgba"}},
+		},
+		framebuffer_count = 1,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				attachment = 1,
+				dst_stage = "compute",
+			},
+			{
+				binding_index = BINDING_OUTPUT_DIFFUSE,
+				attachment = 2,
+				dst_stage = "compute",
+			},
+		},
+		storage_buffers = storage_buffers,
+		descriptor_sets = descriptor_sets,
+		on_pre_draw = function(self, cmd, frame, desc)
+			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
+
+			bind_lights(self, cmd, desc)
+		end,
+		sampled_images = sampled_images,
+		uniform_buffers = uniform_buffers,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_direct_diffuse;
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT_DIFFUSE .. [[, rgba16f) uniform writeonly image2D out_direct_specular;
+			]] .. light_declarations,
+		shader = compute_helpers.GetScreenHelpersGLSL() .. [[
+			vec2 in_uv;
+			ivec2 in_pixel;
+			float in_view_depth;
+
+			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. surface_weather.GetRainSurfaceGLSL("lighting_data") .. screen_shadow_glsl .. light_glsl .. surface_features.GetDecodeFunctionGLSL() .. screen_reconstruct.GetWorldPosGLSL("lighting_data") .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_world_pos_at"}) .. screen_reconstruct.GetGeometricNormalGLSL("lighting_data") .. [[
+
+			void main() {
+				ivec2 pos = get_screen_pos();
+				ivec2 size = imageSize(out_direct_diffuse);
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				in_uv = get_screen_uv(pos, size);
+				in_pixel = pos;
+				]] .. (
 				optical_rays.RAY_QUERY and
-				optical_rays.GetGLSL() .. ray_materials.GetAlphaTestGLSL()
-				or
+				"ray_shadow_pixel = pos;" or
 				""
-			) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. radiance_cache.GetScreenSampleGLSL("lighting_data") .. radiance_cache.GetCommonGLSL() .. [[
+			) .. [[
+
+				float depth = gbuffer_depth(in_uv);
+
+				if (depth == 0.0 || gbuffer_alpha(in_uv) == 0.0) return;
+
+				in_view_depth = -(lighting_data.inv_projection[2][2] * depth + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * depth + lighting_data.inv_projection[3][3]);
+				vec3 world_pos = get_world_pos(depth);
+				vec3 V = normalize(lighting_data.camera_position.xyz - world_pos);
+				vec3 N = bend_normal_to_view(gbuffer_normal(in_uv), V);
+				Surface surface;
+				surface.NdotV = max(dot(N, V), 0.001);
+				surface.world_pos = world_pos;
+				surface.V = V;
+				surface.N = N;
+				surface.geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V);
+				decode_surface_features(surface, in_uv, size);
+				finish_surface_features(surface);
+				vec3 direct_specular;
+				vec3 direct_diffuse = get_direct_light(surface, direct_specular);
+				imageStore(out_direct_diffuse, pos, vec4(min(direct_diffuse * get_pre_exposure(), vec3(65504.0)), screen_shadow_term));
+				imageStore(out_direct_specular, pos, vec4(min(direct_specular * get_pre_exposure(), vec3(65504.0)), 0.0));
+			}
+		]],
+	},
+	{
+		name = "lighting",
+		ComputePass = true,
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16b16a16_sfloat", {"subsurface_diffuse", "rgba"}},
+		},
+		framebuffer_count = 1,
+		LocalSize = COMPUTE_LOCAL_SIZE,
+		storage_images = {
+			{
+				binding_index = BINDING_OUTPUT,
+				attachment = 1,
+				dst_stage = "fragment",
+			},
+			{
+				binding_index = BINDING_OUTPUT_DIFFUSE,
+				attachment = 2,
+				dst_stage = "compute",
+			},
+		},
+		storage_buffers = storage_buffers,
+		descriptor_sets = descriptor_sets,
+		on_pre_draw = function(self, cmd, frame, desc)
+			bind_lights(self, cmd, desc)
+		end,
+		sampled_images = sampled_images,
+		uniform_buffers = uniform_buffers,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT_DIFFUSE .. [[, rgba16f) uniform writeonly image2D out_subsurface_diffuse;
+			]] .. light_declarations,
+		shader = compute_helpers.GetScreenHelpersGLSL() .. [[
+			vec2 get_compute_uv() {
+				return get_screen_uv(get_screen_pos(), imageSize(out_color));
+			}
+
+			vec2 in_uv;
+			ivec2 in_pixel;
+			float in_view_depth;
+
+			vec4 subsurface_diffuse_out = vec4(0.0);
+			vec3 indirect_diffuse_light = vec3(0.0);
+
+			void set_color(vec4 value) {
+				if (lighting_data.gi_overlay_tex >= 0) {
+					vec4 overlay = texture(TEXTURE(lighting_data.gi_overlay_tex), in_uv);
+					value.rgb = mix(value.rgb, overlay.rgb, overlay.a);
+				}
+
+				imageStore(out_color, get_screen_pos(), value);
+				imageStore(out_subsurface_diffuse, get_screen_pos(), subsurface_diffuse_out);
+			}
+
+			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. surface_weather.GetRainSurfaceGLSL("lighting_data") .. screen_shadow_glsl .. light_glsl .. [[
+
+
+
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
@@ -528,11 +621,6 @@ return {
 				if (!is_screen_pos_in_bounds(pos, size)) return;
 				in_uv = get_compute_uv();
 				in_pixel = pos;
-				]] .. (
-				optical_rays.RAY_QUERY and
-				"ray_shadow_pixel = pos;" or
-				""
-			) .. [[
 
 				float depth = gbuffer_depth(in_uv);
 
@@ -566,9 +654,10 @@ return {
 				decode_surface_features(surface, in_uv, size);
 				finish_surface_features(surface);
 
-				vec3 direct_specular;
-				screen_shadow_term = 1.0;
-				vec3 direct_diffuse = get_direct_light(surface, direct_specular);
+				vec4 direct_diffuse_term = texelFetch(TEXTURE(lighting_data.direct_diffuse_tex), pos, 0);
+				vec3 direct_diffuse = direct_diffuse_term.rgb / get_pre_exposure();
+				vec3 direct_specular = texelFetch(TEXTURE(lighting_data.direct_specular_tex), pos, 0).rgb / get_pre_exposure();
+				screen_shadow_term = direct_diffuse_term.a;
 				vec3 direct = direct_diffuse + direct_specular;
 
 				if (lighting_data.screen_shadows_debug != 0) {
