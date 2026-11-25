@@ -118,36 +118,56 @@ local function get_or_create_cry_terrain_layers(terrain)
 
 	for i, surface_type in ipairs(terrain.surface_types) do
 		if surface_type.detail_material_path then
-			local material = mtl_material.FromCryMTL(surface_type.detail_material_path)
+			-- a surface material with exactly three sub materials draws them on the x, y and z dominant faces (SSurfaceType::GetMaterialOfProjection), otherwise one material covers every face
+			local list = mtl_material.FromCryMTLList(surface_type.detail_material_path)
+			local axes = {}
 
-			if not (material.cry_texture_maps and material.cry_texture_maps.Diffuse) then
-				material = mtl_material.FromCryMTL(surface_type.detail_material_path, "z")
+			for axis, material in ipairs(#list == 3 and list or {list[1], list[1], list[1]}) do
+				local diffuse = material.cry_texture_maps and material.cry_texture_maps.Diffuse
+
+				if diffuse then
+					axes[axis] = {
+						material = material,
+						albedo = diffuse.resolved and
+							Texture.New{path = diffuse.resolved, srgb = false} or
+							material:GetAlbedoTexture(),
+						scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
+						detail = (
+								tonumber(material.cry_public_params.DetailTextureStrength) or
+								1
+							) * mtl_material.ALBEDO_SCALE,
+					}
+				end
 			end
 
-			local diffuse = material.cry_texture_maps and material.cry_texture_maps.Diffuse
-			local detail_bump = material:GetDetailTexture()
-			local slots = mtl_material.FromCryMTLSlots(surface_type.detail_material_path)
-			local side = slots and slots.x
+			local top = axes[3] or axes[1] or axes[2]
 
-			if diffuse then
+			if top then
+				local side_x = axes[1] or top
+				local side_z = axes[2] or top
+				local material = top.material
+				local detail_bump = material:GetDetailTexture()
 				layers[i] = {
-					albedo = diffuse.resolved and
-						Texture.New{path = diffuse.resolved, srgb = false} or
-						material:GetAlbedoTexture(),
+					albedo = top.albedo,
 					normal = material:GetNormalTexture(),
+					albedo_side_x = side_x.albedo,
+					normal_side_x = side_x.material:GetNormalTexture(),
+					albedo_side_z = side_z.albedo,
+					normal_side_z = side_z.material:GetNormalTexture(),
 					height = material:HasHeightMap() and material:GetHeightTexture() or nil,
 					height_scale = material:GetHeightScale(),
 					detail_bump = detail_bump,
 					detail_bump_tiling = detail_bump and material:GetDetailTiling().x or nil,
 					detail_bump_scale = detail_bump and material:GetDetailBumpScale() or nil,
-					scale = 1 / (surface_type.detail_scale_x * diffuse.tile_u),
-					detail = (
-							tonumber(material.cry_public_params.DetailTextureStrength) or
-							1
-						) * mtl_material.ALBEDO_SCALE,
+					scale = top.scale,
+					scale_side_x = side_x.scale,
+					scale_side_z = side_z.scale,
+					detail = top.detail,
+					detail_side_x = side_x.detail,
+					detail_side_z = side_z.detail,
 					additive_detail = material:GetColorMultiplier():GetLuminance(),
 					fade_distance = surface_type.project_axis == 2 and 128 or 2048,
-					fade_distance_xy = side and side.cry_texture_maps and side.cry_texture_maps.Diffuse and 2048 or nil,
+					fade_distance_xy = #list == 3 and 2048 or nil,
 					scatter = 0,
 					roughness = 1,
 					medium = material.cry_medium_density or 0,
@@ -193,6 +213,7 @@ function terrain.Translate(level_data)
 			nil,
 		layers = has_layers and get_or_create_cry_terrain_layers(terrain) or nil,
 		layer_blend = "passes",
+		triplanar_sharpness = 16,
 	}
 end
 

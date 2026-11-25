@@ -32,6 +32,8 @@ local function layer_values(suffix, requires)
 
 	if suffix == "" then params[#params].category = "Terrain Shading" end
 
+	values("ScalesSideX", Color(1.0, 1.0, 1.0, 1.0))
+	values("ScalesSideZ", Color(1.0, 1.0, 1.0, 1.0))
 	values("HeightScales", Color(0.0, 0.0, 0.0, 0.0))
 
 	if suffix == "" then
@@ -50,6 +52,8 @@ local function layer_values(suffix, requires)
 
 	values("Roughness", Color(1.0, 1.0, 1.0, 1.0))
 	values("DetailStrength", Color(0.0, 0.0, 0.0, 0.0), ray)
+	values("DetailStrengthSideX", Color(0.0, 0.0, 0.0, 0.0))
+	values("DetailStrengthSideZ", Color(0.0, 0.0, 0.0, 0.0))
 	values("AdditiveDetail", Color(0.0, 0.0, 0.0, 0.0), ray)
 	values("Specular", Color(1.0, 1.0, 1.0, 1.0))
 	values("SlopeMin", Color(-1.0, -1.0, -1.0, -1.0))
@@ -107,6 +111,13 @@ for layer = 1, 4 do
 	texture("TerrainLayer" .. layer .. "DetailTexture", "TerrainMaterialTexture")
 end
 
+for layer = 1, 4 do
+	texture("TerrainLayer" .. layer .. "SideXTexture", "TerrainMaterialTexture")
+	texture("TerrainLayer" .. layer .. "SideXNormalTexture", "TerrainMaterialTexture")
+	texture("TerrainLayer" .. layer .. "SideZTexture", "TerrainMaterialTexture")
+	texture("TerrainLayer" .. layer .. "SideZNormalTexture", "TerrainMaterialTexture")
+end
+
 texture("TerrainMaterial2Texture", "TerrainMaterialTexture", ray)
 
 for layer = 5, 8 do
@@ -114,6 +125,10 @@ for layer = 5, 8 do
 	texture("TerrainLayer" .. layer .. "NormalTexture", "TerrainMaterial2Texture", ray)
 	texture("TerrainLayer" .. layer .. "HeightTexture", "TerrainMaterial2Texture")
 	texture("TerrainLayer" .. layer .. "DetailTexture", "TerrainMaterial2Texture")
+	texture("TerrainLayer" .. layer .. "SideXTexture", "TerrainMaterial2Texture")
+	texture("TerrainLayer" .. layer .. "SideXNormalTexture", "TerrainMaterial2Texture")
+	texture("TerrainLayer" .. layer .. "SideZTexture", "TerrainMaterial2Texture")
+	texture("TerrainLayer" .. layer .. "SideZNormalTexture", "TerrainMaterial2Texture")
 end
 
 layer_values("", "TerrainMaterialTexture")

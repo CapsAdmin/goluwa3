@@ -9,11 +9,23 @@ local material_file = import("goluwa/render3d/material_file.lua")
 local heightmap_file = {}
 heightmap_file.FileName = "terrain.lua"
 heightmap_file.Version = 3
-local LAYER_TEXTURES = {"albedo", "normal", "height"}
+local LAYER_TEXTURES = {
+	"albedo",
+	"normal",
+	"height",
+	"albedo_side_x",
+	"normal_side_x",
+	"albedo_side_z",
+	"normal_side_z",
+}
 local LAYER_NUMBERS = {
 	"height_scale",
 	"scale",
+	"scale_side_x",
+	"scale_side_z",
 	"detail",
+	"detail_side_x",
+	"detail_side_z",
 	"additive_detail",
 	"specular",
 	"scatter",
@@ -42,6 +54,7 @@ function heightmap_file.Save(directory, data, options)
 		origin = data.origin,
 		uv = data.uv,
 		outside = data.outside,
+		triplanar_sharpness = data.triplanar_sharpness,
 		min_height = data.min_height,
 		max_height = data.max_height,
 		height = {width = height.width, height = height.height, file = "height.r16"},
@@ -142,6 +155,7 @@ function heightmap_file.Load(path)
 		origin = file.origin,
 		uv = file.uv,
 		outside = file.outside,
+		triplanar_sharpness = file.triplanar_sharpness,
 		min_height = file.min_height,
 		max_height = file.max_height,
 		height = {width = width, height = height, samples = samples},

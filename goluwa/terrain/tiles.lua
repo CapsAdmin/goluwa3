@@ -477,8 +477,12 @@ end
 
 local LAYER_VALUES = {
 	{"Scales", "scale", 1},
+	{"ScalesSideX", "scale_side_x", 1, "scale"},
+	{"ScalesSideZ", "scale_side_z", 1, "scale"},
 	{"Roughness", "roughness", 1},
 	{"DetailStrength", "detail", 0},
+	{"DetailStrengthSideX", "detail_side_x", 0, "detail"},
+	{"DetailStrengthSideZ", "detail_side_z", 0, "detail"},
 	{"AdditiveDetail", "additive_detail", 0},
 	{"Specular", "specular", 1},
 	{"Scatter", "scatter", 0},
@@ -539,18 +543,22 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 		material["SetTerrainLayer" .. i .. "NormalTexture"](material, resolve_layer_texture(layer.normal))
 		material["SetTerrainLayer" .. i .. "HeightTexture"](material, resolve_layer_texture(layer.height))
 		material["SetTerrainLayer" .. i .. "DetailTexture"](material, resolve_layer_texture(layer.detail_bump))
+		material["SetTerrainLayer" .. i .. "SideXTexture"](material, resolve_layer_texture(layer.albedo_side_x or layer.albedo))
+		material["SetTerrainLayer" .. i .. "SideXNormalTexture"](material, resolve_layer_texture(layer.normal_side_x or layer.normal))
+		material["SetTerrainLayer" .. i .. "SideZTexture"](material, resolve_layer_texture(layer.albedo_side_z or layer.albedo))
+		material["SetTerrainLayer" .. i .. "SideZNormalTexture"](material, resolve_layer_texture(layer.normal_side_z or layer.normal))
 	end
 
 	local any_scatter = false
 	local medium_density = 0
 
 	for _, def in ipairs(LAYER_VALUES) do
-		local name, key, default = def[1], def[2], def[3]
+		local name, key, default, fallback = def[1], def[2], def[3], def[4]
 		local v = {}
 
 		for i = 1, layer_count do
 			local layer = layers[i] or {}
-			v[i] = layer[key] or default
+			v[i] = layer[key] or fallback and layer[fallback] or default
 
 			if key == "height_scale" then v[i] = layer.height and layer.height_scale or 0 end
 

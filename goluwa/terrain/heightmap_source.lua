@@ -27,9 +27,11 @@ local NEAREST = {
 -- height: {width, height, samples = uint16 array of width * height} (a height map)
 -- color: a Texture, the color map, covering the map
 -- indices: {width, height, samples = uint8 array}, the layer id at every height sample, 0 is none (optional)
+-- triplanar_sharpness: how sharply steep faces switch between the projections of their dominant axis (optional, see TerrainSource)
 -- layer_blend: "passes" draws the layers like CryEngine's terrain passes, each over the ones with a lower id with the square root of its weight as alpha (optional, a plain weighted blend)
 -- layers: {[id] = {albedo, normal, height, height_scale, scale, detail, additive_detail, specular,
---   scatter, roughness, medium}}, the detail layers by id (medium: the density of the terrain medium (`media.TERRAIN_MEDIUM`) the layer is made of, 0 is none, see features/medium.lua)
+--   scatter, roughness, medium}}, the detail layers by id. albedo_side_x, normal_side_x, scale_side_x and detail_side_x
+--   (and _side_z) are what faces facing x (and z) use instead (optional, the top's) (medium: the density of the terrain medium (`media.TERRAIN_MEDIUM`) the layer is made of, 0 is none, see features/medium.lua)
 -- Returns a terrain source, source.Data is the data.
 function HeightmapSource.New(data)
 	local size = math.max(data.size, 1)
@@ -263,6 +265,7 @@ function HeightmapSource.New(data)
 			nil,
 		MinHeight = min_height,
 		MaxHeight = data.max_height,
+		TriplanarSharpness = data.triplanar_sharpness,
 		Layers = {},
 	}
 	source.Data = data
