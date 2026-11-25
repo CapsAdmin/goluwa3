@@ -356,7 +356,9 @@ do
 		-- request.gpu_mesh ({skirt_depth, shell (whether the tile may get one)}): the tile's vertices are written on the
 		-- gpu from the baked heights into chunk.vertex_buffer, with chunk.gpu_shell the shell they were made for
 		if request.gpu_mesh and request.samples then
-			chunk.gpu_shell = request.gpu_mesh.shell and tiles.GetShell(chunk.layers or self:GetLayers()) or 0
+			chunk.gpu_shell = request.gpu_mesh.shell and
+				tiles.GetShell(chunk.layers or self:GetLayers(), request) or
+				0
 			chunk.vertex_buffer = tiles.NewGpuVertexBuffer(request.samples, chunk.gpu_shell > 0)
 		end
 

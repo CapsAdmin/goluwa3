@@ -183,7 +183,7 @@ local function get_template(cells, step, host, shell)
 	return template
 end
 
-function tiles.GetShell(layers)
+function tiles.GetShell(layers, request)
 	local shell = 0
 
 	for _, layer in pairs(layers) do
@@ -202,7 +202,10 @@ function tiles.GetShell(layers)
 		if relief > 0 then shell = math.max(shell, relief) end
 	end
 
-	return shell
+	return math.max(
+		shell,
+		projected_decals.GetMaxRelief(request.min_x, request.min_z, request.min_x + request.size, request.min_z + request.size)
+	)
 end
 
 -- the vertices are only read while the polygon uploads (it keeps its own gpu layout copy), so one array is reused
@@ -521,6 +524,7 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	material:SetAlbedoTexture(chunk.color_texture)
 	material:SetTerrainTriplanarSharpness(source.TriplanarSharpness)
 	material:SetDecalReceiver(projected_decals.RECEIVE_TERRAIN)
+	projected_decals.AddTerrainMaterial(material)
 	material:SetRoughnessMultiplier(1)
 	material:SetMetallicMultiplier(0)
 	material:SetAcousticWindEmission(TERRAIN_WIND_EMISSION)

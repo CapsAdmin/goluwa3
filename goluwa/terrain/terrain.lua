@@ -417,7 +417,11 @@ function Terrain:CreateTile(want, chunk)
 	primitive_entity:AddComponent("transform")
 	local primitive = primitive_entity:AddComponent("visual_primitive")
 	local layers = chunk.layers or self.Source:GetLayers()
-	local shell = chunk.gpu_shell or level < self.ShellLevels and tiles.GetShell(layers) or 0
+	local shell = chunk.gpu_shell or
+		level < self.ShellLevels and
+		tiles.GetShell(layers, chunk.request)
+		or
+		0
 	local polygon = chunk.vertex_buffer and
 		tiles.BuildGpuPolygon(chunk, self:GetLevelSkirtDepth(level), shell) or
 		tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level), 1, nil, shell)

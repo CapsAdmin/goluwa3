@@ -8,6 +8,7 @@ local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local trace_break = import("goluwa/jit/tracebreak.lua")
 local deformation = import("goluwa/render3d/deformation.lua")
+local projected_decals = import("goluwa/render3d/projected_decals.lua")
 local model_pipeline = {}
 local SURFACE_MATERIAL_FIELDS = {
 	{type = "flags", name = "Flags", getter = "GetFillFlags"},
@@ -1286,7 +1287,7 @@ function model_pipeline.GetPBRUniformBuffers()
 	return buffers
 end
 
-model_pipeline.TERRAIN_RELIEF_GLSL = [=[
+model_pipeline.TERRAIN_RELIEF_GLSL = projected_decals.GetGLSL() .. [=[
 #ifndef MODEL_PIPELINE_TERRAIN_RELIEF
 #define MODEL_PIPELINE_TERRAIN_RELIEF
 			bool has_terrain_layers() {
@@ -1445,11 +1446,12 @@ model_pipeline.TERRAIN_RELIEF_GLSL = [=[
 
 			float base = weight_sum > 0.0001 ? relief / weight_sum : 0.0;
 
-			if (cover_amount <= 0.0) {
-				return base;
+			if (cover_amount > 0.0) {
+				base = mix(base, max(base, cover_level / cover_amount), min(cover_amount, 1.0));
 			}
 
-			return mix(base, max(base, cover_level / cover_amount), min(cover_amount, 1.0));
+			float scale = terrain_model.TerrainLayerScales.y;
+			return projected_decal_relief(packUint2x32(uvec2(uint(terrain_model.TerrainDecalsLow), uint(terrain_model.TerrainDecalsHigh))), q, vec3(gx[1].x, 0.0, gx[1].y) * scale, vec3(gy[1].x, 0.0, gy[1].y) * scale, base);
 		}
 
 #endif

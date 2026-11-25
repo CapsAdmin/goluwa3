@@ -88,6 +88,18 @@ add{
 	requires = "TerrainMaterialTexture",
 }
 add{
+	name = "TerrainDecalsLow",
+	kind = "int",
+	default = 0,
+	requires = "TerrainMaterialTexture",
+}
+add{
+	name = "TerrainDecalsHigh",
+	kind = "int",
+	default = 0,
+	requires = "TerrainMaterialTexture",
+}
+add{
 	name = "TerrainShell",
 	default = 0.0,
 	callback = "InvalidateFlags",

@@ -140,7 +140,12 @@ function META:Build()
 	self.renderer.Root:SetName("terrain")
 	self.Owner:AddChild(self.renderer.Root)
 	self:AnchorRoot()
+	self:AddGlobalEvent("ProjectedDecalReliefChanged")
 	META.Built[self] = true
+end
+
+function META:OnProjectedDecalReliefChanged(min_x, min_z, max_x, max_z)
+	if self.renderer then self.renderer:Invalidate(min_x, min_z, max_x, max_z) end
 end
 
 -- the terrain is in world space wherever its entity is: the tiles' root undoes the entity's transform

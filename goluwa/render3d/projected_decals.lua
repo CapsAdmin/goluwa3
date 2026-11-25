@@ -24,6 +24,7 @@ projected_decals.enabled = pvars.Setup2{
 	callback = function()
 		for decal in pairs(projected_decals.GetTracked()) do
 			decal:Reproject()
+			projected_decals.TrackRelief(decal)
 		end
 
 		projected_decals.Invalidate()
@@ -52,7 +53,8 @@ local Record = ffi.typeof([[struct {
 	float metallic;
 	int32_t border;
 	int32_t premultiplied;
-	float pad[2];
+	int32_t height_tex;
+	float relief;
 }]])
 local RECORD_SIZE = ffi.sizeof(Record)
 local Uint32Array = ffi.typeof("uint32_t[?]")
@@ -75,12 +77,14 @@ function projected_decals.Add(decal)
 	end
 
 	projected_decals.Invalidate()
+	projected_decals.TrackRelief(decal)
 end
 
 function projected_decals.Remove(decal)
 	if decals[decal] then
 		decals[decal] = nil
 		projected_decals.Invalidate()
+		projected_decals.TrackRelief(decal)
 	end
 end
 
@@ -95,6 +99,181 @@ end
 local function resolve_material(decal)
 	local slots, material = Material.GetOverrideFromPath(decal.Material)
 	return slots and slots[0] or material
+end
+
+local function get_uv_size(decal)
+	if decal.Projection == "road" then
+		return math.sqrt(decal.TileLength * decal.Width)
+	end
+
+	local matrix = decal.Owner.transform:GetWorldMatrix()
+	local size_u = 2 * Vec3(matrix.m00, matrix.m01, matrix.m02):GetLength() / math.max(math.abs(decal.URange.y - decal.URange.x), 1e-6)
+	local size_v = 2 * Vec3(matrix.m10, matrix.m11, matrix.m12):GetLength() / math.max(math.abs(decal.VRange.y - decal.VRange.x), 1e-6)
+	return math.sqrt(size_u * size_v)
+end
+
+local function get_relief(decal, material)
+	if not material:HasHeightMap() then return 0 end
+
+	return material:GetHeightScale() * get_uv_size(decal)
+end
+
+do
+	local event = import("goluwa/event.lua")
+	local relief_decals = {}
+	local pending
+
+	local function decal_bounds(decal)
+		if decal.Projection == "road" then
+			local values = decal.Points
+			local min_x, min_z, max_x, max_z = math.huge, math.huge, -math.huge, -math.huge
+
+			for i = 1, #values, 10 do
+				for k = 0, 2 do
+					local x, z = values[i + k * 3], values[i + k * 3 + 2]
+					min_x, max_x = math.min(min_x, x), math.max(max_x, x)
+					min_z, max_z = math.min(min_z, z), math.max(max_z, z)
+				end
+			end
+
+			local width = decal.Width
+
+			for i = 10, #values, 10 do
+				width = math.max(width, values[i])
+			end
+
+			return min_x - width, min_z - width, max_x + width, max_z + width
+		end
+
+		local matrix = decal.Owner.transform:GetWorldMatrix()
+		local extent_x = math.abs(matrix.m00) + math.abs(matrix.m10)
+		local extent_z = math.abs(matrix.m02) + math.abs(matrix.m12)
+		return matrix.m30 - extent_x,
+		matrix.m32 - extent_z,
+		matrix.m30 + extent_x,
+		matrix.m32 + extent_z
+	end
+
+	local function flush()
+		event.RemoveListener("Update", "projected_decal_relief")
+		local box = pending
+		pending = nil
+		event.Call("ProjectedDecalReliefChanged", box.min_x, box.min_z, box.max_x, box.max_z)
+	end
+
+	local function queue(entry)
+		if pending then
+			pending.min_x, pending.min_z = math.min(pending.min_x, entry.min_x), math.min(pending.min_z, entry.min_z)
+			pending.max_x, pending.max_z = math.max(pending.max_x, entry.max_x), math.max(pending.max_z, entry.max_z)
+		else
+			pending = {
+				min_x = entry.min_x,
+				min_z = entry.min_z,
+				max_x = entry.max_x,
+				max_z = entry.max_z,
+			}
+			event.AddListener("Update", "projected_decal_relief", flush)
+		end
+	end
+
+	function projected_decals.TrackRelief(decal)
+		local relief = projected_decals.IsEnabled() and
+			decals[decal] and
+			decal.Projection ~= "objects" and
+			get_relief(decal, resolve_material(decal)) or
+			0
+		local old = relief_decals[decal]
+
+		if old then queue(old) end
+
+		if relief > 0 then
+			local min_x, min_z, max_x, max_z = decal_bounds(decal)
+			relief_decals[decal] = {relief = relief, min_x = min_x, min_z = min_z, max_x = max_x, max_z = max_z}
+			queue(relief_decals[decal])
+		else
+			relief_decals[decal] = nil
+		end
+	end
+
+	-- the tallest relief of the terrain decals over an area, which the terrain shell there has to hold
+	function projected_decals.GetMaxRelief(min_x, min_z, max_x, max_z)
+		local relief = 0
+
+		for _, entry in pairs(relief_decals) do
+			if
+				entry.max_x >= min_x and
+				entry.min_x <= max_x and
+				entry.max_z >= min_z and
+				entry.min_z <= max_z
+			then
+				relief = math.max(relief, entry.relief)
+			end
+		end
+
+		return relief
+	end
+
+	local terrain_materials = setmetatable({}, {__mode = "k"})
+	local address_low, address_high = 0, 0
+
+	local function signed(word)
+		return word >= 2 ^ 31 and word - 2 ^ 32 or word
+	end
+
+	-- terrain relief is evaluated in shaders that only see the terrain material, so the grid address travels on it
+	function projected_decals.AddTerrainMaterial(material)
+		terrain_materials[material] = true
+		material:SetTerrainDecalsLow(address_low)
+		material:SetTerrainDecalsHigh(address_high)
+	end
+
+	function projected_decals.SetTerrainAddress(address)
+		address = 0ULL + address
+		address_low = signed(tonumber(address % 4294967296ULL))
+		address_high = signed(tonumber(address / 4294967296ULL))
+
+		for material in pairs(terrain_materials) do
+			material:SetTerrainDecalsLow(address_low)
+			material:SetTerrainDecalsHigh(address_high)
+		end
+	end
+end
+
+local function write_material(record, material, texture_index)
+	local color = material:GetColorMultiplier()
+	record.color[0], record.color[1], record.color[2], record.color[3] = color.r, color.g, color.b, color.a
+	local albedo = material:GetAlbedoTexture()
+	record.albedo_tex = albedo and albedo:IsValid() and texture_index(albedo) or -1
+	-- punch through bc1 decodes transparent texels to black, so filtering returns colour times alpha
+	record.premultiplied = albedo and
+		albedo:IsValid() and
+		albedo:GetFormat() == "bc1_rgba_unorm_block" and
+		1 or
+		0
+	local normal = material:GetNormalTexture()
+	record.normal_tex = normal and normal:IsValid() and texture_index(normal) or -1
+	local roughness = material:GetRoughnessTexture()
+	record.roughness_channel = 0
+
+	if not roughness then
+		roughness = material:GetMetallicRoughnessTexture()
+		record.roughness_channel = 1
+	end
+
+	record.roughness_tex = roughness and roughness:IsValid() and texture_index(roughness) or -1
+	record.roughness = material:GetRoughnessMultiplier()
+	record.roughness_min = material:GetRoughnessMin()
+	record.roughness_max = material:GetRoughnessMax()
+	local metallic = material:GetMetallicTexture()
+	record.metallic_channel = 0
+
+	if not metallic then
+		metallic = material:GetMetallicRoughnessTexture()
+		record.metallic_channel = material:GetMetallicRoughnessIsMR() and 0 or 2
+	end
+
+	record.metallic_tex = metallic and metallic:IsValid() and texture_index(metallic) or -1
+	record.metallic = material:GetMetallicMultiplier()
 end
 
 local function lerp_uv(decal, x, y)
@@ -292,7 +471,11 @@ local function fill_record(record, item, texture_index)
 	record.kind = item.kind
 	record.receivers = item.receivers
 	record.border = decal.UVBorder and 1 or 0
-	write_material(record, resolve_material(decal), texture_index)
+	local material = resolve_material(decal)
+	write_material(record, material, texture_index)
+	local height = material:HasHeightMap() and material:GetHeightTexture()
+	record.height_tex = height and height:IsValid() and texture_index(height) or -1
+	record.relief = record.height_tex >= 0 and get_relief(decal, material) or 0
 
 	if item.kind == projected_decals.KIND_QUAD then
 		local c = item.corners
@@ -430,6 +613,7 @@ function projected_decals.GetAddress(texture_index)
 		dirty = false
 		build(texture_index)
 		projected_decals.generation = projected_decals.generation + 1
+		projected_decals.SetTerrainAddress(buffer and buffer:GetDeviceAddress() or 0)
 	end
 
 	return buffer and buffer:GetDeviceAddress() or 0
@@ -466,7 +650,8 @@ function projected_decals.GetGLSL()
 			float metallic;
 			int border;
 			int premultiplied;
-			vec2 pad;
+			int height_tex;
+			float relief;
 		};
 
 		layout(buffer_reference, scalar) readonly buffer ProjectedDecalWords { uint v[]; };
@@ -619,6 +804,33 @@ function projected_decals.GetGLSL()
 			}
 
 			return applied;
+		}
+
+		// replaces the terrain relief under each terrain decal with a height map by its own, by the decal's alpha
+		float projected_decal_relief(uint64_t address, vec3 P, vec3 dPdx, vec3 dPdy, float relief) {
+			if (address == 0ul) return relief;
+
+			uint first;
+			uint count = projected_decal_cell(address, P, first);
+			ProjectedDecalWords words = ProjectedDecalWords(address);
+			ProjectedDecalRecords records = ProjectedDecalRecords(address + uint64_t(words.v[5]));
+
+			for (uint i = 0u; i < count; i++) {
+				ProjectedDecal d = records.d[words.v[first + i]];
+				ProjectedDecalMapping m;
+
+				if (d.height_tex < 0 || (d.receivers & ]=] .. projected_decals.RECEIVE_TERRAIN .. [=[) == 0 || !projected_decal_map(d, P, vec3(0.0), m)) continue;
+
+				vec2 uv_dx = vec2(dot(m.grad_u, dPdx), dot(m.grad_v, dPdx));
+				vec2 uv_dy = vec2(dot(m.grad_u, dPdy), dot(m.grad_v, dPdy));
+				float alpha = projected_decal_alpha(d, m, d.albedo_tex >= 0 ? textureGrad(TEXTURE(d.albedo_tex), m.uv, uv_dx, uv_dy) : vec4(1.0));
+
+				if (alpha <= 0.001) continue;
+
+				relief = mix(relief, textureGrad(TEXTURE(d.height_tex), m.uv, uv_dx, uv_dy).r * d.relief, alpha);
+			}
+
+			return relief;
 		}
 		#endif
 	]=]
