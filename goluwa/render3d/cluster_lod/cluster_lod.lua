@@ -22,7 +22,7 @@ local enabled = pvars.Setup2{
 }
 local pixel_error = pvars.Setup2{
 	key = "r_cluster_lod_error",
-	default = 1,
+	default = 8,
 	help = "the screen space error in pixels a cluster of a lower level may have before the finer level takes over, higher draws fewer triangles",
 }
 local rt_pixel_error = pvars.Setup2{
