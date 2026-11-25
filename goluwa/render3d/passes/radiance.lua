@@ -878,56 +878,119 @@ local function pass_pick()
 	}
 end
 
-local function pass_candidates()
-	return {
-		name = "radiance_candidates",
-		ComputePass = true,
-		ColorFormat = {
-			{"r32g32b32a32_sfloat", {"restir_candidate_position", "rgb", 0.01}},
-			{
-				"r32g32b32a32_sfloat",
-				{"restir_candidate_radiance", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
-			},
-			{"r16g16b16a16_sfloat", {"restir_candidate_normal", "rgb"}},
-			{
-				"r32g32b32a32_sfloat",
-				{"restir_candidate_specular", "rgba", 1 / post_source.UNEXPOSED_SDR_WHITE},
-			},
-			{"r32_sfloat", {"restir_candidate_specular_distance", "r"}},
-		},
-		framebuffer_count = 1,
-		scale = radiance.GetScale,
-		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(5),
-		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		storage_buffers = {{binding_index = BINDING_EMITTERS}},
-		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
-		on_pre_draw = function(self, cmd, frame, desc)
-			scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
-			local emitters = scene_emitters.BuildActive(cmd)
-			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
-		end,
-		on_draw = function(self, cmd, fb, frame, desc)
-			local share = radiance.GetRayShare()
-			self:UploadConstants()
-			self.pipeline:DispatchForSize(
-				cmd,
-				share == 1 and fb.width or math.ceil(fb.width / 2),
-				share == 4 and math.ceil(fb.height / 2) or fb.height,
-				1,
-				desc,
-				self.dynamic_offsets
+local BINDING_HIT_LIST = 14
+local BINDING_TRACE_RECORDS = 15
+local BINDING_HIT_RADIANCE = 21
+local HIT_LIST_HEADER_BYTES = 16
+local HIT_SHADE_LOCAL_SIZE = 64
+-- the hit list is dispatched as rows of this many groups, one row can not hold a full resolution frame's hits
+local HIT_SHADE_ROW_GROUPS = 4096
+local HIT_LIST_RETIRE_FRAMES = 4
+local hit_list = {capacity = 0, retired = {}}
+
+local function get_hit_list(rays)
+	for i = #hit_list.retired, 1, -1 do
+		if hit_list.retired[i].frame <= render.frame_serial then
+			hit_list.retired[i].buffer:Remove()
+			table.remove(hit_list.retired, i)
+		end
+	end
+
+	if hit_list.capacity < rays then
+		if hit_list.buffer then
+			list.insert(
+				hit_list.retired,
+				{buffer = hit_list.buffer, frame = render.frame_serial + HIT_LIST_RETIRE_FRAMES}
 			)
-		end,
-		custom_declarations = [[
-			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_a;
-			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_b;
-			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_c;
-			layout(set = 0, binding = 3, rgba32f) uniform writeonly image2D out_d;
-			layout(set = 0, binding = 4, r32f) uniform writeonly image2D out_e;
-		]] .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		-- temporal and spatial reuse stand in for more candidates: one by each of the emitter tree's weighings
-		shader = "#extension GL_EXT_control_flow_attributes : require\n" .. TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. SPECULAR_LOBE_GLSL .. scene_hits.GetDirectionGLSL() .. [[
+		end
+
+		hit_list.capacity = rays
+		hit_list.buffer = render.CreateBuffer{
+			byte_size = HIT_LIST_HEADER_BYTES + rays * 4,
+			buffer_usage = {"storage_buffer", "indirect_buffer", "transfer_dst"},
+			memory_property = {"device_local"},
+			label = "radiance_hit_list",
+		}
+	end
+
+	return hit_list.buffer
+end
+
+local function read_attachments(pipeline_name, first_binding, count)
+	local images = {}
+
+	for i = 1, count do
+		images[i] = {
+			binding_index = first_binding + i - 1,
+			get_texture = function()
+				return attachment(pipeline_name, 1, i)
+			end,
+			dst_stage = "compute",
+		}
+	end
+
+	return images
+end
+
+local HIT_LIST_GLSL = string.format(
+	[[
+	layout(std430, set = 0, binding = %d) buffer RadianceHitList {
+		uint count;
+		uint groups_x;
+		uint groups_y;
+		uint groups_z;
+		uint ids[];
+	} radiance_hit_list;
+]],
+	BINDING_HIT_LIST
+)
+
+local function trace_records_glsl(first_binding, access)
+	local out = {
+		[[
+		#define RADIANCE_RAY_HIT 1u
+		#define RADIANCE_RAY_EMISSION 2u
+		#define RADIANCE_RAY_BOUNCE 4u
+		#define RADIANCE_RAY_COARSE_ALPHA 8u
+		#define RADIANCE_RAY_GI_LOOKUP 16u
+		#define RADIANCE_RAY_DIFFUSE 32u
+		#define RADIANCE_RAY_GUIDED 64u
+		#define RADIANCE_RAY_GUIDE_MIX 128u
+	]],
+	}
+
+	for i, name in ipairs{
+		"diffuse_origin",
+		"diffuse_ray",
+		"diffuse_hit",
+		"specular_origin",
+		"specular_ray",
+		"specular_hit",
+	} do
+		out[#out + 1] = string.format(
+			"layout(set = 0, binding = %d, rgba32ui) uniform %s uimage2D %s;\n",
+			first_binding + i - 1,
+			access,
+			name
+		)
+	end
+
+	return table.concat(out)
+end
+
+local function hit_radiance_glsl(first_binding, access)
+	return string.format(
+		"layout(set = 0, binding = %d, rgba32f) uniform %s image2D diffuse_radiance;\nlayout(set = 0, binding = %d, rgba32f) uniform %s image2D specular_radiance;\n",
+		first_binding,
+		access,
+		first_binding + 1,
+		access
+	)
+end
+
+local function candidate_glsl()
+	return "#extension GL_EXT_control_flow_attributes : require\n" .. TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. SPECULAR_LOBE_GLSL .. scene_hits.GetDirectionGLSL() .. [[
+
 			// the rays are averaged unweighted over the visible normal distribution, so an emitter sample must enter at that density of its direction
 			// the diffuse emitter sample's candidates, picked for its origin and normal: the light of each divides out that normal's cosine, so it is evaluated there and only the lobe uses the bent normal
 			vec3 radiance_specular_emitter_light(vec3 origin, vec3 receiver_N, vec3 N, vec3 geometric_N, vec3 V, float roughness, uint index, int triangles[EMITTER_CANDIDATES], float weights[EMITTER_CANDIDATES]) {
@@ -998,8 +1061,11 @@ local function pass_candidates()
 				ray.R = reflection_above(ray.geometric_N, reflection_above(ray.N, ray.R, 0.001), 0.01);
 				// an emitter sample reads low across a broad lobe, where the rays find the large emitters well: a pixel chooses one estimator of the two, so the mean holds
 				ray.sample_emitters = radiance_specular_samples_emitters(pos, ray.roughness);
-				ray.origin = scene_escape_tessellation(P + ray.geometric_N * (0.0002 + 0.0001 * view_depth), ray.geometric_N, 0.1 * restir_data.view_scale);
 				return ray;
+			}
+
+			vec3 radiance_specular_origin(vec3 P, vec3 geometric_N, float view_depth) {
+				return scene_escape_tessellation(P + geometric_N * (0.0002 + 0.0001 * view_depth), geometric_N, 0.1 * restir_data.view_scale);
 			}
 
 			vec4 radiance_specular_finish(radiance_specular_ray ray, vec3 radiance, float hit_t, int index, vec3 emitter_origin, vec3 emitter_N, int triangles[EMITTER_CANDIDATES], float weights[EMITTER_CANDIDATES]) {
@@ -1022,8 +1088,295 @@ local function pass_candidates()
 				return vec4(radiance, ray_weight);
 			}
 
+]]
+end
+
+local function dispatch_per_pixel(self, cmd, fb, desc)
+	local share = radiance.GetRayShare()
+	self:UploadConstants()
+	self.pipeline:DispatchForSize(
+		cmd,
+		share == 1 and fb.width or math.ceil(fb.width / 2),
+		share == 4 and math.ceil(fb.height / 2) or fb.height,
+		1,
+		desc,
+		self.dynamic_offsets
+	)
+end
+
+local function bind_scene(self, cmd, frame, desc)
+	scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
+	local emitters = scene_emitters.BuildActive(cmd)
+	self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
+end
+
+local function pass_trace()
+	return {
+		name = "radiance_trace",
+		ComputePass = true,
+		ColorFormat = {
+			{"r32g32b32a32_uint", {"restir_trace_diffuse_origin", "rgb"}},
+			{"r32g32b32a32_uint", {"restir_trace_diffuse_ray", "rgb"}},
+			{"r32g32b32a32_uint", {"restir_trace_diffuse_hit", "rgb"}},
+			{"r32g32b32a32_uint", {"restir_trace_specular_origin", "rgb"}},
+			{"r32g32b32a32_uint", {"restir_trace_specular_ray", "rgb"}},
+			{"r32g32b32a32_uint", {"restir_trace_specular_hit", "rgb"}},
+		},
+		framebuffer_count = 1,
+		scale = radiance.GetScale,
+		LocalSize = LOCAL_SIZE,
+		storage_images = storage_images(6),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		storage_buffers = {{binding_index = BINDING_EMITTERS}, {binding_index = BINDING_HIT_LIST}},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
+		on_pre_draw = bind_scene,
+		on_draw = function(self, cmd, fb, frame, desc)
+			local buffer = get_hit_list(fb.width * fb.height * 2)
+			cmd:PipelineBarrier{
+				srcStage = {"compute", "draw_indirect"},
+				dstStage = "transfer",
+				memoryBarrier = true,
+			}
+			cmd:FillBuffer(buffer, 0, 12, 0)
+			cmd:FillBuffer(buffer, 12, 4, 1)
+			cmd:PipelineBarrier{srcStage = "transfer", dstStage = "compute", memoryBarrier = true}
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_HIT_LIST, 0, buffer, buffer:GetSize())
+			dispatch_per_pixel(self, cmd, fb, desc)
+		end,
+		custom_declarations = trace_records_glsl(BINDING_OUTPUT, "writeonly") .. HIT_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = candidate_glsl() .. [[
+			void radiance_append_hit(ivec2 pos, ivec2 size, uint ray) {
+				uint slot = atomicAdd(radiance_hit_list.count, 1u);
+
+				if ((slot % ]] .. HIT_SHADE_LOCAL_SIZE .. [[u) == 0u) {
+					uint group = slot / ]] .. HIT_SHADE_LOCAL_SIZE .. [[u;
+					atomicMax(radiance_hit_list.groups_x, min(group + 1u, ]] .. HIT_SHADE_ROW_GROUPS .. [[u));
+					atomicMax(radiance_hit_list.groups_y, group / ]] .. HIT_SHADE_ROW_GROUPS .. [[u + 1u);
+				}
+
+				radiance_hit_list.ids[slot] = uint(pos.y * size.x + pos.x) * 2u + ray;
+			}
+
 			void main() {
-				radiance_hit_emission = radiance_cache_data.radiance_cache_emitter_count == 0;
+				ivec2 id = get_screen_pos();
+				ivec2 size = imageSize(diffuse_origin);
+				const ivec2 order[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
+				ivec2 pos = restir_data.ray_share == 4 ? id * 2 + order[restir_data.frame & 3] : restir_data.ray_share == 2 ? ivec2(id.x * 2 + ((id.y + restir_data.frame) & 1), id.y) : id;
+
+				if (!is_screen_pos_in_bounds(pos, size)) return;
+
+				ivec2 gpos;
+				vec3 P;
+				vec3 N;
+				float view_depth;
+				float depth;
+
+				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth) || !scene_hits_ready()) return;
+
+				restir_pick_hit_gi(ivec2(gl_WorkGroupID.xy));
+				vec3 origin = restir_ray_origin(gpos, P, N, view_depth, depth);
+				vec3 geometric_N = normalize(origin - P);
+				uint frame = uint(restir_data.frame);
+				float guided_share = 0.0;
+				vec2 xi = vec2(0.5);
+
+				// the noise tile repeats every 64 pixels: each tile copy takes its own random shift per frame, or pixels a tile apart take the same ray every frame and their shared error never averages out
+				if (restir_data.blue_noise_tex >= 0) {
+					uvec3 tile_hash = pcg3d(uvec3(uvec2(pos / textureSize(TEXTURE(restir_data.blue_noise_tex), 0)), frame));
+					xi = fract(blue_noise_texel(TEXTURE(restir_data.blue_noise_tex), pos).rg + vec2(pcg_unorm(tile_hash.x), pcg_unorm(tile_hash.y)));
+				}
+
+				vec3 dir = restir_cosine_direction(N, xi);
+				ivec2 guide_tile = ivec2(0);
+
+				if (restir_data.guided > 0.0 && radiance_cache_data.radiance_cache_cascade_count > 0 && radiance_cache_data.radiance_cache_guide_tex >= 0 && radiance_cache_data.radiance_cache_uniform_rays < RADIANCE_CACHE_RAYS) {
+					for (int c = 0; c < radiance_cache_data.radiance_cache_cascade_count; c++) {
+						float spacing = radiance_cache_spacing(c);
+						vec3 grid = (P + N * (0.5 * spacing)) / spacing - vec3(radiance_cache_volume_base(c));
+
+						if (any(lessThan(grid, vec3(0.0))) || any(greaterThan(grid, vec3(radiance_cache_volume_size(c) - 1)))) continue;
+
+						ivec3 world = radiance_cache_volume_base(c) + ivec3(floor(grid + 0.5));
+						guide_tile = radiance_cache_tile(radiance_cache_slot(world, c), c);
+
+						if (radiance_cache_guide_valid(guide_tile, world, c)) guided_share = restir_data.guided;
+
+						break;
+					}
+				}
+
+				bool guided = guided_share > 0.0 && restir_random(pos, 40u) < guided_share;
+
+				if (guided) {
+					dir = radiance_cache_guide_sample(restir_random(pos, 41u), vec2(restir_random(pos, 42u), restir_random(pos, 43u)), restir_random(pos, 44u), guide_tile);
+				} else {
+					float below = dot(dir, geometric_N);
+
+					if (below < 0.01) dir = normalize(dir + geometric_N * (0.01 - 2.0 * below));
+				}
+
+				float ray_cosine = dot(N, dir);
+				bool traces_diffuse = ray_cosine > 0.0 && dot(dir, geometric_N) > 0.0;
+				uint gi_lookup = restir_hit_gi_share > 0.0 ? RADIANCE_RAY_GI_LOOKUP : 0u;
+				uint flags = gi_lookup | RADIANCE_RAY_BOUNCE | RADIANCE_RAY_COARSE_ALPHA | (radiance_cache_data.radiance_cache_emitter_count == 0 ? RADIANCE_RAY_EMISSION : 0u) | (traces_diffuse ? RADIANCE_RAY_DIFFUSE : 0u) | (guided ? RADIANCE_RAY_GUIDED : 0u) | (guided_share > 0.0 ? RADIANCE_RAY_GUIDE_MIX : 0u);
+				float t = SCENE_HIT_MAX_DISTANCE;
+				uint instance = 0u;
+				uint primitive = 0u;
+				vec2 barycentrics = vec2(0.0);
+				float pdf = 1.0;
+
+				if (traces_diffuse) {
+					scene_hit_coarse_alpha = true;
+
+					if (trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
+						flags |= RADIANCE_RAY_HIT;
+						radiance_append_hit(pos, size, 0u);
+					}
+
+					pdf = (1.0 - guided_share) * max(ray_cosine, 1e-4) / RESTIR_PI + (guided_share > 0.0 ? guided_share * radiance_cache_guide_density(dir, guide_tile) : 0.0);
+				}
+
+				imageStore(diffuse_origin, pos, uvec4(floatBitsToUint(origin), flags));
+				imageStore(diffuse_ray, pos, uvec4(floatBitsToUint(dir), floatBitsToUint(t)));
+				imageStore(diffuse_hit, pos, uvec4(instance, primitive, packUnorm2x16(barycentrics), floatBitsToUint(pdf)));
+
+				radiance_specular_ray specular = radiance_specular_setup(pos, gpos, P, N, view_depth, depth);
+				specular.origin = radiance_specular_origin(P, specular.geometric_N, view_depth);
+				flags = gi_lookup | (specular.sample_emitters ? 0u : RADIANCE_RAY_EMISSION) | (specular.roughness > REFLECTION_MIRROR_THRESHOLD * 3.0 ? RADIANCE_RAY_COARSE_ALPHA : 0u);
+				scene_hit_coarse_alpha = (flags & RADIANCE_RAY_COARSE_ALPHA) != 0u;
+				t = SCENE_HIT_MAX_DISTANCE;
+
+				if (trace_scene_hit(specular.origin, specular.R, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
+					flags |= RADIANCE_RAY_HIT;
+					radiance_append_hit(pos, size, 1u);
+				}
+
+				imageStore(specular_origin, pos, uvec4(floatBitsToUint(specular.origin), flags));
+				imageStore(specular_ray, pos, uvec4(floatBitsToUint(specular.R), floatBitsToUint(t)));
+				imageStore(specular_hit, pos, uvec4(instance, primitive, packUnorm2x16(barycentrics), floatBitsToUint(specular.environment_roughness)));
+			}
+		]],
+	}
+end
+
+local function pass_hit_shade()
+	return {
+		name = "radiance_hit_shade",
+		ComputePass = true,
+		ColorFormat = {
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_hit_diffuse", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_hit_specular", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
+		},
+		framebuffer_count = 1,
+		scale = radiance.GetScale,
+		LocalSize = {x = HIT_SHADE_LOCAL_SIZE, y = 1, z = 1},
+		storage_images = list.extend(storage_images(2), read_attachments("radiance_trace", BINDING_TRACE_RECORDS, 6)),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		storage_buffers = {{binding_index = BINDING_EMITTERS}, {binding_index = BINDING_HIT_LIST}},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
+		on_pre_draw = function(self, cmd, frame, desc)
+			bind_scene(self, cmd, frame, desc)
+			self:UpdateDescriptorSet(
+				"storage_buffer",
+				desc,
+				BINDING_HIT_LIST,
+				0,
+				hit_list.buffer,
+				hit_list.buffer:GetSize()
+			)
+		end,
+		on_draw = function(self, cmd, fb, frame, desc)
+			cmd:PipelineBarrier{
+				srcStage = "compute",
+				dstStage = {"compute", "draw_indirect"},
+				memoryBarrier = true,
+			}
+			self:UploadConstants()
+			self.pipeline:DispatchIndirect(cmd, hit_list.buffer, 4, desc, self.dynamic_offsets)
+		end,
+		custom_declarations = hit_radiance_glsl(BINDING_OUTPUT, "writeonly") .. trace_records_glsl(BINDING_TRACE_RECORDS, "readonly") .. HIT_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = candidate_glsl() .. [[
+			void main() {
+				uint index = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * ]] .. HIT_SHADE_LOCAL_SIZE .. [[u + gl_LocalInvocationID.x;
+
+				if (index >= radiance_hit_list.count) return;
+
+				uint id = radiance_hit_list.ids[index];
+				ivec2 size = imageSize(diffuse_radiance);
+				uint pixel = id >> 1u;
+				ivec2 pos = ivec2(int(pixel % uint(size.x)), int(pixel / uint(size.x)));
+				bool reflected = (id & 1u) != 0u;
+				uvec4 a = reflected ? imageLoad(specular_origin, pos) : imageLoad(diffuse_origin, pos);
+				uvec4 b = reflected ? imageLoad(specular_ray, pos) : imageLoad(diffuse_ray, pos);
+				uvec4 c = reflected ? imageLoad(specular_hit, pos) : imageLoad(diffuse_hit, pos);
+				vec3 origin = uintBitsToFloat(a.xyz);
+				vec3 dir = uintBitsToFloat(b.xyz);
+				float t = uintBitsToFloat(b.w);
+				vec2 barycentrics = unpackUnorm2x16(c.z);
+				radiance_hit_emission = (a.w & RADIANCE_RAY_EMISSION) != 0u;
+				radiance_hit_bounce = (a.w & RADIANCE_RAY_BOUNCE) != 0u;
+				scene_hit_coarse_alpha = (a.w & RADIANCE_RAY_COARSE_ALPHA) != 0u;
+				restir_hit_gi_share = (a.w & RADIANCE_RAY_GI_LOOKUP) != 0u ? 1.0 / float(max(int(round(1.0 / restir_data.hit_gi_share)), 1)) : 0.0;
+				vec3 L = shade_scene_hit(origin, dir, reflected ? uintBitsToFloat(c.w) : 1.0, t, c.x, c.y, barycentrics);
+
+				if (reflected) {
+					imageStore(specular_radiance, pos, vec4(L, 0.0));
+					return;
+				}
+
+				imageStore(diffuse_radiance, pos, vec4(restir_hit_sample(origin, dir, true, t, c.x, c.y, barycentrics, false, L).L, 0.0));
+			}
+		]],
+	}
+end
+
+local function pass_candidates()
+	return {
+		name = "radiance_candidates",
+		ComputePass = true,
+		ColorFormat = {
+			{"r32g32b32a32_sfloat", {"restir_candidate_position", "rgb", 0.01}},
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_candidate_radiance", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
+			{"r16g16b16a16_sfloat", {"restir_candidate_normal", "rgb"}},
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_candidate_specular", "rgba", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
+			{"r32_sfloat", {"restir_candidate_specular_distance", "r"}},
+		},
+		framebuffer_count = 1,
+		scale = radiance.GetScale,
+		LocalSize = LOCAL_SIZE,
+		storage_images = list.extend(
+			list.extend(storage_images(5), read_attachments("radiance_trace", BINDING_TRACE_RECORDS, 6)),
+			read_attachments("radiance_hit_shade", BINDING_HIT_RADIANCE, 2)
+		),
+		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		storage_buffers = {{binding_index = BINDING_EMITTERS}},
+		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
+		on_pre_draw = bind_scene,
+		on_draw = function(self, cmd, fb, frame, desc)
+			cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+			dispatch_per_pixel(self, cmd, fb, desc)
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_a;
+			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_b;
+			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_c;
+			layout(set = 0, binding = 3, rgba32f) uniform writeonly image2D out_d;
+			layout(set = 0, binding = 4, r32f) uniform writeonly image2D out_e;
+		]] .. trace_records_glsl(BINDING_TRACE_RECORDS, "readonly") .. hit_radiance_glsl(BINDING_HIT_RADIANCE, "readonly") .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = candidate_glsl() .. [[
+			void main() {
 				ivec2 id = get_screen_pos();
 				ivec2 size = imageSize(out_a);
 				const ivec2 order[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
@@ -1046,121 +1399,48 @@ local function pass_candidates()
 					return;
 				}
 
-				restir_pick_hit_gi(ivec2(gl_WorkGroupID.xy));
+				uvec4 diffuse_a = imageLoad(diffuse_origin, pos);
+				vec3 origin = uintBitsToFloat(diffuse_a.xyz);
+				uint flags = diffuse_a.w;
+				uint frame = uint(restir_data.frame);
+				bool miss = false;
+				restir_sample chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY, vec3(0.0));
+				float chosen_target = 0.0;
+				float w_sum = 0.0;
+				int emitter_count = radiance_cache_data.radiance_cache_emitter_count;
+				int emitter_triangles[EMITTER_CANDIDATES];
+				float emitter_weights[EMITTER_CANDIDATES];
+				bool have_emitters = emitter_count > 0 && emitter_candidates(uint(pos.y * size.x + pos.x), frame, origin, N, 0.05, emitter_triangles, emitter_weights);
 
-					vec3 origin = restir_ray_origin(gpos, P, N, view_depth, depth);
-					vec3 geometric_N = normalize(origin - P);
-					uint frame = uint(restir_data.frame);
-					bool miss = false;
-					restir_sample chosen;
-					float chosen_target = 0.0;
-					float w_sum = 0.0;
-					int emitter_count = radiance_cache_data.radiance_cache_emitter_count;
+				if ((flags & RADIANCE_RAY_DIFFUSE) != 0u) {
+					uvec4 diffuse_b = imageLoad(diffuse_ray, pos);
+					uvec4 diffuse_c = imageLoad(diffuse_hit, pos);
+					vec3 dir = uintBitsToFloat(diffuse_b.xyz);
+					float t = uintBitsToFloat(diffuse_b.w);
+					miss = (flags & RADIANCE_RAY_HIT) == 0u;
 
-					float guided_share = 0.0;
-						bool guided = false;
-						radiance_specular_ray specular;
-						int emitter_triangles[EMITTER_CANDIDATES];
-						float emitter_weights[EMITTER_CANDIDATES];
-						bool have_emitters = emitter_count > 0 && emitter_candidates(uint(pos.y * size.x + pos.x), frame, origin, N, 0.05, emitter_triangles, emitter_weights);
-						vec3 specular_L = vec3(0.0);
-						float specular_t = SCENE_HIT_MAX_DISTANCE;
+					if (miss) {
+						chosen = restir_hit_sample(origin, dir, false, t, 0u, 0u, vec2(0.0), false, vec3(0.0));
+					} else {
+						scene_triangle tri = scene_hit_tri(diffuse_c.x, diffuse_c.y);
+						vec3 hit_N = -tri.normal;
 
-					{
-						vec2 xi = vec2(0.5);
-						// the noise tile repeats every 64 pixels: each tile copy takes its own random shift per frame, or pixels a tile apart take the same ray every frame and their shared error never averages out
-						if (restir_data.blue_noise_tex >= 0) {
-							uvec3 tile_hash = pcg3d(uvec3(uvec2(pos / textureSize(TEXTURE(restir_data.blue_noise_tex), 0)), frame));
-							xi = fract(blue_noise_texel(TEXTURE(restir_data.blue_noise_tex), pos).rg + vec2(pcg_unorm(tile_hash.x), pcg_unorm(tile_hash.y)));
-						}
-						vec3 dir = restir_cosine_direction(N, xi);
-						ivec2 guide_tile = ivec2(0);
+						if (dot(hit_N, dir) > 0.0) hit_N = -hit_N;
 
-						if (restir_data.guided > 0.0 && radiance_cache_data.radiance_cache_cascade_count > 0 && radiance_cache_data.radiance_cache_guide_tex >= 0 && radiance_cache_data.radiance_cache_uniform_rays < RADIANCE_CACHE_RAYS) {
-							for (int c = 0; c < radiance_cache_data.radiance_cache_cascade_count; c++) {
-								float spacing = radiance_cache_spacing(c);
-								vec3 grid = (P + N * (0.5 * spacing)) / spacing - vec3(radiance_cache_volume_base(c));
-
-								if (any(lessThan(grid, vec3(0.0))) || any(greaterThan(grid, vec3(radiance_cache_volume_size(c) - 1)))) continue;
-
-								ivec3 world = radiance_cache_volume_base(c) + ivec3(floor(grid + 0.5));
-								guide_tile = radiance_cache_tile(radiance_cache_slot(world, c), c);
-
-								if (radiance_cache_guide_valid(guide_tile, world, c)) guided_share = restir_data.guided;
-
-								break;
-							}
-						}
-
-						guided = guided_share > 0.0 && restir_random(pos, 40u) < guided_share;
-
-						if (guided) {
-							dir = radiance_cache_guide_sample(restir_random(pos, 41u), vec2(restir_random(pos, 42u), restir_random(pos, 43u)), restir_random(pos, 44u), guide_tile);
-						} else {
-							float below = dot(dir, geometric_N);
-
-							if (below < 0.01) dir = normalize(dir + geometric_N * (0.01 - 2.0 * below));
-						}
-
-						float ray_cosine = dot(N, dir);
-
-						bool diffuse_ray = ray_cosine > 0.0 && dot(dir, geometric_N) > 0.0;
-							specular = radiance_specular_setup(pos, gpos, P, N, view_depth, depth);
-							vec3 diffuse_L = vec3(0.0);
-							bool diffuse_hit = false;
-							float diffuse_t = SCENE_HIT_MAX_DISTANCE;
-							uint diffuse_instance = 0u;
-							uint diffuse_primitive = 0u;
-							vec2 diffuse_barycentrics = vec2(0.0);
-
-							// both rays go through one call site, inlining the hit shading twice stalls instruction fetch
-							]] .. "[[dont_unroll]]" .. [[ for (int r = 0; r < 2; r++) {
-								bool reflected = r == 1;
-
-								if (!reflected && !diffuse_ray) continue;
-
-								vec3 ray_origin = reflected ? specular.origin : origin;
-								vec3 ray_dir = reflected ? specular.R : dir;
-								radiance_hit_emission = reflected ? !specular.sample_emitters : emitter_count == 0;
-								radiance_hit_bounce = !reflected;
-								float t;
-								uint instance;
-								uint primitive;
-								vec2 barycentrics;
-								scene_hit_coarse_alpha = !reflected || specular.roughness > REFLECTION_MIRROR_THRESHOLD * 3.0;
-								bool hit = trace_scene_hit(ray_origin, ray_dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
-								vec3 L = hit ? shade_scene_hit(ray_origin, ray_dir, reflected ? specular.environment_roughness : 1.0, t, instance, primitive, barycentrics) : vec3(0.0);
-
-								if (reflected) {
-									specular_L = hit ? L : sample_environment_specular_lod(restir_data.env_tex, ray_dir, specular.N, specular.environment_roughness, specular.roughness > REFLECTION_MIRROR_THRESHOLD ? 1.0 : 0.0);
-									specular_t = hit ? t : SCENE_HIT_MAX_DISTANCE;
-								} else {
-									diffuse_L = L;
-									diffuse_hit = hit;
-									diffuse_t = t;
-									diffuse_instance = instance;
-									diffuse_primitive = primitive;
-									diffuse_barycentrics = barycentrics;
-								}
-							}
-
-							radiance_hit_emission = true;
-							radiance_hit_bounce = true;
-
-							if (diffuse_ray) {
-								ray_cosine = max(ray_cosine, 1e-4);
-								float pdf = (1.0 - guided_share) * ray_cosine / RESTIR_PI + (guided_share > 0.0 ? guided_share * radiance_cache_guide_density(dir, guide_tile) : 0.0);
-								miss = !diffuse_hit;
-								chosen = restir_hit_sample(origin, dir, diffuse_hit, diffuse_t, diffuse_instance, diffuse_primitive, diffuse_barycentrics, false, diffuse_L);
-								chosen_target = luminance(chosen.L) * ray_cosine;
-								w_sum = chosen_target / pdf;
-							} else {
-								chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY, vec3(0.0));
-							}
-
-						miss = miss && !guided;
+						chosen = restir_sample(origin + dir * t, hit_N, imageLoad(diffuse_radiance, pos).rgb, RESTIR_SURFACE, vec3(0.0));
 					}
 
+					chosen_target = luminance(chosen.L) * max(dot(N, dir), 1e-4);
+					w_sum = chosen_target / uintBitsToFloat(diffuse_c.w);
+				}
+
+				miss = miss && (flags & RADIANCE_RAY_GUIDED) == 0u;
+				radiance_specular_ray specular = radiance_specular_setup(pos, gpos, P, N, view_depth, depth);
+				uvec4 specular_a = imageLoad(specular_origin, pos);
+				specular.origin = uintBitsToFloat(specular_a.xyz);
+				bool specular_found = (specular_a.w & RADIANCE_RAY_HIT) != 0u;
+				float specular_t = specular_found ? uintBitsToFloat(imageLoad(specular_ray, pos).w) : SCENE_HIT_MAX_DISTANCE;
+				vec3 specular_L = specular_found ? imageLoad(specular_radiance, pos).rgb : sample_environment_specular_lod(restir_data.env_tex, specular.R, specular.N, specular.environment_roughness, specular.roughness > REFLECTION_MIRROR_THRESHOLD ? 1.0 : 0.0);
 					if (have_emitters) {
 							float sum = 0.0;
 
@@ -1221,7 +1501,7 @@ local function pass_candidates()
 
 				imageStore(out_a, pos, vec4(restir_stored_x(chosen), w_sum));
 				imageStore(out_b, pos, vec4(chosen.L, chosen_target));
-				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0) | (guided_share > 0.0 ? RESTIR_FLAG_GUIDE_MIX : 0))));
+				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0) | ((flags & RADIANCE_RAY_GUIDE_MIX) != 0u ? RESTIR_FLAG_GUIDE_MIX : 0))));
 				imageStore(out_d, pos, radiance_specular_finish(specular, specular_L, specular_t, pos.y * size.x + pos.x, origin, N, emitter_triangles, emitter_weights));
 				imageStore(out_e, pos, vec4(specular_t));
 			}
@@ -2213,6 +2493,8 @@ if not render.GetDevice().ray_query_supported then return {} end
 
 return {
 	pass_pick(),
+	pass_trace(),
+	pass_hit_shade(),
 	pass_candidates(),
 	pass_temporal(),
 	pass_spatial(),

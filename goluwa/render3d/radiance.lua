@@ -17,6 +17,8 @@ local function recreate_framebuffers()
 
 	for _, name in ipairs{
 		"radiance_pick",
+		"radiance_trace",
+		"radiance_hit_shade",
 		"radiance_candidates",
 		"radiance_temporal",
 		"radiance_spatial",

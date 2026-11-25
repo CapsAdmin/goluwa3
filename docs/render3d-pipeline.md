@@ -103,6 +103,7 @@ Height shells (`HeightShell`, `Polygon3D:AddHeightShell()` before upload) let re
 - **Range pools** (`index_pool.lua` over `offset_allocator.lua`) bin requests, so a free block of exactly the requested size can fail (`Alloc` returns nil): grow by more than the request. Free through the returned node.
 - Meshes over 65536 vertices need 32 bit indices.
 - Compute pipelines hand out descriptor sets per command buffer object; `RenderNow` style code needs a fresh cmd per call.
+- A `ComputePass`'s `on_pre_draw` is called as `(self, cmd, frame, desc)`: a shared helper that takes `desc` third writes into another frame's descriptor set, so the pass silently traces or reads last frame's bindings. Indirect dispatches over per pixel lists need a 2D grid; a full resolution frame's rays exceed `maxComputeWorkGroupCount` in x.
 - glslang is located or fetched by `render/glslang_locator.lua` (hashes in `goluwa/bin_manifest.lua`).
 - Lavapipe (no GPU): `maxStorageBufferRange` is small, render3d tests use a lot of memory, and a segfault in JIT shader code is shader memory corruption, not Lua; bisect by skipping dispatches.
 
