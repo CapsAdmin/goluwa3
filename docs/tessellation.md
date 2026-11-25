@@ -33,6 +33,11 @@ A material with a height map and `HeightTessellate` (or every height mapped mate
 
 ## Limits
 
-- The relief rises out of the base surface (midlevel ignored). Shadow maps always see the base mesh, rays only see relief within `r_tessellation_rt_distance` with the cluster extension, so relief sunk below the base would be hidden in shadows and GI.
+- The relief rises out of the base surface (midlevel ignored). The near (exact) sun cascades draw the tessellated relief (`r_tessellation_shadows`, `tessellation.CullShadow`/`DrawShadow`); other shadow maps see the base mesh, rays only see relief within `r_tessellation_rt_distance` with the cluster extension, so relief sunk below the base would be hidden in far shadows and GI.
+
+## Shadows
+
+- Shadows are recorded in `PreFrame`, before this frame's `PreDraw`, so the shadow cull reads the previous frame's jobs, worlds and batch table and writes its own indirect args and patch lists. `PreDraw`'s first barrier also orders the earlier shadow submission's reads before it rewrites them.
+- The shadow cull is the main cull with the light's matrix for the frustum test (`args[8]`) and the camera's for the edge rates, so the shadow holds the surface the camera sees; separate rates would put the shadow surface off the visible one (acne, leaks). Decal jobs and software raster are skipped.
 - Decals are tessellated; they are biased toward the eye like parallax decals since the variant does not write fragment depth, and their height fades with albedo alpha.
 - Not tessellated: double sided, transparent and vertex animated materials, height shells, skinned polygons and LOD chains.

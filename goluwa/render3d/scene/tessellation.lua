@@ -27,7 +27,8 @@ local PID_WORDS = 6
 local JOB_BYTES = 80
 local STATE_COMMANDS_BYTES = GROUPS * BUCKETS * 16
 local STATE_ARGS_OFFSET = 256
-local STATE_BYTES = STATE_ARGS_OFFSET + 8 * 8
+local STATE_FRUSTUM_OFFSET = STATE_ARGS_OFFSET + 8 * 10
+local STATE_BYTES = STATE_FRUSTUM_OFFSET + 64
 local UPDATE_BUFFER_LIMIT = 65536
 
 local function invalidate_scene()
@@ -46,6 +47,11 @@ local tessellate_all = pvars.Setup2{
 	default = true,
 	callback = invalidate_scene,
 	help = "tessellate every height mapped material, not only the ones marked HeightTessellate",
+}
+local shadows = pvars.Setup2{
+	key = "r_tessellation_shadows",
+	default = true,
+	help = "draw the tessellated relief into the near (exact) sun shadow cascades, with the camera's tessellation rates, so terrain relief and decal heights cast shadows. Farther cascades keep the base mesh",
 }
 local seam_band = pvars.Setup2{
 	key = "r_tessellation_seam_band",
@@ -488,7 +494,7 @@ local function write_compute_block(self, block)
 	block.job_count = state.job_count
 	block.triangle_count = state.triangle_count
 	block.capacity = state.triangle_capacity
-	block.args = state.state_address + STATE_ARGS_OFFSET
+	block.args = state.args_address
 	block.software_pixels = state.software_pixels or 0
 	block.software_cache = state.software_cache or 0
 	block.software_cache_pixels = state.software_cache_pixels or 0
@@ -503,6 +509,7 @@ local COMPUTE_GLSL = [[
 	layout(buffer_reference, scalar) readonly buffer TessTLAS { tlas_instance t[]; };
 	layout(buffer_reference, scalar) readonly buffer TessInstanceData { instance_data d[]; };
 	layout(buffer_reference, scalar) readonly buffer TessRaster { raster_data r[]; };
+	layout(buffer_reference, scalar) readonly buffer TessFrustum { mat4 m; };
 	]] .. TESS_GLSL .. model_pipeline.BuildPBRBatchRecordGlsl() .. draw.WORLD_FROM_GLSL .. software_raster.RECORD_GLSL
 local compute_pipelines
 
@@ -542,12 +549,17 @@ local function get_compute_pipelines()
 					return compute.view_projection * (world * vec4(local_position, 1.0));
 				}
 
+				mat4 tess_frustum;
+
 				void main() {
 					uint g = gl_GlobalInvocationID.x;
 
 					if (g >= uint(compute.triangle_count)) return;
 
 					TessArgs args = TessArgs(compute.args);
+					// a shadow cull tests the light's frustum (args 8) but keeps the camera's rates, so the shadow holds the surface the camera sees
+					bool shadow = args.a[8] != 0ul;
+					tess_frustum = shadow ? TessFrustum(args.a[8]).m : compute.view_projection;
 					TessJobData jobs = TessJobData(args.a[0]);
 					uint lo = 0u;
 					uint hi = uint(compute.job_count) - 1u;
@@ -564,6 +576,8 @@ local function get_compute_pipelines()
 					if (tri >= job.triangle_count) return;
 
 					if ((TessInstanceData(args.a[5]).d[job.instance].flags & 16u) != 0u) return;
+
+					if (shadow && (job.flags & 1u) != 0u) return;
 
 					mat4 world = TessWorldData(args.a[1]).w[lo * 2u];
 					float height_scale = job.height_scale;
@@ -598,7 +612,7 @@ local function get_compute_pipelines()
 					for (int i = 0; i < 6; i++) {
 						int k = i % 3;
 						float level = i < 3 ? 0.0 : 1.0;
-						vec4 c = tess_clip(world, position[k] + dir[k] * (level * height_scale * scale[k]));
+						vec4 c = tess_frustum * (world * vec4(position[k] + dir[k] * (level * height_scale * scale[k]), 1.0));
 						min_w = min(min_w, c.w);
 						ndc_lo = min(ndc_lo, c.xy / max(c.w, 1e-6));
 						ndc_hi = max(ndc_hi, c.xy / max(c.w, 1e-6));
@@ -1138,6 +1152,7 @@ local function ensure_capacity(job_count, triangle_count)
 		"tessellation_patches"
 	)
 	state.state_address = state.state_buffer:GetDeviceAddress()
+	state.args_address = state.state_address + STATE_ARGS_OFFSET
 	state.jobs_address = state.jobs_buffer:GetDeviceAddress()
 	state.worlds_address = state.worlds_buffer:GetDeviceAddress()
 	state.patches_address = state.patches_buffer:GetDeviceAddress()
@@ -1372,6 +1387,7 @@ function tessellation.PreDraw(cmd)
 	args[5] = data_table:GetAddress()
 	args[6] = instances.GetRasterTable():GetAddress()
 	args[7], state.software_pixels, state.software_cache, state.software_cache_pixels = software_raster.ResetPatches(cmd)
+	args[8] = 0
 
 	if
 		not (
@@ -2274,6 +2290,204 @@ function tessellation.GetRowCount()
 	end
 
 	return count
+end
+
+do
+	local event = import("goluwa/event.lua")
+	local shadow = {capacity = 0}
+	local shadow_pipelines = {}
+	local SHADOW_VERTEX_GLSL = model_pipeline.BuildPBRBatchRecordGlsl() .. TESS_GLSL .. [[
+		#define TERRAIN_LAYERS 1
+		uint tess_batch;
+		#define model (PBRBatchData(tess_shadow.batches).b[tess_batch].m_model)
+		#define terrain_model (PBRBatchData(tess_shadow.batches).b[tess_batch].m_terrain_model)
+	]] .. model_pipeline.TERRAIN_RELIEF_GLSL .. TESS_EVAL_GLSL .. [=[
+		void main() {
+			uvec4 patch_record = TessPatchData(tess_shadow.patches).p[gl_InstanceIndex];
+			TessJob job = TessJobData(tess_shadow.jobs).j[patch_record.x];
+			tess_batch = job.batch;
+			PBRBatchData batch_data = PBRBatchData(tess_shadow.batches);
+			TessVertexData data = TessVertexData(job.vertices);
+			TessVertexData extras = TessVertexData(packUint2x32(batch_data.b[job.batch].extras_address));
+			int height_texture = batch_data.b[job.batch].m_displacement_model.HeightTexture;
+			tess_fade_texture = -1;
+			mat4 world = TessWorldData(tess_shadow.worlds).w[patch_record.x * 2u];
+			int small = gl_VertexIndex / 3;
+			int corner_index = gl_VertexIndex % 3;
+			int r = int(sqrt(float(small)));
+
+			while (r * r > small) r--;
+			while ((r + 1) * (r + 1) <= small) r++;
+
+			int c = small - r * r;
+			int k = c / 2;
+			ivec2 q;
+
+			if ((c & 1) == 0) {
+				q = corner_index == 0 ? ivec2(r, k) : (corner_index == 1 ? ivec2(r + 1, k) : ivec2(r + 1, k + 1));
+			} else {
+				q = corner_index == 0 ? ivec2(r, k) : (corner_index == 1 ? ivec2(r + 1, k + 1) : ivec2(r, k + 1));
+			}
+
+			TessSample sample_point = tess_evaluate(job, patch_record.y, patch_record.z, q, world, data, extras, height_texture, tess_shadow.seam_band);
+			gl_Position = tess_shadow.light_space_matrix * vec4(sample_point.world_position, 1.0);
+		}
+	]=]
+
+	local function get_shadow_pipeline(format)
+		if shadow_pipelines[format] then return shadow_pipelines[format] end
+
+		shadow_pipelines[format] = EasyPipeline.New{
+			name = "tessellation_shadow",
+			dont_create_framebuffers = true,
+			ColorFormat = {},
+			DepthFormat = format,
+			CullMode = "none",
+			FrontFace = orientation.FRONT_FACE,
+			DepthTest = true,
+			DepthWrite = true,
+			DepthCompareOp = "less",
+			DepthClamp = true,
+			DepthBias = true,
+			DepthBiasConstantFactor = 0.5,
+			DepthBiasSlopeFactor = 1.25,
+			vertex = {
+				push_constants = {
+					{
+						name = "tess_shadow",
+						block = {
+							{"light_space_matrix", "mat4"},
+							{"jobs", "uint64_t"},
+							{"worlds", "uint64_t"},
+							{"patches", "uint64_t"},
+							{"batches", "uint64_t"},
+							{"seam_band", "float"},
+						},
+						write = function(self, block)
+							shadow.light_space_matrix:CopyToFloatPointer(block.light_space_matrix)
+							block.jobs = state.jobs_address
+							block.worlds = state.worlds_address
+							block.patches = shadow.patches_address
+							block.batches = state.batches_address
+							block.seam_band = seam_band:Get()
+							return block
+						end,
+					},
+				},
+				shader = SHADOW_VERTEX_GLSL,
+			},
+		}
+		return shadow_pipelines[format]
+	end
+
+	local function is_near_cascade(shadow_map, cascade_index)
+		return shadow_map.mode ~= "point" and cascade_index <= #shadow_map.cascade_fixed_splits
+	end
+
+	-- shadows are recorded before this frame's PreDraw, so this reads the jobs, worlds and batches of the previous one
+	function tessellation.CullShadow(shadow_map, cascade_index)
+		shadow.cascade = nil
+
+		if
+			not state.ready or
+			not enabled:Get()
+			or
+			not shadows:Get()
+			or
+			not state.batches_address or
+			not is_near_cascade(shadow_map, cascade_index)
+		then
+			return
+		end
+
+		local cmd = shadow_map.cmd
+
+		if shadow.capacity ~= state.triangle_capacity then
+			render.GetDevice():WaitIdle()
+
+			if shadow.state_buffer then
+				shadow.state_buffer:Remove()
+				shadow.patches_buffer:Remove()
+			end
+
+			shadow.capacity = state.triangle_capacity
+			shadow.state_buffer = create_buffer(
+				STATE_BYTES,
+				{"storage_buffer", "indirect_buffer", "shader_device_address", "transfer_dst"},
+				"tessellation_shadow_state"
+			)
+			shadow.patches_buffer = create_buffer(
+				GROUPS * BUCKETS * shadow.capacity * 16,
+				{"storage_buffer", "shader_device_address"},
+				"tessellation_shadow_patches"
+			)
+			shadow.state_address = shadow.state_buffer:GetDeviceAddress()
+			shadow.patches_address = shadow.patches_buffer:GetDeviceAddress()
+			shadow.cpu = ffi.new("uint8_t[?]", STATE_BYTES)
+		end
+
+		local commands = ffi.cast("uint32_t *", shadow.cpu)
+
+		for slot = 0, GROUPS * BUCKETS - 1 do
+			local n = 2 ^ (slot % BUCKETS)
+			commands[slot * 4] = n * n * 3
+			commands[slot * 4 + 1] = 0
+			commands[slot * 4 + 2] = 0
+			commands[slot * 4 + 3] = slot * shadow.capacity
+		end
+
+		local args = ffi.cast("uint64_t *", shadow.cpu + STATE_ARGS_OFFSET)
+		local tlas_table, data_table = instances.GetTables()
+		args[0] = state.jobs_address
+		args[1] = state.worlds_address
+		args[2] = shadow.state_address
+		args[3] = shadow.patches_address
+		args[4] = tlas_table:GetAddress()
+		args[5] = data_table:GetAddress()
+		args[6] = instances.GetRasterTable():GetAddress()
+		args[7] = 0
+		args[8] = shadow.state_address + STATE_FRUSTUM_OFFSET
+		shadow.light_space_matrix = shadow_map.cascade[cascade_index].light_space_matrix
+		shadow.light_space_matrix:CopyToFloatPointer(ffi.cast("float *", shadow.cpu + STATE_FRUSTUM_OFFSET))
+		cmd:PipelineBarrier{
+			srcStage = {"draw_indirect", "vertex_shader", "compute"},
+			dstStage = "transfer",
+			memoryBarrier = true,
+		}
+		upload(cmd, shadow.state_buffer, shadow.cpu, STATE_BYTES)
+		cmd:PipelineBarrier{srcStage = "transfer", dstStage = "compute", memoryBarrier = true}
+		local main_args = state.args_address
+		state.args_address = shadow.state_address + STATE_ARGS_OFFSET
+		get_compute_pipelines().cull:Dispatch(cmd, math.ceil(state.triangle_count / 64), 1, 1, 1)
+		state.args_address = main_args
+		cmd:PipelineBarrier{
+			srcStage = "compute",
+			dstStage = {"draw_indirect", "vertex_shader"},
+			memoryBarrier = true,
+		}
+		shadow.cascade = cascade_index
+		shadow.map = shadow_map
+	end
+
+	function tessellation.DrawShadow(shadow_map, cascade_index)
+		if shadow.cascade ~= cascade_index or shadow.map ~= shadow_map then return end
+
+		local pipeline = get_shadow_pipeline(shadow_map.cascade[cascade_index].format)
+
+		if not render3d.IsPipelineReady(pipeline) then return end
+
+		local cmd = shadow_map.cmd
+		render.PushCommandBuffer(cmd)
+		pipeline:Bind(cmd, render.GetCurrentFrame())
+		pipeline:UploadConstants()
+		cmd:SetFrontFace(orientation.FRONT_FACE)
+		cmd:SetCullMode("none")
+		cmd:DrawIndirect(shadow.state_buffer, 0, GROUPS * BUCKETS, 16)
+		render.PopCommandBuffer()
+	end
+
+	event.AddListener("CullAllShadows", "tessellation_shadow", tessellation.CullShadow)
+	event.AddListener("DrawAllShadows", "tessellation_shadow", tessellation.DrawShadow)
 end
 
 return tessellation
