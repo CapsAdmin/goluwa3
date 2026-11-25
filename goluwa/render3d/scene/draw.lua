@@ -337,6 +337,8 @@ local function get_set(material, overlay)
 
 	if overlay then bits = bits + shader_features.OVERLAYS end
 
+	if material:GetRefraction() > 0 then bits = bits + shader_features.REFRACTION end
+
 	local variant = draw.GetVariant(material:MarchesRelief() and draw.SHAPE_RELIEF or draw.SHAPE_PLAIN, bits)
 	return (material:GetRasterBothFaces() and 1 or 0) + 2 * variant, variant
 end

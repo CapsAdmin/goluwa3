@@ -3,6 +3,7 @@ shader_features.list = {
 	{name = "terrain", define = "TERRAIN_LAYERS"},
 	{name = "overlays", define = "SURFACE_OVERLAYS"},
 	{name = "conditions", define = "SURFACE_CONDITIONS"},
+	{name = "refraction", define = "SURFACE_REFRACTION"},
 }
 shader_features.param_groups = {
 	{

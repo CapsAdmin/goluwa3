@@ -1186,7 +1186,7 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness, bi
 		assert(main, "no main in the surface shader")
 		fragment.shader = source.fragment.shader:sub(1, main - 1) .. [[
 			void main() {
-				refraction = RefractionView(refraction_record.amount, refraction_record.ior, refraction_record.abbe, in_instance_thickness);
+				refraction = RefractionView(SURFACE_REFRACTION != 0 ? refraction_record.amount : 0.0, refraction_record.ior, refraction_record.abbe, in_instance_thickness);
 		]] .. source.fragment.shader:sub(main + #"void main() {")
 	end
 
@@ -1195,7 +1195,7 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness, bi
 end
 
 do
-	local FEATURES = shader_features.TERRAIN + shader_features.OVERLAYS + shader_features.PARAMS
+	local FEATURES = shader_features.TERRAIN + shader_features.OVERLAYS + shader_features.PARAMS + shader_features.REFRACTION
 	local sources = {}
 
 	for _, pass in ipairs(passes) do
@@ -1208,6 +1208,7 @@ do
 			{
 				prewarm = {
 					scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0),
+					scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, shader_features.REFRACTION),
 					scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, FEATURES),
 				},
 				label = function(variant)

@@ -972,6 +972,7 @@ do
 		[scene_draw.SHAPE_IDS] = "ids",
 	}
 	local TERRAIN = shader_features.TERRAIN
+	local FEATURES = shader_features.ALL - shader_features.REFRACTION
 	local prewarm = {
 		scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0),
 		scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, 0),
@@ -979,7 +980,7 @@ do
 		scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, shader_features.PARAMS),
 		scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, TERRAIN),
 		scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, TERRAIN),
-		scene_draw.GetVariant(scene_draw.SHAPE_NEARER, shader_features.ALL),
+		scene_draw.GetVariant(scene_draw.SHAPE_NEARER, FEATURES),
 	}
 
 	if visibility.enabled then
@@ -1027,7 +1028,7 @@ do
 			end,
 		}
 	)
-	scene_draw.SetVariantKind(0, {"gbuffer_multi_draw"}, shader_features.ALL, true)
+	scene_draw.SetVariantKind(0, {"gbuffer_multi_draw"}, FEATURES, true)
 
 	if visibility.enabled then
 		visibility.SetCamera(camera_block, orientation.FRONT_FACE)
