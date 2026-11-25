@@ -599,7 +599,9 @@ function scene_hits.GetGLSL(block_name, shared)
 			float weight;
 			vec3 specular_direction = hit_brdf_specular_direction(brdf, hit_N, -dir);
 			vec4 specular_gi;
+			radiance_cache_lookup_at_hit = true;
 			vec4 gi = gi_sample_irradiance_pair(P, hit_N, hit_N, specular_direction, -dir, false, scene_instance_alpha_tested(hit_instance) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight, specular_gi);
+			radiance_cache_lookup_at_hit = false;
 
 			if (!gi_covers(P, weight)) {
 				float open_sky = scene_hit_open_sky(surface, hit_N, P);

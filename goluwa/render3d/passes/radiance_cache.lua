@@ -438,6 +438,7 @@ local function pass_shade()
 				#if RT_HIT_PROBES
 				radiance_cache_contrast_reference = luminance(textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, N, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0).rgb);
 				vec4 specular_irradiance;
+				radiance_cache_lookup_at_hit = true;
 				vec4 diffuse_irradiance = radiance_cache_sample_irradiance_pair(P, N, N, hit_brdf_specular_direction(brdf, N, -dir), -dir, false, scene_instance_alpha_tested(hit.y) ? RADIANCE_CACHE_NO_VISIBILITY_RAYS : RADIANCE_CACHE_CONTRAST_VISIBILITY_RAYS, weight, specular_irradiance);
 				radiance += hit_brdf_ambient_diffuse(brdf) * diffuse_irradiance.rgb + brdf.specular_albedo * specular_irradiance.rgb;
 

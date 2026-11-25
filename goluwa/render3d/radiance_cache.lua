@@ -1003,8 +1003,13 @@ function radiance_cache.GetCommonGLSL()
 		]] .. scene_hit.GetEscapeGLSL("scene_tlas") .. [[
 		#endif
 
+		// a ray hit lies on the traced surface, only a drawn point can sit below relief that is traced coarser than it is drawn
+		bool radiance_cache_lookup_at_hit = false;
+
 		vec3 radiance_cache_probe_ray_origin(vec3 P, vec3 N, float spacing) {
 			#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
+			if (radiance_cache_lookup_at_hit) return P + N * (0.02 * spacing);
+
 			return scene_escape_tessellation(P + N * (0.02 * spacing), N, 0.1);
 			#else
 			return P;
