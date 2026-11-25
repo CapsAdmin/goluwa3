@@ -906,10 +906,32 @@ function light_occlusion.GetMapLayer(index, light)
 	return info and info.light == light and index or -1
 end
 
+local SAMPLING_TAPS = 12
+-- the driver evaluates cos, sin and sqrt of a constant per tap instead of folding them
+local sampling_tap_offsets_glsl
+
+do
+	local offsets = {}
+
+	for k = 0, SAMPLING_TAPS - 1 do
+		local angle = k * 2.39996323
+		local radius = math.sqrt((k + 0.5) / SAMPLING_TAPS)
+		offsets[k + 1] = string.format("vec2(%.9f, %.9f)", math.cos(angle) * radius, math.sin(angle) * radius)
+	end
+
+	sampling_tap_offsets_glsl = string.format(
+		"const vec2 LIGHT_OCCL_TAP_OFFSETS[%d] = vec2[%d](%s);\n",
+		SAMPLING_TAPS,
+		SAMPLING_TAPS,
+		table.concat(offsets, ", ")
+	)
+end
+
 function light_occlusion.GetSamplingGLSL(data_block)
 	return (
 			[[
-		const int LIGHT_OCCL_TAPS = 12;
+		const int LIGHT_OCCL_TAPS = ]] .. SAMPLING_TAPS .. [[;
+		]] .. sampling_tap_offsets_glsl .. [[
 
 		]] .. glsl_common.GetOctahedralGLSL() .. [[
 
@@ -977,8 +999,7 @@ function light_occlusion.GetSamplingGLSL(data_block)
 			float blocker_count = 0.0;
 
 			for (int k = 0; k < LIGHT_OCCL_TAPS; k++) {
-				float angle = float(k) * 2.39996323;
-				vec2 tap = light_oct_wrap(uv.xy + vec2(cos(angle), sin(angle)) * sqrt((float(k) + 0.5) / float(LIGHT_OCCL_TAPS)) * search / angle_per_uv);
+				vec2 tap = light_oct_wrap(uv.xy + LIGHT_OCCL_TAP_OFFSETS[k] * search / angle_per_uv);
 				float mean = textureLod(light_oct_map, vec3(tap, uv.z), search_lod).r;
 
 				if (mean > 0.0 && mean * (1.0 + ]] .. data_block .. [[.bvh_oct_bias) < light_oct_receiver_depth(tap, to_pos, normal, dist)) {
@@ -995,8 +1016,7 @@ function light_occlusion.GetSamplingGLSL(data_block)
 			float visibility = 0.0;
 
 			for (int k = 0; k < LIGHT_OCCL_TAPS; k++) {
-				float angle = float(k) * 2.39996323;
-				vec2 tap = light_oct_wrap(uv.xy + vec2(cos(angle), sin(angle)) * sqrt((float(k) + 0.5) / float(LIGHT_OCCL_TAPS)) * penumbra / angle_per_uv);
+				vec2 tap = light_oct_wrap(uv.xy + LIGHT_OCCL_TAP_OFFSETS[k] * penumbra / angle_per_uv);
 				visibility += light_oct_chebyshev(textureLod(light_oct_map, vec3(tap, uv.z), lod).rg, light_oct_receiver_depth(tap, to_pos, normal, dist), tap_bleed);
 			}
 
