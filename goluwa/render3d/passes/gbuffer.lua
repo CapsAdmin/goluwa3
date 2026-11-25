@@ -233,36 +233,37 @@ local multi_draw_block = {
 	end,
 }
 
-local function build_multi_draw_pass(fragment_shader, bits, visibility_ids)
+local function build_multi_draw_pass(fragment_shader, bits, visibility_ids, vertex)
 	local pass = build_base_pass(fragment_shader, true)
 	pass.name = "gbuffer_multi_draw"
 	pass.draw_in_prerender = false
 	pass.dont_create_framebuffers = true
 	pass.on_draw = nil
 	pass.on_pre_draw = nil
-	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
-		shell_offset_expr = "world_normal * batch_data.b[batch_index].m_displacement_model.HeightShell * (((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : 1.0) - batch_data.b[batch_index].m_displacement_model.HeightMidlevel) + world_normal * (abs(in_tangent.w) > 1.5 ? 0.0 : batch_data.b[batch_index].m_terrain_model.TerrainShell * 1.1)",
-		normal = true,
-		tangent = true,
-		uv = true,
-		texture_blend = true,
-		vertex_color = true,
-		velocity = true,
-		lod_fade = true,
-		instance_overlay = true,
-		instance_dynamic = true,
-		effect_space = true,
-		camera_block_name = "gbuffer_data",
-		uniform_buffers = {camera_block, multi_draw_block},
-		batches_expr = "gbuffer_draw.batches",
-		instances_expr = "gbuffer_draw.instances",
-		prev_instances_expr = "gbuffer_draw.prev_instances",
-		batch_index_expr = "(gbuffer_draw.draw_groups != 0ul ? PBRDrawGroupData(gbuffer_draw.draw_groups).g[gl_DrawID] : uint(gl_DrawID))",
-		time_expr = "gbuffer_draw.time",
-		prev_time_expr = "gbuffer_draw.prev_time",
-		detail_time_expr = "gbuffer_draw.detail_time",
-		prev_detail_time_expr = "gbuffer_draw.prev_detail_time",
-	}
+	pass.vertex = vertex or
+		model_pipeline.CreateMultiDrawVertexStage{
+			shell_offset_expr = "world_normal * batch_data.b[batch_index].m_displacement_model.HeightShell * (((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : 1.0) - batch_data.b[batch_index].m_displacement_model.HeightMidlevel) + world_normal * (abs(in_tangent.w) > 1.5 ? 0.0 : batch_data.b[batch_index].m_terrain_model.TerrainShell * 1.1)",
+			normal = true,
+			tangent = true,
+			uv = true,
+			texture_blend = true,
+			vertex_color = true,
+			velocity = true,
+			lod_fade = true,
+			instance_overlay = true,
+			instance_dynamic = true,
+			effect_space = true,
+			camera_block_name = "gbuffer_data",
+			uniform_buffers = {camera_block, multi_draw_block},
+			batches_expr = "gbuffer_draw.batches",
+			instances_expr = "gbuffer_draw.instances",
+			prev_instances_expr = "gbuffer_draw.prev_instances",
+			batch_index_expr = "(gbuffer_draw.draw_groups != 0ul ? PBRDrawGroupData(gbuffer_draw.draw_groups).g[gl_DrawID] : uint(gl_DrawID))",
+			time_expr = "gbuffer_draw.time",
+			prev_time_expr = "gbuffer_draw.prev_time",
+			detail_time_expr = "gbuffer_draw.detail_time",
+			prev_detail_time_expr = "gbuffer_draw.prev_detail_time",
+		}
 	pass.fragment.uniform_buffers = {camera_block, multi_draw_block}
 	pass.fragment.custom_declarations = shader_features.GetDefines(bits) .. string.format(
 			"layout(location = %d) flat in uint in_batch;\nlayout(location = %d) flat in uint in_instance;\nlayout(location = %d) flat in uint in_triangle;\n",
@@ -733,7 +734,11 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			data.uv = in_uv;
 			data.height = 0.0;
 			data.world_pos = in_position;
-			data.texture_pos = in_position;
+			data.texture_pos = ]] .. (
+			tessellated and
+			"in_texture_position" or
+			"in_position"
+		) .. [[;
 			data.normal = vec3(0.0);
 			vec3 dp1 = dFdx(in_position);
 			vec3 dp2 = dFdy(in_position);
@@ -1049,9 +1054,12 @@ do
 				second_bin_defines = "#define TESS_SAMPLE_CACHED visibility_tess_cache\n#define VERTEX_ANIMATION_STATIC",
 				before_fragment = "tess_batch = in_batch;",
 				build = function(bits)
-					local pass = build_multi_draw_pass(build_ssdm_fragment_shader(false, true, false, true), bits)
-					pass.vertex = tessellation.CreateVertexStage({camera_block, multi_draw_block}, bits)
-					return pass
+					return build_multi_draw_pass(
+						build_ssdm_fragment_shader(false, true, false, true),
+						bits,
+						false,
+						tessellation.CreateVertexStage({camera_block, multi_draw_block}, bits)
+					)
 				end,
 			}
 		)
@@ -1070,10 +1078,10 @@ do
 				local pass = build_multi_draw_pass(
 					build_ssdm_fragment_shader(false, true, false, true, visibility_ids),
 					scene_draw.GetVariantBits(variant),
-					visibility_ids
+					visibility_ids,
+					tessellation.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
 				)
 				pass.name = tessellation.name
-				pass.vertex = tessellation.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
 
 				if visibility_ids then
 					pass.fragment.custom_declarations = pass.fragment.custom_declarations .. string.format(
@@ -1098,10 +1106,11 @@ do
 			build = function(variant)
 				local pass = build_multi_draw_pass(
 					build_ssdm_fragment_shader(false, true, false, true),
-					scene_draw.GetVariantBits(variant)
+					scene_draw.GetVariantBits(variant),
+					false,
+					cluster_stream.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
 				)
 				pass.name = cluster_stream.name
-				pass.vertex = cluster_stream.CreateVertexStage({camera_block, multi_draw_block}, scene_draw.GetVariantBits(variant))
 				return pass
 			end,
 		}

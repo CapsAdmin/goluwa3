@@ -346,6 +346,10 @@ local function get_vertex_stage_outputs(options)
 		outputs[#outputs + 1] = {"instance_thickness", "float"}
 	end
 
+	if options.texture_position then
+		outputs[#outputs + 1] = {"texture_position", "vec3"}
+	end
+
 	return outputs
 end
 

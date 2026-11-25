@@ -1520,6 +1520,7 @@ local VERTEX_MAIN = [=[
 		mat3 normal_matrix = transpose(inverse(mat3(world)));
 		vec3 world_normal = normalize(normal_matrix * normal);
 		out_position = world_position.xyz;
+		out_texture_position = world_position.xyz;
 		out_normal = world_normal;
 		out_tangent = vec4(normalize(mat3(world) * tangent.xyz), determinant(mat3(world)) < 0.0 ? -tangent.w : tangent.w);
 		out_uv = uv;
@@ -1548,6 +1549,7 @@ function cluster_stream.CreateVertexStage(uniform_buffers, bits)
 		instance_overlay = true,
 		instance_dynamic = true,
 		effect_space = true,
+		texture_position = true,
 	}
 	local batch_location = #outputs
 	local buffers = table.copy(uniform_buffers)

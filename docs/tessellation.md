@@ -17,6 +17,7 @@ A material with a height map and `HeightTessellate` (or every height mapped mate
 
 - Terrain tiles with a shell (`TerrainShell`, the finest `ShellLevels`) are always tessellated when the path is available (`r_tessellation` and the `multiDrawIndirect` and `drawIndirectFirstInstance` device features). Their vertices are written on the gpu ([terrain-streaming.md](terrain-streaming.md)), so the topology comes from the tile template (`polygon3d.TopologySource`) and is shared by every tile; only heights differ on a tile grid. The shell's base copy is skipped and skirt bottoms are not displaced, so skirts hang from the displaced edge.
 - The relief is `terrain_shell_relief`, shared with the shell march (`model_pipeline.TERRAIN_RELIEF_GLSL`). It depends only on world position, so shared vertices match.
+- Terrain relief displaces along the coarse terrain normal, so the displaced point sits sideways of where its height was read. Layer textures and normal maps are sampled at that foot point (`texture_position`, like the shell march's `hit.foot`); sampling at the displaced position smears the texture down flanks and the normal maps stop matching the shape.
 
 ## Rules that keep it watertight
 

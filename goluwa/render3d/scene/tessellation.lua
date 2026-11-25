@@ -782,6 +782,7 @@ local TESS_EVAL_GLSL = [=[
 	struct TessSample {
 		vec3 local_position;
 		vec3 world_position;
+		vec3 texture_position;
 		vec3 normal;
 		vec4 tangent;
 		vec2 uv;
@@ -896,6 +897,7 @@ local TESS_EVAL_GLSL = [=[
 		// shadow maps and rays see the base mesh, so the relief rises out of it instead of sinking below it where the base would cover it
 		vec3 local_position = point.base + point.dir * (point.height * height_scale * point.scale * point.displace);
 		vec4 world_position = world * vec4(local_position, 1.0);
+		vec3 texture_position = world_position.xyz;
 
 		if ((job.flags & 2u) != 0u) {
 			vec2 terrain_uv = (world_position.xz - terrain_model.TerrainBounds.xy) / terrain_model.TerrainBounds.z;
@@ -911,6 +913,7 @@ local TESS_EVAL_GLSL = [=[
 		TessSample result;
 		result.local_position = local_position;
 		result.world_position = world_position.xyz;
+		result.texture_position = texture_position;
 
 		if ((job.flags & 2u) != 0u) result.local_position = (inverse(world) * world_position).xyz;
 
@@ -952,6 +955,9 @@ local TESS_EVAL_GLSL = [=[
 		c.w[10] = floatBitsToUint(s.uv.y);
 		c.w[11] = floatBitsToUint(s.texture_blend);
 		c.w[12] = packUnorm4x8(s.vertex_color);
+		c.w[13] = floatBitsToUint(s.texture_position.x);
+		c.w[14] = floatBitsToUint(s.texture_position.y);
+		c.w[15] = floatBitsToUint(s.texture_position.z);
 	}
 
 	TessSample tess_cache_load(uint64_t address) {
@@ -964,6 +970,7 @@ local TESS_EVAL_GLSL = [=[
 		s.uv = uintBitsToFloat(uvec2(c.w[9], c.w[10]));
 		s.texture_blend = uintBitsToFloat(c.w[11]);
 		s.vertex_color = unpackUnorm4x8(c.w[12]);
+		s.texture_position = uintBitsToFloat(uvec3(c.w[13], c.w[14], c.w[15]));
 		return s;
 	}
 
@@ -1030,6 +1037,7 @@ local VERTEX_MAIN = [=[
 		mat3 normal_matrix = transpose(inverse(mat3(world)));
 		vec3 world_normal = normalize(normal_matrix * normal);
 		out_position = world_position.xyz;
+		out_texture_position = sample_point.texture_position;
 		out_normal = world_normal;
 		out_tangent = vec4(normalize(mat3(world) * tangent.xyz), tangent.w < 0.0 ? -1.0 : 1.0);
 		out_uv = uv;
@@ -1058,6 +1066,7 @@ function tessellation.CreateVertexStage(uniform_buffers, bits)
 		instance_overlay = true,
 		instance_dynamic = true,
 		effect_space = true,
+		texture_position = true,
 	}
 	local batch_location = #outputs
 	local buffers = table.copy(uniform_buffers)
