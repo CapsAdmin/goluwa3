@@ -229,6 +229,14 @@ local GEN_MASKS = {
 		DETAIL_BENDING = 0x10000,
 	},
 }
+-- these wires set ALPHAGLOW with the alpha test cutout in diffuse alpha, which lights the whole wire
+local IGNORED_ALPHAGLOW = {
+	{
+		"objects/library/barriers/fence/metall/metallfence/metalfence_a.mtl",
+		"razorwire",
+	},
+	{"objects/library/barriers/razorwire/razorwire.mtl", "wire"},
+}
 local MTL_FLAG_2SIDED = 0x2
 local MTL_FLAG_NODRAW = 0x400
 local cry_height_texture_cache = {}
@@ -549,8 +557,21 @@ local function apply_cry_material_node(self, material_node, material_path)
 
 	do
 		local glow = 0
+		local alpha_glow = has_gen("ALPHAGLOW")
 
-		if has_gen("ALPHAGLOW") then
+		if alpha_glow then
+			local lower_path = material_path:lower()
+
+			for _, entry in ipairs(IGNORED_ALPHAGLOW) do
+				if attrs.Name == entry[2] and lower_path:ends_with(entry[1]) then
+					alpha_glow = false
+
+					break
+				end
+			end
+		end
+
+		if alpha_glow then
 			glow = (tonumber(attrs.GlowAmount) or 0) + (tonumber(params.AmbientMultiplier) or 1)
 		end
 
