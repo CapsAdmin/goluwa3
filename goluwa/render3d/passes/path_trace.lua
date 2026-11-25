@@ -456,7 +456,8 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 					if (w <= 0.001) continue;
 
-					vec3 t = textureLod(TEXTURE(tex), (a == 0 ? P.xz : (a == 1 ? P.zy : P.xy)) / safe_scale, 0.0).xyz * 2.0 - 1.0;
+					vec3 t = textureLod(TEXTURE(tex), (a == 0 ? P.xz : (a == 1 ? vec2(-P.z, -P.y) : vec2(P.x, -P.y))) / safe_scale, 0.0).xyz * 2.0 - 1.0;
+					t.xy *= a == 1 ? vec2(-1.0) : (a == 2 ? vec2(1.0, -1.0) : vec2(1.0));
 					vec3 tn = vec3(t.xy + (a == 0 ? N.xz : (a == 1 ? N.zy : N.xy)), abs(t.z) * (a == 0 ? N.y : (a == 1 ? N.x : N.z)));
 					n += (a == 0 ? tn.xzy : (a == 1 ? tn.zyx : tn.xyz)) * w;
 				}

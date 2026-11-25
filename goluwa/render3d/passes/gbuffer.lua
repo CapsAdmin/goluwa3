@@ -680,8 +680,8 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer, tessellate
 			s.eye_hops = 0;
 			s.weights.uv = vec2(-1.0);
 			float scale = max(terrain_model.TerrainLayerScales.y, 0.0001);
-			s.gx = vec2[3](dFdx(in_position.zy) / scale, dFdx(in_position.xz) / scale, dFdx(in_position.xy) / scale);
-			s.gy = vec2[3](dFdy(in_position.zy) / scale, dFdy(in_position.xz) / scale, dFdy(in_position.xy) / scale);
+			s.gx = vec2[3](dFdx(terrain_side_x_uv(in_position)) / scale, dFdx(in_position.xz) / scale, dFdx(terrain_side_z_uv(in_position)) / scale);
+			s.gy = vec2[3](dFdy(terrain_side_x_uv(in_position)) / scale, dFdy(in_position.xz) / scale, dFdy(terrain_side_z_uv(in_position)) / scale);
 			vec2 edge = min(in_uv, 1.0 - in_uv);
 			bool side = min(edge.x, edge.y) < 1e-4;
 			vec2 out_uv = edge.x < edge.y ? vec2(in_uv.x < 0.5 ? -1.0 : 1.0, 0.0) : vec2(0.0, in_uv.y < 0.5 ? -1.0 : 1.0);

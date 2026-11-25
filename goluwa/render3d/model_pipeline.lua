@@ -1298,6 +1298,15 @@ model_pipeline.TERRAIN_RELIEF_GLSL = [=[
 				return normalize(vec3(n.x, sqrt(max(1.0 - dot(n, n), 0.0)), n.y));
 			}
 
+			// the side projections are oriented like CryEngine's terrain texgen (CTerrainNode::SetupTexGenParams), so ported levels line up; tangent space normals flip with them in sample_terrain_layer_normal_triplanar
+			vec2 terrain_side_x_uv(vec3 p) {
+				return vec2(-p.z, -p.y);
+			}
+
+			vec2 terrain_side_z_uv(vec3 p) {
+				return vec2(p.x, -p.y);
+			}
+
 			vec3 get_terrain_triplanar_weights(vec3 normal) {
 				vec3 w = abs(normal);
 				w = pow(w / max(max(w.x, w.y), max(w.z, 0.0001)), vec3(max(terrain_model.TerrainTriplanarSharpness, 1.0)));
@@ -1305,7 +1314,7 @@ model_pipeline.TERRAIN_RELIEF_GLSL = [=[
 			}
 
 			float sample_terrain_layer_height(int height_tex, vec3 p, float safe_scale, vec3 blend, vec2 gx[3], vec2 gy[3]) {
-				vec2 uv[3] = vec2[3](p.zy / safe_scale, p.xz / safe_scale, p.xy / safe_scale);
+				vec2 uv[3] = vec2[3](terrain_side_x_uv(p) / safe_scale, p.xz / safe_scale, terrain_side_z_uv(p) / safe_scale);
 				float h = 0.0;
 
 				for (int i = 0; i < 3; i++) {
@@ -1577,6 +1586,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 							t.xy += (texture(TEXTURE(detail_tex), detail_uv).xy + texture(TEXTURE(detail_tex), detail_uv * 2.0).xy - 1.0) * detail_scale;
 						}
 
+						t.xy *= a == 1 ? vec2(-1.0) : (a == 2 ? vec2(1.0, -1.0) : vec2(1.0));
 						vec3 tn = vec3(t.xy + (a == 0 ? N.xz : (a == 1 ? N.zy : N.xy)), abs(t.z) * (a == 0 ? N.y : (a == 1 ? N.x : N.z)));
 						n += (a == 0 ? tn.xzy : (a == 1 ? tn.zyx : tn.xyz)) * w;
 					}
@@ -1596,8 +1606,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 					float depth = displacement * safe_scale * fade;
 
 					if (depth > 0.0) {
-						vec2 gx[3] = vec2[3](dFdx(world_pos.zy) / safe_scale, dFdx(world_pos.xz) / safe_scale, dFdx(world_pos.xy) / safe_scale);
-						vec2 gy[3] = vec2[3](dFdy(world_pos.zy) / safe_scale, dFdy(world_pos.xz) / safe_scale, dFdy(world_pos.xy) / safe_scale);
+						vec2 gx[3] = vec2[3](dFdx(terrain_side_x_uv(world_pos)) / safe_scale, dFdx(world_pos.xz) / safe_scale, dFdx(terrain_side_z_uv(world_pos)) / safe_scale);
+						vec2 gy[3] = vec2[3](dFdy(terrain_side_x_uv(world_pos)) / safe_scale, dFdy(world_pos.xz) / safe_scale, dFdy(terrain_side_z_uv(world_pos)) / safe_scale);
 						vec3 to_top = V * (depth / max(facing, 0.05));
 						float level = 1.0;
 						float prev_level = 1.0;
@@ -1626,7 +1636,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 					}
 				}
 
-				return TerrainLayerUV(p.zy / safe_scale, p.xz / safe_scale, p.xy / safe_scale);
+				return TerrainLayerUV(terrain_side_x_uv(p) / safe_scale, p.xz / safe_scale, terrain_side_z_uv(p) / safe_scale);
 			}
 
 			struct TerrainLayerSample {
@@ -1644,7 +1654,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name, mip_bias)
 				}
 
 				float safe_scale = max(scale, 0.0001);
-				vec2 uv = blend.y >= blend.x && blend.y >= blend.z ? world_pos.xz / safe_scale : (blend.x >= blend.z ? world_pos.zy / safe_scale : world_pos.xy / safe_scale);
+				vec2 uv = blend.y >= blend.x && blend.y >= blend.z ? world_pos.xz / safe_scale : (blend.x >= blend.z ? terrain_side_x_uv(world_pos) / safe_scale : terrain_side_z_uv(world_pos) / safe_scale);
 				return mix(1.0, texture(TEXTURE(height_tex), uv).r * 2.0, amount);
 			}
 
