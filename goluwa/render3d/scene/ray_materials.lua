@@ -9,6 +9,7 @@ local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local media = import("goluwa/render3d/media.lua")
+local projected_decals = import("goluwa/render3d/projected_decals.lua")
 local water = import("goluwa/render3d/water.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
@@ -294,6 +295,9 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 			ivec4 terrain_layer_tex2;
 			vec4 terrain_detail2;
 			vec4 terrain_additive_detail2;
+			uint decals_low;
+			uint decals_high;
+			int decal_receiver;
 			float alpha;
 			float alpha_cutoff;
 			int alpha_test;
@@ -372,7 +376,24 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 end
 
 function ray_materials.GetMaterialGLSL()
-	return medium_common.GetGLSL() .. glsl_common.GetEquirectGLSL() .. [[
+	return medium_common.GetGLSL() .. glsl_common.GetEquirectGLSL() .. projected_decals.GetGLSL() .. [[
+
+		// a zero N skips the facing test of box decals
+		bool ray_material_decals(ray_material material, vec3 P, vec3 N, float lod, inout ProjectedDecalSurface s) {
+			if (material.decal_receiver == 0) return false;
+
+			return apply_projected_decals(packUint2x32(uvec2(material.decals_low, material.decals_high)), P, vec3(0.0), vec3(0.0), N, material.decal_receiver, lod, s);
+		}
+
+		vec3 ray_material_decal_albedo(ray_material material, vec3 P, vec3 N, vec3 albedo) {
+			ProjectedDecalSurface s;
+			s.albedo = albedo;
+			s.N = N;
+			s.roughness = 1.0;
+			s.metallic = 0.0;
+			ray_material_decals(material, P, N, 16.0, s);
+			return s.albedo;
+		}
 
 		vec3 ray_material_albedo(ray_material material, vec3 P) {
 			if (material.terrain_tex >= 0) {
@@ -503,7 +524,7 @@ function ray_materials.GetHitAlbedoGLSL()
 	if not hit_textures:Get() then
 		return [[
 			vec3 ray_hit_albedo(ray_material material, vec3 P, uint instance, uint primitive) {
-				return ray_medium_albedo(material, ray_material_albedo(material, P));
+				return ray_medium_albedo(material, ray_material_decal_albedo(material, P, vec3(0.0), ray_material_albedo(material, P)));
 			}
 
 			float ray_hit_roughness(ray_material material, vec3 P, uint instance, uint primitive) {
@@ -602,7 +623,7 @@ function ray_materials.GetHitAlbedoGLSL()
 		}
 
 		vec3 ray_hit_albedo(ray_material material, vec3 P, uint instance, uint primitive) {
-			return ray_medium_albedo(material, ray_hit_albedo_plain(material, P, instance, primitive));
+			return ray_medium_albedo(material, ray_material_decal_albedo(material, P, vec3(0.0), ray_hit_albedo_plain(material, P, instance, primitive)));
 		}
 	]]
 end
@@ -679,6 +700,9 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t terrain_layer_tex2[4];
 	float terrain_detail2[4];
 	float terrain_additive_detail2[4];
+	uint32_t decals_low;
+	uint32_t decals_high;
+	int32_t decal_receiver;
 	float alpha;
 	float alpha_cutoff;
 	int32_t alpha_test;
@@ -989,6 +1013,9 @@ do
 			end
 		end
 
+		local decals_address = 0ULL + projected_decals.GetAddress(function(texture)
+				return self:GetTextureIndex(texture)
+			end)
 		local generation = Material.ray_material_generation
 		local releases = self:GetTextureIndexReleases()
 		local glass_enabled = not Material.GlassCastsShadow()
@@ -999,7 +1026,8 @@ do
 			state.releases == releases and
 			state.glass == glass_enabled and
 			state.medium_thickness == medium_common.assumed_thickness and
-			state.media_generation == media.generation
+			state.media_generation == media.generation and
+			state.decals_generation == projected_decals.generation
 		then
 			glass_count = state.glass_count or 0
 			medium_count = state.medium_count or 0
@@ -1010,7 +1038,9 @@ do
 		local rewrite_all = state.releases < 0 or
 			state.glass ~= glass_enabled or
 			state.medium_thickness ~= medium_common.assumed_thickness or
-			state.media_generation ~= media.generation
+			state.media_generation ~= media.generation or
+			state.decals_generation ~= projected_decals.generation
+		state.decals_generation = projected_decals.generation
 		state.medium_thickness = medium_common.assumed_thickness
 		state.media_generation = media.generation
 		local released
@@ -1062,6 +1092,9 @@ do
 				entry.albedo[0] = color.r
 				entry.albedo[1] = color.g
 				entry.albedo[2] = color.b
+				entry.decal_receiver = decals_address ~= 0ULL and math.floor(material:GetDecalReceiver() + 0.5) or 0
+				entry.decals_low = tonumber(decals_address % 4294967296ULL)
+				entry.decals_high = tonumber(decals_address / 4294967296ULL)
 				local albedo = material:GetAlbedoTexture() or NULL
 				entry.albedo_tex = albedo:IsValid() and texture_index(self, state, i, albedo) or -1
 				entry.double_sided = material:GetDoubleSided() and 1 or 0

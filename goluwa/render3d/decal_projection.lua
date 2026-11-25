@@ -117,7 +117,7 @@ do
 		return a * (s * s * s) + b * (3 * s * s * t) + c * (3 * s * t * t) + d * (t * t * t)
 	end
 
-	function decal_projection.Road(road, height, offset)
+	function decal_projection.RoadSamples(road)
 		local points = road.points
 		local samples = {}
 		local step = math.min(road.step, ROAD_MAX_STEP)
@@ -142,7 +142,6 @@ do
 		end
 
 		local distance = 0
-		local across_cells = 1
 
 		for i, sample in ipairs(samples) do
 			local previous, following = samples[i - 1] or sample, samples[i + 1] or sample
@@ -160,6 +159,25 @@ do
 			end
 
 			sample.distance = distance
+		end
+
+		local total_distance = distance
+
+		for _, sample in ipairs(samples) do
+			sample.fade = 1 - math.min(
+					math.min(sample.distance / road.fade_length, 1),
+					math.min((total_distance - sample.distance) / road.fade_length, 1)
+				)
+		end
+
+		return samples
+	end
+
+	function decal_projection.Road(road, height, offset)
+		local samples = decal_projection.RoadSamples(road)
+		local across_cells = 1
+
+		for _, sample in ipairs(samples) do
 			across_cells = math.max(
 				across_cells,
 				math.clamp(math.ceil(sample.width / ROAD_ACROSS_STEP), 1, ROAD_MAX_ACROSS)
@@ -167,14 +185,9 @@ do
 		end
 
 		local rows = {}
-		local total_distance = samples[#samples].distance
 
 		for i, sample in ipairs(samples) do
 			local row = {}
-			local fade = 1 - math.min(
-					math.min(sample.distance / road.fade_length, 1),
-					math.min((total_distance - sample.distance) / road.fade_length, 1)
-				)
 
 			for k = 0, across_cells do
 				local across = k / across_cells - 0.5
@@ -186,7 +199,7 @@ do
 					normal = normal,
 					u = sample.distance / road.tile_length,
 					v = 1 - k / across_cells,
-					fade = fade,
+					fade = sample.fade,
 				}
 			end
 

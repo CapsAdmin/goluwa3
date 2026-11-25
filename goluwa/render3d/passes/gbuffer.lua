@@ -98,7 +98,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		ColorFormat = gbuffer_layout.color_format,
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,
 		DepthClear = 0.0,
-		color_image_usage = visibility.enabled and {"storage"} or nil,
+		color_image_usage = {"storage"},
 		fragment = {
 			uniform_buffers = uniform_buffers,
 			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data", true) .. surface_weather.GetGLSL("gbuffer_data") .. surface_conditions.GetGLSL("gbuffer_data") .. surface_overlays.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[

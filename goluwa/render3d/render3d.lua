@@ -1100,6 +1100,7 @@ function render3d.Initialize(config)
 				visibility.Resolve(render.GetCommandBuffer(), pipeline:GetFramebuffer())
 			end
 
+			import("goluwa/render3d/projected_decals.lua").Resolve(render.GetCommandBuffer(), pipeline:GetFramebuffer())
 			gpu_culling.PrepareMainViewHiZ(render.GetCommandBuffer())
 		end
 	end

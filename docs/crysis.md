@@ -30,6 +30,10 @@ Where behavior must match CryEngine, read the shipped CryFX shader sources in `G
 - Terrain layer projections are oriented like CryEngine's texgen (`CTerrainNode::SetupTexGenParams`): in Cry axes, top faces map (X, -Y), X facing faces (Y, -Z) and Y facing faces (X, -Z). The engine's triplanar terrain mapping (`terrain_side_x_uv`/`terrain_side_z_uv` in `model_pipeline.lua`, and the path tracer) follows it, so cliff cracks line up with the game; another orientation rotates or mirrors them. A surface material with exactly three sub materials puts them on the X, Y and Z dominant faces (`SSurfaceType::GetMaterialOfProjection`); the loader maps them to the layer's `_side_x`, `_side_z` and top textures, scales and detail strengths, and sharpens the triplanar weights (`triplanar_sharpness`) since CryEngine switches by dominant axis instead of blending. A single material covers every face; CryEngine projects it along the surface's default axis only, the engine still projects it per face. TileV is not applied (TileU is used for both).
 - UseTerrainColor grass blends its albedo toward the terrain colour (`GroundColorTexture`, `terrain.ApplyVegetationMaterialState`), as `Vegetation.cfx` does for grass. CryEngine's distance-only terrain colour fade for other vegetation is a far-LOD trick and is not reproduced.
 
+## Decals and roads
+
+Decals and roads are projected decals ([render3d-pipeline.md](render3d-pipeline.md)). They blend with the diffuse alpha times the MTL opacity like CryEngine's decal shader (box decals also fade with depth, `1 - z^2`, as `DECAL_TEXGEN_3D`); `DECAL_ALPHA_CLEAN` only applies to the mesh fallback, where it keeps dithering clean.
+
 ## Lights
 
 `Light`, `SimpleLight` and `SimpleIndirectLight` entities (`level.ExtractLight`) become `light_point`, or `light_spot` with a projector texture (`scene.lua`); inactive ones are skipped. A Cry light's multiplier and radius are converted to lumens through `CRY_LIGHT_LUX_PER_UNIT`; this calibration is by eye, not measured against CryEngine. Some multiplayer maps have no lights and rely on emissive materials.

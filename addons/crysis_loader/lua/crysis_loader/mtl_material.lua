@@ -11,6 +11,7 @@ local surface_types = import("lua/crysis_loader/surface_types.lua")
 local FOLIAGE_WIND_EMISSION = Vec3(0.3, 0.6, 0.8)
 local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
+local projected_decals = import("goluwa/render3d/projected_decals.lua")
 local mtl_material = {}
 -- CryEngine lights texels and colours as stored (gamma space values, never linearised), with
 -- material colours at about twice their value; a stored value times ALBEDO_SCALE is the albedo.
@@ -365,6 +366,10 @@ local function apply_cry_material_node(self, material_node, material_path)
 	end
 
 	self:SetDoubleSided(leaves or bit.band(mtl_flags, MTL_FLAG_2SIDED) ~= 0)
+
+	if shader ~= "Vegetation" and not self:GetTranslucent() and not self:GetDecal() then
+		self:SetDecalReceiver(projected_decals.RECEIVE_STATIC)
+	end
 
 	if shader == "Vegetation" then
 		self:SetBending(1)

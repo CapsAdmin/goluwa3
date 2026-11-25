@@ -2,6 +2,7 @@ local startup = import("goluwa/startup.lua")
 local objects = import("goluwa/objects/objects.lua")
 local decal_geometry = import("goluwa/static_world/decal_geometry.lua")
 local decal_projection = import("goluwa/render3d/decal_projection.lua")
+local projected_decals = import("goluwa/render3d/projected_decals.lua")
 local decal_receivers = import("goluwa/render3d/decal_receivers.lua")
 local scene_loading = import("goluwa/render3d/scene_loading.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -64,6 +65,16 @@ function META:Attach(world)
 		self:FindTargets()
 		self:Rebuild()
 	else
+		self:Reproject()
+	end
+end
+
+function META:Reproject()
+	projected_decals.Add(self)
+
+	if projected_decals.IsEnabled() then
+		self.world:RemoveDecal(self)
+	else
 		self:QueueProjection()
 	end
 end
@@ -90,11 +101,7 @@ end
 function META:OnMaterialChanged()
 	if not self.world then return end
 
-	if self.Projection == "brush" then
-		self:Rebuild()
-	else
-		self:QueueProjection()
-	end
+	if self.Projection == "brush" then self:Rebuild() else self:Reproject() end
 end
 
 function META:FindTargets()
@@ -108,7 +115,7 @@ function META:OnFrameChanged()
 		self:FindTargets()
 		self:Rebuild()
 	else
-		self:QueueProjection()
+		self:Reproject()
 	end
 end
 
@@ -301,6 +308,7 @@ do
 
 	function META:OnRemove()
 		queued[self] = nil
+		projected_decals.Remove(self)
 
 		if self.world and self.world:IsValid() then self.world:RemoveDecal(self) end
 	end

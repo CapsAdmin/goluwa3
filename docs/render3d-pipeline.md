@@ -52,6 +52,16 @@ How the 3D frame is put together and the invariants that are easy to break. Pass
 - Software raster (`scene/software_raster.lua`, `r_visibility_raster*`) rasterizes small dense clusters and tessellated patches in compute with 64 bit `atomicMax`, producing the same ids the hardware pass would.
 - Measuring: compare the `gbuffer` scope against `gbuffer` plus the `visibility_*` scopes; `gbuffer` already contains the software raster and extras' compute. Synthetic scene: `examples/render3d/micro_triangles.lua` with its saved views. Test: `GOLUWA_PVARS="r_visibility_buffer=1" luajit glw test render3d/gbuffer_encoding.lua`.
 
+## Projected decals
+
+Decal components with a `terrain`, `terrain_objects`, `objects`, `planar` or `road` projection are not meshes (`r_projected_decals`, on by default; `brush` decals stay meshes). `goluwa/render3d/projected_decals.lua` turns them into records in one device buffer: vertical quads for terrain decals and road segments (inverse bilinear uv, fades), boxes for the rest, sorted by `SortPriority` and binned into an XZ grid. `apply_projected_decals` blends them over a surface in that order and is shared by:
+
+- the gbuffer: a compute pass right after it (`projected_decals.Resolve`, called where `visibility.Resolve` is) rewrites albedo, normal, roughness and metallic in place, so decals follow tessellation and relief, cast no shadows and blend with real alpha. Compute has no derivatives, so texture gradients come from the neighbouring depth samples (the plane of the geometric normal fails on micro triangles). The gbuffer targets have storage usage for this.
+- ray hits: ray material entries carry the grid address and the receiver mask; the path tracer applies decals at mip 0 with normals, screen GI and the radiance cache read their averages (`ray_material_decal_albedo`).
+
+
+Only surfaces whose material sets `DecalReceiver` (1 terrain, 2 static objects; a 4 bit gbuffer field) receive decals; terrain tiles and Crysis materials set it. It is per material, so a moving thing sharing a static material receives decals inside a box.
+
 ## Materials
 
 - `Material.New{...}`: unknown keys are errors. **A raw `Material.New{}` is fully metallic** (`MetallicMultiplier` 1, a tinted mirror); `shapes.Material` (`goluwa/render3d/shapes.lua`) has matte defaults. Set metallic to 0 explicitly in scratch scenes before judging shading.

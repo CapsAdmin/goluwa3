@@ -429,7 +429,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			}
 			#endif
 
-			albedo = ray_medium_albedo(material, albedo);
+			albedo = ray_medium_albedo(material, ray_material_decal_albedo(material, P, hit_N, albedo));
 			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive, dir) : vec3(0.0);
 
 			if (SCENE_HIT_BOUNCE) albedo = radiance_cache_bounce_albedo(albedo);

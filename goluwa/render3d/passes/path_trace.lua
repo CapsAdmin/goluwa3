@@ -554,6 +554,19 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 				if (dot(N, Ng) <= 0.0) N = Ng;
 
+				ProjectedDecalSurface decal_surface;
+				decal_surface.albedo = albedo;
+				decal_surface.N = N;
+				decal_surface.roughness = roughness;
+				decal_surface.metallic = metallic;
+
+				if (ray_material_decals(material, P, Ng, 0.0, decal_surface)) {
+					albedo = decal_surface.albedo;
+					N = decal_surface.N;
+					roughness = decal_surface.roughness;
+					metallic = decal_surface.metallic;
+				}
+
 				emission = ray_hit_emission(tri, albedo, P, instance, primitive, dir);
 				albedo = ray_medium_albedo(material, albedo);
 				metallic = clamp(metallic, 0.0, 1.0);
