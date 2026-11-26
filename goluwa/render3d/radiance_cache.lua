@@ -998,6 +998,7 @@ function radiance_cache.GetCommonGLSL()
 		#define RADIANCE_CACHE_HIDDEN_LEAK_RATIO 2.0
 		#define RADIANCE_CACHE_LOW_WEIGHT_FLOOR 0.4
 		float radiance_cache_contrast_reference = 0.0;
+		bool radiance_cache_all_hidden = false;
 
 		#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
 		]] .. scene_hit.GetEscapeGLSL("scene_tlas") .. [[
@@ -1190,6 +1191,7 @@ function radiance_cache.GetCommonGLSL()
 			#endif
 
 			if (weight <= 0.0 && hidden_weight > 0.0) {
+				radiance_cache_all_hidden = true;
 				vec4 fallback = hidden_sum / hidden_weight;
 				vec4 fallback_second = hidden_second_sum / hidden_weight;
 				fallback.rgb *= min(1.0, hidden_luma / max(luminance(fallback.rgb), 1e-6));
@@ -1260,8 +1262,13 @@ function radiance_cache.GetCommonGLSL()
 			vec3 fine_unoccluded = vec3(0.0);
 			#endif
 
+			bool fine_all_hidden = false;
+			vec4 hidden_answer = vec4(0.0);
+			vec4 hidden_second = vec4(0.0);
+
 			// the cascade and the coarser one it fades into share one call site: two inline the whole lookup twice into every consumer
 			for (int c = first; c < min(first + 2, count); c++) {
+				radiance_cache_all_hidden = false;
 				float cascade_weight;
 				vec4 cascade_second;
 				vec4 cascade = radiance_cache_sample_cascade_pair(c, P, N, L, L2, V, smooth_blend, visibility_min_weight, cascade_weight, cascade_second);
@@ -1270,6 +1277,9 @@ function radiance_cache.GetCommonGLSL()
 					result = cascade;
 					weight = cascade_weight;
 					second = cascade_second;
+					fine_all_hidden = radiance_cache_all_hidden;
+					hidden_answer = cascade;
+					hidden_second = cascade_second;
 
 					#ifdef RADIANCE_CACHE_VISIBILITY_RAYS
 					if (visibility_min_weight < RADIANCE_CACHE_NO_VISIBILITY_RAYS) keep *= smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
@@ -1295,6 +1305,13 @@ function radiance_cache.GetCommonGLSL()
 					result = mix(cascade, result, keep);
 					second = mix(cascade_second, second, keep);
 				}
+			}
+
+			// every fine probe was behind something: the coarser cascade's probes are too far apart to tell the sides of a crease or seam, and the hidden ones can all be outside. a point that cannot decide takes the darker answer
+			if (fine_all_hidden && (weight <= 0.0 || luminance(hidden_answer.rgb) < luminance(result.rgb))) {
+				result = hidden_answer;
+				second = hidden_second;
+				weight = max(weight, ]] .. MIN_WEIGHT .. [[);
 			}
 
 			#ifndef RADIANCE_CACHE_UNSCALED
