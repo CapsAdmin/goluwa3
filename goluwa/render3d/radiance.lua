@@ -17,6 +17,7 @@ local function recreate_framebuffers()
 
 	for _, name in ipairs{
 		"radiance_pick",
+		"radiance_rays",
 		"radiance_trace",
 		"radiance_hit_shade",
 		"radiance_candidates",
@@ -53,7 +54,22 @@ radiance.rays = pvars.Setup2{
 	key = "radiance_rays",
 	default = "every",
 	enums = {"every", "half", "quarter"},
-	help = "which gi pixels trace a new ray each frame: every one, half of them (a checkerboard) or one of each 2x2 (a different one every frame). the others keep their reservoir and take this frame's new samples from their neighbours, so every pixel has a history of its own surface at a fraction of the rays",
+	help = "which gi pixels trace a new ray each frame: every one, half of them (a checkerboard) or one of each 2x2 (a different one every frame). the others keep their reservoir and take this frame's new samples from their neighbours, so every pixel has a history of its own surface at a fraction of the rays. blocks of 16x16 gi pixels that radiance_rays_smooth, radiance_rays_disocclusion or radiance_rays_edges pick trace every pixel",
+}
+radiance.rays_smooth = pvars.Setup2{
+	key = "radiance_rays_smooth",
+	default = 0.3,
+	help = "below every ray, a block of gi pixels with a surface smoother than this perceptual roughness traces every pixel, so clear reflections get a ray per pixel each frame. 0 is off",
+}
+radiance.rays_disocclusion = pvars.Setup2{
+	key = "radiance_rays_disocclusion",
+	default = true,
+	help = "below every ray, a block of gi pixels where one has no history (just disoccluded or off screen last frame) traces every pixel until it has a few frames",
+}
+radiance.rays_edges = pvars.Setup2{
+	key = "radiance_rays_edges",
+	default = 0.05,
+	help = "below every ray, a block of gi pixels where more than this share of its 2x2 quads straddle surfaces (edges, foliage, thin things) traces every pixel. 0 is off",
 }
 radiance.temporal = pvars.Setup2{
 	key = "radiance_temporal",

@@ -64,6 +64,10 @@ local function restir_uniform(trace, filter_iteration)
 		{"hit_gi_share", "float"},
 		{"guided", "float"},
 		{"ray_share", "int"},
+		{"traced_tex", "int"},
+		{"rays_smooth", "float"},
+		{"rays_disocclusion", "int"},
+		{"rays_edges", "float"},
 		{"boiling_filter", "float"},
 		{"spatial", "int"},
 		{"spatial_samples", "int"},
@@ -183,6 +187,10 @@ local function restir_uniform(trace, filter_iteration)
 			block.hit_gi_share = radiance.hit_gi_share:Get()
 			block.guided = radiance.guided:Get()
 			block.ray_share = radiance.GetRayShare()
+			block.traced_tex = self:GetTextureIndex(attachment("radiance_rays", 1, 1))
+			block.rays_smooth = radiance.rays_smooth:Get()
+			block.rays_disocclusion = radiance.rays_disocclusion:Get() and 1 or 0
+			block.rays_edges = radiance.rays_edges:Get()
 			block.boiling_filter = radiance.boiling_filter:Get()
 			block.spatial = radiance.spatial:Get() and 1 or 0
 			block.spatial_samples = radiance.spatial_samples:Get()
@@ -569,13 +577,17 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return cos_r / cos_q * q2 / max(r2, 1e-12);
 	}
 
-	bool restir_traces(ivec2 pos) {
+	bool restir_pattern_traces(ivec2 pos) {
 		if (restir_data.ray_share <= 1) return true;
 
 		if (restir_data.ray_share == 2) return ((pos.x + pos.y + restir_data.frame) & 1) == 0;
 
 		const ivec2 order[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
 		return (pos & 1) == order[restir_data.frame & 3];
+	}
+
+	bool restir_traces(ivec2 pos) {
+		return restir_data.ray_share <= 1 || texelFetch(TEXTURE(restir_data.traced_tex), pos, 0).r > 0.5;
 	}
 
 	float restir_random(ivec2 pos, uint stream) {
@@ -1039,6 +1051,84 @@ local function dispatch_hit_list(self, cmd, fb, frame, desc)
 	self.pipeline:DispatchIndirect(cmd, hit_list.buffer, 4, desc, self.dynamic_offsets)
 end
 
+local BINDING_WORK_LIST = 25
+local WORK_ROW_GROUPS = 4096
+local WORK_BLOCK = 16
+local work_list = {capacity = 0, retired = {}}
+
+local function get_work_list(items)
+	for i = #work_list.retired, 1, -1 do
+		if work_list.retired[i].frame <= render.frame_serial then
+			work_list.retired[i].buffer:Remove()
+			table.remove(work_list.retired, i)
+		end
+	end
+
+	if work_list.capacity < items then
+		if work_list.buffer then
+			list.insert(
+				work_list.retired,
+				{buffer = work_list.buffer, frame = render.frame_serial + HIT_LIST_RETIRE_FRAMES}
+			)
+		end
+
+		work_list.capacity = items
+		work_list.buffer = render.CreateBuffer{
+			byte_size = HIT_LIST_HEADER_BYTES + items * 4,
+			buffer_usage = {"storage_buffer", "indirect_buffer", "transfer_dst"},
+			memory_property = {"device_local"},
+			label = "radiance_work_list",
+		}
+	end
+
+	return work_list.buffer
+end
+
+local WORK_LIST_GLSL = string.format(
+	[[
+	layout(std430, set = 0, binding = %d) buffer RadianceWorkList {
+		uint count;
+		uint groups_x;
+		uint groups_y;
+		uint groups_z;
+		uint items[];
+	} radiance_work_list;
+]],
+	BINDING_WORK_LIST
+)
+local WORK_POS_GLSL = string.format(
+	[[
+	bool restir_work_pos(out ivec2 pos) {
+		pos = ivec2(-1);
+
+		if (restir_data.ray_share <= 1) {
+			pos = get_screen_pos();
+			return true;
+		}
+
+		uint index = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+
+		if (index >= radiance_work_list.count) return false;
+
+		uint item = radiance_work_list.items[index];
+		ivec2 block = ivec2(int(item & 0xFFFu), int((item >> 12u) & 0xFFFu)) * %d;
+		int sub = int((item >> 24u) & 3u);
+		ivec2 local = ivec2(gl_LocalInvocationID.xy);
+
+		if ((item & (1u << 28u)) != 0u) {
+			pos = block + ivec2(sub & 1, sub >> 1) * 8 + local;
+		} else if (restir_data.ray_share == 4) {
+			const ivec2 order[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
+			pos = block + local * 2 + order[restir_data.frame & 3];
+		} else {
+			pos = block + ivec2(local.x * 2 + ((local.y + restir_data.frame) & 1), sub * 8 + local.y);
+		}
+
+		return true;
+	}
+]],
+	WORK_BLOCK
+)
 local HIT_RECORD_GLSL = [[
 	uint index = (gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x) * ]] .. HIT_SHADE_LOCAL_SIZE .. [[u + gl_LocalInvocationID.x;
 
@@ -1206,22 +1296,173 @@ local function candidate_glsl()
 end
 
 local function dispatch_per_pixel(self, cmd, fb, desc)
-	local share = radiance.GetRayShare()
-	self:UploadConstants()
-	self.pipeline:DispatchForSize(
-		cmd,
-		share == 1 and fb.width or math.ceil(fb.width / 2),
-		share == 4 and math.ceil(fb.height / 2) or fb.height,
-		1,
+	get_work_list(1)
+	self:UpdateDescriptorSet(
+		"storage_buffer",
 		desc,
-		self.dynamic_offsets
+		BINDING_WORK_LIST,
+		0,
+		work_list.buffer,
+		work_list.buffer:GetSize()
 	)
+	self:UploadConstants()
+
+	if radiance.GetRayShare() == 1 then
+		self.pipeline:DispatchForSize(cmd, fb.width, fb.height, 1, desc, self.dynamic_offsets)
+		return
+	end
+
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = {"compute", "draw_indirect"},
+		memoryBarrier = true,
+	}
+	self.pipeline:DispatchIndirect(cmd, work_list.buffer, 4, desc, self.dynamic_offsets)
 end
 
 local function bind_scene(self, cmd, frame, desc)
 	scene_hits.Bind(self, cmd, desc, SCENE_BINDINGS)
 	local emitters = scene_emitters.BuildActive(cmd)
 	self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
+end
+
+local function pass_rays()
+	return {
+		name = "radiance_rays",
+		ComputePass = true,
+		is_enabled = function()
+			return radiance.GetRayShare() > 1
+		end,
+		ColorFormat = {{"r8_unorm", {"restir_traced", "r"}}},
+		framebuffer_count = 1,
+		scale = radiance.GetScale,
+		LocalSize = LOCAL_SIZE,
+		storage_images = storage_images(1),
+		storage_buffers = {{binding_index = BINDING_WORK_LIST}},
+		uniform_buffers = {restir_uniform(false)},
+		on_draw = function(self, cmd, fb, frame, desc)
+			local buffer = get_work_list(math.ceil(fb.width / WORK_BLOCK) * math.ceil(fb.height / WORK_BLOCK) * 4)
+			cmd:PipelineBarrier{
+				srcStage = {"compute", "draw_indirect"},
+				dstStage = "transfer",
+				memoryBarrier = true,
+			}
+			cmd:FillBuffer(buffer, 0, 12, 0)
+			cmd:FillBuffer(buffer, 12, 4, 1)
+			cmd:PipelineBarrier{srcStage = "transfer", dstStage = "compute", memoryBarrier = true}
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_WORK_LIST, 0, buffer, buffer:GetSize())
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(
+				cmd,
+				math.ceil(fb.width / 2),
+				math.ceil(fb.height / 2),
+				1,
+				desc,
+				self.dynamic_offsets
+			)
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = 0, r8) uniform writeonly image2D out_traced;
+		]] .. WORK_LIST_GLSL,
+		shader = SURFACE_GLSL .. [[
+			#define RESTIR_SETTLED_HISTORY 4.0
+
+			shared uint s_full;
+			shared uint s_edges;
+			shared uint s_any;
+
+			void main() {
+				ivec2 size = imageSize(out_traced);
+				ivec2 local = ivec2(gl_LocalInvocationID.xy);
+				ivec2 block = ivec2(gl_WorkGroupID.xy);
+
+				if (local == ivec2(0)) {
+					s_full = 0u;
+					s_edges = 0u;
+					s_any = 0u;
+				}
+
+				barrier();
+				bool full = false;
+				bool inside = true;
+				bool surface[4];
+				vec3 points[4];
+				vec3 normals[4];
+
+				for (int i = 0; i < 4; i++) {
+					ivec2 pos = block * ]] .. WORK_BLOCK .. [[ + local * 2 + ivec2(i & 1, i >> 1);
+					surface[i] = false;
+					points[i] = vec3(0.0);
+					normals[i] = vec3(0.0);
+
+					if (!is_screen_pos_in_bounds(pos, size)) {
+						inside = false;
+						continue;
+					}
+
+					ivec2 gpos;
+					vec3 P;
+					vec3 N;
+					float view_depth;
+					float depth;
+
+					if (!restir_surface(pos, size, gpos, P, N, view_depth, depth)) continue;
+
+					vec3 G = restir_geometric_normal(gpos, P);
+					surface[i] = true;
+					points[i] = P;
+					normals[i] = G;
+
+					if (sqrt(gbuffer_roughness(gpos)) < restir_data.rays_smooth) full = true;
+
+					if (restir_data.rays_disocclusion != 0) {
+						ivec2 base;
+						vec4 weights;
+						vec4 plane;
+						float tolerance;
+						float moved;
+						vec2 position;
+
+						if (!restir_history_taps(pos, gpos, P, G, size, base, weights, plane, tolerance, moved, position) || texelFetch(TEXTURE(restir_data.accum_history_moments_tex), clamp(ivec2(floor(position + 0.5)), ivec2(0), size - 1), 0).x < RESTIR_SETTLED_HISTORY) full = true;
+					}
+				}
+
+				bool straddles = false;
+
+				for (int i = 1; i < 4 && inside; i++) {
+					vec3 offset = points[i] - points[0];
+					straddles = straddles || surface[i] != surface[0] || surface[0] && (dot(normals[i], normals[0]) < 0.9 || abs(dot(offset, normals[0])) > 0.1 * length(offset));
+				}
+
+				if (full) atomicOr(s_full, 1u);
+
+				if (straddles) atomicAdd(s_edges, 1u);
+
+				if (surface[0] || surface[1] || surface[2] || surface[3]) atomicOr(s_any, 1u);
+
+				barrier();
+				bool block_full = s_full != 0u || restir_data.rays_edges > 0.0 && float(s_edges) > restir_data.rays_edges * 64.0;
+
+				for (int i = 0; i < 4; i++) {
+					ivec2 pos = block * ]] .. WORK_BLOCK .. [[ + local * 2 + ivec2(i & 1, i >> 1);
+
+					if (is_screen_pos_in_bounds(pos, size)) imageStore(out_traced, pos, vec4(block_full || restir_pattern_traces(pos) ? 1.0 : 0.0));
+				}
+
+				if (local != ivec2(0) || s_any == 0u) return;
+
+				uint count = block_full ? 4u : (restir_data.ray_share == 4 ? 1u : 2u);
+				uint slot = atomicAdd(radiance_work_list.count, count);
+
+				for (uint k = 0u; k < count; k++) {
+					radiance_work_list.items[slot + k] = uint(block.x) | (uint(block.y) << 12u) | (k << 24u) | (block_full ? 1u << 28u : 0u);
+				}
+
+				atomicMax(radiance_work_list.groups_x, min(slot + count, ]] .. WORK_ROW_GROUPS .. [[u));
+				atomicMax(radiance_work_list.groups_y, (slot + count - 1u) / ]] .. WORK_ROW_GROUPS .. [[u + 1u);
+			}
+		]],
+	}
 end
 
 local function pass_trace()
@@ -1240,7 +1481,11 @@ local function pass_trace()
 		LocalSize = LOCAL_SIZE,
 		storage_images = storage_images(5),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		storage_buffers = {{binding_index = BINDING_EMITTERS}, {binding_index = BINDING_HIT_LIST}},
+		storage_buffers = {
+			{binding_index = BINDING_EMITTERS},
+			{binding_index = BINDING_HIT_LIST},
+			{binding_index = BINDING_WORK_LIST},
+		},
 		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = bind_scene,
 		on_draw = function(self, cmd, fb, frame, desc)
@@ -1256,8 +1501,8 @@ local function pass_trace()
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_HIT_LIST, 0, buffer, buffer:GetSize())
 			dispatch_per_pixel(self, cmd, fb, desc)
 		end,
-		custom_declarations = trace_records_glsl(BINDING_OUTPUT, "writeonly") .. HIT_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		shader = candidate_glsl() .. [[
+		custom_declarations = trace_records_glsl(BINDING_OUTPUT, "writeonly") .. HIT_LIST_GLSL .. WORK_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = candidate_glsl() .. WORK_POS_GLSL .. [[
 			void radiance_append_hit(ivec2 pos, ivec2 size, uint ray) {
 				uint slot = atomicAdd(radiance_hit_list.count, 1u);
 
@@ -1271,12 +1516,10 @@ local function pass_trace()
 			}
 
 			void main() {
-				ivec2 id = get_screen_pos();
 				ivec2 size = imageSize(diffuse_origin);
-				const ivec2 order[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
-				ivec2 pos = restir_data.ray_share == 4 ? id * 2 + order[restir_data.frame & 3] : restir_data.ray_share == 2 ? ivec2(id.x * 2 + ((id.y + restir_data.frame) & 1), id.y) : id;
+				ivec2 pos;
 
-				if (!is_screen_pos_in_bounds(pos, size)) return;
+				if (!restir_work_pos(pos) || !is_screen_pos_in_bounds(pos, size)) return;
 
 				ivec2 gpos;
 				vec3 P;
@@ -1286,7 +1529,7 @@ local function pass_trace()
 
 				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth) || !scene_hits_ready()) return;
 
-				restir_pick_hit_gi(ivec2(gl_WorkGroupID.xy));
+				restir_pick_hit_gi(restir_data.ray_share <= 1 ? pos >> 3 : pos >> 4);
 				bool crease;
 				vec3 origin = restir_crease_ray_origin(gpos, P, N, view_depth, depth, crease);
 				vec3 geometric_N = normalize(origin - P);
@@ -1551,7 +1794,7 @@ local function pass_candidates()
 		LocalSize = LOCAL_SIZE,
 		storage_images = list.extend(storage_images(5), read_attachments("radiance_trace", BINDING_TRACE_RECORDS, 5)),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
-		storage_buffers = {{binding_index = BINDING_EMITTERS}},
+		storage_buffers = {{binding_index = BINDING_EMITTERS}, {binding_index = BINDING_WORK_LIST}},
 		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
 		on_pre_draw = bind_scene,
 		on_draw = function(self, cmd, fb, frame, desc)
@@ -1564,15 +1807,13 @@ local function pass_candidates()
 			layout(set = 0, binding = 2, rgba16f) uniform image2D out_c;
 			layout(set = 0, binding = 3, rgba32f) uniform image2D out_d;
 			layout(set = 0, binding = 4, r32f) uniform writeonly image2D out_e;
-		]] .. trace_records_glsl(BINDING_TRACE_RECORDS, "readonly") .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		shader = candidate_glsl() .. [[
+		]] .. trace_records_glsl(BINDING_TRACE_RECORDS, "readonly") .. WORK_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = candidate_glsl() .. WORK_POS_GLSL .. [[
 			void main() {
-				ivec2 id = get_screen_pos();
 				ivec2 size = imageSize(out_a);
-				const ivec2 order[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
-				ivec2 pos = restir_data.ray_share == 4 ? id * 2 + order[restir_data.frame & 3] : restir_data.ray_share == 2 ? ivec2(id.x * 2 + ((id.y + restir_data.frame) & 1), id.y) : id;
+				ivec2 pos;
 
-				if (!is_screen_pos_in_bounds(pos, size)) return;
+				if (!restir_work_pos(pos) || !is_screen_pos_in_bounds(pos, size)) return;
 
 				ivec2 gpos;
 				vec3 P;
@@ -2679,6 +2920,7 @@ if not render.GetDevice().ray_query_supported then return {} end
 
 return {
 	pass_pick(),
+	pass_rays(),
 	pass_trace(),
 	pass_hit_shade(),
 	pass_hit_probe_light(),
