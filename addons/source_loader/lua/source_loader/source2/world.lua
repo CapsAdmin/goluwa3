@@ -217,7 +217,6 @@ function world.Translate(name, sky_path)
 	add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
 	local world_data = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/world.vwrld_c"))
 	local object_count = 0
-	local blocklight_count = 0
 	local lowest = math.huge
 	local mins, maxs = {math.huge, math.huge, math.huge}, {-math.huge, -math.huge, -math.huge}
 
@@ -245,21 +244,8 @@ function world.Translate(name, sky_path)
 		local data = resource.ReadKV3(resource.Load(vfs, prefix .. ".vwnod_c"))
 
 		for _, object in ipairs(data.m_sceneObjects) do
-			local position, rotation, size = matrix_to_transform(object.m_vTransform)
-			local model_path = normalize_path(object.m_renderableModel) .. "_c"
-
-			if object.m_renderableModel:find("_blocklight%.vmdl$") then
-				blocklight_count = blocklight_count + 1
-				add{
-					guid = root .. ":blocklight:" .. blocklight_count,
-					parent = group("blocklight"),
-					properties = {Name = "blocklight"},
-					components = {
-						transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
-						visual = {ModelPath = model_path, ViewHidden = true, Raycast = false},
-					},
-				}
-			else
+			if not object.m_renderableModel:find("_blocklight%.vmdl$") then
+				local position, rotation, size = matrix_to_transform(object.m_vTransform)
 				object_count = object_count + 1
 				add{
 					guid = root .. ":object:" .. object_count,
@@ -267,7 +253,7 @@ function world.Translate(name, sky_path)
 					properties = {Name = "object"},
 					components = {
 						transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
-						visual = {ModelPath = model_path},
+						visual = {ModelPath = normalize_path(object.m_renderableModel) .. "_c"},
 					},
 				}
 			end
