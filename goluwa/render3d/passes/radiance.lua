@@ -468,6 +468,10 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	]] .. scene_hit.GetEscapeStubGLSL() .. [[
 
 	// a pixel at a crease reconstructs a hair behind one of its two planes, lift it off every neighbouring pixel's plane it lies on
+	#ifdef SCENE_HITS
+	bool trace_scene_hit(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics);
+	#endif
+
 	vec3 restir_ray_origin(ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
 		vec3 V = normalize(restir_data.camera_position - P);
 		float offset = 0.01 * restir_data.view_scale + 0.001 * view_depth;
@@ -486,6 +490,16 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		}
 
 		pull = normalize(pull);
+		// a surface the pixel's own touches can be closer than the lift (a sphere resting on a floor), lifting past it starts the rays on its far side
+		#ifdef SCENE_HITS
+		float t;
+		uint instance;
+		uint primitive;
+		vec2 barycentrics;
+
+		if (trace_scene_hit(P, pull, 0.1 * offset, offset, t, instance, primitive, barycentrics)) offset = 0.5 * t;
+		#endif
+
 		return scene_escape_tessellation(P + pull * offset, pull, 0.1 * restir_data.view_scale);
 	}
 
