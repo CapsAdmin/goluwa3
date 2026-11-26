@@ -514,7 +514,7 @@ do
 		},
 	}
 
-	for i = 1, 240 do
+	for i = 1, 160 do
 		local s = surfaces[math.floor(random() * #surfaces) + 1]
 		local size = 0.04 + random() ^ 3 * 0.5
 		local thickness = 0.03
