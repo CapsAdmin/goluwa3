@@ -185,7 +185,7 @@ radiance.validation = pvars.Setup2{
 }
 radiance.accumulation = pvars.Setup2{
 	key = "radiance_accumulation",
-	default = 32,
+	default = 16,
 	integer = true,
 	min = 1,
 	max = 100000,
