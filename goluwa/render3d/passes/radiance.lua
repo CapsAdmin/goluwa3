@@ -429,6 +429,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 			vec3 face = get_geometric_normal(gpos, P, depth, normalize(restir_data.camera_position - P));
 			vec3 G = restir_geometric_normal(gpos, P);
 			vec3 dir = get_world_pos(centre / vec2(gsize), depth) - restir_data.camera_position;
+			vec3 pixel_P = P;
 			float facing = dot(dir, face);
 
 			if (abs(facing) > 1e-6 * length(dir)) {
@@ -441,6 +442,8 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 			vec2 f = centre - 0.5 - vec2(base);
 			float tolerance = 0.01 * distance(P, restir_data.camera_position);
 			vec3 sum = vec3(0.0);
+			ivec2 nearest = clamp(ivec2(floor(centre)), ivec2(0), gsize - 1);
+			bool centre_on_plane = false;
 
 			for (int i = 0; i < 4; i++) {
 				ivec2 q = clamp(base + ivec2(i & 1, i >> 1), ivec2(0), gsize - 1);
@@ -452,10 +455,14 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 				if (abs(dot(Q - P, face)) > tolerance || dot(restir_geometric_normal(q, Q), G) < 0.9) continue;
 
+				centre_on_plane = centre_on_plane || q == nearest;
 				sum += normalize(gbuffer_normal(q)) * (((i & 1) == 1 ? f.x : 1.0 - f.x) * ((i >> 1) == 1 ? f.y : 1.0 - f.y) + 1e-4);
 			}
 
 			if (dot(sum, sum) > 0.0) N = normalize(sum);
+
+			// the pixel under the centre is on another surface (the other wall of an inside corner): the plane carried there runs behind it, out of the room
+			if (!centre_on_plane) P = pixel_P;
 		}
 
 		view_depth = -(restir_data.view * vec4(P, 1.0)).z;
