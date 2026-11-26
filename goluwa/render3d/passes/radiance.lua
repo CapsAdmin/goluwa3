@@ -472,11 +472,12 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	bool trace_scene_hit(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics);
 	#endif
 
-	vec3 restir_ray_origin(ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
+	vec3 restir_crease_ray_origin(ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth, out bool crease) {
 		vec3 V = normalize(restir_data.camera_position - P);
 		float offset = 0.01 * restir_data.view_scale + 0.001 * view_depth;
 		vec3 pull = get_geometric_normal(gpos, P, depth, V);
 		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
+		crease = false;
 
 		for (int i = 0; i < 4; i++) {
 			ivec2 q = clamp(gpos + ivec2(i == 0 ? 1 : i == 1 ? -1 : 0, i == 2 ? 1 : i == 3 ? -1 : 0), ivec2(0), gsize - 1);
@@ -486,7 +487,10 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 
 			vec3 q_N = normalize(gbuffer_normal(q));
 
-			if (dot(q_N, pull) < 0.99 && abs(dot(P - get_world_pos((vec2(q) + 0.5) / vec2(gsize), q_depth), q_N)) < offset) pull += q_N;
+			if (dot(q_N, pull) < 0.99 && abs(dot(P - get_world_pos((vec2(q) + 0.5) / vec2(gsize), q_depth), q_N)) < offset) {
+				pull += q_N;
+				crease = true;
+			}
 		}
 
 		pull = normalize(pull);
@@ -501,6 +505,11 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		#endif
 
 		return scene_escape_tessellation(P + pull * offset, pull, 0.1 * restir_data.view_scale);
+	}
+
+	vec3 restir_ray_origin(ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
+		bool crease;
+		return restir_crease_ray_origin(gpos, P, N, view_depth, depth, crease);
 	}
 
 	restir_sample restir_load(int a_tex, int b_tex, int c_tex, ivec2 pos, out float W, out float M, out int flags) {
@@ -1268,7 +1277,8 @@ local function pass_trace()
 				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth) || !scene_hits_ready()) return;
 
 				restir_pick_hit_gi(ivec2(gl_WorkGroupID.xy));
-				vec3 origin = restir_ray_origin(gpos, P, N, view_depth, depth);
+				bool crease;
+				vec3 origin = restir_crease_ray_origin(gpos, P, N, view_depth, depth, crease);
 				vec3 geometric_N = normalize(origin - P);
 				uint frame = uint(restir_data.frame);
 				float guided_share = 0.0;
@@ -1340,7 +1350,8 @@ local function pass_trace()
 				uint diffuse_barycentrics = packUnorm2x16(barycentrics);
 
 				radiance_specular_ray specular = radiance_specular_setup(pos, gpos, P, N, view_depth, depth);
-				specular.origin = radiance_specular_origin(P, specular.geometric_N, view_depth);
+				// a pixel at a crease sits a hair behind one of its planes, and a reflection traced from there sees the other side of it: it starts where the diffuse rays do, off every plane it lies on. elsewhere the lift stays a hair, so mirrors keep contact
+				specular.origin = crease ? origin : radiance_specular_origin(P, specular.geometric_N, view_depth);
 				flags = gi_lookup | (specular.sample_emitters ? 0u : RADIANCE_RAY_EMISSION) | (specular.roughness > REFLECTION_MIRROR_THRESHOLD * 3.0 ? RADIANCE_RAY_COARSE_ALPHA : 0u);
 				scene_hit_coarse_alpha = (flags & RADIANCE_RAY_COARSE_ALPHA) != 0u;
 				t = SCENE_HIT_MAX_DISTANCE;
