@@ -1426,6 +1426,62 @@ do
 end
 
 do
+	local event = import("goluwa/event.lua")
+	local system = import("goluwa/system.lua")
+	local cx, cz, w, h, d, t, gap = 205, -142, 18, 7, 16, 0.4, 0.3
+	local name = "flicker_room"
+	box(name .. "_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), white)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_front", Vec3(cx, h / 2, cz + d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
+	local seg_x, seg_z = (w - gap) / 2, (d - gap) / 2
+	local off_x, off_z = w / 2 - seg_x / 2, d / 2 - seg_z / 2
+	box(name .. "_roof_back", Vec3(cx, h, cz - off_z), Vec3(w, t, seg_z), white)
+	box(name .. "_roof_front", Vec3(cx, h, cz + off_z), Vec3(w, t, seg_z), white)
+	box(name .. "_roof_left", Vec3(cx - off_x, h, cz), Vec3(seg_x, t, gap), white)
+	box(name .. "_roof_right", Vec3(cx + off_x, h, cz), Vec3(seg_x, t, gap), white)
+	box(name .. "_pillar", Vec3(cx - 4, 1.75, cz - 3), Vec3(1.2, 3.5, 1.2), blue)
+	box(name .. "_crate", Vec3(cx + 3, 0.6, cz + 3.5), Vec3(1.2, 1.2, 1.2), orange)
+	box(name .. "_shelf", Vec3(cx, 1.2, cz - 7.2), Vec3(3, 2.4, 0.8), grey)
+	sphere(name .. "_ball", Vec3(cx + 1.5, 0.9, cz - 3), 0.9, white)
+	local light = point_light(name .. "_light", Vec3(cx - 7, 2.5, cz + 6), warm, 3000, 12)
+	local slider = shapes.Box{
+		Name = name .. "_slider",
+		Position = Vec3(cx, 0.8, cz + 2),
+		Size = Vec3(1.6, 1.6, 1.6),
+		Material = red,
+		Collision = false,
+		RigidBody = false,
+	}
+	local orbiter = shapes.Sphere{
+		Name = name .. "_orbiter",
+		Position = Vec3(cx, 1.5, cz),
+		Radius = 0.6,
+		Material = mat(Color(0.9, 0.9, 0.9, 1), 0.4),
+		Collision = false,
+		RigidBody = false,
+	}
+
+	event.AddListener("Update", "gi_reflections_flicker_movers", function()
+		local time = system.GetElapsedTime()
+		slider.transform:SetPosition(Vec3(cx + math.sin(time * 0.5) * 4, 0.8, cz + 1))
+		orbiter.transform:SetPosition(
+			Vec3(
+				cx + math.cos(time * 0.8) * 3.5,
+				1.5 + math.sin(time * 1.7) * 0.8,
+				cz + math.sin(time * 0.8) * 3.5
+			)
+		)
+	end)
+
+	-- harnesses remove this listener and switch the light themselves
+	event.AddListener("Update", "gi_reflections_flicker_light", function()
+		light:SetLumen(system.GetElapsedTime() % 4 < 2 and 3000 or 0)
+	end)
+end
+
+do
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 5, 30))
 	cam:SetAngles(Deg3(-8, 0, 0))
