@@ -430,7 +430,8 @@ function scene_hits.GetGLSL(block_name, shared)
 			}
 
 			vec3 P = origin + dir * t;
-			vec3 surface = P + hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
+			// lights are traced from back along the ray, air it just crossed: any offset along the normal can cross a surface the hit one touches (a sphere resting on a floor, two planes meeting at a seam)
+			vec3 surface = P - dir * min(0.02 * ]] .. block_name .. [[.view_scale, 0.5 * t);
 			vec3 albedo = ray_material_albedo(material, P);
 			float hit_roughness = material.roughness;
 			float metallic = material.metallic;

@@ -1810,7 +1810,9 @@ void main()
         if (side != 0.0) {
             payload.hit_t = 1.0;
             payload.sun = 1u;
-            traceRayEXT(scene, shadow_flags, RADIANCE_CACHE_SCENE_MASK, 0, 0, 0, origin + dir * hit_t + hit_normal * (side * 0.04 * params.cascades[0].w), 0.0, sun_direction, params.max_ray_distance, 0);
+            // from back along the ray, air it just crossed: any offset along the normal can cross a surface the hit one touches (a sphere resting on a floor, two planes meeting at a seam) and find the sun beyond it
+            vec3 sun_origin = side > 0.0 ? origin + dir * (hit_t - min(0.04 * params.cascades[0].w, 0.5 * hit_t)) : origin + dir * hit_t - hit_normal * (0.04 * params.cascades[0].w);
+            traceRayEXT(scene, shadow_flags, RADIANCE_CACHE_SCENE_MASK, 0, 0, 0, sun_origin, 0.0, sun_direction, params.max_ray_distance, 0);
 
             if (payload.hit_t < 0.0) sun_visible = 1u;
         }
