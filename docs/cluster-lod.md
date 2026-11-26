@@ -10,6 +10,7 @@ A related path, cluster streaming (`scene/cluster_stream.lua`, `cluster_stream/`
 - Group and mesh borders are locked, and a collapse never creates an edge between two locked vertices, so neighbouring groups always agree on their shared border. Groups that cannot simplify enough stay as roots.
 - Error is the propagated vertex deviation, accumulated along the merge chain. Parent bounding spheres contain their children's, so the projected error is monotonic and a cluster is drawn when its own error is under the budget and its parent's is over it. UV and normal deviation gate collapses but are not part of the bound.
 - UV seams: simplification runs on position topology with a uv island id per triangle; a vertex may only collapse into one that touches all its islands, so every corner keeps a valid wedge.
+- Thin shells: the two sides of a sheet are simplified separately, and once either moves by more than half the gap between them they cross, the inner side poking through the outer one and shadowing it in patches. Each vertex's clearance (the nearest surface of the same mesh facing the other way, along its normal, within a few cells of a triangle grid) bounds how far a collapse may move it.
 - A group that cannot simplify is retried with looser rules: first open edges no other group or chunk shares may collapse and attribute tolerances widen, then uv seams are ignored too. The error stays the measured position deviation.
 
 ## Cluster streaming

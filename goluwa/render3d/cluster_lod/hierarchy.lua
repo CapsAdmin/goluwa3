@@ -625,7 +625,8 @@ local function simplify(mesh, tris, isl, nt, target, stats, mode)
 
 	local tri_count = nt
 	local err_max = 0
-	local collapses, rejected, attr_rejected, seam_collapses = 0, 0, 0, 0
+	local collapses, rejected, attr_rejected, seam_collapses, thin_rejected = 0, 0, 0, 0, 0
+	local clearance = mesh.clearance
 
 	while tri_count > target and heap_size > 0 do
 		local cost, from, to, vf, vt = heap_pop()
@@ -751,6 +752,11 @@ local function simplify(mesh, tris, isl, nt, target, stats, mode)
 				end
 
 				new_dev = dev[from] + sqrt(pe_d2)
+
+				if new_dev > 0.5 * min(clearance[gid[from]], clearance[gid[to]]) then
+					ok = false
+					thin_rejected = thin_rejected + 1
+				end
 
 				if attrs then
 					local worst_uv, worst_n, worst_b = 0, 0, 0
@@ -888,6 +894,7 @@ local function simplify(mesh, tris, isl, nt, target, stats, mode)
 	stats.rejected = stats.rejected + rejected
 	stats.attr_rejected = (stats.attr_rejected or 0) + attr_rejected
 	stats.seam_collapses = (stats.seam_collapses or 0) + seam_collapses
+	stats.thin_rejected = (stats.thin_rejected or 0) + thin_rejected
 	local result = ffi.new("uint32_t[?]", #out)
 	local result_isl = ffi.new("uint32_t[?]", #out_isl)
 
@@ -929,7 +936,171 @@ end
 hierarchy.BoundingSphere = bounding_sphere
 hierarchy.KdSplit = kd_split
 
+-- the two sides of a thin shell are simplified apart, so once either moves by more than half the gap between them they cross and the inner side shadows the outer one
+local function compute_clearance(mesh)
+	local nv, nt, tris = mesh.nv, mesh.nt, mesh.tris
+	local mx, my, mz = mesh.x, mesh.y, mesh.z
+	local clearance = ffi.new("double[?]", nv)
+	local vnx, vny, vnz = ffi.new("double[?]", nv), ffi.new("double[?]", nv), ffi.new("double[?]", nv)
+	local fnx, fny, fnz = ffi.new("double[?]", nt), ffi.new("double[?]", nt), ffi.new("double[?]", nt)
+	local min_x, min_y, min_z, max_x, max_y, max_z = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge
+	local area = 0
+
+	for v = 0, nv - 1 do
+		clearance[v] = math.huge
+		min_x, min_y, min_z = min(min_x, mx[v]), min(min_y, my[v]), min(min_z, mz[v])
+		max_x, max_y, max_z = max(max_x, mx[v]), max(max_y, my[v]), max(max_z, mz[v])
+	end
+
+	for t = 0, nt - 1 do
+		local a, b, c = tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]
+		local e1x, e1y, e1z = mx[b] - mx[a], my[b] - my[a], mz[b] - mz[a]
+		local e2x, e2y, e2z = mx[c] - mx[a], my[c] - my[a], mz[c] - mz[a]
+		local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
+
+		for k = 0, 2 do
+			local v = tris[t * 3 + k]
+			vnx[v], vny[v], vnz[v] = vnx[v] + nx, vny[v] + ny, vnz[v] + nz
+		end
+
+		local len = sqrt(nx * nx + ny * ny + nz * nz)
+		area = area + 0.5 * len
+
+		if len > 0 then fnx[t], fny[t], fnz[t] = nx / len, ny / len, nz / len end
+	end
+
+	local sx, sy, sz = max_x - min_x, max_y - min_y, max_z - min_z
+
+	if max(sx, max(sy, sz)) <= 0 then return clearance end
+
+	-- cells about two triangles wide, but never more than a few per triangle
+	local h = max(2 * sqrt(area / nt), ((sx + 1e-9) * (sy + 1e-9) * (sz + 1e-9) / (4 * nt)) ^ (1 / 3))
+	local gx, gy, gz = floor((max_x - min_x) / h) + 1, floor((max_y - min_y) / h) + 1, floor((max_z - min_z) / h) + 1
+	local cell_count = gx * gy * gz
+	local starts = ffi.new("int32_t[?]", cell_count + 1)
+
+	local function cell_range(t)
+		local a, b, c = tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]
+		return floor((min(mx[a], mx[b], mx[c]) - min_x) / h), floor((min(my[a], my[b], my[c]) - min_y) / h), floor((min(mz[a], mz[b], mz[c]) - min_z) / h), floor((max(mx[a], mx[b], mx[c]) - min_x) / h), floor((max(my[a], my[b], my[c]) - min_y) / h), floor((max(mz[a], mz[b], mz[c]) - min_z) / h)
+	end
+
+	for t = 0, nt - 1 do
+		local x0, y0, z0, x1, y1, z1 = cell_range(t)
+
+		for z = z0, z1 do
+			for y = y0, y1 do
+				for x = x0, x1 do
+					local cell = (z * gy + y) * gx + x + 1
+					starts[cell] = starts[cell] + 1
+				end
+			end
+		end
+	end
+
+	for i = 1, cell_count do
+		starts[i] = starts[i] + starts[i - 1]
+	end
+
+	local fill = ffi.new("int32_t[?]", cell_count)
+	local items = ffi.new("int32_t[?]", starts[cell_count])
+
+	for t = 0, nt - 1 do
+		local x0, y0, z0, x1, y1, z1 = cell_range(t)
+
+		for z = z0, z1 do
+			for y = y0, y1 do
+				for x = x0, x1 do
+					local cell = (z * gy + y) * gx + x
+					items[starts[cell] + fill[cell]] = t
+					fill[cell] = fill[cell] + 1
+				end
+			end
+		end
+	end
+
+	local seen = ffi.new("int32_t[?]", nt)
+	local ray = 0
+	local reach = 8 * h
+
+	for v = 0, nv - 1 do
+		local nx, ny, nz = vnx[v], vny[v], vnz[v]
+		local len = sqrt(nx * nx + ny * ny + nz * nz)
+
+		if len > 0 then
+			nx, ny, nz = nx / len, ny / len, nz / len
+
+			for side = -1, 1, 2 do
+				local dx, dy, dz = nx * side, ny * side, nz * side
+				local ox, oy, oz = mx[v], my[v], mz[v]
+				local best = min(clearance[v], reach)
+				ray = ray + 1
+				local cx, cy, cz = floor((ox - min_x) / h), floor((oy - min_y) / h), floor((oz - min_z) / h)
+				local sx, sy, sz = dx > 0 and 1 or -1, dy > 0 and 1 or -1, dz > 0 and 1 or -1
+				local tdx, tdy, tdz = dx ~= 0 and h / abs(dx) or math.huge, dy ~= 0 and h / abs(dy) or math.huge, dz ~= 0 and h / abs(dz) or math.huge
+				local tx = dx ~= 0 and ((min_x + (cx + (sx > 0 and 1 or 0)) * h) - ox) / dx or math.huge
+				local ty = dy ~= 0 and ((min_y + (cy + (sy > 0 and 1 or 0)) * h) - oy) / dy or math.huge
+				local tz = dz ~= 0 and ((min_z + (cz + (sz > 0 and 1 or 0)) * h) - oz) / dz or math.huge
+				local entered = 0
+
+				while cx >= 0 and cy >= 0 and cz >= 0 and cx < gx and cy < gy and cz < gz and entered < best do
+					local cell = (cz * gy + cy) * gx + cx
+
+					for i = starts[cell], starts[cell + 1] - 1 do
+						local t = items[i]
+
+						if seen[t] ~= ray then
+							seen[t] = ray
+
+							-- only a surface facing the other way can be crossed into
+							if fnx[t] * nx + fny[t] * ny + fnz[t] * nz < -0.5 then
+								local a, b, c = tris[t * 3], tris[t * 3 + 1], tris[t * 3 + 2]
+
+								if a ~= v and b ~= v and c ~= v then
+									local e1x, e1y, e1z = mx[b] - mx[a], my[b] - my[a], mz[b] - mz[a]
+									local e2x, e2y, e2z = mx[c] - mx[a], my[c] - my[a], mz[c] - mz[a]
+									local px, py, pz = dy * e2z - dz * e2y, dz * e2x - dx * e2z, dx * e2y - dy * e2x
+									local det = e1x * px + e1y * py + e1z * pz
+
+									if abs(det) > 1e-20 then
+										local inv = 1 / det
+										local qx, qy, qz = ox - mx[a], oy - my[a], oz - mz[a]
+										local u = (qx * px + qy * py + qz * pz) * inv
+
+										if u >= 0 and u <= 1 then
+											local rx, ry, rz = qy * e1z - qz * e1y, qz * e1x - qx * e1z, qx * e1y - qy * e1x
+											local w = (dx * rx + dy * ry + dz * rz) * inv
+
+											if w >= 0 and u + w <= 1 then
+												local dist = (e2x * rx + e2y * ry + e2z * rz) * inv
+
+												if dist > 0 and dist < best then best = dist end
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+
+					if tx < ty and tx < tz then
+						entered, tx, cx = tx, tx + tdx, cx + sx
+					elseif ty < tz then
+						entered, ty, cy = ty, ty + tdy, cy + sy
+					else
+						entered, tz, cz = tz, tz + tdz, cz + sz
+					end
+				end
+
+				if best < reach then clearance[v] = best end
+			end
+		end
+	end
+
+	return clearance
+end
+
 function hierarchy.Build(mesh)
+	mesh.clearance = compute_clearance(mesh)
 	local_of = ffi.new("int32_t[?]", mesh.nv)
 
 	for i = 0, mesh.nv - 1 do

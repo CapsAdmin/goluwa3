@@ -594,6 +594,78 @@ T.Test3DRayTracing("Graphics render3d cluster lod keeps an emissive model on its
 	entity:Remove()
 end)
 
+T.Test("cluster lod never simplifies one side of a thin shell through the other", function()
+	local N, thickness = 64, 0.01
+
+	local function ribs(x)
+		return 0.03 * math.max(0, math.sin(x * 40))
+	end
+
+	local side_count = (N + 1) * (N + 1)
+	local vertices = vertex_layout.ArrayType(side_count * 2)
+	local faces = {}
+
+	for side = 0, 1 do
+		for j = 0, N do
+			for i = 0, N do
+				local x, z = i / N, j / N
+				local v = vertices[side * side_count + j * (N + 1) + i]
+				v.position[0], v.position[1], v.position[2] = x, ribs(x) + (side == 0 and thickness or 0), z
+				v.normal[1] = side == 0 and 1 or -1
+				v.uv[0], v.uv[1] = x, z
+			end
+		end
+
+		for j = 0, N - 1 do
+			for i = 0, N - 1 do
+				local a = side * side_count + j * (N + 1) + i
+				local b, c, d = a + 1, a + N + 1, a + N + 2
+
+				for _, v in ipairs(side == 0 and {a, c, b, b, c, d} or {a, b, c, b, d, c}) do
+					faces[#faces + 1] = v
+				end
+			end
+		end
+	end
+
+	local indices = ffi.new("uint32_t[?]", #faces)
+
+	for i = 1, #faces do
+		indices[i - 1] = faces[i]
+	end
+
+	local meta, blob = build.Build{
+		vertices = ffi.string(vertices, side_count * 2 * vertex_layout.Stride),
+		vertex_count = side_count * 2,
+		indices = ffi.string(indices, #faces * 4),
+		index_count = #faces,
+		index_size = 4,
+	}
+	local records = ffi.cast(Record, blob)
+	local out = ffi.cast("uint32_t *", blob + meta.cluster_count * format.RECORD_SIZE)
+	local crossed = 0
+
+	for i = 0, meta.cluster_count - 1 do
+		local r = records[i]
+
+		for t = 0, r.index_count / 3 - 1 do
+			local x, y = 0, 0
+			local top = true
+
+			for k = 0, 2 do
+				local v = out[r.first_index + t * 3 + k]
+				top = top and v < side_count
+				x, y = x + vertices[v].position[0] / 3, y + vertices[v].position[1] / 3
+			end
+
+			if top and y < ribs(x) then crossed = crossed + 1 end
+		end
+	end
+
+	T(crossed)["=="](0)
+	T(meta.levels > 3)["=="](true)
+end)
+
 T.Test("cluster lod keeps bending vertices of different stiffness and pivot apart", function()
 	local plain_meta, plain_records, plain_indices, vertex_count, triangles, plain_blob = run_build(5, false)
 	local bend_meta, bend_records, bend_indices, _, _, bend_blob = run_build(5, true)
