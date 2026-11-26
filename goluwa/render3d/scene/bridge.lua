@@ -705,7 +705,7 @@ end
 
 cluster_lod.OnReady(refresh_cluster_visuals)
 
-cluster_lod.OnRTErrorChanged(function()
+cluster_lod.OnErrorChanged(function()
 	for _, visuals in pairs(polygon_visuals) do
 		for visual in pairs(visuals) do
 			if visual:IsValid() and visual.scene_instances then

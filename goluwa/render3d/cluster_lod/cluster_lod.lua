@@ -23,14 +23,9 @@ local enabled = pvars.Setup2{
 local pixel_error = pvars.Setup2{
 	key = "r_cluster_lod_error",
 	default = 8,
-	help = "the screen space error in pixels a cluster of a lower level may have before the finer level takes over, higher draws fewer triangles",
-}
-local rt_pixel_error = pvars.Setup2{
-	key = "r_cluster_lod_rt_error",
-	default = 2,
-	help = "the screen space error in pixels the ray traced copies of a cluster model may have, the ray traced scene switches to a coarser cut of the hierarchy at the distance where its error projects to this many pixels (at 1080p and 60 degrees), higher traces coarser models sooner",
+	help = "the screen space error in pixels a cluster of a lower level may have before the finer level takes over, higher draws fewer triangles. the ray traced scene takes the same cut, so nothing traces a surface other than the one drawn",
 	callback = function()
-		for _, listener in ipairs(cluster_lod.rt_listeners or {}) do
+		for _, listener in ipairs(cluster_lod.error_listeners or {}) do
 			listener()
 		end
 	end,
@@ -56,7 +51,7 @@ pvars.EndGroup()
 local record_table
 local states = setmetatable({}, {__mode = "k"})
 cluster_lod.listeners = {}
-cluster_lod.rt_listeners = {}
+cluster_lod.error_listeners = {}
 cluster_lod.debug_listeners = {}
 local MAX_CUTS = 3
 local BEND_BOUNDS = 0.3
@@ -77,20 +72,66 @@ function cluster_lod.GetDebugMode()
 	return debug_mode:Get()
 end
 
-function cluster_lod.OnRTErrorChanged(listener)
-	cluster_lod.rt_listeners[#cluster_lod.rt_listeners + 1] = listener
+function cluster_lod.OnErrorChanged(listener)
+	cluster_lod.error_listeners[#cluster_lod.error_listeners + 1] = listener
 end
 
 function cluster_lod.IsMaterialEligible(material)
 	return not (material:IsTransparent() or material:MarchesRelief() or material.Decal)
 end
 
-function cluster_lod.GetRTPixelError()
-	return rt_pixel_error:Get()
+function cluster_lod.GetCutDistance(cut, world_scale)
+	return cut.error * world_scale * REFERENCE_PIXELS_PER_RADIAN / pixel_error:Get()
 end
 
-function cluster_lod.GetCutDistance(cut, world_scale)
-	return cut.error * world_scale * REFERENCE_PIXELS_PER_RADIAN / rt_pixel_error:Get()
+do
+	local view_projection_scratch = ffi.new("float[16]")
+	local view = {
+		w_row = {0, 0, 0, 1},
+		camera = {0, 0, 0},
+		pixels_per_unit = REFERENCE_PIXELS_PER_RADIAN,
+	}
+
+	function cluster_lod.SetView(view_projection, camera_position, viewport_height)
+		view_projection:CopyToFloatPointer(view_projection_scratch)
+		local m = view_projection_scratch
+		view.w_row[1], view.w_row[2], view.w_row[3], view.w_row[4] = m[3], m[7], m[11], m[15]
+		view.camera[1], view.camera[2], view.camera[3] = camera_position.x, camera_position.y, camera_position.z
+		view.pixels_per_unit = math.sqrt(m[1] * m[1] + m[5] * m[5] + m[9] * m[9]) * viewport_height * 0.5
+	end
+
+	function cluster_lod.GetPixelsPerUnit()
+		return view.pixels_per_unit
+	end
+
+	cluster_lod.VIEW_BLOCK = {
+		{"cluster_view_w_row", "vec4"},
+		{"cluster_camera", "vec3"},
+		{"cluster_error_scale", "float"},
+	}
+
+	function cluster_lod.WriteView(block)
+		for i = 0, 3 do
+			block.cluster_view_w_row[i] = view.w_row[i + 1]
+		end
+
+		for i = 0, 2 do
+			block.cluster_camera[i] = view.camera[i + 1]
+		end
+
+		block.cluster_error_scale = view.pixels_per_unit / pixel_error:Get()
+	end
+
+	function cluster_lod.GetViewGLSL(block_name)
+		return [[
+			bool cluster_lod_fine_enough(float error, vec3 center, float radius) {
+				float depth = dot(]] .. block_name .. [[.cluster_view_w_row, vec4(center, 1.0));
+				// nothing behind the camera is drawn, rays and shadow casters there take the cut by distance
+				if (depth < -radius) depth = distance(]] .. block_name .. [[.cluster_camera, center);
+				return error * ]] .. block_name .. [[.cluster_error_scale <= max(depth - radius, 0.0001);
+			}
+		]]
+	end
 end
 
 function cluster_lod.DescribePolygon(polygon3d)

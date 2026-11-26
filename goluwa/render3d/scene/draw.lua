@@ -1114,8 +1114,8 @@ local function get_cluster_pipeline()
 			{"lod_scale", "float"},
 			{"lod_fade_width", "float"},
 			{"culling_enabled", "int"},
-			{"pixel_error", "float"},
 			{"frame", "int"},
+			unpack(cluster_lod.VIEW_BLOCK),
 		},
 		write = function(self, block)
 			write_view(block)
@@ -1126,7 +1126,7 @@ local function get_cluster_pipeline()
 			block.lod_forced = lod.GetForcedLevel()
 			block.lod_scale = lod.GetScale()
 			block.lod_fade_width = lod.GetFadeWidth()
-			block.pixel_error = cluster_lod.GetPixelError()
+			cluster_lod.WriteView(block)
 			return block
 		end,
 		custom_declarations = DRAW_DECLARATIONS,
@@ -1144,9 +1144,7 @@ local function get_cluster_pipeline()
 				);
 			}
 
-			float projected_error(float error, vec3 center, float radius) {
-				return error * length(compute.view_y_row.xyz) * compute.viewport_height * 0.5 / max(view_depth(center) - radius, 0.0001);
-			}
+			]] .. cluster_lod.GetViewGLSL("compute") .. [[
 
 			void main() {
 				uint pair = gl_GlobalInvocationID.x;
@@ -1173,12 +1171,8 @@ local function get_cluster_pipeline()
 
 				if (compute.culling_enabled != 0 && outside_view(center, radius)) return;
 
-				if (projected_error(c.error * scale, transform_point(t.m, c.lod.xyz), c.lod.w * scale) > compute.pixel_error) return;
-
-				if (
-					c.parent_error < 1e29 &&
-					projected_error(c.parent_error * scale, transform_point(t.m, c.parent.xyz), c.parent.w * scale) <= compute.pixel_error
-				) return;
+				if (!cluster_lod_fine_enough(c.error * scale, transform_point(t.m, c.lod.xyz), c.lod.w * scale)) return;
+				if (c.parent_error < 1e29 && cluster_lod_fine_enough(c.parent_error * scale, transform_point(t.m, c.parent.xyz), c.parent.w * scale)) return;
 
 				float fade = 0.0;
 				uint level = (inst.mask_lod >> 8u) & 0xFFu;

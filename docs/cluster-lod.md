@@ -1,6 +1,6 @@
 # Cluster LOD (`goluwa/render3d/cluster_lod/`)
 
-Large static models are drawn as a per frame cut through a hierarchy of triangle clusters (`r_cluster_lod`, on by default). The hierarchy is built on a worker thread (`build.lua` through `thread_pool`, algorithm in `hierarchy.lua`) the first time a polygon is drawn, from its `packed` vertex data. Only polygons that keep packed data qualify (Source 2 models, `.mesh`, cgf), above `r_cluster_lod_min_triangles`, with a material that is opaque, not alpha tested, not height mapped and not vertex animated (`cluster_lod.IsMaterialEligible`). `r_cluster_lod_error` is the raster pixel error budget, `r_cluster_lod_rt_error` the ray tracing one.
+Large static models are drawn as a per frame cut through a hierarchy of triangle clusters (`r_cluster_lod`, on by default). The hierarchy is built on a worker thread (`build.lua` through `thread_pool`, algorithm in `hierarchy.lua`) the first time a polygon is drawn, from its `packed` vertex data. Only polygons that keep packed data qualify (Source 2 models, `.mesh`, cgf), above `r_cluster_lod_min_triangles`, with a material that is opaque, not alpha tested, not height mapped and not vertex animated (`cluster_lod.IsMaterialEligible`). `r_cluster_lod_error` is the one pixel error budget: the raster and the ray traced scene take the cut it gives through the camera's projection (`cluster_lod.SetView` once per frame, `cluster_lod_fine_enough` in every selection pass). A traced surface finer than the drawn one lies above it and shadows it in patches the shape of the coarse triangles, so no consumer may use a finer cut than the raster.
 
 A related path, cluster streaming (`scene/cluster_stream.lua`, `cluster_stream/`, `r_cluster_stream*`), draws meshes baked into cluster stream files from streamed cluster pages as a gbuffer extra; rays and shadow maps see a reduced fallback mesh.
 
@@ -27,9 +27,9 @@ A related path, cluster streaming (`scene/cluster_stream.lua`, `cluster_stream/`
 
 ## Ray tracing
 
-- With `VK_NV_cluster_acceleration_structure` (`r_rt_clusters`, `scene/cluster_rt.lua`) every cluster is built once as a cluster acceleration structure, and each frame `cluster_rt_select` picks a cut per instance by projected error at the ray tracing budget (distance only, no frustum, since rays come from everywhere) and builds one BLAS per instance from it.
+- With `VK_NV_cluster_acceleration_structure` (`r_rt_clusters`, `scene/cluster_rt.lua`) every cluster is built once as a cluster acceleration structure, and each frame `cluster_rt_select` picks the raster's cut per instance (the same error test, without the frustum test, since rays come from everywhere; clusters behind the camera take the cut by distance) and builds one BLAS per instance from it.
 - The cluster id is the cluster's first triangle in the index pool, so `scene_query_primitive` (`hit.lua`) turns a hit into a pool triangle and the instance's cluster mesh row (`meshes.GetClusterRow`). Every place that reads a hit's primitive must use `scene_query_primitive`.
-- Without the extension, `cluster_lod.BuildCuts` makes a few uniform-error cuts as index buffers over the same vertices, and `bridge.UpdateVisual` adds a ray only row per cut (`meshes.GetCut`) beside the full detail row, which gets `FLAG_RT_LOD` so raster passes ignore the ray-only level fields.
+- Without the extension, `cluster_lod.BuildCuts` makes a few uniform-error cuts as index buffers over the same vertices, and `bridge.UpdateVisual` adds a ray only row per cut (`meshes.GetCut`) beside the full detail row, which gets `FLAG_RT_LOD` so raster passes ignore the ray-only level fields. These cuts switch by distance at a reference projection, so they only approximate the raster's cut.
 - Bending materials keep the fixed cuts, since their BLAS copies are bent per frame.
 
 ## Inspecting

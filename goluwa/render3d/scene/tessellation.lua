@@ -15,6 +15,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
+local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
 local tessellation = {}
 tessellation.name = "gbuffer_tessellated"
 tessellation.visibility_kind = visibility.KIND_TESSELLATION
@@ -1577,7 +1578,6 @@ function tessellation.Draw(pipeline, cmd)
 	end
 end
 
-local cluster_lod_reference_pixels = string.format("%.6f", 1080 / (2 * math.tan(math.rad(60) / 2)))
 local RT_MAX_LOG = 3
 local RT_PATCHES = 32768
 local RT_PATCH_VERTICES = (2 ^ RT_MAX_LOG + 1) * (2 ^ RT_MAX_LOG + 2) / 2
@@ -1612,14 +1612,15 @@ local rt_block = {
 	{"job_count", "int"},
 	{"triangle_count", "int"},
 	{"seam_band", "float"},
-	{"pad", "int"},
+	{"pixels_per_unit", "float"},
 	{"args", "uint64_t"},
 }
 
 local function write_rt_block(self, block)
 	local position = rt.camera_position
 	block.camera_position[0], block.camera_position[1], block.camera_position[2] = position.x, position.y, position.z
-	block.error = pvars.Get("r_cluster_lod_rt_error")
+	block.error = pvars.Get("r_cluster_lod_error")
+	block.pixels_per_unit = cluster_lod.GetPixelsPerUnit()
 	block.job_count = state.job_count
 	block.triangle_count = state.triangle_count
 	block.seam_band = seam_band:Get()
@@ -1711,8 +1712,8 @@ local function get_rt_pipelines()
 						}
 
 						float edge_length = distance(position[ia], position[ib]);
-						float pixels = edge_length * ]=] .. cluster_lod_reference_pixels .. [=[ / max(distance(compute.camera_position, 0.5 * (position[ia] + position[ib])), 0.05);
-						float relief_pixels = job.height_scale * max(scale[ia], scale[ib]) * ]=] .. cluster_lod_reference_pixels .. [=[ / max(min(distance(compute.camera_position, position[ia]), distance(compute.camera_position, position[ib])), 0.05);
+						float pixels = edge_length * compute.pixels_per_unit / max(distance(compute.camera_position, 0.5 * (position[ia] + position[ib])), 0.05);
+						float relief_pixels = job.height_scale * max(scale[ia], scale[ib]) * compute.pixels_per_unit / max(min(distance(compute.camera_position, position[ia]), distance(compute.camera_position, position[ib])), 0.05);
 						rate[e] = tess_edge_rate(edge_length, pixels, relief_pixels, job.uv_size * min(scale[ia], scale[ib]), job.texel, compute.error, RT_MAX_LOG);
 					}
 

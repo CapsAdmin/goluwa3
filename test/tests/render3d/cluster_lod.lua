@@ -466,14 +466,14 @@ T.Test3DRayTracing("Graphics render3d cluster lod traces a coarser cut of a larg
 			return cluster_rt.ReadSelectedCounts()[id]
 		end
 
-		pvars.SetSession("r_cluster_lod_rt_error", 0.0001)
+		pvars.SetSession("r_cluster_lod_error", 0.0001)
 		local near = selected()
 		T(read_traced_blas({id})[id] ~= 0)["=="](true)
 		local hit_found, plane_distance, distance = trace_hit_plane_distance()
 		T(hit_found)["=="](true)
 		T(plane_distance < 0.001)["=="](true)
 		T(distance > 1 and distance < 3.1)["=="](true)
-		pvars.SetSession("r_cluster_lod_rt_error", 2)
+		pvars.SetSession("r_cluster_lod_error", pvars.infos.r_cluster_lod_error.default)
 		entity.transform:SetPosition(Vec3(0, 0, -300))
 		local far = selected()
 		T(far > 0)["=="](true)
@@ -516,7 +516,7 @@ T.Test3DRayTracing("Graphics render3d cluster lod traces a coarser cut of a larg
 		return live
 	end
 
-	pvars.SetSession("r_cluster_lod_rt_error", 0.0001)
+	pvars.SetSession("r_cluster_lod_error", 0.0001)
 	local near = traced_rows()
 	T(near[1])["=="](true)
 
@@ -524,7 +524,7 @@ T.Test3DRayTracing("Graphics render3d cluster lod traces a coarser cut of a larg
 		T(near[i])["=="](false)
 	end
 
-	pvars.SetSession("r_cluster_lod_rt_error", 2)
+	pvars.SetSession("r_cluster_lod_error", pvars.infos.r_cluster_lod_error.default)
 	entity.transform:SetPosition(Vec3(0, 0, -300))
 	local far = traced_rows()
 	T(far[1])["=="](false)

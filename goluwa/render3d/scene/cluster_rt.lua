@@ -406,17 +406,14 @@ local state = {
 	ready = false,
 }
 local compute_block = {
-	{"camera_position", "vec3"},
-	{"pixel_error", "float"},
-	{"reference_pixels", "float"},
 	{"job_count", "int"},
 	{"pair_count", "int"},
-	{"pad", "int"},
 	{"jobs", "uint64_t"},
 	{"clusters", "uint64_t"},
 	{"tlas", "uint64_t"},
 	{"refs", "uint64_t"},
 	{"infos", "uint64_t"},
+	unpack(cluster_lod.VIEW_BLOCK),
 }
 local select_pipeline
 
@@ -428,10 +425,7 @@ local function get_select_pipeline()
 		LocalSize = {x = 64, y = 1, z = 1},
 		block = compute_block,
 		write = function(self, block)
-			local position = state.camera_position
-			block.camera_position[0], block.camera_position[1], block.camera_position[2] = position.x, position.y, position.z
-			block.pixel_error = cluster_lod.GetRTPixelError()
-			block.reference_pixels = cluster_lod.REFERENCE_PIXELS_PER_RADIAN
+			cluster_lod.WriteView(block)
 			block.job_count = state.job_count
 			block.pair_count = state.pair_count
 			block.jobs = state.jobs_address
@@ -478,9 +472,7 @@ local function get_select_pipeline()
 				);
 			}
 
-			float projected_error(float error, vec3 center, float radius) {
-				return error * compute.reference_pixels / max(distance(compute.camera_position, center) - radius, 0.0001);
-			}
+			]] .. cluster_lod.GetViewGLSL("compute") .. [[
 
 			void main() {
 				uint g = gl_GlobalInvocationID.x;
@@ -506,12 +498,8 @@ local function get_select_pipeline()
 				tlas_instance t = TLASArray(compute.tlas).t[job.instance];
 				float scale = max(length(vec3(t.m[0], t.m[4], t.m[8])), max(length(vec3(t.m[1], t.m[5], t.m[9])), length(vec3(t.m[2], t.m[6], t.m[10]))));
 
-				if (projected_error(c.error * scale, transform_point(t.m, c.lod.xyz), c.lod.w * scale) > compute.pixel_error) return;
-
-				if (
-					c.parent_error < 1e29 &&
-					projected_error(c.parent_error * scale, transform_point(t.m, c.parent.xyz), c.parent.w * scale) <= compute.pixel_error
-				) return;
+				if (!cluster_lod_fine_enough(c.error * scale, transform_point(t.m, c.lod.xyz), c.lod.w * scale)) return;
+				if (c.parent_error < 1e29 && cluster_lod_fine_enough(c.parent_error * scale, transform_point(t.m, c.parent.xyz), c.parent.w * scale)) return;
 
 				uvec2 range = RangeArray(job.sub_ranges).r[r];
 				uint at = atomicAdd(InfoArray(compute.infos).i[lo].x, range.y);
@@ -706,7 +694,6 @@ function cluster_rt.Build(cmd)
 
 	if state.job_count == 0 then return end
 
-	state.camera_position = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
 	local slot = state.slots[system.GetFrameNumber() % RING + 1]
 	cmd:PipelineBarrier{
 		srcStage = "all_commands",

@@ -10,7 +10,7 @@ A material with a height map and `HeightTessellate` (or every height mapped mate
 
 ## Edge rates
 
-- Rates are error driven and `r_cluster_lod_error` (`r_cluster_lod_rt_error` for the traced build) is the only knob, shared with [cluster-lod.md](cluster-lod.md). An edge whose relief projects to less than the error stays uncut; otherwise the cut spacing comes from a model of how relief amplitude falls with wavelength, bounded by the height texel size and the pixel error. `tess_edge_rate` holds the formula for both raster and ray tracing.
+- Rates are error driven and `r_cluster_lod_error` is the only knob, for the raster and the traced build (which measures by distance with the camera's pixels per unit), shared with [cluster-lod.md](cluster-lod.md). An edge whose relief projects to less than the error stays uncut; otherwise the cut spacing comes from a model of how relief amplitude falls with wavelength, bounded by the height texel size and the pixel error. `tess_edge_rate` holds the formula for both raster and ray tracing.
 - The rate is capped per edge (`tessellation.MAX_LOG`), so coarse base meshes stay coarse up close.
 
 ## Terrain

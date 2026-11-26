@@ -19,6 +19,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local cluster_lod = import("goluwa/render3d/cluster_lod/cluster_lod.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local water = import("goluwa/render3d/water.lua")
@@ -1192,6 +1193,9 @@ function render3d.Initialize(config)
 		end
 
 		Visual.UpdateScene()
+		local camera = render3d.GetCamera()
+		local view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()
+		cluster_lod.SetView(view_projection, camera:GetPosition(), render.GetRenderImageSize().y)
 
 		if render.GetDevice().ray_tracing_supported then
 			scene_rt.GetTLAS(render.GetCommandBuffer())
@@ -1202,8 +1206,6 @@ function render3d.Initialize(config)
 		import("goluwa/render3d/scene_lights.lua").Update(render.GetCommandBuffer())
 
 		if not (render3d.camera_stack and #render3d.camera_stack > 1) then
-			local camera = render3d.GetCamera()
-			local view_projection = camera:BuildViewMatrix() * camera:BuildUnjitteredProjectionMatrix()
 			scene_draw.frustum_planes = scene_draw.frustum_planes or ffi.new("float[24]")
 			gpu_culling.ExtractFrustumPlanes(view_projection, scene_draw.frustum_planes, 1)
 			scene_draw.Cull(
