@@ -25,6 +25,7 @@ local translucent_extras = import("goluwa/render3d/translucent_extras.lua")
 local Texture = import("goluwa/render/texture.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local air_grid = import("goluwa/render3d/air_grid.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
@@ -394,7 +395,7 @@ local passes = {
 					scene_hits.RAY_QUERY and
 					optical_rays.GetGLSL() or
 					""
-				) .. surface_lighting.GetGLSL("lighting_data", scene_hits.RAY_QUERY, TRANSLUCENT_LIGHT_LIMIT) .. gi.GetCommonGLSL() .. (
+				) .. air_grid.GetGLSL("radiance_cache_data") .. surface_lighting.GetGLSL("lighting_data", scene_hits.RAY_QUERY, TRANSLUCENT_LIGHT_LIMIT) .. gi.GetCommonGLSL() .. (
 					scene_hits.RAY_QUERY and
 					scene_hits.GetGLSL("lighting_data", true) .. scene_hits.GetDirectionGLSL()
 					or

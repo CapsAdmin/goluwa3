@@ -406,6 +406,13 @@ local function pass_shade()
 
 				if (radiance_cache_data.light_transmittance != 0 || radiance_cache_data.medium_gi != 0) glass = get_optical_tint(origin, dir, t < 0.0 ? radiance_cache_data.radiance_cache_max_distance : t, t >= 0.0);
 
+				float wall = air_grid_ray_wall_distance(origin, vec3(0.0), vec3(0.0), dir, t < 0.0 ? radiance_cache_data.radiance_cache_max_distance : t);
+
+				if (wall >= 0.0) {
+					store_ray(pos, vec4(0.0, 0.0, 0.0, wall));
+					return;
+				}
+
 				if (t < 0.0) {
 					store_ray(pos, vec4(radiance_cache_sky(dir) * glass, RADIANCE_CACHE_MISS_DISTANCE * mix(0.5, 1.0, luminance(glass))));
 					return;
@@ -432,7 +439,8 @@ local function pass_shade()
 				float metallic = ray_hit_metallic(material, P, hit.y, hit.z);
 				hit_brdf brdf = hit_brdf_prepare(albedo, metallic, material.specular, clamp(ray_hit_roughness(material, P, hit.y, hit.z), 0.045, 1.0), material.diffuse_roughness, dot(N, -dir));
 				vec3 transmitted = ray_hit_transmission(material, P, hit.y, hit.z) * material.transmission_color * albedo * (1.0 - metallic);
-				vec3 radiance = radiance_cache_direct_light(surface, N, -dir, brdf, transmitted, material.transmission_scattering, hit.w != 0u, light_radius, u);
+				bool sun_visible = hit.w != 0u && !air_grid_ray_crosses_wall(surface, N, -dir, normalize(radiance_cache_data.radiance_cache_sun_direction.xyz), 1e5);
+				vec3 radiance = radiance_cache_direct_light(surface, N, -dir, brdf, transmitted, material.transmission_scattering, sun_visible, light_radius, u);
 
 				float weight;
 				#if RT_HIT_PROBES

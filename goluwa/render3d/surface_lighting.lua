@@ -648,6 +648,11 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 				}
 				#endif
 
+				#ifdef AIR_GRID_GLSL
+				// the sun reached through a wall the air grid sealed, a crack between meshes the shadow map and rays let it through
+				if (type == 0 && shadow_factor > 0.0 && air_grid_ray_crosses_wall(s.world_pos, shadow_N, s.V, L, 1e5)) shadow_factor = 0.0;
+				#endif
+
 				#ifdef SHADOW_SCREEN_SPACE
 				#define SCREEN_SHADOW_MIN_SCREEN_RADIANCE 0.002
 				if (screen_marchable && ]] .. block_name .. [[.screen_shadows != 0 && NoL > 0.0 && max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) * shadow_factor * NoL * get_exposure() >= SCREEN_SHADOW_MIN_SCREEN_RADIANCE) {

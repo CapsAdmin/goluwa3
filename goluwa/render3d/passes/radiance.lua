@@ -1322,7 +1322,11 @@ local function pass_trace()
 				if (traces_diffuse) {
 					scene_hit_coarse_alpha = true;
 
-					if (trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
+					bool diffuse_hit = trace_scene_hit(origin, dir, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
+
+					if (air_grid_ray_crosses_wall(origin, geometric_N, normalize(restir_data.camera_position - P), dir, t)) {
+						flags &= ~RADIANCE_RAY_DIFFUSE;
+					} else if (diffuse_hit) {
 						flags |= RADIANCE_RAY_HIT;
 						radiance_append_hit(pos, size, 0u);
 					}
@@ -1341,7 +1345,12 @@ local function pass_trace()
 				scene_hit_coarse_alpha = (flags & RADIANCE_RAY_COARSE_ALPHA) != 0u;
 				t = SCENE_HIT_MAX_DISTANCE;
 
-				if (trace_scene_hit(specular.origin, specular.R, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
+				bool specular_traced = trace_scene_hit(specular.origin, specular.R, 0.0, SCENE_HIT_MAX_DISTANCE, t, instance, primitive, barycentrics);
+
+				// a miss stores no distance, a negative one marks a ray that went out through a wall the air grid sealed
+				if (air_grid_ray_crosses_wall(specular.origin, specular.geometric_N, normalize(restir_data.camera_position - P), specular.R, t)) {
+					t = -1.0;
+				} else if (specular_traced) {
 					flags |= RADIANCE_RAY_HIT;
 					radiance_append_hit(pos, size, 1u);
 				}
@@ -1560,7 +1569,8 @@ local function pass_candidates()
 				specular.origin = origin + vec3(unpackHalf2x16(imageLoad(diffuse_hit, pos).w), unpackHalf2x16(specular_d.z).x);
 				bool specular_found = (specular_d.w & RADIANCE_RAY_HIT) != 0u;
 				float specular_t = specular_found ? uintBitsToFloat(imageLoad(specular_ray, pos).w) : SCENE_HIT_MAX_DISTANCE;
-				vec3 specular_L = specular_found ? imageLoad(out_d, pos).rgb : sample_environment_specular_lod(restir_data.env_tex, specular.R, specular.N, specular.environment_roughness, specular.roughness > REFLECTION_MIRROR_THRESHOLD ? 1.0 : 0.0);
+				bool specular_blocked = !specular_found && uintBitsToFloat(imageLoad(specular_ray, pos).w) < 0.0;
+				vec3 specular_L = specular_found ? imageLoad(out_d, pos).rgb : specular_blocked ? vec3(0.0) : sample_environment_specular_lod(restir_data.env_tex, specular.R, specular.N, specular.environment_roughness, specular.roughness > REFLECTION_MIRROR_THRESHOLD ? 1.0 : 0.0);
 					if (have_emitters) {
 							float sum = 0.0;
 

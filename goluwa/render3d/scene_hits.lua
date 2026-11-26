@@ -480,7 +480,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			vec3 back_surface = P - hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
 			vec3 sun_surface = sun_NoL > 0.0 ? surface : back_surface;
 
-			if (RT_HIT_SUN != 0 && (sun_NoL > 0.0 || transmission > 0.0) && (RT_HIT_SHADOWS == 0 || scene_hit_visible(sun_surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
+			if (RT_HIT_SUN != 0 && (sun_NoL > 0.0 || transmission > 0.0) && !air_grid_ray_crosses_wall(sun_surface, sun_NoL > 0.0 ? hit_N : -hit_N, -dir, sun_L, SCENE_HIT_MAX_DISTANCE) && (RT_HIT_SHADOWS == 0 || scene_hit_visible(sun_surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
 				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
 				vec3 response = sun_NoL > 0.0 ? hit_brdf_light(brdf, hit_N, -dir, sun_L, brdf.alpha + ]] .. string.format("%.9e", atmosphere.SUN_ANGULAR_RADIUS * 0.5) .. [[) : transmitted * transmission_phase(-dir, sun_L, -sun_NoL, material.transmission_scattering) * -sun_NoL;
 				vec3 sun_radiance = response * radiance_cache_data.radiance_cache_sun_radiance.rgb * get_cloud_shadow(P) * radiance_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);

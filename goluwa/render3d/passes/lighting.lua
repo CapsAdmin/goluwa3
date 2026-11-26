@@ -22,6 +22,7 @@ local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local quality = import("goluwa/render3d/quality.lua")
+local air_grid = import("goluwa/render3d/air_grid.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_OUTPUT_DIFFUSE = 1
@@ -181,7 +182,7 @@ local light_glsl = (
 		optical_rays.GetGLSL() .. ray_materials.GetAlphaTestGLSL()
 		or
 		""
-	) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. radiance_cache.GetScreenSampleGLSL("lighting_data") .. radiance_cache.GetCommonGLSL()
+	) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. air_grid.GetGLSL("radiance_cache_data") .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. radiance_cache.GetScreenSampleGLSL("lighting_data") .. radiance_cache.GetCommonGLSL()
 local uniform_buffers = {
 	{
 		name = "lighting_data",
