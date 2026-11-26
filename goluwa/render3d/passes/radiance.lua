@@ -299,6 +299,9 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	#define RESTIR_FLAG_LIGHT_CHANGED 64
 	#define RESTIR_CHANGED_HISTORY 4.0
 	#define RESTIR_SKY_DEPTH 65504.0
+	#define RESTIR_CONE_ONE_MINUS_COS 0.00125
+	#define RESTIR_CONE_MIN_PEAK 8.0
+	#define RESTIR_CONE_NEIGHBOUR_RADIUS 8.0
 
 	struct restir_sample {
 		vec3 x;
@@ -1316,9 +1319,44 @@ local function pass_trace()
 					}
 				}
 
-				bool guided = guided_share > 0.0 && restir_random(pos, 40u) < guided_share;
+				vec3 cone_axes[2] = vec3[2](N, N);
+				float cone_peaks[2] = float[2](0.0, 0.0);
 
-				if (guided) {
+				if (restir_data.guided > 0.0 && restir_data.history_valid != 0) {
+					ivec2 taps[2] = ivec2[2](pos, clamp(pos + ivec2((vec2(restir_random(pos, 45u), restir_random(pos, 46u)) * 2.0 - 1.0) * RESTIR_CONE_NEIGHBOUR_RADIUS), ivec2(0), size - 1));
+
+					for (int k = 0; k < 2; k++) {
+						float h_W;
+						float h_M;
+						int h_flags;
+						restir_sample h = restir_load(restir_data.history_a_tex, restir_data.history_b_tex, restir_data.history_c_tex, taps[k], h_W, h_M, h_flags);
+
+						if ((h.kind == RESTIR_SURFACE || h.kind == RESTIR_SKY) && h_W > 0.0) {
+							cone_axes[k] = h.kind == RESTIR_SKY ? h.x : normalize(h.x - origin);
+
+							if (dot(cone_axes[k], N) > 0.0) cone_peaks[k] = clamp((RESTIR_PI / h_W - RESTIR_CONE_MIN_PEAK) / (3.0 * RESTIR_CONE_MIN_PEAK), 0.0, 1.0);
+						}
+					}
+				}
+
+				float peak = max(cone_peaks[0], cone_peaks[1]);
+				float cone_share = peak > 0.0 ? (guided_share > 0.0 ? guided_share * peak : restir_data.guided) : 0.0;
+				float own_share = cone_share * cone_peaks[0] / max(cone_peaks[0] + cone_peaks[1], 1e-6);
+				float probe_share = guided_share > 0.0 ? guided_share - cone_share : 0.0;
+				guided_share = probe_share + cone_share;
+				float pick = restir_random(pos, 40u);
+				bool guided = pick < guided_share;
+
+				if (pick < cone_share) {
+					vec3 cone_axis = pick < own_share ? cone_axes[0] : cone_axes[1];
+					float phi = 6.28318530718 * restir_random(pos, 41u);
+					// sampled a hair inside the cone the pdf tests, or a direction on its rim can round outside it and lose the cone's density
+					float cos_theta = 1.0 - restir_random(pos, 42u) * RESTIR_CONE_ONE_MINUS_COS * 0.999;
+					float sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0));
+					vec3 up = abs(cone_axis.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+					vec3 T = normalize(cross(up, cone_axis));
+					dir = normalize(T * (sin_theta * cos(phi)) + cross(cone_axis, T) * (sin_theta * sin(phi)) + cone_axis * cos_theta);
+				} else if (guided) {
 					dir = radiance_cache_guide_sample(restir_random(pos, 41u), vec2(restir_random(pos, 42u), restir_random(pos, 43u)), restir_random(pos, 44u), guide_tile);
 				} else {
 					float below = dot(dir, geometric_N);
@@ -1348,7 +1386,7 @@ local function pass_trace()
 						radiance_append_hit(pos, size, 0u);
 					}
 
-					pdf = (1.0 - guided_share) * max(ray_cosine, 1e-4) / RESTIR_PI + (guided_share > 0.0 ? guided_share * radiance_cache_guide_density(dir, guide_tile) : 0.0);
+					pdf = (1.0 - guided_share) * max(ray_cosine, 1e-4) / RESTIR_PI + (probe_share > 0.0 ? probe_share * radiance_cache_guide_density(dir, guide_tile) : 0.0) + ((dot(dir, cone_axes[0]) >= 1.0 - RESTIR_CONE_ONE_MINUS_COS ? own_share : 0.0) + (dot(dir, cone_axes[1]) >= 1.0 - RESTIR_CONE_ONE_MINUS_COS ? cone_share - own_share : 0.0)) / (6.28318530718 * RESTIR_CONE_ONE_MINUS_COS * 0.999);
 				}
 
 				imageStore(diffuse_origin, pos, uvec4(floatBitsToUint(origin), flags | (instance << 8u)));

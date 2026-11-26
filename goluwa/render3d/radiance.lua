@@ -92,7 +92,7 @@ radiance.guided = pvars.Setup2{
 	default = 0.5,
 	min = 0,
 	max = 0.95,
-	help = "share of the gi rays aimed by the nearest radiance_cache probe's radiance guide instead of the cosine, weighted by the mix of both densities so it stays unbiased. light through a small opening or from a sunlit patch next to a dark room is found that much more often instead of as rare bright samples. only with the radiance_cache cache",
+	help = "share of the gi rays aimed instead of drawn by the cosine, weighted by the mix of all densities so it stays unbiased: at the bright sample last frame's reservoir of the pixel or a neighbour holds (sky through a small opening, a sunlit patch), else by the nearest radiance_cache probe's radiance guide. such light is found that much more often instead of as rare bright samples that the reuse spreads into blotches",
 }
 radiance.spatial = pvars.Setup2{
 	key = "radiance_spatial",
