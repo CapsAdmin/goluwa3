@@ -62,6 +62,8 @@ local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table, part_table, seen_table
 local traced_tlas_buffer, traced_data_buffer
+local traced_serial = 0
+local added_serial = {}
 local RasterData = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -230,6 +232,11 @@ function instances.GetTracedBuffers()
 	traced_data_buffer or data_table:GetBuffer()
 end
 
+-- an instance added since the last build is not in the traced buffers yet, so work reading them must skip it this frame
+function instances.IsTraced(id)
+	return added_serial[id] < traced_serial
+end
+
 function instances.GetDataTable()
 	return select(2, instances.GetTables())
 end
@@ -250,6 +257,7 @@ end
 function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last, near, far)
 	instances.GetTables()
 	local id = tlas_table:Alloc()
+	added_serial[id] = traced_serial
 	instances.GetSeenTable():Get()[id] = instances.SEEN_UNTESTED
 	data_table:Reserve(tlas_table.capacity)
 	data_table.count = tlas_table.count
@@ -674,6 +682,7 @@ do
 		parts = parts or import("goluwa/render3d/scene/parts.lua")
 		store.FlushStaged(cmd)
 		traced_tlas_buffer, traced_data_buffer = tlas_table:GetBuffer(), data_table:GetBuffer()
+		traced_serial = traced_serial + 1
 		meshes.Build(cmd, skinning.updated)
 		cluster_rt.Build(cmd)
 		tessellation = tessellation or import("goluwa/render3d/scene/tessellation.lua")

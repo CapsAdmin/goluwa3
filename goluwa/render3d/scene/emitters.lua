@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Material = import("goluwa/render3d/material.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
@@ -55,11 +56,14 @@ function emitters.Get(include_additive)
 	local sources = {}
 	local count = 0
 	local total = 0
+	local untraced = false
 
 	for visual in pairs(bridge.GetEmissiveVisuals()) do
 		if visual.Visible then
 			for _, item in ipairs(visual.scene_instances) do
 				local material = item.material
+				local traced = instances.IsTraced(item.id)
+				untraced = untraced or not traced
 				local r, g, b = materials.GetEmissive(material)
 				local luminance = item.level == 0 and 0.2126 * r + 0.7152 * g + 0.0722 * b or 0
 				local additive = material:GetAdditive() and
@@ -67,7 +71,15 @@ function emitters.Get(include_additive)
 					and
 					material:GetEmissiveTexture() == nil
 
-				if luminance > 0 and material:GetEmitsLight() and (include_additive or not additive) then
+				if
+					traced and
+					luminance > 0 and
+					material:GetEmitsLight() and
+					(
+						include_additive or
+						not additive
+					)
+				then
 					count = count + 1
 					sources[count] = {
 						first = total,
@@ -85,7 +97,7 @@ function emitters.Get(include_additive)
 	list.source_count = count
 	list.count = total
 	list.additive = include_additive
-	list.version = bridge.emitter_version
+	list.version = not untraced and bridge.emitter_version or nil
 	list.generation = Material.emission_generation
 	list.sources_version = (list.sources_version or 0) + 1
 	list.sources = sources
