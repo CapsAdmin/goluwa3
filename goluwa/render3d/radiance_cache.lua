@@ -1136,6 +1136,10 @@ function radiance_cache.GetCommonGLSL()
 			float hidden_second_luma = 1e30;
 			vec3 ray_origin = P;
 			bool have_ray_origin = false;
+			int grid_level;
+			int grid_distance;
+			vec3 grid_air;
+			bool grid_reference = radiance_cache_data.air_grid_probe_visibility != 0 && air_grid_available() && air_grid_reference(P, N, V, grid_level, grid_distance, grid_air);
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1149,6 +1153,9 @@ function radiance_cache.GetCommonGLSL()
 				float w = radiance_cache_probe_weight(c, world, kernel.x * kernel.y * kernel.z, P, N, biased, spacing, slot, probe_position);
 
 				if (w <= 0.0) continue;
+
+				// a probe in air the point's air does not connect to is not hidden behind something, it is elsewhere
+				if (grid_reference && air_grid_unreachable(grid_air, probe_position * spacing)) continue;
 
 				vec4 irradiance = textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, L, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0);
 				vec4 irradiance2 = textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, L2, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0);
