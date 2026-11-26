@@ -462,7 +462,12 @@ return {
 				if (grey <= 0.0) return irradiance;
 
 				irradiance = max(vec3(grey) + (irradiance - grey) * lighting_data.gi_saturation, vec3(0.0));
-				return irradiance * lighting_data.gi_gain * pow(grey * get_exposure() / lighting_data.gi_contrast_pivot, lighting_data.gi_contrast - 1.0);
+				float level = grey * get_exposure() / lighting_data.gi_contrast_pivot;
+
+				// pow(0, y) is undefined (nan here) for y <= 0, and a grey too faint for the exposure flushes to 0: gi upsampled from texels that barely match a surface seen edge on
+				if (!(level > 0.0)) return irradiance * lighting_data.gi_gain;
+
+				return irradiance * lighting_data.gi_gain * pow(level, lighting_data.gi_contrast - 1.0);
 			}
 
 			vec4 get_ambient_occlusion(vec2 uv) {
