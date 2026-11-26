@@ -153,6 +153,7 @@ T.Slow(T.Test3DRayTracing, "Graphics render3d restir gi reuse adds no light and 
 		"radiance_spatial",
 		"radiance_filter",
 		"radiance_accumulation",
+		"radiance_rays",
 	}
 	local saved = {}
 
@@ -173,6 +174,7 @@ T.Slow(T.Test3DRayTracing, "Graphics render3d restir gi reuse adds no light and 
 			pvars.SetSession("radiance_spatial", reuse)
 			pvars.SetSession("radiance_filter", false)
 			pvars.SetSession("radiance_accumulation", 100000)
+			pvars.SetSession("radiance_rays", reuse and saved.radiance_rays or "every")
 			gi.ResetHistory()
 
 			for _ = 1, 300 do

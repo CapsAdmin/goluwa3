@@ -52,7 +52,7 @@ radiance.specular_emitter_roughness = pvars.Setup2{
 radiance.RAY_SHARES = {every = 1, half = 2, quarter = 4}
 radiance.rays = pvars.Setup2{
 	key = "radiance_rays",
-	default = "every",
+	default = "half",
 	enums = {"every", "half", "quarter"},
 	help = "which gi pixels trace a new ray each frame: every one, half of them (a checkerboard) or one of each 2x2 (a different one every frame). the others keep their reservoir and take this frame's new samples from their neighbours, so every pixel has a history of its own surface at a fraction of the rays. blocks of 16x16 gi pixels that radiance_rays_smooth, radiance_rays_disocclusion or radiance_rays_edges pick trace every pixel",
 }
