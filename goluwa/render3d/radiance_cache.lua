@@ -214,7 +214,7 @@ local smooth_blend = pvars.Setup2{
 local VISIBILITY_RAYS = {none = 0, relocated = 1, all = 2}
 local visibility_rays = pvars.Setup2{
 	key = "radiance_cache_visibility_rays",
-	default = "all",
+	default = "none",
 	enums = {"none", "relocated", "all"},
 	help = "probes checked with a ray: none, only the relocated ones, or all",
 }
