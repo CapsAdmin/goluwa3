@@ -214,7 +214,7 @@ local smooth_blend = pvars.Setup2{
 local VISIBILITY_RAYS = {none = 0, relocated = 1, all = 2}
 local visibility_rays = pvars.Setup2{
 	key = "radiance_cache_visibility_rays",
-	default = "none",
+	default = "all",
 	enums = {"none", "relocated", "all"},
 	help = "probes checked with a ray: none, only the relocated ones, or all",
 }
@@ -1044,9 +1044,7 @@ function radiance_cache.GetCommonGLSL()
 		}
 
 		float radiance_cache_probe_grid_fraction(vec3 from, vec3 N, vec3 probe_pos) {
-			if (radiance_cache_data.air_grid_probe_visibility == 0) return AIR_GRID_UNKNOWN;
-
-			return air_grid_segment(from, N, probe_pos);
+			return air_grid_segment(from, N, probe_pos, radiance_cache_data.air_grid_probe_visibility != 0);
 		}
 
 		bool radiance_cache_probe_can_be_traced(vec3 probe_position, ivec3 world) {
@@ -1165,9 +1163,11 @@ function radiance_cache.GetCommonGLSL()
 
 				if (trace) hit_fraction = radiance_cache_probe_grid_fraction(P, N, probe_position * spacing);
 
-				if (hit_fraction < 0.0) {
-					// a point the grid cannot place on either side of a wall is hidden unless a ray says otherwise
-					bool embedded = hit_fraction == AIR_GRID_EMBEDDED;
+				// a point the grid cannot place on either side of a wall (wedged between a sphere and the floor it rests
+				// on) is hidden: a ray's origin is lifted out of the wedge and sees past it
+				if (hit_fraction == AIR_GRID_EMBEDDED) {
+					hit_fraction = 0.0;
+				} else if (hit_fraction < 0.0) {
 					hit_fraction = 2.0;
 
 					if (trace && radiance_cache_probe_can_be_traced(probe_position, world)) {
@@ -1177,8 +1177,6 @@ function radiance_cache.GetCommonGLSL()
 						}
 
 						hit_fraction = radiance_cache_probe_hit_fraction(ray_origin, probe_position * spacing);
-					} else if (embedded) {
-						hit_fraction = 0.0;
 					}
 				}
 

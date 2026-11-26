@@ -48,7 +48,7 @@ local bricks_per_frame = pvars.Setup2{
 }
 air_grid.probe_visibility = pvars.Setup2{
 	key = "air_grid_probe_visibility",
-	default = true,
+	default = false,
 	help = "probe lookups march the grid toward a probe and drop it when a solid cell is in the way, rays only test what the grid does not cover",
 }
 local field_rounds = pvars.Setup2{
@@ -1028,8 +1028,9 @@ function air_grid.GetGLSL(block_name)
 		// fraction along the segment to b where the first solid cell starts, AIR_GRID_CLEAR when there is none and
 		// AIR_GRID_UNKNOWN when no level covers it. a surface point a is pushed off along its normal n until it
 		// is in an air cell; a cell cannot tell which side of a wall in it a point is on, so an end that stays
-		// in a solid cell (a corner, a probe against a wall) is AIR_GRID_EMBEDDED rather than skipped
-		float air_grid_segment(vec3 a, vec3 n, vec3 b) {
+		// in a solid cell (a corner, a probe against a wall) is AIR_GRID_EMBEDDED rather than skipped. without
+		// march only the ends are looked at, and a segment with both ends in air is AIR_GRID_UNKNOWN
+		float air_grid_segment(vec3 a, vec3 n, vec3 b, bool march) {
 			if (!air_grid_available()) return AIR_GRID_UNKNOWN;
 
 			float len = length(b - a);
@@ -1060,6 +1061,8 @@ function air_grid.GetGLSL(block_name)
 				if (start_state < 0) continue;
 
 				if (start_state > 0) return AIR_GRID_EMBEDDED;
+
+				if (!march) return AIR_GRID_UNKNOWN;
 
 				vec3 pa = start / cs;
 				vec3 d = (b - start) / cs;
