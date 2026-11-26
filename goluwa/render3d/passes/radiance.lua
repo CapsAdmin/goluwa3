@@ -490,14 +490,14 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		}
 
 		pull = normalize(pull);
-		// a surface the pixel's own touches can be closer than the lift (a sphere resting on a floor), lifting past it starts the rays on its far side
+		// a surface the pixel's own touches can be closer than the lift (a sphere resting on a floor), lifting past it starts the rays on its far side; a surface seen from behind is the pixel's own traced a little above it
 		#ifdef SCENE_HITS
 		float t;
 		uint instance;
 		uint primitive;
 		vec2 barycentrics;
 
-		if (trace_scene_hit(P, pull, 0.1 * offset, offset, t, instance, primitive, barycentrics)) offset = 0.5 * t;
+		if (trace_scene_hit(P, pull, 0.1 * offset, offset, t, instance, primitive, barycentrics) && dot(scene_hit_tri(instance, primitive).normal, pull) > 0.0) offset = 0.5 * t;
 		#endif
 
 		return scene_escape_tessellation(P + pull * offset, pull, 0.1 * restir_data.view_scale);
