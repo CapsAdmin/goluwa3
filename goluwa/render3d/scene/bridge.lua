@@ -35,17 +35,21 @@ local GI_SETTLE_FRAMES = 30
 local NOT_GI_BITS = bit.bnot(instances.MASK_GI_BITS)
 local dirty_queues = {}
 
-function bridge.CreateDirtyQueue()
-	local queue = {all = false, boxes = {}}
+-- a gi queue only hears about changes to what the gi sees: moving visuals have their gi bits cleared,
+-- so their motion only reaches it when they start moving or settle again
+function bridge.CreateDirtyQueue(gi)
+	local queue = {all = false, boxes = {}, gi = gi}
 	dirty_queues[#dirty_queues + 1] = queue
 	return queue
 end
 
-local function mark_dirty(aabb)
+local function mark_dirty(aabb, moving)
 	local box = aabb and {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
 
 	for _, queue in ipairs(dirty_queues) do
-		if not box then
+		if moving and queue.gi then
+
+		elseif not box then
 			queue.all = true
 		elseif not queue.all then
 			if #queue.boxes >= MAX_DIRTY_BOXES then
@@ -738,6 +742,7 @@ function bridge.RefreshDynamic()
 	for visual in pairs(dynamic) do
 		local list = visual.scene_instances
 		local changed = false
+		local gi_changed = false
 
 		for i = 1, #list do
 			local item = list[i]
@@ -786,6 +791,7 @@ function bridge.RefreshDynamic()
 				)
 			then
 				instances.SetMask(item.id, item_mask(item, frame), item.gi_flags)
+				gi_changed = true
 			end
 
 			item.settled = not moved_now and
@@ -800,14 +806,16 @@ function bridge.RefreshDynamic()
 			::continue_item::
 		end
 
+		if gi_changed then mark_dirty(visual.scene_aabb) end
+
 		if changed then
 			local aabb = snapshot(visual)
 			local previous = visual.scene_aabb
 
 			if not (previous and aabb and not moved(previous, aabb)) then
-				mark_dirty(previous)
+				mark_dirty(previous, true)
 				visual.scene_aabb = aabb
-				mark_dirty(aabb)
+				mark_dirty(aabb, true)
 				grow_bounds(aabb)
 			end
 
