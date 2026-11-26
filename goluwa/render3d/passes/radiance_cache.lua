@@ -751,6 +751,7 @@ local function pass_probe_data()
 				vec3 offset = !radiance_cache_cascade_reset(c) && radiance_cache_probe_is_current(previous, world) ? (previous.xyz - vec3(world)) * spacing : vec3(0.0);
 				float backfaces = 0.0;
 				float closest_back = 1e30;
+				float closest_front = 1e30;
 				vec3 closest_back_dir = vec3(0.0);
 				float short_back = 0.0;
 				vec3 short_back_sum = vec3(0.0);
@@ -759,6 +760,8 @@ local function pass_probe_data()
 
 				for (int r = 0; r < radiance_cache_data.radiance_cache_uniform_rays; r++) {
 					float a = texelFetch(TEXTURE(radiance_cache_data.radiance_cache_ray_tex), radiance_cache_ray_texel(uint(r), slot, c), 0).a;
+
+					if (a > 0.0) closest_front = min(closest_front, a);
 
 					if (a < 0.0) {
 						backfaces += 1.0;
@@ -810,6 +813,9 @@ local function pass_probe_data()
 				} else if (all(lessThan(abs(moved), vec3(radiance_cache_data.radiance_cache_max_offset * spacing)))) {
 					offset = moved;
 				}
+
+				// a probe wedged into a crease (relocation only keeps it off backfaces) sees a few centimetres of it, and its rays slip through where the two surfaces meet
+				if (min_distance > 0.0 && closest_front < 0.2 * min_distance) disabled = true;
 
 				bool relocated = dot(offset - previous_offset, offset - previous_offset) > 1e-8 * spacing * spacing;
 				imageStore(out_data, pos, vec4(vec3(world) + offset / spacing, 1.0 + smoothed + (relocated ? 2.0 : 0.0) + (disabled ? 4.0 : 0.0)));
