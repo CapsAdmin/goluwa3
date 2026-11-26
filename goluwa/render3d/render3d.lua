@@ -361,6 +361,11 @@ end
 
 local default_passes = {
 	{"light_grid", "goluwa/render3d/light_grid.lua", group = "lighting"},
+	{
+		"air_grid",
+		"goluwa/render3d/passes/air_grid.lua",
+		group = "global illumination",
+	},
 	{"gbuffer", "goluwa/render3d/passes/gbuffer.lua"},
 	{"clouds", "goluwa/render3d/passes/clouds.lua"},
 	{"terrain_shadow", "goluwa/render3d/passes/terrain_shadow.lua"},

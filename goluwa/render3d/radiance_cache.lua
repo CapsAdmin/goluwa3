@@ -24,6 +24,7 @@ local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
+local air_grid = import("goluwa/render3d/air_grid.lua")
 local radiance_cache = {}
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "radiance_cache_"})
 
@@ -822,7 +823,7 @@ local MIN_WEIGHT = "0.05"
 radiance_cache.MIN_WEIGHT = MIN_WEIGHT
 
 function radiance_cache.GetCommonGLSL()
-	return medium_common.GetGLSL() .. radiance_cache.GetDefinesGLSL() .. radiance_cache.GetRayDirectionGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
+	return medium_common.GetGLSL() .. air_grid.GetGLSL("radiance_cache_data") .. radiance_cache.GetDefinesGLSL() .. radiance_cache.GetRayDirectionGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 
 		vec3 radiance_cache_ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction, float scale_height, float start, float top) {
 			return exponential_layer_transmittance(altitude, sun_up, fog_extinction, precipitation_extinction, scale_height, start, top, ]] .. atmosphere.GROUND_FOG_TINT_GLSL .. [[);
@@ -1042,6 +1043,12 @@ function radiance_cache.GetCommonGLSL()
 			return radiance_cache_probe_hit_fraction(origin, probe_pos) <= 1.0;
 		}
 
+		float radiance_cache_probe_grid_fraction(vec3 from, vec3 N, vec3 probe_pos) {
+			if (radiance_cache_data.air_grid_probe_visibility == 0) return AIR_GRID_UNKNOWN;
+
+			return air_grid_segment(from, N, probe_pos);
+		}
+
 		bool radiance_cache_probe_can_be_traced(vec3 probe_position, ivec3 world) {
 			return radiance_cache_data.radiance_cache_rt_ready != 0 && (radiance_cache_data.radiance_cache_visibility_rays == 2 || radiance_cache_data.radiance_cache_visibility_rays == 1 && probe_position != vec3(world));
 		}
@@ -1149,13 +1156,23 @@ function radiance_cache.GetCommonGLSL()
 
 				float hit_fraction = 2.0;
 
-				if (trace && radiance_cache_probe_can_be_traced(probe_position, world)) {
-					if (!have_ray_origin) {
-						ray_origin = radiance_cache_probe_ray_origin(P, N, spacing);
-						have_ray_origin = true;
-					}
+				if (trace) hit_fraction = radiance_cache_probe_grid_fraction(P, N, probe_position * spacing);
 
-					hit_fraction = radiance_cache_probe_hit_fraction(ray_origin, probe_position * spacing);
+				if (hit_fraction < 0.0) {
+					// a point the grid cannot place on either side of a wall is hidden unless a ray says otherwise
+					bool embedded = hit_fraction == AIR_GRID_EMBEDDED;
+					hit_fraction = 2.0;
+
+					if (trace && radiance_cache_probe_can_be_traced(probe_position, world)) {
+						if (!have_ray_origin) {
+							ray_origin = radiance_cache_probe_ray_origin(P, N, spacing);
+							have_ray_origin = true;
+						}
+
+						hit_fraction = radiance_cache_probe_hit_fraction(ray_origin, probe_position * spacing);
+					} else if (embedded) {
+						hit_fraction = 0.0;
+					}
 				}
 
 				bool hidden = hit_fraction <= 1.0;
@@ -1392,7 +1409,11 @@ function radiance_cache.GetMediumGLSL()
 				);
 				bool trace = w >= RADIANCE_CACHE_VISIBILITY_MIN_WEIGHT || w * luminance(lit.rgb) > RADIANCE_CACHE_VISIBILITY_MIN_SHARE * luminance(sum.rgb);
 
-				if (trace && radiance_cache_probe_can_be_traced(data.xyz, world) && radiance_cache_probe_hidden(P, probe_pos)) continue;
+				if (trace) {
+					float grid_fraction = radiance_cache_probe_grid_fraction(P, vec3(0.0), probe_pos);
+
+					if (grid_fraction < 0.0 ? (radiance_cache_probe_can_be_traced(data.xyz, world) ? radiance_cache_probe_hidden(P, probe_pos) : grid_fraction == AIR_GRID_EMBEDDED) : grid_fraction <= 1.0) continue;
+				}
 
 				sum += lit * w;
 				weight += w;
@@ -1493,6 +1514,7 @@ function radiance_cache.GetProbeBlockLayout()
 		{"radiance_cache_guide_tex", "int"},
 		{"radiance_cache_bent_normal_tex", "int"},
 		clouds.GetShadowBlockLayout(),
+		air_grid.GetBlockLayout(),
 		-- imported here: caustics needs the render device, and this module loads before it exists
 		import("goluwa/render3d/caustics.lua").hit_block,
 	}
@@ -1603,6 +1625,7 @@ function radiance_cache.WriteProbeBlock(self, block)
 	local bent_normal = ambient_occlusion.GetBentNormalTexture()
 	block.radiance_cache_bent_normal_tex = bent_normal and self:GetTextureIndex(bent_normal) or -1
 	clouds.WriteShadowBlock(self, block)
+	air_grid.WriteBlock(block)
 	import("goluwa/render3d/caustics.lua").WriteHitBlock(self, block)
 	return block
 end

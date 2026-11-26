@@ -2,6 +2,7 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
+local air_grid = import("goluwa/render3d/air_grid.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local path_trace = import("goluwa/render3d/path_trace.lua")
 local dlss = import("goluwa/render3d/dlss.lua")
@@ -93,6 +94,10 @@ end
 function post_source.GetDebugTexture()
 	if gbuffer_inspect.IsFullScreen() then
 		return render3d.pipelines.gbuffer_inspect:GetFramebuffer():GetAttachment(1)
+	end
+
+	if air_grid.GetDebugView() ~= 0 and render3d.IsPassEnabled("air_grid") then
+		return render3d.pipelines.air_grid_debug:GetFramebuffer():GetAttachment(1)
 	end
 
 	if
