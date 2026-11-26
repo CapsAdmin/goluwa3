@@ -912,7 +912,9 @@ function air_grid.GetGLSL(block_name)
 						vec3 dir = vec3(0.0);
 						dir[axis >> 1] = (axis & 1) == 0 ? 1.0 : -1.0;
 
-						if (first != vec3(0.0) && dot(dir, n) <= 0.0 && dot(dir, v) <= 0.0) continue;
+						// by the normal only: a step toward the camera keeps to air along the line of sight, a step along an axis toward it can cross a thin wall into the room behind it.
+						// a normal from depth differences is off its plane by a hair, which must not make a step along the surface count as off it: it lands under the surface, in the hollow inside of the solid
+						if (n != vec3(0.0) ? dot(dir, n) <= 0.25 : v != vec3(0.0) && dot(dir, v) <= 0.25) continue;
 
 						vec3 q = a + dir * (float(k) * fc);
 						int qd = air_grid_sky_distance(level, q);
