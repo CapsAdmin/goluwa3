@@ -103,6 +103,22 @@ radiance.hit_gi_share = pvars.Setup2{
 	max = 1,
 	help = "share of frames an 8x8 pixel group looks its off screen ray hits up in the world cache (the light past the first bounce, with its visibility rays), scaled up by 1/share when it does. unbiased and leak free at any share and the cheapest saving in the candidate pass (a quarter saved 1.8 ms in foliage), but the groups that looked up stand out as mottling while the camera moves and the denoiser has little history: 0.5 is faint, 0.25 clearly visible",
 }
+radiance.clamp = pvars.Setup2{
+	key = "radiance_clamp",
+	default = 16,
+	help = "how many times its pixel's denoised gi one diffuse ray may bring into the reservoirs. the light above it goes into a world space grid of cells that average it over every pixel on them and over radiance_excess_accumulation frames, and comes back from there, spread over a cell's pixels in proportion to their light below the clamp. the rare bright samples (sky through small openings, sunlit patches) stop showing as blotches and fireflies and no light is lost, that part only comes out as smooth as a cell. relative to the pixel, so the bright bounce most of a lit room's light comes from is not cut and its contact shadows stay. 0 is off",
+}
+radiance.excess_accumulation = pvars.Setup2{
+	key = "radiance_excess_accumulation",
+	default = 256,
+	integer = true,
+	help = "frames the grid of light above radiance_clamp averages over. lights that change near a cell cut it",
+}
+radiance.excess_cell = pvars.Setup2{
+	key = "radiance_excess_cell",
+	default = 0.5,
+	help = "meters across a cell of the grid of light above radiance_clamp near the camera, doubling with every doubling of the distance past 8 meters",
+}
 radiance.guided = pvars.Setup2{
 	key = "radiance_guided",
 	default = 0.5,

@@ -38,6 +38,23 @@ local function filter_name(iteration)
 		"radiance_filter_" .. iteration
 end
 
+local EXCESS_ENTRIES = 2 ^ 18
+local EXCESS_ENTRY_BYTES = 72
+local excess_grid
+
+local function get_excess_grid()
+	if not excess_grid then
+		excess_grid = render.CreateBuffer{
+			byte_size = EXCESS_ENTRIES * EXCESS_ENTRY_BYTES,
+			buffer_usage = {"storage_buffer", "shader_device_address", "transfer_dst"},
+			memory_property = {"device_local"},
+			label = "radiance_excess_grid",
+		}
+	end
+
+	return excess_grid
+end
+
 local function restir_uniform(trace, filter_iteration)
 	local layout = {
 		render3d.camera_block,
@@ -63,6 +80,10 @@ local function restir_uniform(trace, filter_iteration)
 		{"filter_step", "int"},
 		{"hit_gi_share", "float"},
 		{"guided", "float"},
+		{"clamp", "float"},
+		{"excess_accumulation", "float"},
+		{"excess_cell", "float"},
+		{"excess_grid", "uint64_t"},
 		{"ray_share", "int"},
 		{"traced_tex", "int"},
 		{"rays_smooth", "float"},
@@ -187,6 +208,12 @@ local function restir_uniform(trace, filter_iteration)
 			block.filter_luminance = radiance.filter_luminance:Get()
 			block.hit_gi_share = radiance.hit_gi_share:Get()
 			block.guided = radiance.guided:Get()
+			block.clamp = radiance.clamp:Get()
+			block.excess_accumulation = radiance.excess_accumulation:Get()
+			block.excess_cell = radiance.excess_cell:Get()
+			block.excess_grid = get_excess_grid():GetDeviceAddress()
+			assert(block.excess_accumulation > 0, "radiance_excess_accumulation must be above 0")
+			assert(block.excess_cell > 0, "radiance_excess_cell must be above 0")
 			block.ray_share = radiance.GetRayShare()
 			block.traced_tex = self:GetTextureIndex(attachment("radiance_rays", 1, 1))
 			block.rays_smooth = radiance.rays_smooth:Get()
@@ -717,6 +744,124 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return false;
 	}
 ]]
+SURFACE_GLSL = SURFACE_GLSL .. [[
+	#define RADIANCE_EXCESS_ENTRIES ]] .. EXCESS_ENTRIES .. [[u
+	#define RADIANCE_EXCESS_PROBES 8u
+	#define RADIANCE_EXCESS_SCALE 1024.0
+	#define RADIANCE_EXCESS_MAX_SHARE 4.0
+	#define RADIANCE_EXCESS_CHANGE_HISTORY 8.0
+
+	struct radiance_excess_entry {
+		uint key;
+		uint count;
+		uint frame;
+		uint reset;
+		uint64_t sum_r;
+		uint64_t sum_g;
+		uint64_t sum_b;
+		uint64_t sum_local;
+		vec3 history;
+		float weight;
+		float history_local;
+	};
+
+	layout(buffer_reference, scalar) buffer RadianceExcessGrid { radiance_excess_entry e[]; };
+
+	// a plane on a cell boundary would flicker between two layers: the layer is taken half a cell off the surface
+	void radiance_excess_frame(vec3 P, vec3 N, out int axis, out int face, out vec3 p) {
+		vec3 a = abs(N);
+		axis = a.x > a.y && a.x > a.z ? 0 : (a.y > a.z ? 1 : 2);
+		float side = N[axis] >= 0.0 ? 1.0 : -1.0;
+		float level = max(floor(log2(max(distance(P, restir_data.camera_position) / (8.0 * restir_data.view_scale), 1.0))), 0.0);
+		p = P / (restir_data.excess_cell * restir_data.view_scale * exp2(level));
+		p[axis] += 0.5 * side;
+		face = axis * 2 + (side > 0.0 ? 1 : 0) + int(level) * 8;
+	}
+
+	uvec2 radiance_excess_hash(ivec3 cell, int face) {
+		uvec3 h = pcg3d(uvec3(cell) + uvec3(uint(face)) * uvec3(0x9E3779B9u, 0x7F4A7C15u, 0x85EBCA6Bu));
+		return uvec2(h.x, h.y | 1u);
+	}
+
+	int radiance_excess_find(RadianceExcessGrid grid, uvec2 h) {
+		for (uint i = 0u; i < RADIANCE_EXCESS_PROBES; i++) {
+			uint slot = (h.x + i) % RADIANCE_EXCESS_ENTRIES;
+
+			if (grid.e[slot].key == h.y) return int(slot);
+		}
+
+		return -1;
+	}
+
+	void radiance_excess_add(vec3 P, vec3 N, vec3 exposed, float exposed_local, float change_age) {
+		RadianceExcessGrid grid = RadianceExcessGrid(restir_data.excess_grid);
+		int axis;
+		int face;
+		vec3 p;
+		radiance_excess_frame(P, N, axis, face, p);
+		uvec2 h = radiance_excess_hash(ivec3(floor(p)), face);
+		int found = radiance_excess_find(grid, h);
+
+		for (uint i = 0u; i < RADIANCE_EXCESS_PROBES && found < 0; i++) {
+			uint slot = (h.x + i) % RADIANCE_EXCESS_ENTRIES;
+			uint previous = atomicCompSwap(grid.e[slot].key, 0u, h.y);
+
+			if (previous == 0u || previous == h.y) found = int(slot);
+		}
+
+		if (found < 0) return;
+
+		atomicAdd(grid.e[found].count, 1u);
+		grid.e[found].frame = uint(restir_data.frame);
+
+		// while a light near it is changing, how much of the light is above the clamp changes with the pixels' own history: the cell follows within a few frames, or it keeps the share of the moment it changed on top of what the reservoirs carry again
+		if (change_age < RESTIR_NO_CHANGE) atomicMin(grid.e[found].reset, uint(min(change_age, RADIANCE_EXCESS_CHANGE_HISTORY)));
+
+		atomicAdd(grid.e[found].sum_local, uint64_t(exposed_local * RADIANCE_EXCESS_SCALE));
+
+		if (exposed.r + exposed.g + exposed.b <= 0.0) return;
+
+		atomicAdd(grid.e[found].sum_r, uint64_t(exposed.r * RADIANCE_EXCESS_SCALE));
+		atomicAdd(grid.e[found].sum_g, uint64_t(exposed.g * RADIANCE_EXCESS_SCALE));
+		atomicAdd(grid.e[found].sum_b, uint64_t(exposed.b * RADIANCE_EXCESS_SCALE));
+	}
+
+	// a cell's light is spread over its pixels in proportion to the light they got below the clamp, so the cavities and contact shadows that light shows keep their darkness
+	vec3 radiance_excess(vec3 P, vec3 N, float local) {
+		if (restir_data.clamp <= 0.0) return vec3(0.0);
+
+		RadianceExcessGrid grid = RadianceExcessGrid(restir_data.excess_grid);
+		int axis;
+		int face;
+		vec3 p;
+		radiance_excess_frame(P, N, axis, face, p);
+		int u = (axis + 1) % 3;
+		int v = (axis + 2) % 3;
+		vec2 f = vec2(p[u], p[v]) - 0.5;
+		ivec2 base = ivec2(floor(f));
+		vec2 t = f - vec2(base);
+		vec3 sum = vec3(0.0);
+		float sum_local = 0.0;
+		float total = 0.0;
+
+		for (int i = 0; i < 4; i++) {
+			ivec3 cell;
+			cell[axis] = int(floor(p[axis]));
+			cell[u] = base.x + (i & 1);
+			cell[v] = base.y + (i >> 1);
+			int slot = radiance_excess_find(grid, radiance_excess_hash(cell, face));
+
+			if (slot < 0 || grid.e[slot].weight <= 0.0) continue;
+
+			float w = ((i & 1) == 1 ? t.x : 1.0 - t.x) * ((i >> 1) == 1 ? t.y : 1.0 - t.y);
+			sum += grid.e[slot].history * w;
+			sum_local += grid.e[slot].history_local * w;
+			total += w;
+		}
+
+		return total > 1e-4 && sum_local > 0.0 ? sum / total * min(local * total / sum_local, RADIANCE_EXCESS_MAX_SHARE) : vec3(0.0);
+	}
+]]
 local HIT_GI_SHARE_GLSL = [[
 	float restir_hit_gi_share = 1.0;
 
@@ -754,6 +899,7 @@ local SCREEN_GI_GLSL = [[
 		if (dot(geometry.xyz, N) < 0.8 || abs(geometry.w - view_depth) > 0.02 * view_depth + 0.02) return false;
 
 		irradiance = texelFetch(TEXTURE(t < 0.05 * view_depth ? restir_data.accum_history_irradiance_tex : restir_data.screen_gi_tex), texel, 0).rgb;
+		irradiance += radiance_excess(P, N, luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), texel, 0).rgb));
 		return !any(isnan(irradiance));
 	}
 ]]
@@ -1472,6 +1618,79 @@ local function pass_rays()
 	}
 end
 
+local function pass_excess()
+	return {
+		name = "radiance_excess",
+		ComputePass = true,
+		is_enabled = function()
+			return radiance.clamp:Get() > 0
+		end,
+		ColorFormat = {{"r8_unorm", {"restir_excess_dummy", "r"}}},
+		FramebufferSize = {x = 1, y = 1},
+		LocalSize = {x = 64, y = 1, z = 1},
+		uniform_buffers = {restir_uniform(false)},
+		on_draw = function(self, cmd, fb, frame, desc)
+			local grid = get_excess_grid()
+
+			if grid.reset_frame ~= radiance.GetResetFrame() then
+				cmd:FillBuffer(grid, 0, grid:GetSize(), 0)
+				grid.reset_frame = radiance.GetResetFrame()
+			end
+
+			cmd:PipelineBarrier{
+				srcStage = {"compute", "transfer"},
+				dstStage = "compute",
+				memoryBarrier = true,
+			}
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(cmd, EXCESS_ENTRIES, 1, 1, desc, self.dynamic_offsets)
+			cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+		end,
+		shader = SURFACE_GLSL .. post_source.GetPreExposureGLSL("restir_data") .. [[
+			#define RADIANCE_EXCESS_EVICT 1200u
+
+			void main() {
+				uint index = gl_GlobalInvocationID.x;
+
+				if (index >= RADIANCE_EXCESS_ENTRIES) return;
+
+				RadianceExcessGrid grid = RadianceExcessGrid(restir_data.excess_grid);
+				radiance_excess_entry e = grid.e[index];
+
+				if (e.key == 0u) return;
+
+				if (e.count == 0u) {
+					// after the sun or moon changed, a cell no pixel sees still holds the old light, and hits would bring it back
+					if (restir_data.history_cap < restir_data.excess_accumulation || ((uint(restir_data.frame) - e.frame) & 0xFFFFu) > RADIANCE_EXCESS_EVICT) {
+						grid.e[index].key = 0u;
+						grid.e[index].history = vec3(0.0);
+						grid.e[index].weight = 0.0;
+						grid.e[index].history_local = 0.0;
+					}
+
+					return;
+				}
+
+				// after a light changed near the cell it keeps only what it gathered since: as many frames of samples as frames went by
+				float kept = min(e.weight * (1.0 - 1.0 / max(min(restir_data.excess_accumulation, restir_data.history_cap), 1.0)), float(e.count) * float(e.reset));
+
+				float scale = RADIANCE_EXCESS_SCALE * float(e.count) * max(get_exposure(), 1e-12);
+				vec3 mean = vec3(float(e.sum_r), float(e.sum_g), float(e.sum_b)) / scale;
+				float weight = kept + float(e.count);
+				grid.e[index].history = (e.history * kept + mean * float(e.count)) / weight;
+				grid.e[index].history_local = (e.history_local * kept + float(e.sum_local) / scale * float(e.count)) / weight;
+				grid.e[index].weight = weight;
+				grid.e[index].count = 0u;
+				grid.e[index].reset = 0xFFFFFFFFu;
+				grid.e[index].sum_r = 0ul;
+				grid.e[index].sum_g = 0ul;
+				grid.e[index].sum_b = 0ul;
+				grid.e[index].sum_local = 0ul;
+			}
+		]],
+	}
+end
+
 local function pass_trace()
 	return {
 		name = "radiance_trace",
@@ -1845,6 +2064,7 @@ local function pass_candidates()
 				restir_sample chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY, vec3(0.0));
 				float chosen_target = 0.0;
 				float w_sum = 0.0;
+				vec3 clipped = vec3(0.0);
 				int emitter_count = radiance_cache_data.radiance_cache_emitter_count;
 				int emitter_triangles[EMITTER_CANDIDATES];
 				float emitter_weights[EMITTER_CANDIDATES];
@@ -1865,6 +2085,21 @@ local function pass_candidates()
 
 					chosen_target = luminance(chosen.L) * max(dot(N, dir), 1e-4);
 					w_sum = chosen_target / uintBitsToFloat(diffuse_c.z);
+					float cap = restir_data.clamp * luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), pos, 0).rgb);
+
+					if (restir_data.clamp > 0.0 && cap > 0.0 && w_sum / RESTIR_PI > cap) {
+						float kept = cap / (w_sum / RESTIR_PI);
+						clipped = chosen.L * ((1.0 - kept) * max(dot(N, dir), 0.0) / uintBitsToFloat(diffuse_c.z) / RESTIR_PI * get_exposure());
+						chosen.L *= kept;
+						chosen_target *= kept;
+						w_sum *= kept;
+					}
+				}
+
+				// every traced pixel counts toward its cell's average, the ones with nothing above the clamp too
+				if (restir_data.clamp > 0.0) {
+					float change_age = restir_data.changed_light_count > 0 ? restir_light_change_age(restir_ray_origin(gpos, P, N, view_depth, depth), luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), pos, 0).rgb)) : RESTIR_NO_CHANGE;
+					radiance_excess_add(P, restir_geometric_normal(gpos, P), clipped, luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), pos, 0).rgb) * get_exposure(), change_age);
 				}
 
 				miss = miss && (flags & RADIANCE_RAY_GUIDED) == 0u;
@@ -2917,7 +3152,7 @@ local function pass_filter(iteration)
 
 				// the last pass hands the lighting the accumulated alpha (sky visibility), the others carry the deviation in it
 				#if RESTIR_FILTER_LAST
-				imageStore(out_color, pos, min(vec4(result, texelFetch(TEXTURE(restir_data.accum_tex), pos, 0).a), vec4(65000.0)));
+				imageStore(out_color, pos, min(vec4(result + radiance_excess(P, restir_geometric_normal(gpos, P), luminance(result)), texelFetch(TEXTURE(restir_data.accum_tex), pos, 0).a), vec4(65000.0)));
 				#else
 				imageStore(out_color, pos, min(vec4(result, result_deviation), vec4(65000.0)));
 				#endif
@@ -2937,6 +3172,7 @@ return {
 	pass_hit_shade(),
 	pass_hit_probe_light(),
 	pass_candidates(),
+	pass_excess(),
 	pass_temporal(),
 	pass_spatial(),
 	pass_accumulate(),
