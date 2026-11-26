@@ -28,6 +28,7 @@ local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
+local TRANSLUCENT_LIGHT_LIMIT = 8
 local SCENE_BINDINGS = {scene = 22, hit = 30, materials = 24}
 local surface_descriptor_sets = {
 	{
@@ -393,7 +394,7 @@ local passes = {
 					scene_hits.RAY_QUERY and
 					optical_rays.GetGLSL() or
 					""
-				) .. surface_lighting.GetGLSL("lighting_data", scene_hits.RAY_QUERY) .. gi.GetCommonGLSL() .. (
+				) .. surface_lighting.GetGLSL("lighting_data", scene_hits.RAY_QUERY, TRANSLUCENT_LIGHT_LIMIT) .. gi.GetCommonGLSL() .. (
 					scene_hits.RAY_QUERY and
 					scene_hits.GetGLSL("lighting_data", true) .. scene_hits.GetDirectionGLSL()
 					or

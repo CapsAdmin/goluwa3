@@ -185,7 +185,67 @@ function surface_lighting.GetDeclarationGLSL(grid_binding, occlusion_binding)
 	return light_occlusion.GetDeclarationGLSL(occlusion_binding) .. light_grid.GetGLSL(grid_binding)
 end
 
-function surface_lighting.GetGLSL(block_name, ray_queries)
+local function light_limit_glsl(block_name, light_limit)
+	if not light_limit then return "", "" end
+
+	local last = light_limit - 1
+	local insert = {}
+
+	for k = last, 1, -1 do
+		insert[#insert + 1] = string.format(
+			"if (light_limit_top[%d] > light_limit_top[%d]) { float swap = light_limit_top[%d]; light_limit_top[%d] = light_limit_top[%d]; light_limit_top[%d] = swap; }",
+			k,
+			k - 1,
+			k - 1,
+			k - 1,
+			k,
+			k
+		)
+	end
+
+	local select = [[
+		float light_limit_cut = 0.0;
+		{
+			float light_limit_top[]] .. light_limit .. [[] = float[]] .. light_limit .. [[](]] .. (
+			"0.0, "
+		):rep(light_limit - 1) .. [[0.0);
+
+			for (int w = 0; w < light_grid_words(]] .. block_name .. [[.light_count); w++) {
+				uint light_bits = light_grid_word(light_cell, w, ]] .. block_name .. [[.light_count);
+
+				while (light_bits != 0u) {
+					int i = w * 32 + findLSB(light_bits);
+					light_bits &= light_bits - 1u;
+					lights_t light = scene_light(]] .. block_name .. [[.lights, i);
+
+					if (get_light_type(light) == 0) continue;
+
+					vec3 L;
+					float attenuation = 1.0;
+
+					if (!get_light_vector_and_attenuation(light, s.world_pos, L, attenuation)) continue;
+
+					if (dot(s.N, L) <= 0.0 && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
+
+					vec3 radiance = light.color.rgb * light.color.a * attenuation;
+					float weight = max(max(radiance.r, radiance.g), radiance.b);
+
+					if (weight > light_limit_top[]] .. last .. [[]) {
+						light_limit_top[]] .. last .. [[] = weight;
+						]] .. table.concat(insert, "\n\t\t\t\t\t\t") .. [[
+					}
+				}
+			}
+
+			light_limit_cut = light_limit_top[]] .. last .. [[];
+		}
+	]]
+	local skip = "if (type != 0 && max(max(unshadowed_radiance.r, unshadowed_radiance.g), unshadowed_radiance.b) < light_limit_cut) continue;"
+	return select, skip
+end
+
+function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
+	local light_limit_select, light_limit_skip = light_limit_glsl(block_name, light_limit)
 	return "#define SURFACE_RAY_SHADOWS " .. (
 			(
 				ray_queries and
@@ -502,6 +562,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			vec3 diffuse_view = max(1.0 - (s.F0 * direct_env_brdf.x + F90(s.F0) * direct_env_brdf.y) * energy_compensation, vec3(0.0)) * (1.0 - s.metallic);
 
 			int light_cell = light_grid_cell(s.world_pos);
+			]] .. light_limit_select .. [[
 
 			for (int w = 0; w < light_grid_words(]] .. block_name .. [[.light_count); w++) {
 			uint light_bits = light_grid_word(light_cell, w, ]] .. block_name .. [[.light_count);
@@ -518,6 +579,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 				}
 
 				vec3 unshadowed_radiance = light.color.rgb * light.color.a * attenuation;
+				]] .. light_limit_skip .. [[
 
 				if (type == 0) unshadowed_radiance *= get_ground_fog_sun_transmittance(get_atmosphere_camera_origin(s.world_pos), L) * get_sun_transmittance_from_origin(s.world_pos, L);
 
