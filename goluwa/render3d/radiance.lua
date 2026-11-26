@@ -21,6 +21,8 @@ local function recreate_framebuffers()
 		"radiance_trace",
 		"radiance_hit_shade",
 		"radiance_candidates",
+		"radiance_specular_emitters",
+		"radiance_specular_emitters_spatial",
 		"radiance_temporal",
 		"radiance_spatial",
 		"radiance_accumulate",
