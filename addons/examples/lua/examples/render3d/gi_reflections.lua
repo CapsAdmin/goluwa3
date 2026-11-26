@@ -1326,6 +1326,106 @@ do
 end
 
 do
+	-- clouds of loose see-through triangles at random angles, one under a hole in a roof and one in the open,
+	-- with surfaces seen at grazing angles everywhere and light passing through them
+	local cx, cz, w, h, d, t, hole = 160, -140, 12, 6, 12, 0.4, 3
+	local name = "triangle_cloud_room"
+	local door_w, door_h = 1.6, 2.4
+	local side = (w - door_w) / 2
+	local rim = (w - hole) / 2
+	box(name .. "_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), white)
+	box(name .. "_roof_left", Vec3(cx - (hole + rim) / 2, h, cz), Vec3(rim, t, d), white)
+	box(name .. "_roof_right", Vec3(cx + (hole + rim) / 2, h, cz), Vec3(rim, t, d), white)
+	box(
+		name .. "_roof_back",
+		Vec3(cx, h, cz - (hole + rim) / 2),
+		Vec3(hole, t, rim),
+		white
+	)
+	box(
+		name .. "_roof_front",
+		Vec3(cx, h, cz + (hole + rim) / 2),
+		Vec3(hole, t, rim),
+		white
+	)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), red)
+	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), green)
+	box(
+		name .. "_front_left",
+		Vec3(cx - w / 2 + side / 2, h / 2, cz + d / 2),
+		Vec3(side, h, t),
+		white
+	)
+	box(
+		name .. "_front_right",
+		Vec3(cx + w / 2 - side / 2, h / 2, cz + d / 2),
+		Vec3(side, h, t),
+		white
+	)
+	box(
+		name .. "_front_top",
+		Vec3(cx, (h + door_h) / 2, cz + d / 2),
+		Vec3(door_w, h - door_h, t),
+		white
+	)
+	local cloud_material = shapes.Material{
+		Color = Color(0.85, 0.55, 0.3, 1),
+		Roughness = 0.7,
+		DoubleSided = true,
+		DiffuseTransmission = 0.5,
+		TransmissionColor = Color(1, 0.8, 0.5, 1),
+		TransmissionScattering = 0.6,
+	}
+
+	local function cloud(cloud_name, center, radius, count, seed)
+		local state = seed
+
+		local function random()
+			state = (state * 1103515245 + 12345) % 2147483648
+			return state / 2147483648
+		end
+
+		local function random_direction()
+			local z = random() * 2 - 1
+			local a = random() * math.pi * 2
+			local r = math.sqrt(1 - z * z)
+			return Vec3(math.cos(a) * r, z, math.sin(a) * r)
+		end
+
+		shapes.Polygon{
+			Name = cloud_name,
+			Material = cloud_material,
+			RigidBody = static_body,
+			Polygon = function(poly)
+				for _ = 1, count do
+					local p = center + random_direction() * (radius * random() ^ (1 / 3))
+					local size = 0.15 + random() * 0.25
+					local a = p + random_direction() * size
+					local b = p + random_direction() * size
+					local c = p + random_direction() * size
+					local e1 = b - a
+					local e2 = c - a
+					local normal = e2:GetCross(e1):GetNormalized()
+					local tangent = {
+						x = e1:GetNormalized().x,
+						y = e1:GetNormalized().y,
+						z = e1:GetNormalized().z,
+						w = 1,
+					}
+					poly:AddVertex{pos = a, uv = Vec2(0, 0), normal = normal, tangent = tangent}
+					poly:AddVertex{pos = b, uv = Vec2(1, 0), normal = normal, tangent = tangent}
+					poly:AddVertex{pos = c, uv = Vec2(0, 1), normal = normal, tangent = tangent}
+				end
+			end,
+		}
+	end
+
+	cloud(name .. "_inside", Vec3(cx, 2.6, cz), 2, 700, 7)
+	cloud(name .. "_outside", Vec3(cx, 2.6, cz + d / 2 + 4), 2, 700, 11)
+end
+
+do
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 5, 30))
 	cam:SetAngles(Deg3(-8, 0, 0))
