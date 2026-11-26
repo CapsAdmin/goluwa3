@@ -1139,7 +1139,7 @@ function radiance_cache.GetCommonGLSL()
 			int grid_level;
 			int grid_distance;
 			vec3 grid_air;
-			bool grid_reference = radiance_cache_data.air_grid_probe_visibility != 0 && air_grid_available() && air_grid_reference(P, N, V, grid_level, grid_distance, grid_air);
+			bool grid_reference = air_grid_available() && air_grid_reference(P, N, V, grid_level, grid_distance, grid_air);
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1369,6 +1369,10 @@ function radiance_cache.GetMediumGLSL()
 			ivec3 volume_min = radiance_cache_volume_base(c);
 			ivec3 volume_max = volume_min + radiance_cache_volume_size(c) - 1;
 			vec4 sum = vec4(0.0);
+			int grid_level;
+			int grid_distance;
+			vec3 grid_air;
+			bool grid_reference = air_grid_available() && air_grid_reference(P, vec3(0.0), vec3(0.0), grid_level, grid_distance, grid_air);
 
 			for (int i = 0; i < 8; i++) {
 				ivec3 offset = ivec3(i & 1, (i >> 1) & 1, i >> 2);
@@ -1382,6 +1386,9 @@ function radiance_cache.GetMediumGLSL()
 				if (!radiance_cache_probe_is_current(data, world) || radiance_cache_probe_disabled(data)) continue;
 
 				vec3 probe_pos = data.xyz * spacing;
+
+				if (grid_reference && air_grid_unreachable(grid_air, probe_pos)) continue;
+
 				vec3 probe_to_point = P - probe_pos;
 				float dist = length(probe_to_point);
 				vec2 moments = textureLod(
