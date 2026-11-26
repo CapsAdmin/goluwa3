@@ -629,7 +629,7 @@ function ShadowMap:DrawScene(cascade_index)
 		20,
 		buffers.draw_groups_address,
 		buffers.counts,
-		buffers.group_count,
+		buffers.command_capacity,
 		changes
 	)
 end

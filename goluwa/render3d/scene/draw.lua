@@ -674,8 +674,13 @@ local SHADOW_DECLARATIONS = TABLE_DECLARATIONS .. [[
 				uint64_t group_counts;
 				uint64_t draw_groups;
 				uint64_t streams;
+				uint64_t clusters;
+				uint64_t cluster_pairs;
 			};
 
+			]] .. cluster_format.CLUSTER_GLSL .. [[
+			layout(buffer_reference, scalar) readonly buffer ClusterArray { cluster_record c[]; };
+			layout(buffer_reference, scalar) readonly buffer PairArray { uvec2 p[]; };
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
 			#define ARGS ArgsRef(compute.args).a
 ]]
@@ -697,11 +702,14 @@ local SHADOW_CULL_GLSL = PLANE_GLSL .. [[
 			}
 
 			// the shadow vertex stage reads only xyz of a world position, so [1][3] carries the slot for ReadBackShadowCull
-			void place_shadow(uint group_id, mat4 world) {
+			uint place_shadow(uint group_id, mat4 world) {
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
 				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
 
-				if (place < group.shadow_room) WorldArray(ARGS.worlds).w[group.shadow_base + place] = world;
+				if (place >= group.shadow_room) return 0xFFFFFFFFu;
+
+				WorldArray(ARGS.worlds).w[group.shadow_base + place] = world;
+				return group.shadow_base + place;
 			}
 ]]
 local SELECT_LOD_GLSL = [[
@@ -1062,7 +1070,7 @@ local function get_cluster_pairs()
 		pair_total = total
 	end
 
-	local ring_slot = render.frame_serial % 4 + 1
+	local ring_slot = system.GetFrameNumber() % 4 + 1
 	local entry = pair_ring[ring_slot]
 
 	if not entry or entry.capacity < pair_total then
@@ -1251,12 +1259,12 @@ local function create_finalize_pipeline(name, declarations, write)
 				if (group_id >= uint(compute.count)) return;
 
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
+				if ((group.set & GROUP_CLUSTERED) != 0u) return;
+
 			#ifdef SHADOW
 				uint room = group.shadow_room;
 				uint base = group.shadow_base;
 			#else
-				if ((group.set & GROUP_CLUSTERED) != 0u) return;
-
 				uint room = group.room;
 				uint base = group.base;
 			#endif
@@ -2479,46 +2487,45 @@ local function get_shadow_pipeline()
 	return create_shadow_pipeline()
 end
 
-function create_shadow_pipeline()
-	shadow_pipeline = EasyPipeline.Compute{
-		name = "scene_shadow_cull",
-		DescriptorSetCount = 1,
-		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
-		block = {
-			{"args", "uint64_t"},
-			{"camera_position", "vec3"},
-			{"count", "int"},
-			{"planes", "vec4", 5},
-			{"light_axis_x", "vec3"},
-			{"min_caster_extent", "float"},
-			{"light_axis_y", "vec3"},
-			{"lod_forced", "int"},
-			{"lod_scale", "float"},
-			{"culling_enabled", "int"},
-		},
-		write = function(self, block)
-			local v = self.shadow_state
-			block.args = v.args_address
-			block.camera_position[0], block.camera_position[1], block.camera_position[2] = v.camera.x, v.camera.y, v.camera.z
-			block.count = v.count
+local SHADOW_BLOCK = {
+	{"args", "uint64_t"},
+	{"camera_position", "vec3"},
+	{"count", "int"},
+	{"planes", "vec4", 5},
+	{"light_axis_x", "vec3"},
+	{"min_caster_extent", "float"},
+	{"light_axis_y", "vec3"},
+	{"lod_forced", "int"},
+	{"lod_scale", "float"},
+	{"culling_enabled", "int"},
+	{"command_capacity", "int"},
+	unpack(cluster_lod.VIEW_BLOCK),
+}
 
-			for i = 0, 4 do
-				for k = 0, 3 do
-					block.planes[i][k] = v.planes[i * 4 + k]
-				end
-			end
+local function write_shadow_block(self, block)
+	local v = self.shadow_state
+	block.args = v.args_address
+	block.camera_position[0], block.camera_position[1], block.camera_position[2] = v.camera.x, v.camera.y, v.camera.z
+	block.count = v.count
 
-			block.light_axis_x[0], block.light_axis_x[1], block.light_axis_x[2] = v.axis_x[1], v.axis_x[2], v.axis_x[3]
-			block.light_axis_y[0], block.light_axis_y[1], block.light_axis_y[2] = v.axis_y[1], v.axis_y[2], v.axis_y[3]
-			block.min_caster_extent = v.min_caster_extent
-			block.lod_forced = lod.GetForcedLevel()
-			block.lod_scale = lod.GetScale()
-			block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
-			return block
-		end,
-		custom_declarations = SHADOW_DECLARATIONS,
-		shader = SHADOW_CULL_GLSL .. [[
+	for i = 0, 4 do
+		for k = 0, 3 do
+			block.planes[i][k] = v.planes[i * 4 + k]
+		end
+	end
 
+	block.light_axis_x[0], block.light_axis_x[1], block.light_axis_x[2] = v.axis_x[1], v.axis_x[2], v.axis_x[3]
+	block.light_axis_y[0], block.light_axis_y[1], block.light_axis_y[2] = v.axis_y[1], v.axis_y[2], v.axis_y[3]
+	block.min_caster_extent = v.min_caster_extent
+	block.lod_forced = lod.GetForcedLevel()
+	block.lod_scale = lod.GetScale()
+	block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
+	block.command_capacity = v.command_capacity
+	cluster_lod.WriteView(block)
+	return block
+end
+
+local SHADOW_ROW_GLSL = SHADOW_CULL_GLSL .. [[
 			bool select_shadow_lod(uint flags, uint level, uint last, float near_ratio, float far_ratio, float ratio) {
 				if ((flags & 128u) != 0u) return false;
 
@@ -2535,6 +2542,50 @@ function create_shadow_pipeline()
 				return true;
 			}
 
+			bool shadow_row_casts(uint id) {
+				raster_data raster = RasterArray(ARGS.raster).r[id];
+				instance_data inst = DataArray(ARGS.data).d[id];
+
+				if ((raster.flags & 16u) == 0u || (inst.flags & 48u) != 0u) return false;
+
+				if (compute.culling_enabled != 0) {
+					if (outside_shadow_box(raster)) return false;
+
+					if (compute.min_caster_extent > 0.0) {
+						vec3 half_size = 0.5 * (raster.box_max - raster.box_min);
+						float extent_x = dot(abs(compute.light_axis_x), half_size) * 2.0;
+						float extent_y = dot(abs(compute.light_axis_y), half_size) * 2.0;
+
+						if (extent_x < compute.min_caster_extent && extent_y < compute.min_caster_extent) return false;
+					}
+				}
+
+				uint level = (inst.mask_lod >> 8u) & 0xFFu;
+				uint last = (inst.mask_lod >> 16u) & 0xFFu;
+				float ratio = distance(compute.camera_position, inst.bounds.xyz) / (max(inst.bounds.w, 0.001) * compute.lod_scale);
+				return !(((last > 0u && (inst.flags & 512u) == 0u) || (inst.flags & 128u) != 0u) && !select_shadow_lod(inst.flags, level, last, inst.lod.x, inst.lod.y, ratio));
+			}
+
+			mat4 shadow_world(uint id, uint slot) {
+				tlas_instance t = TLASArray(ARGS.tlas).t[id];
+				return mat4(
+					vec4(t.m[0], t.m[4], t.m[8], 0.0),
+					vec4(t.m[1], t.m[5], t.m[9], float(slot)),
+					vec4(t.m[2], t.m[6], t.m[10], 0.0),
+					vec4(t.m[3], t.m[7], t.m[11], 1.0)
+				);
+			}
+]]
+
+function create_shadow_pipeline()
+	shadow_pipeline = EasyPipeline.Compute{
+		name = "scene_shadow_cull",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		block = SHADOW_BLOCK,
+		write = write_shadow_block,
+		custom_declarations = SHADOW_DECLARATIONS,
+		shader = SHADOW_ROW_GLSL .. [[
 			void main() {
 				uint slot = gl_GlobalInvocationID.x;
 
@@ -2542,46 +2593,81 @@ function create_shadow_pipeline()
 
 				uint id = SlotArray(ARGS.slot_rows).r[slot];
 
-				if (id == 0xFFFFFFFFu) return;
-
-				raster_data raster = RasterArray(ARGS.raster).r[id];
-				instance_data inst = DataArray(ARGS.data).d[id];
-
-				if ((raster.flags & 16u) == 0u || (inst.flags & 48u) != 0u) return;
-
-				if (compute.culling_enabled != 0) {
-					if (outside_shadow_box(raster)) return;
-
-					if (compute.min_caster_extent > 0.0) {
-						vec3 half_size = 0.5 * (raster.box_max - raster.box_min);
-						float extent_x = dot(abs(compute.light_axis_x), half_size) * 2.0;
-						float extent_y = dot(abs(compute.light_axis_y), half_size) * 2.0;
-
-						if (extent_x < compute.min_caster_extent && extent_y < compute.min_caster_extent) return;
-					}
-				}
-
-				uint level = (inst.mask_lod >> 8u) & 0xFFu;
-				uint last = (inst.mask_lod >> 16u) & 0xFFu;
-				float ratio = distance(compute.camera_position, inst.bounds.xyz) / (max(inst.bounds.w, 0.001) * compute.lod_scale);
-
-				if (((last > 0u && (inst.flags & 512u) == 0u) || (inst.flags & 128u) != 0u) && !select_shadow_lod(inst.flags, level, last, inst.lod.x, inst.lod.y, ratio)) return;
+				if (id == 0xFFFFFFFFu || !shadow_row_casts(id)) return;
 
 				uint group_id = SlotArray(ARGS.slot_groups).r[slot];
 
-				if (group_id == 0xFFFFFFFFu) return;
+				if (group_id == 0xFFFFFFFFu || (GroupArray(ARGS.group_table).g[group_id].set & GROUP_CLUSTERED) != 0u) return;
 
-				tlas_instance t = TLASArray(ARGS.tlas).t[id];
-				place_shadow(group_id, mat4(
-					vec4(t.m[0], t.m[4], t.m[8], 0.0),
-					vec4(t.m[1], t.m[5], t.m[9], float(slot)),
-					vec4(t.m[2], t.m[6], t.m[10], 0.0),
-					vec4(t.m[3], t.m[7], t.m[11], 1.0)
-				));
+				place_shadow(group_id, shadow_world(id, slot));
 			}
 		]],
 	}
 	return shadow_pipeline
+end
+
+local shadow_cluster_pipeline
+
+-- a clustered model casts the cut the camera draws, a finer caster would shadow the coarser surface drawn under it
+local function get_shadow_cluster_pipeline()
+	if shadow_cluster_pipeline then return shadow_cluster_pipeline end
+
+	shadow_cluster_pipeline = EasyPipeline.Compute{
+		name = "scene_shadow_cluster_cull",
+		DescriptorSetCount = 1,
+		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
+		block = SHADOW_BLOCK,
+		write = write_shadow_block,
+		custom_declarations = SHADOW_DECLARATIONS,
+		shader = SHADOW_ROW_GLSL .. cluster_lod.GetViewGLSL("compute") .. [[
+			vec3 transform_point(float m[12], vec3 p) {
+				return vec3(
+					m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3],
+					m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7],
+					m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11]
+				);
+			}
+
+			void main() {
+				uint pair = gl_GlobalInvocationID.x;
+
+				if (pair >= uint(compute.count)) return;
+
+				uvec2 p = PairArray(ARGS.cluster_pairs).p[pair];
+				uint slot = p.x;
+				uint id = SlotArray(ARGS.slot_rows).r[slot];
+
+				if (id == 0xFFFFFFFFu) return;
+
+				uint group_id = SlotArray(ARGS.slot_groups).r[slot];
+
+				if (group_id == 0xFFFFFFFFu || !shadow_row_casts(id)) return;
+
+				cluster_record c = ClusterArray(ARGS.clusters).c[p.y];
+				tlas_instance t = TLASArray(ARGS.tlas).t[id];
+				float scale = max(length(vec3(t.m[0], t.m[4], t.m[8])), max(length(vec3(t.m[1], t.m[5], t.m[9])), length(vec3(t.m[2], t.m[6], t.m[10]))));
+
+				if (!cluster_lod_fine_enough(c.error * scale, transform_point(t.m, c.lod.xyz), c.lod.w * scale)) return;
+				if (c.parent_error < 1e29 && cluster_lod_fine_enough(c.parent_error * scale, transform_point(t.m, c.parent.xyz), c.parent.w * scale)) return;
+				if (compute.culling_enabled != 0 && outside_shadow(transform_point(t.m, c.bounds.xyz), c.bounds.w * scale)) return;
+
+				uint at = place_shadow(group_id, shadow_world(id, slot));
+
+				if (at == 0xFFFFFFFFu) return;
+
+				uint index = atomicAdd(CountArray(ARGS.counts).n[0], 1u);
+
+				if (index >= uint(compute.command_capacity)) {
+					atomicAdd(CountArray(ARGS.counts).n[0], 0xFFFFFFFFu);
+					return;
+				}
+
+				CommandArray(ARGS.commands).c[index] = draw_command(c.index_count, 1u, c.first_index, 0, at);
+				GroupIdArray(ARGS.draw_groups).g[index] = group_id;
+			}
+		]],
+	}
+	return shadow_cluster_pipeline
 end
 
 local shadow_stream_pipeline
@@ -2716,11 +2802,12 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 			"transfer_dst",
 			"transfer_src",
 		}
+		buffers.command_capacity = buffers.group_capacity + CLUSTER_COMMANDS
 		local sizes = {
-			commands = buffers.group_capacity * COMMAND_SIZE,
+			commands = buffers.command_capacity * COMMAND_SIZE,
 			counts = 4,
 			group_counts = buffers.group_capacity * 4,
-			draw_groups = buffers.group_capacity * 4,
+			draw_groups = buffers.command_capacity * 4,
 			worlds = buffers.capacity * 64,
 		}
 
@@ -2735,7 +2822,7 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 		end
 
 		buffers.args = render.CreateBuffer{
-			byte_size = 13 * 8,
+			byte_size = 15 * 8,
 			buffer_usage = {"storage_buffer", "shader_device_address"},
 			memory_property = {"host_visible", "host_coherent"},
 			label = "scene_draw.shadow_args",
@@ -2758,6 +2845,9 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	pointer[10] = buffers.group_counts_address
 	pointer[11] = buffers.draw_groups_address
 	pointer[12] = snapshot and snapshot.address or 0
+	local pair_total, pair_address = get_cluster_pairs()
+	pointer[13] = cluster_lod.GetTable():GetAddress()
+	pointer[14] = pair_address
 	local pipeline = get_shadow_pipeline()
 	local finalize = get_shadow_finalize_pipeline()
 	local v = pipeline.shadow_state or {axis_x = {0, 0, 0}, axis_y = {0, 0, 0}, planes = {}}
@@ -2767,6 +2857,7 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	v.camera = camera_position
 	v.count = count
 	v.group_count = group_count
+	v.command_capacity = buffers.command_capacity
 
 	for i = 0, 3 do
 		for k = 0, 3 do
@@ -2810,6 +2901,24 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 	finalize:Dispatch(cmd, math.ceil(group_count / LOCAL_SIZE), 1, 1, 1)
+
+	-- after the finalize, which writes its commands unchecked, so only this pass can run out of command space
+	if pair_total > 0 then
+		local clusters = get_shadow_cluster_pipeline()
+		local cluster_state = clusters.shadow_state or {}
+		clusters.shadow_state = cluster_state
+		cluster_state.args_address = v.args_address
+		cluster_state.camera = v.camera
+		cluster_state.count = pair_total
+		cluster_state.planes = v.planes
+		cluster_state.axis_x = v.axis_x
+		cluster_state.axis_y = v.axis_y
+		cluster_state.min_caster_extent = v.min_caster_extent
+		cluster_state.command_capacity = v.command_capacity
+		cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+		clusters:Dispatch(cmd, math.ceil(pair_total / LOCAL_SIZE), 1, 1, 1)
+	end
+
 	cmd:PipelineBarrier{
 		srcStage = "compute",
 		dstStage = {"draw_indirect", "vertex_shader"},
@@ -2907,7 +3016,7 @@ do
 		if not buffers.commands then return result end
 
 		local drawn = ffi.cast("uint32_t *", download(buffers.counts, 4))[0]
-		local commands_data = download(buffers.commands, buffers.group_capacity * COMMAND_SIZE)
+		local commands_data = download(buffers.commands, buffers.command_capacity * COMMAND_SIZE)
 		local worlds_data = download(buffers.worlds, buffers.capacity * 64)
 		local commands = ffi.cast("uint32_t *", commands_data)
 		local worlds = ffi.cast("float *", worlds_data)

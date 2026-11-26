@@ -23,7 +23,7 @@ local enabled = pvars.Setup2{
 local pixel_error = pvars.Setup2{
 	key = "r_cluster_lod_error",
 	default = 8,
-	help = "the screen space error in pixels a cluster of a lower level may have before the finer level takes over, higher draws fewer triangles. the ray traced scene takes the same cut, so nothing traces a surface other than the one drawn",
+	help = "the screen space error in pixels a cluster of a lower level may have before the finer level takes over, higher draws fewer triangles. the ray traced scene and the shadow maps take the same cut, so nothing shadows or traces a surface other than the one drawn",
 	callback = function()
 		for _, listener in ipairs(cluster_lod.error_listeners or {}) do
 			listener()
