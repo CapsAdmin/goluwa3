@@ -867,6 +867,52 @@ do
 	)
 end
 
+do
+	local cx, cz, fy, half, h = 205, -60, 1.5, 4, 4
+	local top = fy + h
+	local name = "sealed_ball_room"
+
+	local function plane(suffix, position, normal, size_x, size_y, material)
+		shapes.Polygon{
+			Name = name .. "_" .. suffix,
+			Material = material or white,
+			RigidBody = static_body,
+			Polygon = function(poly)
+				shapes.BuildPlane(poly, position, normal, size_x, size_y)
+			end,
+		}
+	end
+
+	for i, corner in ipairs{Vec2(-1, -1), Vec2(1, -1), Vec2(-1, 1), Vec2(1, 1)} do
+		box(
+			name .. "_stilt_" .. i,
+			Vec3(cx + corner.x * (half - 0.2), fy / 2, cz + corner.y * (half - 0.2)),
+			Vec3(0.2, fy, 0.2),
+			grey
+		)
+	end
+
+	plane(
+		"floor",
+		Vec3(cx, fy, cz),
+		Vec3(0, 1, 0),
+		half,
+		half,
+		mat(Color(0.5, 0.5, 0.5, 1), 0.05)
+	)
+	plane("roof", Vec3(cx, top, cz), Vec3(0, -1, 0), half, half)
+	plane("back", Vec3(cx, fy + h / 2, cz - half), Vec3(0, 0, 1), half, h / 2)
+	plane("front", Vec3(cx, fy + h / 2, cz + half), Vec3(0, 0, -1), half, h / 2)
+	plane("left", Vec3(cx - half, fy + h / 2, cz), Vec3(1, 0, 0), half, h / 2)
+	plane("right", Vec3(cx + half, fy + h / 2, cz), Vec3(-1, 0, 0), half, h / 2)
+	sphere(
+		name .. "_floor_ball",
+		Vec3(cx + 2.5, fy + 0.45, cz + 2.8),
+		0.5,
+		mat(Color(0.9, 0.9, 0.9, 1), 0.15)
+	)
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
