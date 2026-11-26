@@ -423,7 +423,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			return sum / 6.0;
 		}
 
-		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
+		#define LIGHT_MIN_SCREEN_RADIANCE 0.001
 		#define LIGHT_TRANSMITTANCE_MIN_SCREEN_RADIANCE 0.002
 
 		vec3 get_primary_sun_direction() {
