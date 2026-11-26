@@ -181,6 +181,7 @@ local function restir_uniform(trace, filter_iteration)
 				block.changed_lights[i - 1][2] = light.z
 				block.changed_lights[i - 1][3] = light.radius
 				block.changed_light_intensities[i - 1][0] = light.intensity
+				block.changed_light_intensities[i - 1][1] = light.age
 			end
 
 			block.filter_luminance = radiance.filter_luminance:Get()
@@ -305,6 +306,8 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	// the ray was drawn from a mix with the probe guide: only cosine rays count toward the sky visibility, scaled by their share
 	#define RESTIR_FLAG_GUIDE_MIX 32
 	#define RESTIR_FLAG_LIGHT_CHANGED 64
+	#define RESTIR_CHANGE_AGE_LIMIT 15.0
+	#define RESTIR_NO_CHANGE 1e9
 	#define RESTIR_CHANGED_HISTORY 4.0
 	#define RESTIR_SKY_DEPTH 65504.0
 	#define RESTIR_CONE_ONE_MINUS_COS 0.00125
@@ -755,9 +758,13 @@ local SCREEN_GI_GLSL = [[
 	}
 ]]
 local RESOLVE_GLSL = [[
-	// a light that moved, turned or changed in the last second, that the receiver sees (one ray toward the sphere around its recent path) and that gives it more than a tenth of its last denoised gi: its history is cut there, or the old light trails behind. the test must not read this frame's or a reservoir's noisy estimate, cutting the dark ones and keeping the bright ones brightens everything
-	bool restir_light_changed(vec3 origin, float gi_luminance) {
+	// frames since a light that moved, turned or changed in the last second last did so, the youngest of those the receiver sees (one ray toward the sphere around its recent path) and that give it more than a tenth of its last denoised gi; RESTIR_NO_CHANGE without one. history is held to that many frames, so the old light does not trail behind and the new one accumulates from the change on. the test must not read this frame's or a reservoir's noisy estimate, cutting the dark ones and keeping the bright ones brightens everything
+	float restir_light_change_age(vec3 origin, float gi_luminance) {
+		float age = RESTIR_NO_CHANGE;
+
 		for (int i = 0; i < restir_data.changed_light_count; i++) {
+			if (restir_data.changed_light_intensities[i].y >= age) continue;
+
 			vec4 sphere = restir_data.changed_lights[i];
 			vec3 to_light = sphere.xyz - origin;
 			float dist = length(to_light);
@@ -765,10 +772,10 @@ local RESOLVE_GLSL = [[
 
 			if (restir_data.changed_light_intensities[i].x / (RESTIR_PI * d * d) <= 0.1 * gi_luminance) continue;
 
-			if (dist <= sphere.w || scene_hit_visible(origin, to_light / dist, dist - sphere.w)) return true;
+			if (dist <= sphere.w || scene_hit_visible(origin, to_light / dist, dist - sphere.w)) age = restir_data.changed_light_intensities[i].y;
 		}
 
-		return false;
+		return age;
 	}
 
 	// aimed at the sample's point lifted off its own surface
@@ -2027,9 +2034,11 @@ local function pass_temporal()
 					// a pixel that traced nothing this frame enters the resampling with no confidence, its history keeps all the weight
 					M = traces ? 1.0 : 0.0;
 					flags = traces ? RESTIR_FLAG_TRACED | (miss ? RESTIR_FLAG_MISS : 0) | (candidate_flags & RESTIR_FLAG_GUIDE_MIX) : 0;
-					bool light_changed = restir_data.changed_light_count > 0 && restir_light_changed(restir_ray_origin(gpos, P, N, view_depth, depth), luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), pos, 0).rgb));
+					float change_age = restir_data.changed_light_count > 0 ? restir_light_change_age(restir_ray_origin(gpos, P, N, view_depth, depth), luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), pos, 0).rgb)) : RESTIR_NO_CHANGE;
+					bool light_changed = change_age < RESTIR_NO_CHANGE;
 
-					if (light_changed) flags |= RESTIR_FLAG_LIGHT_CHANGED;
+					// the age rides above the flags in the half float channel, which holds integers up to 2048 exactly
+					if (light_changed) flags |= RESTIR_FLAG_LIGHT_CHANGED | (int(min(change_age, RESTIR_CHANGE_AGE_LIMIT)) << 7);
 					ivec2 base;
 					vec4 weights;
 
@@ -2098,6 +2107,7 @@ local function pass_temporal()
 
 						float h_target = luminance(h.L) * h_cosine;
 
+						// a sample keeps the light it was found with, and the bounces keep growing for a while after a light changed: the reservoirs stay fresh through all of it, the denoiser does the averaging
 						if (light_changed) h_M = min(h_M, 1.0);
 						float h_jacobian = restir_jacobian(h, P, h_receiver);
 
@@ -2626,7 +2636,9 @@ local function pass_accumulate()
 					}
 				}
 
-				if ((int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5) & RESTIR_FLAG_LIGHT_CHANGED) != 0) history_length = min(history_length, RESTIR_CHANGED_HISTORY - 1.0);
+				int change_flags = int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5);
+
+				if ((change_flags & RESTIR_FLAG_LIGHT_CHANGED) != 0) history_length = min(history_length, max(float(change_flags >> 7), RESTIR_CHANGED_HISTORY - 1.0));
 
 				float accumulation = restir_data.accumulation;
 

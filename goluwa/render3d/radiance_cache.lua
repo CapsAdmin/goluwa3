@@ -25,6 +25,7 @@ local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
 local air_grid = import("goluwa/render3d/air_grid.lua")
+local radiance = import("goluwa/render3d/radiance.lua")
 local radiance_cache = {}
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "radiance_cache_"})
 
@@ -108,6 +109,8 @@ local change_min_interval = pvars.Setup2{
 	min = 1,
 	help = "least frames between two updates of a cascade that were triggered by the lighting changing",
 }
+local LIGHT_CHANGE_FRAMES = 60
+local LIGHT_CHANGE_CASCADES = 2
 radiance_cache.MIN_PROBES_PER_AXIS = 4
 radiance_cache.RAYS_PER_PROBE = pvars.Setup2{
 	key = "radiance_cache_rays",
@@ -519,6 +522,7 @@ do
 		local sun_luma = directional_shadows.GetPrimarySunIlluminance(lights) * math.smoothstep(-0.08, 0.02, sun_y)
 		local threshold = change_threshold:Get()
 		local reference = state.sun_reference
+		local changed_lights = radiance.GetChangedLights()
 
 		if not reference or frame - reference.frame >= 8 then
 			if reference and threshold > 0 then
@@ -577,6 +581,28 @@ do
 			local interval = radiance_cache.GetUpdateInterval(c)
 			cascade.frames = (cascade.frames or 0) + 1
 			local changed = false
+
+			if c <= LIGHT_CHANGE_CASCADES then
+				for _, light in ipairs(changed_lights) do
+					if
+						light.age < LIGHT_CHANGE_FRAMES and
+						light.x + light.radius >= cascade.x * spacing and
+						light.x - light.radius <= (
+							cascade.x + size.x
+						) * spacing and
+						light.y + light.radius >= cascade.y * spacing and
+						light.y - light.radius <= (
+							cascade.y + size.y
+						) * spacing and
+						light.z + light.radius >= cascade.z * spacing and
+						light.z - light.radius <= (
+							cascade.z + size.z
+						) * spacing
+					then
+						changed = true
+					end
+				end
+			end
 
 			if threshold > 0 and cascade.sun_x and cascade.frames >= change_min_interval:Get() then
 				local dx, dy, dz = sun_x - cascade.sun_x, sun_y - cascade.sun_y, sun_z - cascade.sun_z
@@ -724,6 +750,7 @@ end
 function radiance_cache.GetRayDirectionGLSL()
 	return glsl_common.GetOctahedralGLSL() .. "\t\t#define RADIANCE_CACHE_GUIDE_TEXELS " .. radiance_cache.GUIDE_TEXELS .. "\n\t\t#define RADIANCE_CACHE_GUIDE_CELLS " .. radiance_cache.GUIDE_TEXELS * radiance_cache.GUIDE_TEXELS .. "\n" .. [[
 		#define RADIANCE_CACHE_GUIDE_HISTORY 0.9
+		#define RADIANCE_CACHE_CHANGE_HISTORY 8.0
 		#define RADIANCE_CACHE_GUIDE_STAMP_CELL 63
 		#define RADIANCE_CACHE_AIM_SIZE 0.125
 		#define RADIANCE_CACHE_AIM_SHARE ]] .. string.format("%.3f", aim_share:Get()) .. [[
@@ -944,6 +971,19 @@ function radiance_cache.GetCommonGLSL()
 
 		float radiance_cache_probe_backfaces(vec4 data) {
 			return data.w - 1.0 - 2.0 * float(radiance_cache_probe_flags(data));
+		}
+
+		float radiance_cache_change_age(vec3 P, float mean_luminance) {
+			float age = 1e9;
+
+			for (int i = 0; i < radiance_cache_data.radiance_cache_changed_light_count; i++) {
+				vec4 sphere = radiance_cache_data.radiance_cache_changed_lights[i];
+				float d = max(distance(sphere.xyz, P) - sphere.w, 0.05);
+
+				if (radiance_cache_data.radiance_cache_changed_light_intensities[i].x / (3.14159265 * d * d) > 0.1 * mean_luminance) age = min(age, radiance_cache_data.radiance_cache_changed_light_intensities[i].y);
+			}
+
+			return age;
 		}
 
 		vec3 radiance_cache_probe_origin(ivec3 slot, int c, ivec3 world) {
@@ -1513,6 +1553,9 @@ function radiance_cache.GetProbeBlockLayout()
 		{"radiance_cache_cascade_count", "int"},
 		{"radiance_cache_reset_mask", "int"},
 		{"radiance_cache_update_mask", "int"},
+		{"radiance_cache_changed_light_count", "int"},
+		{"radiance_cache_changed_lights", "vec4", radiance.MAX_CHANGED_LIGHTS},
+		{"radiance_cache_changed_light_intensities", "vec4", radiance.MAX_CHANGED_LIGHTS},
 		{"radiance_cache_rt_ready", "int"},
 		{"radiance_cache_env_tex", "int"},
 		{"radiance_cache_env_irradiance_tex", "int"},
@@ -1623,6 +1666,18 @@ function radiance_cache.WriteProbeBlock(self, block)
 	block.radiance_cache_cascade_count = state.cascade_count
 	block.radiance_cache_reset_mask = state.reset_mask
 	block.radiance_cache_update_mask = state.update_mask
+	local changed = radiance.GetChangedLights()
+	block.radiance_cache_changed_light_count = #changed
+
+	for i, light in ipairs(changed) do
+		block.radiance_cache_changed_lights[i - 1][0] = light.x
+		block.radiance_cache_changed_lights[i - 1][1] = light.y
+		block.radiance_cache_changed_lights[i - 1][2] = light.z
+		block.radiance_cache_changed_lights[i - 1][3] = light.radius
+		block.radiance_cache_changed_light_intensities[i - 1][0] = light.intensity
+		block.radiance_cache_changed_light_intensities[i - 1][1] = light.age
+	end
+
 	block.radiance_cache_rt_ready = state.rt_ready and 1 or 0
 	block.radiance_cache_env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 	block.radiance_cache_env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())

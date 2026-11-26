@@ -598,6 +598,8 @@ local function pass_update(name, texels, integrate)
 					float keep = radiance_cache_data.radiance_cache_cascade_update[c].x;
 					keep = mix(keep, pow(keep, radiance_cache_data.radiance_cache_change_power), clamp((change - 0.6) / 0.3, 0.0, 1.0));
 					if (radiance_cache_data.radiance_cache_cascade_update[c].y > 0.0) keep = min(keep, 0.4);
+					// after a light near it changed, the probe keeps only what it gathered since, and while the bounces still grow no more than a few updates
+					state.x = min(state.x, min(radiance_cache_change_age(radiance_cache_probe_origin(slot, c, world), average), RADIANCE_CACHE_CHANGE_HISTORY));
 					s_keep = min(keep, state.x / (state.x + 1.0));
 					state.x = min(state.x + 1.0, 1024.0);
 					imageStore(state_atlas, tile, state);

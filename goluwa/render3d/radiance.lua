@@ -271,6 +271,7 @@ do
 			)
 		then
 			t.until_frame = frame + CHANGE_FRAMES
+			t.changed_frame = frame
 			t.path[#t.path + 1] = {frame = frame, x = t.x, y = t.y, z = t.z, intensity = t.intensity}
 		end
 
@@ -300,6 +301,7 @@ do
 			z = (lo_z + hi_z) * 0.5,
 			radius = 0.5 * math.sqrt((hi_x - lo_x) ^ 2 + (hi_y - lo_y) ^ 2 + (hi_z - lo_z) ^ 2) + size,
 			intensity = strongest,
+			age = frame - t.changed_frame,
 		}
 	end
 
