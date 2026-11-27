@@ -529,6 +529,28 @@ local reconstruct_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, rg32f) uniform writeonly image2D out_depth;
 	]],
 	shader = scene_distance_glsl("reconstruct_data") .. [[
+		vec4 sample_history(vec2 uv) {
+			vec2 size = reconstruct_data.view_size;
+			vec2 position = uv * size;
+			vec2 center = floor(position - 0.5) + 0.5;
+			vec2 f = position - center;
+			vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+			vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+			vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+			vec2 w3 = f * f * (-0.5 + 0.5 * f);
+			vec2 w12 = w1 + w2;
+			vec2 tc0 = (center - 1.0) / size;
+			vec2 tc3 = (center + 2.0) / size;
+			vec2 tc12 = (center + w2 / w12) / size;
+			vec4 result =
+				textureLod(TEXTURE(reconstruct_data.history_tex), vec2(tc12.x, tc0.y), 0.0) * (w12.x * w0.y) +
+				textureLod(TEXTURE(reconstruct_data.history_tex), vec2(tc0.x, tc12.y), 0.0) * (w0.x * w12.y) +
+				textureLod(TEXTURE(reconstruct_data.history_tex), tc12, 0.0) * (w12.x * w12.y) +
+				textureLod(TEXTURE(reconstruct_data.history_tex), vec2(tc3.x, tc12.y), 0.0) * (w3.x * w12.y) +
+				textureLod(TEXTURE(reconstruct_data.history_tex), vec2(tc12.x, tc3.y), 0.0) * (w12.x * w3.y);
+			return max(result / (w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y), vec4(0.0));
+		}
+
 		void main() {
 			ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
 			ivec2 size = ivec2(reconstruct_data.view_size);
@@ -598,7 +620,7 @@ local reconstruct_pass = {
 					vec4 history_scene = textureGather(TEXTURE(reconstruct_data.history_depth_tex), previous, 1);
 
 					if (cloud_same_scene(history_scene.x, scene) && cloud_same_scene(history_scene.y, scene) && cloud_same_scene(history_scene.z, scene) && cloud_same_scene(history_scene.w, scene)) {
-						vec4 history = textureLod(TEXTURE(reconstruct_data.history_tex), previous, 0.0);
+						vec4 history = sample_history(previous);
 						float history_depth = textureLod(TEXTURE(reconstruct_data.history_depth_tex), previous, 0.0).r;
 
 						if (traced) {
