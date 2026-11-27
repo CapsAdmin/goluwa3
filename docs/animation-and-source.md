@@ -60,6 +60,10 @@ Format-neutral: an `animator` component (`goluwa/entities/components/animator.lu
 
 - Source games (`addons/source_loader/lua/source_loader/game.lua`): `game.GetMountableGames()` comes from `steam.GetSourceGames()` (needs a steam `appmanifest_*.acf` and a `SteamAppId`). Mounting is synchronous. Unmounted games list only loose maps (`game.ListLooseMaps`); `game.EnsureMounted` mounts a map's game first. `game.GetMapThumbnail` and `steam.GetGameImage(appid, kind)` give art.
 
+## Source skies and suns
+
+- `light_environment` and `env_sun` angles are the direction the light travels (`shadow_control` casts shadows the same way) with pitch negative going down, so the sun is at yaw + 180 degrees. Both loaders follow this; check a painted sun against it when in doubt.
+
 ## Source 2 (Half-Life: Alyx)
 
 Code lives in `addons/source_loader/lua/source_loader/source2/` plus the `vmdl_c`, `vmesh_c`, `vphys_c` model decoders and the `vtex_c`, `vsnd_c` codecs. `gameinfo.gi` games get `info.source2`. Maps are single `maps/<name>.vpk` files with embedded data (listed by `source2/world.lua`); `source_loader.Load` mounts the map vpk and `world.Translate` builds the scene. Sample: `luajit glw --3d --background --exit-on-error map a2_pistol`.

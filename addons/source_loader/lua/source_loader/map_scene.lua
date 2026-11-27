@@ -135,11 +135,13 @@ local function get_sun_direction(info)
 		x, y, z = info.sunnormal:match("(%S+)%s+(%S+)%s+(%S+)")
 		x, y, z = tonumber(x), tonumber(y), tonumber(z)
 	else
+		-- the angles are the direction the light travels (shadow_control casts shadows the same way), its pitch is negative
+		-- going down, so the sun is the opposite way horizontally
 		local angles = info.angles
 		local pitch = math.rad(info.pitch or angles and angles.x or 0)
 		local yaw = math.rad(angles and angles.y or 0)
-		x, y, z = math.cos(pitch) * math.cos(yaw),
-		math.cos(pitch) * math.sin(yaw),
+		x, y, z = -math.cos(pitch) * math.cos(yaw),
+		-math.cos(pitch) * math.sin(yaw),
 		-math.sin(pitch)
 	end
 
