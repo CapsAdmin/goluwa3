@@ -9,16 +9,21 @@ local thread_pool = import("goluwa/thread_pool.lua")
 local vtex_c = import("lua/codecs/vtex_c.lua")
 local texture_convert = {}
 texture_convert.CacheDirectory = "storage/cache/source2_textures/"
+-- 0 keeps the authored roughness, 1 is the roughness that matches the blur of alyx's prefiltered cubemaps
+local ROUGHNESS_REMAP = 0.5
 local EDITS = {
-	normal = [[
+	normal = string.format(
+		[[
 		vec4 edit(ivec2 position, ivec2 size, vec4 texel) {
 			vec2 t = vec2(texel.r + texel.g - 1.003922, texel.r - texel.g);
 			vec3 n = normalize(vec3(t, 1.0 - abs(t.x) - abs(t.y)));
 			n.y = -n.y;
 			// alyx reflects prefiltered cubemaps whose mip at roughness r is as blurred as ggx at 1.43 r^2
-			return vec4(n.xy * 0.5 + 0.5, 0.0, min(1.43 * texel.b * texel.b, 1.0));
+			return vec4(n.xy * 0.5 + 0.5, 0.0, mix(texel.b, min(1.43 * texel.b * texel.b, 1.0), %.4f));
 		}
 	]],
+		ROUGHNESS_REMAP
+	),
 	detail_normal = [[
 		vec4 edit(ivec2 position, ivec2 size, vec4 texel) {
 			vec2 t = vec2(texel.r + texel.g - 1.003922, texel.r - texel.g);
