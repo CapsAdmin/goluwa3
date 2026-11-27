@@ -159,7 +159,7 @@ local function write_fluid_block(self, block)
 	block.gravity[0], block.gravity[1], block.gravity[2] = params.gravity.x, params.gravity.y, params.gravity.z
 	block.wind[0], block.wind[1], block.wind[2] = params.wind.x, params.wind.y, params.wind.z
 	block.fill[0], block.fill[1], block.fill[2], block.fill[3] = params.fill, params.noise_scale, params.noise_amount, params.time
-	block.shape[0], block.shape[1] = params.height_falloff, params.edge_softness
+	block.shape[0], block.shape[1], block.shape[2], block.shape[3] = params.height_falloff, params.edge_softness, params.core_falloff, params.core_sphere
 	block.forces[0], block.forces[1], block.forces[2], block.forces[3] = params.buoyancy, params.weight, params.vorticity, params.dt
 	block.decay[0], block.decay[1], block.decay[2], block.decay[3] = params.dissipation, params.cooling, params.flame_life, params.soot_yield
 	block.combustion[0], block.combustion[1], block.combustion[2] = params.ignition, params.burn_rate, params.heat_release
@@ -318,6 +318,11 @@ local function get_pipelines()
 					if (fluid.shape.y > 0.0) {
 						vec3 inside = fluid.half_size.xyz - abs(local);
 						density *= smoothstep(0.0, fluid.shape.y, min(inside.x, min(inside.y, inside.z)));
+					}
+
+					if (fluid.shape.z > 0.0) {
+						vec3 edge = abs(local) / fluid.half_size.xyz;
+						density *= pow(clamp(1.0 - (fluid.shape.w > 0.5 ? length(edge) : max(edge.x, max(edge.y, edge.z))), 0.0, 1.0), fluid.shape.z);
 					}
 					vec4 scalars = vec4(density, fluid.thermal.x, 0.0, 0.0);
 					imageStore(velocity_a, c, vec4(fluid.wind.xyz, 0.0));
@@ -1653,6 +1658,8 @@ local function write_params(volume, state, dt, with_splats)
 	params.noise_amount = volume:GetNoiseAmount()
 	params.height_falloff = volume:GetHeightFalloff()
 	params.edge_softness = volume:GetEdgeSoftness()
+	params.core_falloff = volume:GetCoreFalloff()
+	params.core_sphere = volume:GetCoreShape() == "sphere" and 1 or 0
 	params.time = system.GetElapsedTime() % 100000
 	params.buoyancy = volume:GetBuoyancy()
 	params.weight = volume:GetWeight()
@@ -2106,6 +2113,8 @@ function fluid_volumes.Simulate(cmd)
 					volume:GetFill(),
 					volume:GetHeightFalloff(),
 					volume:GetEdgeSoftness(),
+					volume:GetCoreFalloff(),
+					volume:GetCoreShape(),
 					state.nx,
 					state.ny,
 					state.nz,

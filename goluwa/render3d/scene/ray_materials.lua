@@ -95,6 +95,8 @@ local OPTICAL_VOLUME_STRUCT_GLSL = [[
 			float surface_y;
 			float falloff;
 			float softness;
+			float core_falloff;
+			float core_sphere;
 			float abbe;
 			float foam;
 			float caustics;
@@ -175,10 +177,13 @@ function ray_materials.GetOpticalTintGLSL()
 				if (finish <= start) return vec3(1.0);
 
 				float density = 1.0;
+				vec3 mid = (volume.to_local * vec4(origin + dir * (0.5 * (start + finish)), 1.0)).xyz;
 
-				if (volume.falloff > 0.0) {
-					vec3 mid = (volume.to_local * vec4(origin + dir * (0.5 * (start + finish)), 1.0)).xyz;
-					density = exp(-(mid.y + volume.shape.y) / volume.falloff);
+				if (volume.falloff > 0.0) density = exp(-(mid.y + volume.shape.y) / volume.falloff);
+
+				if (volume.core_falloff > 0.0) {
+					vec3 edge = abs(mid) / volume.shape;
+					density *= pow(clamp(1.0 - (volume.core_sphere > 0.5 ? length(edge) : max(edge.x, max(edge.y, edge.z))), 0.0, 1.0), volume.core_falloff);
 				}
 
 				return optical_transmittance(volume.extinction * density, finish - start);
@@ -772,7 +777,7 @@ local OpticalHeader = ffi.typeof(
 )
 local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
 local OpticalVolume = ffi.typeof(
-	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float molecular[3]; float wave; float surface_y; float falloff; float softness; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
+	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float molecular[3]; float wave; float surface_y; float falloff; float softness; float core_falloff; float core_sphere; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
 )
 local OpticalVolumePointer = ffi.typeof("$*", OpticalVolume)
 local OPTICAL_HEADER_SIZE = ffi.sizeof(OpticalHeader)
@@ -880,6 +885,8 @@ local function write_fog_record(volume, fluid_volume)
 	volume.ior = medium.IOR
 	volume.softness = fluid_volume:GetEdgeSoftness()
 	volume.falloff = fluid_volume:GetHeightFalloff()
+	volume.core_falloff = fluid_volume:GetCoreFalloff()
+	volume.core_sphere = fluid_volume:GetCoreShape() == "sphere" and 1 or 0
 end
 
 local function write_layer_record(volume)
