@@ -15,7 +15,8 @@ local EDITS = {
 			vec2 t = vec2(texel.r + texel.g - 1.003922, texel.r - texel.g);
 			vec3 n = normalize(vec3(t, 1.0 - abs(t.x) - abs(t.y)));
 			n.y = -n.y;
-			return vec4(n.xy * 0.5 + 0.5, 0.0, texel.b);
+			// alyx reflects prefiltered cubemaps whose mip at roughness r is as blurred as ggx at 1.43 r^2
+			return vec4(n.xy * 0.5 + 0.5, 0.0, min(1.43 * texel.b * texel.b, 1.0));
 		}
 	]],
 	detail_normal = [[
