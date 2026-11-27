@@ -11,7 +11,7 @@ commands.Add("skybox_atmosphere", function()
 		local sun = weather.GetSunDirection()
 		local result = skybox_estimate.Estimate(cube, sun)
 		weather.SetAerosolVisibility(result.aerosol_visibility)
-		local coverage = skybox_estimate.ApplyClouds(cube, sun, CLOUD_HEIGHT, CLOUD_THICKNESS)
+		local coverage = skybox_estimate.ApplyClouds(cube, result, CLOUD_HEIGHT, CLOUD_THICKNESS)
 		logf(
 			"skybox_atmosphere: aerosol visibility %.0f km, cloud coverage %.0f%%\n",
 			result.aerosol_visibility / 1000,

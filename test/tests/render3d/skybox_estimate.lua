@@ -126,3 +126,24 @@ T.Test3D("Graphics skybox coverage map puts clouds where the skybox has them", f
 	T(fraction)[">"](0.02)
 	T(fraction)["<"](0.3)
 end)
+
+T.Test3D("Graphics skybox estimate calls a smooth grey sky overcast and a blue one not", function()
+	for _, case in ipairs{
+		{tint = "vec3(0.62, 0.64, 0.66)", overcast = true},
+		{tint = "vec3(0.3, 0.5, 1.0)", overcast = false},
+	} do
+		local cube = new_cube(256, "r16g16b16a16_sfloat")
+		cube:Shade(
+			(
+				[[
+			vec4 shade(vec2 uv, vec3 c) {
+				return vec4(%s * (1.5 - c.z), 1.0);
+			}
+		]]
+			):format(case.tint)
+		)
+		local result = skybox_estimate.Estimate(cube)
+		cube:Remove()
+		T(result.overcast)["=="](case.overcast)
+	end
+end)

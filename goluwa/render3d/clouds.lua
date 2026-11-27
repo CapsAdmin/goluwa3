@@ -163,6 +163,11 @@ local function get_optical_depth(layer)
 	return layer.density * layer.thickness * MEAN_SHAPE_DENSITY
 end
 
+-- the density of a layer thickness meters deep whose vertical optical depth is optical_depth
+function clouds.GetDensity(optical_depth, thickness)
+	return optical_depth / (thickness * MEAN_SHAPE_DENSITY)
+end
+
 function clouds.EstimateCover()
 	local clear = 1
 

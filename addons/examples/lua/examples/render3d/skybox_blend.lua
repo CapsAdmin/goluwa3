@@ -127,12 +127,14 @@ local function estimate()
 	weather.SetAerosolVisibility(result.aerosol_visibility)
 	set_intensity(result.intensity / state.exposure)
 	return string.format(
-		"painted sun %.0f° up%s, fitted %d°, visibility %.0f km, error %.2f",
+		"painted sun %.0f° up%s, fitted %d°, visibility %.0f km, error %.2f, %s, cloud optical depth %.0f",
 		result.sun_elevation,
 		result.sun_visible and "" or " (not visible)",
 		result.fitted_elevation,
 		result.aerosol_visibility / 1000,
-		result.error
+		result.error,
+		result.overcast and "overcast" or string.format("clouds %.0f%%", result.cloud_fraction * 100),
+		result.cloud_optical_depth
 	)
 end
 
@@ -141,8 +143,8 @@ local function build_clouds()
 
 	if not cube:IsReady() then return timer.Delay(0.1, build_clouds) end
 
-	local sun = (state.estimate or skybox_estimate.Estimate(cube)).sun_direction
-	skybox_estimate.ApplyClouds(cube, sun, state.cloud_height, state.cloud_thickness)
+	state.estimate = state.estimate or skybox_estimate.Estimate(cube)
+	skybox_estimate.ApplyClouds(cube, state.estimate, state.cloud_height, state.cloud_thickness)
 end
 
 local function set_clouds(enabled)
