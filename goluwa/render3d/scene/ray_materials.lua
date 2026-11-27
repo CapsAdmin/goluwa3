@@ -106,6 +106,8 @@ local OPTICAL_VOLUME_STRUCT_GLSL = [[
 			float wave_length;
 			float wind_direction;
 			vec2 flow;
+			vec3 bounds_min;
+			vec3 bounds_max;
 		};
 ]]
 
@@ -157,7 +159,22 @@ function ray_materials.GetOpticalTintGLSL()
 			return volume.extinction * (below + above) + vec3(volume.softness * (to - from));
 		}
 
+		// a fog record's world box: a segment that misses it is not tinted, found without reading the record or its transform
+		bool optical_fog_missed(int index, vec3 origin, vec3 dir, float distance) {
+			if (!(optical_volumes[index].kind > 0.5 && optical_volumes[index].kind < 1.5)) return false;
+
+			vec3 inv = 1.0 / mix(dir, vec3(1e-7), lessThan(abs(dir), vec3(1e-7)));
+			vec3 ta = (optical_volumes[index].bounds_min - origin) * inv;
+			vec3 tb = (optical_volumes[index].bounds_max - origin) * inv;
+			vec3 near = min(ta, tb);
+			vec3 far = max(ta, tb);
+			float entry = max(max(near.x, near.y), near.z);
+			return min(min(far.x, far.y), far.z) <= max(entry, 0.0) || entry >= distance;
+		}
+
 		vec3 optical_volume_tint(int index, vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer, bool caustic) {
+			if (optical_fog_missed(index, origin, dir, distance)) return vec3(1.0);
+
 			optical_volume volume = optical_volumes[index];
 
 			if (volume.kind > 2.5) {
@@ -261,6 +278,8 @@ function ray_materials.GetOpticalTintGLSL()
 			vec3 scattered = vec3(0.0);
 
 			for (int i = 0; i < optical_counts.z; i++) {
+				if (optical_fog_missed(i, origin, dir, distance)) continue;
+
 				optical_volume volume = optical_volumes[i];
 				bool is_fog = volume.kind > 0.5 && volume.kind < 1.5;
 
@@ -780,7 +799,7 @@ local OpticalHeader = ffi.typeof(
 )
 local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
 local OpticalVolume = ffi.typeof(
-	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float molecular[3]; float wave; float surface_y; float falloff; float softness; float core_falloff; float core_sphere; float sun_scattering; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
+	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float molecular[3]; float wave; float surface_y; float falloff; float softness; float core_falloff; float core_sphere; float sun_scattering; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2]; float bounds_min[3]; float bounds_max[3];}"
 )
 local OpticalVolumePointer = ffi.typeof("$*", OpticalVolume)
 local OPTICAL_HEADER_SIZE = ffi.sizeof(OpticalHeader)
@@ -874,6 +893,8 @@ local function write_water_record(volume, water_volume)
 	volume.flow[0], volume.flow[1] = flow.x, flow.y
 end
 
+local BOUNDS_MARGIN = 0.01
+
 local function write_fog_record(volume, fluid_volume)
 	local size = fluid_volume:GetSize()
 	local medium = media.presets[fluid_volume:GetMedium()]
@@ -891,6 +912,22 @@ local function write_fog_record(volume, fluid_volume)
 	volume.core_falloff = fluid_volume:GetCoreFalloff()
 	volume.core_sphere = fluid_volume:GetCoreShape() == "sphere" and 1 or 0
 	volume.sun_scattering = fluid_volume:GetSunScattering()
+	local world = fluid_volume.Owner.transform:GetWorldMatrix()
+	local min_x, min_y, min_z, max_x, max_y, max_z = math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge
+
+	for corner = 0, 7 do
+		local x, y, z = world:TransformVectorUnpacked(
+			(bit.band(corner, 1) == 0 and -1 or 1) * volume.shape[0],
+			(bit.band(corner, 2) == 0 and -1 or 1) * volume.shape[1],
+			(bit.band(corner, 4) == 0 and -1 or 1) * volume.shape[2]
+		)
+		min_x, min_y, min_z = math.min(min_x, x), math.min(min_y, y), math.min(min_z, z)
+		max_x, max_y, max_z = math.max(max_x, x), math.max(max_y, y), math.max(max_z, z)
+	end
+
+	-- the shaders test the transformed box with a slightly different degenerate direction guard, the margin keeps this one outside it
+	volume.bounds_min[0], volume.bounds_min[1], volume.bounds_min[2] = min_x - BOUNDS_MARGIN, min_y - BOUNDS_MARGIN, min_z - BOUNDS_MARGIN
+	volume.bounds_max[0], volume.bounds_max[1], volume.bounds_max[2] = max_x + BOUNDS_MARGIN, max_y + BOUNDS_MARGIN, max_z + BOUNDS_MARGIN
 end
 
 local function write_layer_record(volume)
