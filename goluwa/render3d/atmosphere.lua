@@ -1746,6 +1746,60 @@ local function create_sky_view_texture(x, y, z, elevation)
 	return tex
 end
 
+-- shades sky radiance (rgb) and view transmittance (a) into target with the current aerosol, for a camera at sea level;
+-- rays_glsl defines vec3 get_sky_ray(vec2 uv, out vec3 sun_dir), the view ray and the sun for each pixel, both with +y up;
+-- direction is passed through as sky_view.sun_direction for it to read
+function atmosphere.ShadeSkyRadiance(target, rays_glsl, direction)
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	local origin = get_shader_camera_position(Vec3(0, 0, 0))
+	local transmittance = atmosphere.GetTransmittanceTexture()
+	local scattering_table = atmosphere.GetScatteringTexture()
+	local views = target:Shade(
+		build_atmosphere_shader_prelude(
+			rays_glsl .. [[
+			vec4 shade(vec2 uv, vec3 _cube_dir) {
+				vec3 ray_origin = sky_view.camera_position;
+				vec3 sun_dir;
+				vec3 ray_dir = get_sky_ray(uv, sun_dir);
+				float t_near;
+				float t_far;
+				bool hits_ground;
+
+				if (!get_atmosphere_segment(ray_origin, ray_dir, t_near, t_far, hits_ground)) return vec4(0.0, 0.0, 0.0, 1.0);
+
+				vec3 view_transmittance;
+				vec3 scattered_light = integrate_scattering(ray_origin, ray_dir, t_near, t_far, sun_dir, ]] .. SKY_VIEW_STEPS .. [[, vec2(1.0), 1.0, view_transmittance);
+				return vec4(scattered_light, dot(view_transmittance, vec3(1.0 / 3.0)));
+			}
+		]],
+			"#define ATMOSPHERE_LOG_MARCH 1\n#define ATMOSPHERE_SUN_ILLUMINANCE sky_view.sun_illuminance\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX sky_view.transmittance_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX sky_view.scattering_index\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION sky_view.aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE sky_view.aerosol_shape\n"
+		),
+		{
+			cmd = cmd,
+			textures = {transmittance, scattering_table},
+			custom_declarations = SKY_VIEW_DECLARATIONS,
+			fragment_push_constants = {
+				size = ffi.sizeof(SkyViewConstants),
+				get_data = function(_, _, pipeline)
+					return SkyViewConstants(
+						{origin.x, origin.y, origin.z},
+						atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE,
+						{direction.x, direction.y, direction.z},
+						aerosol_extinction,
+						aerosol_shape,
+						pipeline:GetTextureIndex(transmittance),
+						pipeline:GetTextureIndex(scattering_table)
+					)
+				end,
+			},
+		}
+	)
+	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "all_commands", memoryBarrier = true}
+	cmd:End()
+	render.SubmitDetached(cmd, views)
+end
+
 function atmosphere.GetTransmittanceTexture()
 	if
 		not atmosphere.transmittance_texture or
