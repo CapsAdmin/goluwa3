@@ -1747,7 +1747,8 @@ function Texture:Shade(glsl, extra_config)
 			else if (face == 3) dir = vec3(uv.x, -1.0, -uv.y);
 			else if (face == 4) dir = vec3(uv.x, -uv.y, 1.0);
 			else if (face == 5) dir = vec3(-uv.x, -uv.y, -1.0);
-			return normalize(dir);
+			// unnormalized so it interpolates exactly across the oversized triangle, the fragment stage normalizes
+			return dir;
 		}
 
 		void main() {
@@ -1793,7 +1794,7 @@ function Texture:Shade(glsl, extra_config)
 							]] .. glsl .. [[
 
 							void main() {
-								out_color = shade(in_uv, in_dir);
+								out_color = shade(in_uv, normalize(in_dir));
 							}
 						]]
 	local pipeline_key = table.concat(
