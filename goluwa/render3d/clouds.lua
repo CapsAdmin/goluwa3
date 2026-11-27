@@ -434,11 +434,11 @@ function clouds.EnsureViewResources(size)
 	local trace_width = math.ceil(width / 2)
 	local trace_height = math.ceil(height / 2)
 	t.trace = create_target(trace_width, trace_height, "r16g16b16a16_sfloat", "trace")
-	t.trace_depth = create_target(trace_width, trace_height, "r32_sfloat", "trace depth")
+	t.trace_depth = create_target(trace_width, trace_height, "r32g32_sfloat", "trace depth")
 
 	for i = 1, 2 do
 		t["view" .. i] = create_target(width, height, "r16g16b16a16_sfloat", "view " .. i)
-		t["view_depth" .. i] = create_target(width, height, "r32_sfloat", "view depth " .. i)
+		t["view_depth" .. i] = create_target(width, height, "r32g32_sfloat", "view depth " .. i)
 	end
 
 	t.view_width = width

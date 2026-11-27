@@ -81,6 +81,27 @@ local function cloud_glsl()
 	]]
 end
 
+local function scene_distance_glsl(block)
+	return froxel_fog.GetViewDirGLSL(block) .. screen_reconstruct.GetViewDepthGLSL(block) .. [[
+		float cloud_scene_distance(ivec2 pixel) {
+			vec2 uv = (vec2(pixel) + 0.5) / ]] .. block .. [[.view_size;
+			vec2 full_size = vec2(textureSize(TEXTURE(]] .. block .. [[.depth_tex), 0));
+			float depth = 1.0;
+
+			for (int i = 0; i < ]] .. clouds.VIEW_DIVISOR * clouds.VIEW_DIVISOR .. [[; i++) {
+				vec2 full_uv = (vec2(pixel * ]] .. clouds.VIEW_DIVISOR .. [[ + ivec2(i % ]] .. clouds.VIEW_DIVISOR .. [[, i / ]] .. clouds.VIEW_DIVISOR .. [[)) + 0.5) / (]] .. block .. [[.view_size * ]] .. clouds.VIEW_DIVISOR .. [[.0);
+				depth = min(depth, textureLod(TEXTURE(]] .. block .. [[.depth_tex), min(full_uv, 1.0 - 0.5 / full_size), 0.0).r);
+			}
+
+			return depth > 0.0 ? get_view_depth(uv, depth) * length(get_view_dir(uv)) : ]] .. string.format("%.1f", VIEW_DISTANCE) .. [[;
+		}
+
+		bool cloud_same_scene(float a, float b) {
+			return abs(a - b) <= 0.1 * max(a, b);
+		}
+	]]
+end
+
 local noise_pass = {
 	name = "clouds_noise",
 	ComputePass = true,
@@ -410,9 +431,9 @@ local trace_pass = {
 	end,
 	custom_declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUT .. [[, rgba16f) uniform writeonly image2D out_trace;
-		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, r32f) uniform writeonly image2D out_depth;
+		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, rg32f) uniform writeonly image2D out_depth;
 	]] .. NOISE_DECLARATIONS,
-	shader = cloud_glsl() .. froxel_fog.GetViewDirGLSL("cloud_data") .. screen_reconstruct.GetViewDepthGLSL("cloud_data") .. [[
+	shader = cloud_glsl() .. scene_distance_glsl("cloud_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
@@ -420,27 +441,12 @@ local trace_pass = {
 
 			ivec2 pixel = min(id * 2 + cloud_data.trace_offset, ivec2(cloud_data.view_size) - 1);
 			vec2 uv = (vec2(pixel) + 0.5) / cloud_data.view_size;
-			vec3 view_dir = get_view_dir(uv);
-			vec3 dir = normalize(mat3(cloud_data.inv_view) * view_dir);
-			vec2 full_size = vec2(textureSize(TEXTURE(cloud_data.depth_tex), 0));
-			float depth = 1.0;
-
-			for (int i = 0; i < ]] .. clouds.VIEW_DIVISOR * clouds.VIEW_DIVISOR .. [[; i++) {
-				vec2 full_uv = (vec2(pixel * ]] .. clouds.VIEW_DIVISOR .. [[ + ivec2(i % ]] .. clouds.VIEW_DIVISOR .. [[, i / ]] .. clouds.VIEW_DIVISOR .. [[)) + 0.5) / (cloud_data.view_size * ]] .. clouds.VIEW_DIVISOR .. [[.0);
-				depth = min(depth, textureLod(TEXTURE(cloud_data.depth_tex), min(full_uv, 1.0 - 0.5 / full_size), 0.0).r);
-			}
-
-
-			float t_max = ]] .. string.format("%.1f", VIEW_DISTANCE) .. [[;
-
-			if (depth > 0.0) {
-				t_max = get_view_depth(uv, depth) * length(view_dir);
-			}
-
+			vec3 dir = normalize(mat3(cloud_data.inv_view) * get_view_dir(uv));
+			float t_max = cloud_scene_distance(pixel);
 			float cloud_depth;
 			vec4 c = cloud_march(cloud_data.camera_position.xyz, dir, t_max, cloud_ign(vec2(id), cloud_data.cloud_frame), 1.0, cloud_depth);
 			imageStore(out_trace, id, vec4(c.rgb * CLOUD_RADIANCE_SCALE, c.a));
-			imageStore(out_depth, id, vec4(cloud_depth));
+			imageStore(out_depth, id, vec4(cloud_depth, t_max, 0.0, 0.0));
 		}
 	]],
 }
@@ -477,6 +483,7 @@ local reconstruct_pass = {
 			block = {
 				render3d.camera_block,
 				render3d.prev_camera_block,
+				gbuffer_layout.block,
 				{"view_size", "vec2"},
 				{"trace_offset", "ivec2"},
 				{"trace_tex", "int"},
@@ -489,6 +496,7 @@ local reconstruct_pass = {
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
 				render3d.WritePreviousCameraBlock(self, block)
+				gbuffer_layout.WriteBlock(self, block)
 				local t = clouds.textures
 				block.view_size[0] = t.view_width
 				block.view_size[1] = t.view_height
@@ -518,9 +526,9 @@ local reconstruct_pass = {
 	end,
 	custom_declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUT .. [[, rgba16f) uniform writeonly image2D out_view;
-		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, r32f) uniform writeonly image2D out_depth;
+		layout(set = 0, binding = ]] .. BINDING_OUT2 .. [[, rg32f) uniform writeonly image2D out_depth;
 	]],
-	shader = froxel_fog.GetViewDirGLSL("reconstruct_data") .. [[
+	shader = scene_distance_glsl("reconstruct_data") .. [[
 		void main() {
 			ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
 			ivec2 size = ivec2(reconstruct_data.view_size);
@@ -530,42 +538,81 @@ local reconstruct_pass = {
 			ivec2 trace_size = textureSize(TEXTURE(reconstruct_data.trace_tex), 0);
 			ivec2 trace_id = min(pixel / 2, trace_size - 1);
 			bool traced = all(equal(pixel & 1, reconstruct_data.trace_offset));
-			vec2 uv = (vec2(pixel) + 0.5) / reconstruct_data.view_size;
+			float scene = cloud_scene_distance(pixel);
 			vec4 low = vec4(1e30);
 			vec4 high = vec4(-1e30);
+			vec4 sum = vec4(0.0);
+			float depth_sum = 0.0;
+			float weight_sum = 0.0;
+			vec4 nearest = vec4(0.0, 0.0, 0.0, 1.0);
+			vec2 nearest_depth = vec2(scene, 1e30);
 
 			for (int i = 0; i < 9; i++) {
-				vec4 v = texelFetch(TEXTURE(reconstruct_data.trace_tex), clamp(trace_id + ivec2(i % 3, i / 3) - 1, ivec2(0), trace_size - 1), 0);
+				ivec2 id = clamp(trace_id + ivec2(i % 3, i / 3) - 1, ivec2(0), trace_size - 1);
+				vec4 v = texelFetch(TEXTURE(reconstruct_data.trace_tex), id, 0);
+				vec2 d = texelFetch(TEXTURE(reconstruct_data.trace_depth_tex), id, 0).rg;
+				float mismatch = abs(d.y - scene) / max(d.y, scene);
+
+				if (mismatch < nearest_depth.y) {
+					nearest = v;
+					nearest_depth = vec2(d.x, mismatch);
+				}
+
+				if (!cloud_same_scene(d.y, scene)) continue;
+
 				low = min(low, v);
 				high = max(high, v);
+				vec2 offset = abs(vec2(min(id * 2 + reconstruct_data.trace_offset, size - 1) - pixel));
+				float w = max(1.0 - offset.x * 0.5, 0.001) * max(1.0 - offset.y * 0.5, 0.001);
+				sum += v * w;
+				depth_sum += d.x * w;
+				weight_sum += w;
 			}
 
-			vec4 current = traced ? texelFetch(TEXTURE(reconstruct_data.trace_tex), trace_id, 0) : textureLod(TEXTURE(reconstruct_data.trace_tex), uv, 0.0);
-			float current_depth = traced ? texelFetch(TEXTURE(reconstruct_data.trace_depth_tex), trace_id, 0).r : textureLod(TEXTURE(reconstruct_data.trace_depth_tex), uv, 0.0).r;
+			vec4 current = nearest;
+			float current_depth = nearest_depth.x;
+
+			if (traced) {
+				current = texelFetch(TEXTURE(reconstruct_data.trace_tex), trace_id, 0);
+				current_depth = texelFetch(TEXTURE(reconstruct_data.trace_depth_tex), trace_id, 0).r;
+			} else if (weight_sum > 0.0) {
+				current = sum / weight_sum;
+				current_depth = depth_sum / weight_sum;
+			}
+
+			if (weight_sum == 0.0) {
+				low = current;
+				high = current;
+			}
+
 			vec4 result = current;
 			float result_depth = current_depth;
 
 			if (reconstruct_data.history_valid != 0) {
-				vec3 view_dir = get_view_dir(uv);
-				vec3 world = reconstruct_data.camera_position.xyz + normalize(mat3(reconstruct_data.inv_view) * view_dir) * current_depth;
+				vec2 uv = (vec2(pixel) + 0.5) / reconstruct_data.view_size;
+				vec3 world = reconstruct_data.camera_position.xyz + normalize(mat3(reconstruct_data.inv_view) * get_view_dir(uv)) * current_depth;
 				vec4 clip = reconstruct_data.prev_projection * reconstruct_data.prev_view * vec4(world, 1.0);
 				vec2 previous = clip.xy / clip.w * 0.5 + 0.5;
 
 				if (clip.w > 0.0 && all(greaterThanEqual(previous, vec2(0.0))) && all(lessThanEqual(previous, vec2(1.0)))) {
-					vec4 history = textureLod(TEXTURE(reconstruct_data.history_tex), previous, 0.0);
-					float history_depth = textureLod(TEXTURE(reconstruct_data.history_depth_tex), previous, 0.0).r;
+					vec4 history_scene = textureGather(TEXTURE(reconstruct_data.history_depth_tex), previous, 1);
 
-					if (traced) {
-						result = mix(clamp(history, low, high), current, reconstruct_data.trace_blend);
-					} else {
-						result = clamp(history, low - 0.05 * (high - low), high + 0.05 * (high - low));
-						result_depth = history_depth;
+					if (cloud_same_scene(history_scene.x, scene) && cloud_same_scene(history_scene.y, scene) && cloud_same_scene(history_scene.z, scene) && cloud_same_scene(history_scene.w, scene)) {
+						vec4 history = textureLod(TEXTURE(reconstruct_data.history_tex), previous, 0.0);
+						float history_depth = textureLod(TEXTURE(reconstruct_data.history_depth_tex), previous, 0.0).r;
+
+						if (traced) {
+							result = mix(clamp(history, low, high), current, reconstruct_data.trace_blend);
+						} else {
+							result = clamp(history, low - 0.05 * (high - low), high + 0.05 * (high - low));
+							result_depth = history_depth;
+						}
 					}
 				}
 			}
 
 			imageStore(out_view, pixel, result);
-			imageStore(out_depth, pixel, vec4(result_depth));
+			imageStore(out_depth, pixel, vec4(result_depth, scene, 0.0, 0.0));
 		}
 	]],
 }
