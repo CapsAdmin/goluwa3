@@ -3203,7 +3203,32 @@ local function pass_accumulate()
 				float history_inverse = history_tracking.y > 0.0 ? history_tracking.x / history_tracking.y : 0.0;
 				float history_inverse_spread = history_tracking.y > 0.0 ? sqrt(max(history_tracking.z / history_tracking.y - history_inverse * history_inverse, 0.0)) : 0.0;
 				float inverse = history_found && history_inverse > 0.0 ? (raw_inverse > 0.0 ? mix(raw_inverse, history_inverse, wander) : history_inverse) : raw_inverse;
+				float curvature = 0.0;
+				float curved = 0.0;
+
+				for (int i = 0; i < 4; i++) {
+					ivec2 q = pos + ivec2(i == 0 ? 2 : (i == 1 ? -2 : 0), i == 2 ? 2 : (i == 3 ? -2 : 0));
+					ivec2 q_gpos;
+					vec3 q_P;
+					vec3 q_N;
+					float q_view_depth;
+					float q_depth;
+
+					if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, size)) || !restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth)) continue;
+
+					vec3 d = q_P - P;
+					float d2 = dot(d, d);
+
+					if (!(d2 > 0.0) || abs(dot(G, d)) > 0.5 * sqrt(d2)) continue;
+
+					curvature += dot(restir_geometric_normal(q_gpos, q_P) - G, d) / d2;
+					curved += 1.0;
+				}
+
+				// a convex mirror shows a thing nearer its surface than a flat one does, hit / (1 + 2 curvature hit) behind it. the curvature is the vertex normals' (a normal map does not bend it), and a concave surface is taken as flat
+				float bend = 2.0 * max(curvature / max(curved, 1.0), 0.0);
 				float hit = inverse > 0.0 ? max(1.0 / inverse - surface_distance, 0.0) : 0.0;
+				hit /= 1.0 + bend * hit;
 				float dominance = (1.0 - lobe_width) * (sqrt(1.0 - lobe_width) + lobe_width);
 				vec3 V_view = normalize(restir_data.camera_position - P);
 				ivec2 virtual_base;
@@ -3242,7 +3267,9 @@ local function pass_accumulate()
 						specular_length = min(mix(1.0, virtual_length, confidence) + 1.0, history_length);
 						float near_inverse = history_inverse + history_inverse_spread;
 						float far_inverse = max(history_inverse - history_inverse_spread, 1e-9);
-						float drift = length(radiance_image_shift(P, V_view, dominance * max(1.0 / near_inverse - surface_distance, 0.0), size) - radiance_image_shift(P, V_view, dominance * max(1.0 / far_inverse - surface_distance, 0.0), size));
+						float near_hit = max(1.0 / near_inverse - surface_distance, 0.0);
+						float far_hit = max(1.0 / far_inverse - surface_distance, 0.0);
+						float drift = length(radiance_image_shift(P, V_view, dominance * near_hit / (1.0 + bend * near_hit), size) - radiance_image_shift(P, V_view, dominance * far_hit / (1.0 + bend * far_hit), size));
 						float footprint = hit * lobe_width / max(surface_distance + hit, 1e-6) / (2.0 * abs(restir_data.inv_projection[1][1]) / float(size.y));
 
 						if (drift > 1e-3) specular_length = min(specular_length, max(0.5 * footprint / drift, 1.0) + 1.0);
