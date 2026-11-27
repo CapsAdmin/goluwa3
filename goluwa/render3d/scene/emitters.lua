@@ -844,8 +844,10 @@ function emitters.GetGLSL()
 
 			for (int k = 0; k < EMITTER_CANDIDATES; k++) {
 				vec4 u = emitter_random(index, frame, uint(k));
+				uvec4 seed = pcg4d(uvec4(index, uint(k), frame, 0x27d4eb2du));
 				float pdf;
-				int e = emitter_tree_pick(u.x, pcg4d(uvec4(index, uint(k), frame, 0x27d4eb2du)).x, (k & 1) != 0, origin, normal, radius, pdf);
+				// the pdf is the mean of both walks: pairs take one each, a candidate left without a pair takes either at random
+				int e = emitter_tree_pick(u.x, seed.x, k == (EMITTER_CANDIDATES & ~1) ? (seed.y & 1u) != 0u : (k & 1) != 0, origin, normal, radius, pdf);
 				triangles[k] = max(e, 0);
 				weights[k] = 0.0;
 
