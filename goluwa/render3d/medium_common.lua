@@ -17,6 +17,7 @@ function medium_common.GetGLSL()
 	#define MEDIUM_EXPOSURE_RANGE 4.0
 	#define MEDIUM_PANE_PATH 0.05
 	#define MEDIUM_SOLID_PATH 0.5
+	#define MEDIUM_WALL_REACH 0.05
 	#define MEDIUM_BOUNCE_SHARE 0.6
 	#define MEDIUM_TRANSMIT_SHARE 1.0
 	#define MEDIUM_SCATTER_ORDERS 5

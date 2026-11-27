@@ -68,6 +68,7 @@ return {
 		float medium_thickness;
 		float medium_body;
 		float medium_transmission;
+		bool medium_walled;
 	]],
 	surface_default = [[
 		s.medium_scatter = vec3(0.0);
@@ -83,6 +84,7 @@ return {
 		s.medium_thickness = 0.0;
 		s.medium_body = 0.0;
 		s.medium_transmission = 0.0;
+		s.medium_walled = false;
 	]],
 	material_init = [[
 		if (has_terrain_layers()) {
@@ -111,8 +113,7 @@ return {
 			s.medium_porosity = 1.0;
 			s.medium_back = 0.0;
 			s.medium_body = 0.0;
-			float far_side = get_medium_light_path(s.world_pos - s.geometric_N * 0.003, -s.N, MEDIUM_SOLID_PATH);
-			s.medium_thickness = far_side > 0.0 ? far_side : MEDIUM_PANE_PATH;
+			s.medium_thickness = get_medium_exit(s.world_pos - s.geometric_N * 0.003, -s.N, s.medium_walled);
 			s.medium_transmission = s.transmission;
 			s.transmission = 0.0;
 		} else if (s.medium_slot > 0.0) {
@@ -210,24 +211,27 @@ return {
 		}
 
 		if (s.medium_transmission > 0.0) {
-			float entry_weight = saturate(0.5 - dot(s.N, L));
-			vec3 transmitted_bound = s.medium_transmission * s.albedo * (1.0 - s.metallic) * unshadowed_radiance * entry_weight / PI;
+			float entry_weight = saturate(-dot(s.N, L));
+			vec3 transmitted_bound = s.medium_transmission * s.transmission_color * s.albedo * (1.0 - s.metallic) * transmission_phase(s.V, L, entry_weight, s.transmission_scattering) * entry_weight * unshadowed_radiance;
 
 			if (entry_weight > 0.0 && max(max(transmitted_bound.r, transmitted_bound.g), transmitted_bound.b) * get_exposure() >= LIGHT_MIN_SCREEN_RADIANCE) {
-				float exit_path = get_medium_light_path(s.world_pos - s.geometric_N * 0.003, L, MEDIUM_SOLID_PATH);
-				if (exit_path <= 0.0) exit_path = MEDIUM_PANE_PATH;
-				vec3 exit_position = s.world_pos + L * exit_path;
-				float exit_visibility = get_light_visibility_at(i, type, exit_position + L * 0.02, L, light.position.xyz, light.params.x);
-				diffuse += transmitted_bound * optical_transmittance(s.medium_extinction, exit_path) * exit_visibility;
+				bool walled;
+				float exit_path = get_medium_exit(s.world_pos - s.geometric_N * 0.003, L, walled);
+
+				// the visibility test starts past the exit, behind a wall the body rests on
+				if (!walled) {
+					float exit_visibility = get_light_visibility_at(i, type, s.world_pos + L * (exit_path + 0.02), L, light.position.xyz, light.params.x);
+					diffuse += transmitted_bound * optical_transmittance(s.medium_extinction, exit_path) * exit_visibility;
+				}
 			}
 		}
 	]],
 	indirect = [[
-		if (s.medium_transmission > 0.0) {
+		if (s.medium_transmission > 0.0 && !s.medium_walled) {
 			vec3 front_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, s.N) * sky_visibility;
 			vec3 back_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, -s.N) * sky_visibility;
 			vec3 back_irradiance = back_sky + max(irradiance - front_sky, vec3(0.0));
-			ambient_diffuse += s.medium_transmission * s.albedo * (1.0 - s.metallic) * optical_transmittance(s.medium_extinction, s.medium_thickness) * back_irradiance * ambient_occlusion;
+			ambient_diffuse += s.medium_transmission * s.transmission_color * s.albedo * (1.0 - s.metallic) * optical_transmittance(s.medium_extinction, s.medium_thickness) * back_irradiance * ambient_occlusion;
 		} else if (s.medium_slot > 0.0) {
 			float medium_matte = max(s.medium_cover, s.medium_porosity);
 			ambient_diffuse *= medium_matte;

@@ -437,25 +437,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 			return ]] .. block_name .. [[.medium_cover_slope;
 		}
 
-		float get_medium_light_path(vec3 origin, vec3 dir, float max_distance) {
-			]] .. (
-			ray_queries and
-			[[
-			rayQueryEXT query;
-			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
-			while (rayQueryProceedEXT(query)) {}
-			float solid = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
-			#ifdef OPTICAL_RAYS
-			vec3 exit_normal;
-			float body = get_body_exit(origin, dir, solid > 0.0 ? solid : max_distance, exit_normal);
-
-			if (body > 0.0 && (solid <= 0.0 || body < solid)) return body;
-			#endif
-			return solid;
-			]] or
-			"return 0.0;"
-		) .. [[
-		}
+		]] .. optical_rays.GetMediumPathGLSL(ray_queries) .. [[
 
 		float get_medium_local_thickness(vec3 P, vec3 N, vec3 G, float cap) {
 			vec3 up = abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);

@@ -55,6 +55,74 @@ function optical_rays.GetGlassThroughGLSL()
 	]]
 end
 
+-- included by the lighting and by the scene hits, whichever comes first defines them
+function optical_rays.GetMediumPathGLSL(ray_queries)
+	return [[
+		#ifndef MEDIUM_PATH_GLSL
+		#define MEDIUM_PATH_GLSL
+		float get_medium_light_path(vec3 origin, vec3 dir, float max_distance) {
+			]] .. (
+			ray_queries and
+			[[
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
+			while (rayQueryProceedEXT(query)) {}
+			float solid = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
+			#ifdef OPTICAL_RAYS
+			vec3 exit_normal;
+			float body = get_body_exit(origin, dir, solid > 0.0 ? solid : max_distance, exit_normal);
+
+			if (body > 0.0 && (solid <= 0.0 || body < solid)) return body;
+			#endif
+			return solid;
+			]] or
+			"return 0.0;"
+		) .. [[
+		}
+
+		// where light crossing a medium body leaves it along dir, a pane when the mesh has no far side, and whether an opaque surface lies before that exit or just past it (a wall the body rests on)
+		float get_medium_exit(vec3 origin, vec3 dir, out bool walled) {
+			walled = false;
+			]] .. (
+			ray_queries and
+			[[
+			#ifdef OPTICAL_RAYS
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, MEDIUM_SOLID_PATH);
+			while (rayQueryProceedEXT(query)) {}
+
+			float exit_path = MEDIUM_PANE_PATH;
+
+			if (rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+				exit_path = rayQueryGetIntersectionTEXT(query, true);
+
+				if (!ray_material_has_medium(ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true)))])) {
+					walled = true;
+					return exit_path;
+				}
+			}
+
+			// starts short of the exit: a wall in the plane of the body's far side is at no distance from it
+			rayQueryEXT beyond;
+			rayQueryInitializeEXT(beyond, scene_tlas, gl_RayFlagsNoOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin + dir * (exit_path - 0.01), 0.0, dir, MEDIUM_WALL_REACH + 0.01);
+
+			while (rayQueryProceedEXT(beyond)) {
+				if (!ray_material_has_medium(ray_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(beyond, false)))])) rayQueryConfirmIntersectionEXT(beyond);
+			}
+
+			walled = rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+			return exit_path;
+			#endif
+			]] or
+			""
+		) .. [[
+			return MEDIUM_PANE_PATH;
+		}
+
+		#endif
+	]]
+end
+
 function optical_rays.GetGLSL()
 	return ray_materials.GetOpticalTintGLSL() .. hit.GetOccludedGLSL("scene_tlas") .. optical_rays.GetGlassThroughGLSL() .. [[
 		#define OPTICAL_RAYS
@@ -190,7 +258,7 @@ function optical_rays.GetGLSL()
 			return optical_inscatter(origin, dir, distance, ambient, ambient_visibility, sun_radiance, sun_dir, sun_visibility, with_layer);
 		}
 
-]]
+]] .. optical_rays.GetMediumPathGLSL(true)
 end
 
 function optical_rays.GetStubGLSL()
