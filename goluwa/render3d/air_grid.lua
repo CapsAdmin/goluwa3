@@ -941,9 +941,10 @@ function air_grid.GetGLSL(block_name)
 		// from p through air when it is closer to open sky by more than the distance between them. light leaks from
 		// the open side, and a reference that landed on the wrong side of a thin wall must not reject the dark one
 		// instead. p is a point in air from air_grid_reference
-		bool air_grid_unreachable(vec3 p, vec3 b) {
+		// p_distance is air_grid_sky_distance(0, p), read once by a lookup that tests one point against many probes
+		bool air_grid_unreachable_from(vec3 p, int p_distance, vec3 b) {
 			for (int level = 0; level < AIR_GRID_LEVELS; level++) {
-				int da = air_grid_sky_distance(level, p);
+				int da = level == 0 ? p_distance : air_grid_sky_distance(level, p);
 				int db = air_grid_sky_distance(level, b);
 
 				if (da < 0 || db < 0) continue;
@@ -956,6 +957,10 @@ function air_grid.GetGLSL(block_name)
 			}
 
 			return false;
+		}
+
+		bool air_grid_unreachable(vec3 p, vec3 b) {
+			return air_grid_unreachable_from(p, air_grid_sky_distance(0, p), b);
 		}
 
 		// where the distance from open sky jumps by more along a ray than the ray travelled, the ray went through
@@ -1032,7 +1037,14 @@ function air_grid.GetGLSL(block_name)
 		// is in an air cell; a cell cannot tell which side of a wall in it a point is on, so an end that stays
 		// in a solid cell (a corner, a probe against a wall) is AIR_GRID_EMBEDDED rather than skipped. without
 		// march only the ends are looked at, and a segment with both ends in air is AIR_GRID_UNKNOWN
-		float air_grid_segment(vec3 a, vec3 n, vec3 b, bool march) {
+		// the start cell of a segment depends only on a, n and the level, so segments from one point to many probes look it up once per level
+		struct air_grid_start {
+			int level;
+			int state;
+			float offset;
+		};
+
+		float air_grid_segment_from(vec3 a, vec3 n, vec3 b, bool march, inout air_grid_start start_cache) {
 			if (!air_grid_available()) return AIR_GRID_UNKNOWN;
 
 			float len = length(b - a);
@@ -1052,13 +1064,17 @@ function air_grid.GetGLSL(block_name)
 
 				if (end_state > 0) return AIR_GRID_EMBEDDED;
 
-				vec3 start = a + n * (0.75 * cs);
-				int start_state = air_grid_cell_state(level, ivec3(floor(start / cs)));
+				if (start_cache.level != level) {
+					start_cache = air_grid_start(level, air_grid_cell_state(level, ivec3(floor((a + n * (0.75 * cs)) / cs))), 0.75);
 
-				if (start_state > 0 && n != vec3(0.0)) {
-					start = a + n * (1.75 * cs);
-					start_state = air_grid_cell_state(level, ivec3(floor(start / cs)));
+					if (start_cache.state > 0 && n != vec3(0.0)) {
+						start_cache.offset = 1.75;
+						start_cache.state = air_grid_cell_state(level, ivec3(floor((a + n * (1.75 * cs)) / cs)));
+					}
 				}
+
+				vec3 start = a + n * (start_cache.offset * cs);
+				int start_state = start_cache.state;
 
 				if (start_state < 0) continue;
 
@@ -1117,6 +1133,11 @@ function air_grid.GetGLSL(block_name)
 			}
 
 			return AIR_GRID_UNKNOWN;
+		}
+
+		float air_grid_segment(vec3 a, vec3 n, vec3 b, bool march) {
+			air_grid_start start_cache = air_grid_start(-1, 0, 0.0);
+			return air_grid_segment_from(a, n, b, march, start_cache);
 		}
 		#endif
 	]]

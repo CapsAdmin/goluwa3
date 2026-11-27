@@ -1083,8 +1083,8 @@ function radiance_cache.GetCommonGLSL()
 			return radiance_cache_probe_hit_fraction(origin, probe_pos) <= 1.0;
 		}
 
-		float radiance_cache_probe_grid_fraction(vec3 from, vec3 N, vec3 probe_pos) {
-			return air_grid_segment(from, N, probe_pos, radiance_cache_data.air_grid_probe_visibility != 0);
+		float radiance_cache_probe_grid_fraction(vec3 from, vec3 N, vec3 probe_pos, inout air_grid_start start_cache) {
+			return air_grid_segment_from(from, N, probe_pos, radiance_cache_data.air_grid_probe_visibility != 0, start_cache);
 		}
 
 		bool radiance_cache_probe_can_be_traced(vec3 probe_position, ivec3 world) {
@@ -1178,6 +1178,8 @@ function radiance_cache.GetCommonGLSL()
 			int grid_distance;
 			vec3 grid_air;
 			bool grid_reference = air_grid_available() && air_grid_reference(P, N, V, grid_level, grid_distance, grid_air);
+			int grid_air_distance = grid_reference ? air_grid_sky_distance(0, grid_air) : -1;
+			air_grid_start grid_start = air_grid_start(-1, 0, 0.0);
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1193,7 +1195,7 @@ function radiance_cache.GetCommonGLSL()
 				if (w <= 0.0) continue;
 
 				// a probe in air the point's air does not connect to is not hidden behind something, it is elsewhere
-				if (grid_reference && air_grid_unreachable(grid_air, probe_position * spacing)) continue;
+				if (grid_reference && air_grid_unreachable_from(grid_air, grid_air_distance, probe_position * spacing)) continue;
 
 				vec4 irradiance = textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, L, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0);
 				vec4 irradiance2 = textureLod(TEXTURE(radiance_cache_data.radiance_cache_irradiance_tex), radiance_cache_atlas_uv(slot, c, L2, RADIANCE_CACHE_IRRADIANCE_TEXELS), 0.0);
@@ -1201,7 +1203,7 @@ function radiance_cache.GetCommonGLSL()
 
 				float hit_fraction = 2.0;
 
-				if (trace) hit_fraction = radiance_cache_probe_grid_fraction(P, N, probe_position * spacing);
+				if (trace) hit_fraction = radiance_cache_probe_grid_fraction(P, N, probe_position * spacing, grid_start);
 
 				// a point the grid cannot place on either side of a wall (wedged between a sphere and the floor it rests
 				// on) is hidden: a ray's origin is lifted out of the wedge and sees past it
@@ -1411,6 +1413,8 @@ function radiance_cache.GetMediumGLSL()
 			int grid_distance;
 			vec3 grid_air;
 			bool grid_reference = air_grid_available() && air_grid_reference(P, vec3(0.0), vec3(0.0), grid_level, grid_distance, grid_air);
+			int grid_air_distance = grid_reference ? air_grid_sky_distance(0, grid_air) : -1;
+			air_grid_start grid_start = air_grid_start(-1, 0, 0.0);
 
 			for (int i = 0; i < 8; i++) {
 				ivec3 offset = ivec3(i & 1, (i >> 1) & 1, i >> 2);
@@ -1425,7 +1429,7 @@ function radiance_cache.GetMediumGLSL()
 
 				vec3 probe_pos = data.xyz * spacing;
 
-				if (grid_reference && air_grid_unreachable(grid_air, probe_pos)) continue;
+				if (grid_reference && air_grid_unreachable_from(grid_air, grid_air_distance, probe_pos)) continue;
 
 				vec3 probe_to_point = P - probe_pos;
 				float dist = length(probe_to_point);
@@ -1462,7 +1466,7 @@ function radiance_cache.GetMediumGLSL()
 				bool trace = w >= RADIANCE_CACHE_VISIBILITY_MIN_WEIGHT || w * luminance(lit.rgb) > RADIANCE_CACHE_VISIBILITY_MIN_SHARE * luminance(sum.rgb);
 
 				if (trace) {
-					float grid_fraction = radiance_cache_probe_grid_fraction(P, vec3(0.0), probe_pos);
+					float grid_fraction = radiance_cache_probe_grid_fraction(P, vec3(0.0), probe_pos, grid_start);
 
 					if (grid_fraction < 0.0 ? (radiance_cache_probe_can_be_traced(data.xyz, world) ? radiance_cache_probe_hidden(P, probe_pos) : grid_fraction == AIR_GRID_EMBEDDED) : grid_fraction <= 1.0) continue;
 				}
