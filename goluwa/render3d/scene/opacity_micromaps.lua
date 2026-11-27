@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local Micromap = import("goluwa/render/vulkan/internal/micromap.lua")
@@ -276,17 +277,33 @@ local function get_pipeline()
 	return pipeline
 end
 
-local function is_texture_final(texture)
+-- a streamed texture may never reach its full size, and the alpha test reads whatever level is resident, so the micromap is built from that level and rebuilt when a finer one arrives
+local function is_texture_settled(texture)
 	if not (texture:IsValid() and texture:IsReady()) then return false end
 
 	local stream = texture.stream
-	return not stream or
-		(
-			stream.drop <= stream.min_drop and
-			not stream.uploading and
-			not stream.loading
-		)
+	return not stream or not (stream.uploading or stream.loading)
 end
+
+local function get_drop(texture)
+	return texture.stream and texture.stream.drop or 0
+end
+
+event.AddListener("TextureViewChanged", "opacity_micromaps", function(texture)
+	for record in pairs(all_variants) do
+		local state = record.omm
+
+		if
+			state.texture == texture and
+			state.micromap and
+			not state.stale and
+			get_drop(texture) < state.drop
+		then
+			state.stale = true
+			waiting[#waiting + 1] = record
+		end
+	end
+end)
 
 function opacity_micromaps.GetStats()
 	local list = {}
@@ -387,8 +404,13 @@ local function ensure_scratch(size)
 	scratch_address = tonumber(scratch:GetDeviceAddress())
 end
 
-local function retire_buffers(job)
-	retiring[#retiring + 1] = {frame = system.GetFrameNumber(), data = job.data, triangles = job.triangles}
+local function retire_buffers(job, micromap)
+	retiring[#retiring + 1] = {
+		frame = system.GetFrameNumber(),
+		data = job.data,
+		triangles = job.triangles,
+		micromap = micromap,
+	}
 end
 
 local function release_retired()
@@ -401,6 +423,9 @@ local function release_retired()
 		if item.frame <= frame - delay then
 			item.data:Remove()
 			item.triangles:Remove()
+
+			if item.micromap then item.micromap:Remove() end
+
 			table.remove(retiring, i)
 		end
 	end
@@ -437,9 +462,9 @@ function opacity_micromaps.Build(cmd)
 		local record = waiting[i]
 		local state = record.omm
 
-		if state and not state.micromap then
+		if state and (not state.micromap or state.stale) then
 			if
-				is_texture_final(state.texture) and
+				is_texture_settled(state.texture) and
 				#jobs < BATCH_JOBS and
 				(
 					jobs[1] == nil or
@@ -476,6 +501,9 @@ function opacity_micromaps.Build(cmd)
 		local words = record.triangle_count * 4 ^ level / 16
 		local usage = Micromap.GetUsage(record.triangle_count, level, Micromap.FORMAT_4_STATE)
 		local size, build_scratch = Micromap.QueryBuildSize(device, usage)
+		state.previous = state.micromap
+		state.stale = nil
+		state.drop = get_drop(state.texture)
 		state.usage = usage
 		state.data = render.CreateBuffer{
 			byte_size = words * 4,
@@ -537,7 +565,8 @@ function opacity_micromaps.Build(cmd)
 			tonumber(state.data:GetDeviceAddress()),
 			tonumber(state.triangles:GetDeviceAddress())
 		)
-		retire_buffers(state)
+		retire_buffers(state, state.previous)
+		state.previous = nil
 		state.data = nil
 		state.triangles = nil
 		meshes.RebuildBLAS(record)
