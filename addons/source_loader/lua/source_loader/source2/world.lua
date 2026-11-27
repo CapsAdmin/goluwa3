@@ -218,26 +218,12 @@ function world.Translate(name, sky_path)
 	local world_data = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/world.vwrld_c"))
 	local object_count = 0
 	local lowest = math.huge
-	local mins, maxs = {math.huge, math.huge, math.huge}, {-math.huge, -math.huge, -math.huge}
 
 	for _, node in ipairs(world_data.m_worldNodes) do
 		lowest = math.min(lowest, node.m_vMinBounds[3])
-
-		for i = 1, 3 do
-			mins[i] = math.min(mins[i], node.m_vMinBounds[i])
-			maxs[i] = math.max(maxs[i], node.m_vMaxBounds[i])
-		end
 	end
 
 	atmosphere.OceanLevel = lowest * units.meters - 2
-	local clip_bounds = {
-		-maxs[2] * units.meters,
-		mins[3] * units.meters,
-		-maxs[1] * units.meters,
-		-mins[2] * units.meters,
-		maxs[3] * units.meters,
-		-mins[1] * units.meters,
-	}
 
 	for _, node in ipairs(world_data.m_worldNodes) do
 		local prefix = normalize_path(node.m_worldNodePrefix)
@@ -536,10 +522,7 @@ function world.Translate(name, sky_path)
 						properties = {Name = "sky object"},
 						components = {
 							transform = {Position = position, Rotation = rotation, Size = size * scale},
-							visual = {
-								ModelPath = normalize_path(object.m_renderableModel) .. "_c",
-								ClipBounds = clip_bounds,
-							},
+							visual = {ModelPath = normalize_path(object.m_renderableModel) .. "_c"},
 						},
 					}
 				end
