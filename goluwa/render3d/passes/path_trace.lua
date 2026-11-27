@@ -127,6 +127,7 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				vec3 transmission_color;
 				float transmission_scattering;
 				float transmission_chance;
+				vec3 medium_extinction;
 			};
 
 			void pt_prepare(inout pt_vertex v) {
@@ -148,6 +149,23 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 			vec3 pt_origin(pt_vertex v, vec3 L) {
 				return dot(L, v.Ng) < 0.0 ? v.P_back : pt_offset(v.P, v.Ng);
+			}
+
+			// light carried through a medium body leaves at its far side, the same exit the lighting takes
+			bool pt_leave(pt_vertex v, vec3 L, out vec3 origin, out vec3 tint) {
+				tint = vec3(1.0);
+				origin = pt_origin(v, L);
+
+				if (dot(L, v.Ng) >= 0.0 || v.medium_extinction == vec3(0.0)) return true;
+
+				bool walled;
+				float path = get_medium_exit(v.P_back, L, walled);
+
+				if (walled) return false;
+
+				origin = v.P + L * (path + 0.02);
+				tint = optical_transmittance(v.medium_extinction, path);
+				return true;
 			}
 
 			vec3 pt_bsdf(pt_vertex v, vec3 L, out float pdf) {
@@ -261,9 +279,12 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 						if (bsdf_pdf <= 0.0) continue;
 
 						vec3 contribution = f * abs(dot(v.N, L)) * pt_sun_irradiance(light, v.P);
-						vec3 origin = pt_origin(v, L);
+						vec3 origin;
+						vec3 tint;
 
-						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !ray_shadow_visible(origin, L, lighting_data.hit_max_distance, 0u, false)) continue;
+						if (max(max(contribution.r, contribution.g), contribution.b) <= 0.0 || !pt_leave(v, L, origin, tint) || !ray_shadow_visible(origin, L, lighting_data.hit_max_distance, 0u, false)) continue;
+
+						contribution *= tint;
 
 						if (lighting_data.light_transmittance != 0) contribution *= get_light_transmittance(origin, L, OPTICAL_SUN_DISTANCE, 0.0, false, lighting_data.pt_caustics != 0);
 
@@ -307,7 +328,12 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 
 				float pick = picked_weight / light_total;
 				vec3 contribution = f * abs(dot(v.N, L)) * light.color.rgb * light.color.a * picked_attenuation / pick;
-				vec3 origin = pt_origin(v, L);
+				vec3 origin;
+				vec3 tint;
+
+				if (!pt_leave(v, L, origin, tint)) return radiance;
+
+				contribution *= tint;
 				float dist;
 
 				if (get_light_type(light) == 2) {
@@ -570,7 +596,9 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				emission = ray_hit_emission(tri, albedo, P, instance, primitive, dir);
 				albedo = ray_medium_albedo(material, albedo);
 				metallic = clamp(metallic, 0.0, 1.0);
-				v.transmission = material.transmission;
+				bool medium_body = ray_material_has_medium(material) && material.medium_transmission > 0.0;
+				v.transmission = medium_body ? material.medium_transmission : material.transmission;
+				v.medium_extinction = medium_body ? material.medium_extinction : vec3(0.0);
 
 				if (material.transmission_tex >= 0) v.transmission *= luminance(textureLod(TEXTURE(material.transmission_tex), coord, 0.0).rgb);
 
@@ -622,7 +650,12 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 						throughput /= survive;
 					}
 
-					vec3 origin = pt_origin(v, L);
+					vec3 origin;
+					vec3 tint;
+
+					if (!pt_leave(v, L, origin, tint)) break;
+
+					throughput *= tint;
 					vec3 dir = L;
 					bool through_glass = false;
 					bool through_water = false;
@@ -751,7 +784,8 @@ local GLSL = render3d.GetEmissiveGLSL() .. glsl_common.GetHashGLSL() .. compute_
 				primary.metallic = surface.metallic;
 				primary.dielectric_f0 = 0.04 * surface.specular;
 				primary.diffuse_roughness = surface.diffuse_roughness;
-				primary.transmission = surface.transmission;
+				primary.transmission = surface.medium_transmission > 0.0 ? surface.medium_transmission : surface.transmission;
+				primary.medium_extinction = surface.medium_transmission > 0.0 ? surface.medium_extinction : vec3(0.0);
 				primary.transmission_color = surface.transmission_color;
 				primary.transmission_scattering = surface.transmission_scattering;
 				pt_prepare(primary);

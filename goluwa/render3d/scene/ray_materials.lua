@@ -363,6 +363,7 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 			float transmission_scattering;
 			float specular;
 			float diffuse_roughness;
+			float medium_transmission;
 			};
 
 		]] .. OPTICAL_VOLUME_STRUCT_GLSL .. [[
@@ -768,6 +769,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	float transmission_scattering;
 	float specular;
 	float diffuse_roughness;
+	float medium_transmission;
 	}]])
 ray_materials.MaterialEntry = MaterialEntry
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -1224,6 +1226,7 @@ do
 					1 or
 					0
 				entry.transmission = medium_slot > 0 and 0 or material:GetDiffuseTransmission()
+				entry.medium_transmission = medium_slot > 0 and material:GetDiffuseTransmission() or 0
 				local transmission_texture = material:GetTransmissionTexture()
 				entry.transmission_tex = transmission_texture and
 					transmission_texture:IsValid() and
