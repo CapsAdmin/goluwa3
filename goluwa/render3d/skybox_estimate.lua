@@ -2,6 +2,8 @@ local ffi = require("ffi")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
+local weather = import("goluwa/render3d/weather.lua")
 local skybox_estimate = {}
 local WIDTH = 96
 local HEIGHT = 24
@@ -11,6 +13,7 @@ local CLOUD_RESIDUAL_MIN = 0.1
 local LUMINANCE_WEIGHT = 0.25
 local SUN_VISIBLE_PEAK = 10
 local SUN_VISIBLE_RANGE = 6
+local REFERENCE_SHARE = 0.4
 local ELEVATION_MIN = -6
 local ELEVATION_STEP = 2
 local ELEVATION_COUNT = 44
@@ -193,20 +196,41 @@ local function fit(samples, sky, clear)
 	return math.sqrt(error / weight_sum), offset, residuals
 end
 
-function skybox_estimate.Estimate(cube)
+-- sun_direction, when known (a map's sun), replaces the painted sun found in the skybox
+function skybox_estimate.Estimate(cube, sun_direction)
 	local samples = sample_skybox(cube, 2)
 	local sun_dir, sun_peak = find_sun(samples)
+	sun_dir = sun_direction or sun_dir
 	local sun_azimuth = math.atan2(sun_dir.x, sun_dir.z)
 	local sun_elevation = math.deg(math.asin(sun_dir.y))
-	local sun_visible = sun_peak >= SUN_VISIBLE_PEAK
+	local sun_visible = sun_direction ~= nil or sun_peak >= SUN_VISIBLE_PEAK
 	local clear = {}
 	local usable = {}
 	local usable_weight = 0
+	local blueness = {}
 
 	for i, sample in ipairs(samples) do
 		usable[i] = math.acos(math.clamp(sample.dir:GetDot(sun_dir), -1, 1)) > SUN_EXCLUSION
-		clear[i] = usable[i]
 		usable_weight = usable_weight + (usable[i] and sample.weight or 0)
+
+		if usable[i] then
+			blueness[#blueness + 1] = samples.log_rgb[(i - 1) * 3 + 2] - samples.log_rgb[(i - 1) * 3]
+		end
+	end
+
+	-- the clear sky is fitted to the bluest part of the sky, so clouds and grey grading are not explained as haze
+	table.sort(blueness)
+	local blueness_threshold = blueness[math.max(math.floor(#blueness * (1 - REFERENCE_SHARE)), 1)]
+	local reference = {}
+
+	for i in ipairs(samples) do
+		reference[i] = usable[i] and
+			samples.log_rgb[(
+				i - 1
+			) * 3 + 2] - samples.log_rgb[(
+				i - 1
+			) * 3] >= blueness_threshold
+		clear[i] = reference[i]
 	end
 
 	local target = Texture.New{
@@ -265,14 +289,16 @@ function skybox_estimate.Estimate(cube)
 		local threshold = math.max(sorted[math.ceil(#sorted / 2)] * CLOUD_RESIDUAL_SCALE, CLOUD_RESIDUAL_MIN)
 
 		for i in ipairs(samples) do
-			clear[i] = usable[i] and best.residuals[i] < threshold
+			clear[i] = reference[i] and best.residuals[i] < threshold
 		end
+
+		best.threshold = threshold
 	end
 
 	local cloud_weight = 0
 
 	for i, sample in ipairs(samples) do
-		if usable[i] and not clear[i] then
+		if usable[i] and best.residuals[i] >= best.threshold then
 			cloud_weight = cloud_weight + sample.weight
 		end
 	end
@@ -284,6 +310,11 @@ function skybox_estimate.Estimate(cube)
 		sun_azimuth = math.deg(sun_azimuth) % 360,
 		sun_peak = sun_peak,
 		fitted_elevation = best.candidate.elevation,
+		fitted_sun_direction = Vec3(
+			math.cos(math.rad(best.candidate.elevation)) * math.sin(sun_azimuth),
+			math.sin(math.rad(best.candidate.elevation)),
+			math.cos(math.rad(best.candidate.elevation)) * math.cos(sun_azimuth)
+		),
 		aerosol_visibility = best.candidate.visibility,
 		intensity = math.exp(-best.offset),
 		error = best.error,
@@ -292,6 +323,173 @@ function skybox_estimate.Estimate(cube)
 		clear = clear,
 		usable = usable,
 	}
+end
+
+do
+	-- clouds have texture and clear sky, painted or not, is smooth: the cloud measure is the log luminance difference
+	-- between a fine and a coarse mip, averaged over a ring of nearby directions
+	local MASK_GLSL = [[
+		float get_skybox_luminance(vec3 dir, float lod) {
+			vec2 yaw = skybox_mask.yaw;
+			vec3 d = vec3(dir.x * yaw.x - dir.z * yaw.y, dir.y, dir.x * yaw.y + dir.z * yaw.x);
+			return log(max(dot(textureLod(CUBEMAP(skybox_mask.cube_index), vec3(-d.z, -d.x, d.y), lod).rgb, vec3(0.2126, 0.7152, 0.0722)), 1e-9));
+		}
+
+		float get_detail(vec3 dir) {
+			return abs(get_skybox_luminance(dir, skybox_mask.lods.x) - get_skybox_luminance(dir, skybox_mask.lods.y));
+		}
+
+		vec4 shade(vec2 uv, vec3 _cube_dir) {
+			vec3 dir = normalize(vec3((uv.x - 0.5) * skybox_mask.size, skybox_mask.height, (uv.y - 0.5) * skybox_mask.size));
+			vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+			vec3 bitangent = cross(dir, tangent);
+			float detail = get_detail(dir);
+
+			for (int i = 0; i < 8; i++) {
+				float angle = float(i) * 0.78539816;
+				detail += get_detail(normalize(dir + (tangent * cos(angle) + bitangent * sin(angle)) * skybox_mask.ring));
+			}
+
+			float cloud = smoothstep(skybox_mask.detail.x, skybox_mask.detail.y, detail / 9.0);
+			float elevation = degrees(asin(dir.y));
+			float sun = degrees(acos(clamp(dot(dir, skybox_mask.sun_direction), -1.0, 1.0)));
+			float trust = smoothstep(skybox_mask.min_elevation, skybox_mask.min_elevation + 5.0, elevation) * smoothstep(skybox_mask.sun_exclusion, skybox_mask.sun_exclusion * 2.0, sun);
+			return vec4(mix(skybox_mask.fallback, cloud, trust), trust, cloud, 1.0);
+		}
+	]]
+	local Constants = ffi.typeof([[struct {
+		float sun_direction[3];
+		float size;
+		float yaw[2];
+		float detail[2];
+		float lods[2];
+		float ring;
+		float height;
+		float min_elevation;
+		float sun_exclusion;
+		float fallback;
+		int cube_index;
+	}]])
+	local DECLARATIONS = [[
+		layout(push_constant, scalar) uniform SkyboxMaskConstants {
+			vec3 sun_direction;
+			float size;
+			vec2 yaw;
+			vec2 detail;
+			vec2 lods;
+			float ring;
+			float height;
+			float min_elevation;
+			float sun_exclusion;
+			float fallback;
+			int cube_index;
+		} skybox_mask;
+	]]
+	local RESOLUTION = 256
+	local MIN_ELEVATION = 5
+	local DETAIL = {0.015, 0.06}
+	-- the fine and coarse scales compared, as the angle one texel spans
+	local DETAIL_SCALES = {math.rad(0.18), math.rad(5.6)}
+	local RING = math.rad(3)
+
+	-- coverage (r), how much of it the skybox decides (g) and the raw cloud measure (b) on a square of size meters around
+	-- the origin, for a cloud base height meters up; where the skybox cannot decide it falls back to the mean coverage
+	function skybox_estimate.BuildCoverageMap(cube, sun_direction, height)
+		local size = 2 * height / math.tan(math.rad(MIN_ELEVATION))
+		local face_texels = cube:GetWidth()
+		local lods = {}
+
+		for i, angle in ipairs(DETAIL_SCALES) do
+			lods[i] = math.max(math.log(face_texels * angle / (math.pi / 2)) / math.log(2), 0)
+		end
+
+		local map = Texture.New{
+			width = RESOLUTION,
+			height = RESOLUTION,
+			format = "r16g16b16a16_sfloat",
+			mip_map_levels = 1,
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+		local fallback = 0
+
+		local function shade_mask()
+			map:Shade(
+				MASK_GLSL,
+				{
+					textures = {cube},
+					custom_declarations = DECLARATIONS,
+					fragment_push_constants = {
+						size = ffi.sizeof(Constants),
+						get_data = function(_, _, pipeline)
+							local yaw = atmosphere.GetSkyboxYaw()
+							return Constants(
+								{sun_direction.x, sun_direction.y, sun_direction.z},
+								size,
+								{math.cos(yaw), math.sin(yaw)},
+								DETAIL,
+								lods,
+								RING,
+								height,
+								MIN_ELEVATION,
+								math.deg(SUN_EXCLUSION),
+								fallback,
+								pipeline:GetCubeMapTextureIndex(cube)
+							)
+						end,
+					},
+				}
+			)
+		end
+
+		shade_mask()
+		local pixels = map:Download():Resolve()
+		local covered, weight = 0, 0
+
+		for y = 0, RESOLUTION - 1 do
+			for x = 0, RESOLUTION - 1 do
+				local _, trust, cloud = pixels:GetPixelFloat(x, y)
+				local px, pz = ((x + 0.5) / RESOLUTION - 0.5) * size, ((y + 0.5) / RESOLUTION - 0.5) * size
+				local solid_angle = height / (px * px + pz * pz + height * height) ^ 1.5
+				covered = covered + cloud * trust * solid_angle
+				weight = weight + trust * solid_angle
+			end
+		end
+
+		fallback = covered / weight
+		shade_mask()
+		return map, size, fallback
+	end
+end
+
+-- engine clouds laid out like the skybox's: one layer reading the coverage map, replacing the cloud layers
+function skybox_estimate.ApplyClouds(cube, sun_direction, height, thickness)
+	local map, size, fraction = skybox_estimate.BuildCoverageMap(cube, sun_direction, height)
+	skybox_estimate.ClearClouds()
+	skybox_estimate.cloud_map = map
+	clouds.SetCoverageMap(map, -size / 2, -size / 2, size)
+	weather.SetCloudLayers{
+		{
+			name = "skybox",
+			bottom = height,
+			thickness = thickness,
+			coverage = fraction,
+			map_channel = 1,
+		},
+	}
+	return fraction
+end
+
+function skybox_estimate.ClearClouds()
+	if not skybox_estimate.cloud_map then return end
+
+	clouds.SetCoverageMap(nil)
+	skybox_estimate.cloud_map:Remove()
+	skybox_estimate.cloud_map = nil
 end
 
 return skybox_estimate

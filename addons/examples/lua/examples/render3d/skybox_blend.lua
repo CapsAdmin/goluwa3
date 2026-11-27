@@ -15,6 +15,8 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local skybox_estimate = import("goluwa/render3d/skybox_estimate.lua")
+local clouds = import("goluwa/render3d/clouds.lua")
+local timer = import("goluwa/timer.lua")
 local DEFAULT_SKYBOX = "materials/skybox/colorscript/a3_hotel_street.vmat"
 steam.MountSourceGame(assert(steam.FindSourceGame(546560), "half-life: alyx is not installed"))
 local skyboxes = {}
@@ -42,6 +44,7 @@ do
 	end
 
 	walk("materials/skybox/")
+
 	table.sort(skyboxes, |a, b|-> a.Text < b.Text)
 end
 
@@ -50,6 +53,8 @@ local state = {
 	intensity = atmosphere.GetSkyboxIntensity(),
 	sun_elevation = 40.494648,
 	sun_azimuth = 348.145752,
+	cloud_height = 1500,
+	cloud_thickness = 1200,
 }
 
 local function select_skybox(path)
@@ -57,6 +62,7 @@ local function select_skybox(path)
 		if entry.Value == path then
 			state.skybox = path
 			state.exposure = entry.exposure
+			state.estimate = nil
 			atmosphere.SetSkybox(entry.texture)
 			atmosphere.SetSkyboxIntensity(state.intensity * entry.exposure)
 			return
@@ -83,20 +89,52 @@ local function estimate()
 	if not cube:IsReady() then return "the skybox is still loading" end
 
 	local result = skybox_estimate.Estimate(cube)
+	state.estimate = result
 	state.sun_elevation = result.fitted_elevation
 	state.sun_azimuth = result.sun_azimuth
 	update_sun()
 	weather.SetAerosolVisibility(result.aerosol_visibility)
 	set_intensity(result.intensity / state.exposure)
 	return string.format(
-		"painted sun %.0f° up%s, fitted %d°, visibility %.0f km, error %.2f, clouds %.0f%%",
+		"painted sun %.0f° up%s, fitted %d°, visibility %.0f km, error %.2f",
 		result.sun_elevation,
 		result.sun_visible and "" or " (not visible)",
 		result.fitted_elevation,
 		result.aerosol_visibility / 1000,
-		result.error,
-		result.cloud_fraction * 100
+		result.error
 	)
+end
+
+local function build_clouds()
+	local cube = atmosphere.skybox_texture
+
+	if not cube:IsReady() then return timer.Delay(0.1, build_clouds) end
+
+	local sun = (state.estimate or skybox_estimate.Estimate(cube)).sun_direction
+	skybox_estimate.ApplyClouds(cube, sun, state.cloud_height, state.cloud_thickness)
+end
+
+local function set_clouds(enabled)
+	if enabled then
+		local layers = {}
+
+		for i, layer in ipairs(weather.GetCloudLayers()) do
+			layers[i] = {}
+
+			for key in pairs(clouds.LAYER_DEFAULTS) do
+				layers[i][key] = layer[key]
+			end
+		end
+
+		state.clouds_restore = {blend = atmosphere.GetSkyboxBlend(), layers = layers}
+		atmosphere.SetSkyboxBlend(0)
+		build_clouds()
+	else
+		atmosphere.SetSkyboxBlend(state.clouds_restore.blend)
+		skybox_estimate.ClearClouds()
+		weather.SetCloudLayers(state.clouds_restore.layers)
+		state.clouds_restore = nil
+	end
 end
 
 local function set_as_is(enabled)
@@ -169,6 +207,7 @@ local SkyboxContent = react.Component(
 	||-> do
 		local as_is, set_as_is_state = react.UseState(state.restore ~= nil)
 		local report, set_report = react.UseState("")
+		local clouds_on, set_clouds_on = react.UseState(state.clouds_restore ~= nil)
 		local estimates, set_estimates = react.UseState(0)
 		return ui.Column{Padding = "M", layout = {GrowWidth = 1, ChildGap = 8, AlignmentX = "stretch"}}{
 		ui.Dropdown{
@@ -176,7 +215,11 @@ local SkyboxContent = react.Component(
 			Value = state.skybox,
 			Searchable = true,
 			layout = {GrowWidth = 1},
-			OnSelect = |value| -> select_skybox(value),
+			OnSelect = |value| -> do
+				select_skybox(value)
+
+				if state.clouds_restore then build_clouds() end
+			end,
 		},
 		ui.Button{
 			Text = "Estimate atmosphere from the skybox",
@@ -188,6 +231,38 @@ local SkyboxContent = react.Component(
 		},
 		ui.Text{Text = report, IgnoreMouseInput = true},
 		ui.Checkbox{
+			Text = "clouds from the skybox (engine clouds, blend 0)",
+			Value = clouds_on,
+			OnChange = |checked| -> do
+				set_clouds(checked)
+				set_clouds_on(checked)
+			end,
+		},
+		Knob{
+			Label = "cloud base height (m)",
+			Format = "%s: %.0f",
+			Min = 300,
+			Max = 6000,
+			Value = state.cloud_height,
+			OnChange = |v| -> do
+				state.cloud_height = v
+
+				if state.clouds_restore then build_clouds() end
+			end,
+		},
+		Knob{
+			Label = "cloud thickness (m)",
+			Format = "%s: %.0f",
+			Min = 100,
+			Max = 4000,
+			Value = state.cloud_thickness,
+			OnChange = |v| -> do
+				state.cloud_thickness = v
+
+				if state.clouds_restore then build_clouds() end
+			end,
+		},
+		ui.Checkbox{
 			Text = "show the skybox as is (blend 1, match 0, no fog pass)",
 			Value = as_is,
 			OnChange = |checked| -> do
@@ -196,7 +271,7 @@ local SkyboxContent = react.Component(
 			end,
 		},
 		Knob{
-			Key = "blend" .. tostring(as_is),
+			Key = "blend" .. tostring(as_is) .. tostring(clouds_on),
 			Label = "blend",
 			Min = 0,
 			Max = 1,
@@ -285,7 +360,7 @@ local SkyboxWindow = react.Component(
 		Title = "SKYBOX BLEND",
 		Pinnable = true,
 		Padding = "none",
-		Size = Vec2(380, 760),
+		Size = Vec2(380, 880),
 		Position = Vec2(16, 104),
 	}{SkyboxContent{}}
 )
