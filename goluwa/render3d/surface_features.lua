@@ -247,6 +247,7 @@ function surface_features.New(source_list)
 			vec3 V;
 			vec3 N;
 			vec3 geometric_N;
+			vec3 vertex_N;
 			]] .. join("surface_members") .. [[
 		};
 

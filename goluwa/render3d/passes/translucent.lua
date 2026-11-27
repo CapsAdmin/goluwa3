@@ -653,6 +653,7 @@ local passes = {
 					vec3 direct_specular;
 					Surface surface;
 					surface.geometric_N = geometric_N;
+					surface.vertex_N = geometric_N;
 					init_surface_features(surface, in_uv);
 					surface.F0 = F0;
 					surface.NdotV = NdotV;

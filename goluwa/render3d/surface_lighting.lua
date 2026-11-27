@@ -225,7 +225,7 @@ local function light_limit_glsl(block_name, light_limit)
 
 					if (!get_light_vector_and_attenuation(light, s.world_pos, L, attenuation)) continue;
 
-					if (dot(s.N, L) <= 0.0 && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
+					if ((dot(s.N, L) <= 0.0 || dot(s.vertex_N, L) <= 0.0) && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
 
 					vec3 radiance = light.color.rgb * light.color.a * attenuation;
 					float weight = max(max(radiance.r, radiance.g), radiance.b);
@@ -494,7 +494,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 		}
 
 		#if SURFACE_RAY_SHADOWS
-		vec4 trace_ray_shadows(vec3 P, vec3 N, vec3 geometric_N, bool lit_from_behind) {
+		vec4 trace_ray_shadows(vec3 P, vec3 N, vec3 geometric_N, vec3 vertex_N, bool lit_from_behind) {
 			vec4 sums = vec4(0.0);
 			int light_cell = light_grid_cell(P);
 
@@ -513,7 +513,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 
 					float NoL = dot(N, L);
 
-					if (NoL <= 0.0 && !lit_from_behind) continue;
+					if ((NoL <= 0.0 || dot(vertex_N, L) <= 0.0) && !lit_from_behind) continue;
 
 					vec3 radiance = light.color.rgb * light.color.a * attenuation;
 					float weight = max(max(radiance.r, radiance.g), radiance.b) * max(abs(NoL), 0.05);
@@ -571,7 +571,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 
 				if (brightest * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 
-				if (dot(s.N, L) <= 0.0 && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
+				if ((dot(s.N, L) <= 0.0 || dot(s.vertex_N, L) <= 0.0) && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
 				float scatter_floor = 0.0;
 				]] .. surface_features.GetDirectFloorGLSL() .. [[
 				// a facet that faces away from the light while its smooth shading normal does not would shadow itself in a hard step along the facets, so its test starts toward the light and the shading ends the light at the terminator

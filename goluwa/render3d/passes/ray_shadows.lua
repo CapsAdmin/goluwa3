@@ -223,7 +223,7 @@ local passes = {
 				vec3 P = get_world_pos((vec2(pos) + 0.5) / vec2(size), depth);
 				vec3 V = normalize(lighting_data.camera_position.xyz - P);
 				vec3 N = bend_normal_to_view(gbuffer_normal(pos), V);
-				imageStore(out_raw, pos, trace_ray_shadows(P, N, get_geometric_normal(pos, P, depth, V), gbuffer_is_lit_from_behind(pos)));
+				imageStore(out_raw, pos, trace_ray_shadows(P, N, get_geometric_normal(pos, P, depth, V), normalize(gbuffer_geometric_normal(pos)), gbuffer_is_lit_from_behind(pos)));
 			}
 		]],
 	},

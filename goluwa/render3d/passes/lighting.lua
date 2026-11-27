@@ -363,6 +363,7 @@ return {
 				surface.V = V;
 				surface.N = N;
 				surface.geometric_N = get_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0))), world_pos, depth, V);
+				surface.vertex_N = normalize(gbuffer_geometric_normal(ivec2(in_uv * vec2(textureSize(TEXTURE(lighting_data.depth_tex), 0)))));
 				decode_surface_features(surface, in_uv, size);
 				finish_surface_features(surface);
 				vec3 direct_specular;
