@@ -1,8 +1,16 @@
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local light_grid = {}
 import.loaded["goluwa/render3d/light_grid.lua"] = light_grid
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
+pvars.StartGroup("Rendering", "Lights", {store = false})
+local cull_luminance = pvars.Setup2{
+	key = "r_light_grid_cull_luminance",
+	default = 0.001,
+	help = "a light is left out of a light grid cell when it cannot light a white surface in the cell brighter than this, in exposed luminance (18% grey is 0.18), so lights far below the current exposure cost nothing; 0 keeps every light within its range",
+}
+pvars.EndGroup()
 light_grid.LEVELS = 4
 light_grid.DIM = 32
 light_grid.CELL_SIZE = 2
@@ -122,9 +130,14 @@ light_grid.pass = {
 				{"light_count", "int"},
 				{"words", "int"},
 				{"levels", "vec4", light_grid.LEVELS},
+				{"cull_luminance", "float"},
+				{"exposure_tex", "int"},
 			},
 			write = function(self, block)
 				local lights = render3d.GetLights()
+				local exposure = import("goluwa/render3d/post_source.lua").GetExposureTexture(true)
+				block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
+				block.cull_luminance = cull_luminance:Get()
 				block.lights = scene_lights.GetAddress(lights)
 				block.light_count = #lights
 				block.words = light_grid.words
@@ -174,6 +187,9 @@ light_grid.pass = {
 		shared vec4 group_position[LIGHT_GRID_GROUP];
 		shared vec4 group_direction[LIGHT_GRID_GROUP];
 		shared vec4 group_params[LIGHT_GRID_GROUP];
+		shared vec4 group_falloff[LIGHT_GRID_GROUP];
+		shared float group_power[LIGHT_GRID_GROUP];
+		float cull_illuminance;
 
 		bool light_grid_reaches(int i, vec3 box_min, vec3 box_max, float radius) {
 			vec4 position = group_position[i];
@@ -185,6 +201,11 @@ light_grid.pass = {
 			vec3 d = position.xyz - clamp(position.xyz, box_min, box_max);
 
 			if (dot(d, d) >= range * range) return false;
+
+			vec4 falloff = group_falloff[i];
+			float nearest = length(d);
+
+			if (group_power[i] < cull_illuminance * max(falloff.x + nearest * (falloff.y + nearest * falloff.z), 0.0025)) return false;
 
 			if (type == 1) return true;
 
@@ -215,6 +236,8 @@ light_grid.pass = {
 			vec3 box_max = box_min + level.w;
 			float radius = level.w * 0.86602540378;
 			int cell = ((l * LIGHT_GRID_DIM + c.z) * LIGHT_GRID_DIM + c.y) * LIGHT_GRID_DIM + c.x;
+			float exposure = light_grid_data.exposure_tex == -1 ? 0.0 : texture(TEXTURE(light_grid_data.exposure_tex), vec2(0.5)).r;
+			cull_illuminance = exposure > 0.0 ? light_grid_data.cull_luminance * 3.14159265359 / exposure : 0.0;
 			bool far = id == ivec3(0);
 			vec4 outer = light_grid_data.levels[LIGHT_GRID_LEVELS - 1];
 			vec3 outer_min = outer.xyz;
@@ -237,6 +260,8 @@ light_grid.pass = {
 					group_position[local_index] = light.position;
 					group_direction[local_index] = light.direction;
 					group_params[local_index] = light.params;
+					group_falloff[local_index] = light.falloff;
+					group_power[local_index] = light.color.a * light.params.w;
 				}
 
 				barrier();
