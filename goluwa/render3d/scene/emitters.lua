@@ -27,7 +27,7 @@ local additive = pvars.Setup2{
 }
 pvars.EndGroup()
 emitters.DOUBLE_SIDED = 0x80000000
-local HEADER_WORDS = 4
+local HEADER_WORDS = 6
 local EMITTER_WORDS = 4
 local NODE_WORDS = 12
 local LOCAL_SIZE = 256
@@ -56,6 +56,7 @@ function emitters.Get(include_additive)
 	local sources = {}
 	local count = 0
 	local total = 0
+	local instance_span = 0
 	local untraced = false
 
 	for visual in pairs(bridge.GetEmissiveVisuals()) do
@@ -89,6 +90,7 @@ function emitters.Get(include_additive)
 						luminance = luminance,
 					}
 					total = total + sources[count].triangle_count
+					instance_span = math.max(instance_span, item.id + 1)
 				end
 			end
 		end
@@ -96,6 +98,7 @@ function emitters.Get(include_additive)
 
 	list.source_count = count
 	list.count = total
+	list.instance_span = instance_span
 	list.additive = include_additive
 	list.version = not untraced and bridge.emitter_version or nil
 	list.generation = Material.emission_generation
@@ -112,6 +115,8 @@ do
 		leaf_count = 0,
 		node_base = 0,
 		key_base = 0,
+		instance_base = 0,
+		instance_span = 0,
 		level = 0,
 		sort_k = 0,
 		sort_j = 0,
@@ -237,6 +242,8 @@ do
 					{"leaf_count", "int"},
 					{"node_base", "int"},
 					{"key_base", "int"},
+					{"instance_base", "int"},
+					{"instance_span", "int"},
 					{"level", "int"},
 					{"sort_k", "int"},
 					{"sort_j", "int"},
@@ -338,6 +345,18 @@ do
 				}
 			]]
 			),
+			instances = create(
+				"scene_emitter_instances",
+				[[
+				void main() {
+					uint s = gl_GlobalInvocationID.x;
+
+					if (s >= uint(compute.source_count)) return;
+
+					words[uint(compute.instance_base) + sources[s].instance] = sources[s].first + 1u;
+				}
+			]]
+			),
 			leaves = create(
 				"scene_emitter_leaves",
 				[[
@@ -348,6 +367,8 @@ do
 						words[1] = uint(compute.triangle_count);
 						words[2] = uint(compute.leaf_count);
 						words[3] = uint(compute.node_base);
+						words[4] = uint(compute.instance_base);
+						words[5] = uint(compute.instance_span);
 					}
 
 					if (j >= uint(compute.leaf_count)) return;
@@ -374,7 +395,7 @@ do
 					uint at = EMITTER_HEADER + t * 4u;
 					words[at] = source.instance;
 					words[at + 1u] = (t - source.first) | source.flags;
-					words[at + 2u] = 0u;
+					words[at + 2u] = node;
 					words[at + 3u] = floatBitsToUint(power);
 					vec3 a = tri.v0 + tri.e1;
 					vec3 b = tri.v0 + tri.e2;
@@ -527,14 +548,15 @@ do
 
 		local node_base = HEADER_WORDS + count * EMITTER_WORDS
 		local key_base = node_base + 2 * leaf_count * NODE_WORDS
-		local needed = (key_base + 2 * leaf_count + 6) * 4
+		local instance_base = key_base + 2 * leaf_count + 6
+		local needed = (instance_base + emitter_list.instance_span) * 4
 
 		if not words_buffer or words_buffer:GetSize() < needed then
 			if words_buffer then words_buffer:Remove() end
 
 			words_buffer = render.CreateBuffer{
 				byte_size = math.ceil(needed * 1.5),
-				buffer_usage = {"storage_buffer", "transfer_src"},
+				buffer_usage = {"storage_buffer", "transfer_src", "transfer_dst"},
 				memory_property = {"device_local"},
 				label = "scene_emitters",
 			}
@@ -569,6 +591,8 @@ do
 		constants.leaf_count = leaf_count
 		constants.node_base = node_base
 		constants.key_base = key_base
+		constants.instance_base = instance_base
+		constants.instance_span = emitter_list.instance_span
 		local slot = (
 				(
 					render.GetCurrentFrame() or
@@ -592,6 +616,9 @@ do
 		if sorted_version ~= emitter_list.sources_version or sorted_buffer ~= words_buffer then
 			sorted_version = emitter_list.sources_version
 			sorted_buffer = words_buffer
+			cmd:FillBuffer(words_buffer, instance_base * 4, emitter_list.instance_span * 4, 0)
+			cmd:PipelineBarrier{srcStage = "transfer", dstStage = "compute", memoryBarrier = true}
+			dispatch(cmd, slot, buffers, "instances", emitter_list.source_count)
 			dispatch(cmd, slot, buffers, "bounds", 1)
 			dispatch(cmd, slot, buffers, "centroids", count)
 			dispatch(cmd, slot, buffers, "keys", leaf_count)
@@ -633,7 +660,7 @@ do
 		if not words_buffer then
 			words_buffer = render.CreateBuffer{
 				byte_size = 4096,
-				buffer_usage = {"storage_buffer", "transfer_src"},
+				buffer_usage = {"storage_buffer", "transfer_src", "transfer_dst"},
 				memory_property = {"device_local"},
 				label = "scene_emitters",
 			}
@@ -837,6 +864,41 @@ function emitters.GetGLSL()
 			path *= chosen / total;
 			pdf = 0.5 * (path.x + path.y);
 			return int(emitter_words[emitter_words[3] + leaf * EMITTER_NODE_WORDS + 11u] & ~EMITTER_DOUBLE_SIDED);
+		}
+
+		// the emitter a traced triangle is, or -1
+		int emitter_of(uint instance, uint primitive) {
+			if (instance >= emitter_words[5] || (primitive & 0x80000000u) != 0u) return -1;
+
+			uint first = emitter_words[emitter_words[4] + instance];
+			return first == 0u ? -1 : int(first - 1u + primitive);
+		}
+
+		// the pdf emitter_tree_pick gives e, by its walk read from the leaf up
+		float emitter_tree_pdf(int e, vec3 origin, vec3 normal, float radius) {
+			uint span = min(uint(EMITTER_CLUSTER), emitter_words[2]);
+			uint leaf = emitter_words[EMITTER_HEADER + uint(e) * 4u + 2u];
+			uint node = leaf / span;
+			vec2 chosen = emitter_node_importance(leaf, origin, normal, radius);
+
+			if (!(chosen.x > 0.0)) return 0.0;
+
+			vec2 total = vec2(0.0);
+
+			for (uint i = 0u; i < span; i++) {
+				vec2 importance = emitter_node_importance(node * span + i, origin, normal, radius);
+
+				if (importance.x > 0.0) total += importance;
+			}
+
+			vec2 path = chosen / total;
+
+			for (; node > 1u; node >>= 1u) {
+				vec2 a = emitter_node_importance(node, origin, normal, radius);
+				path *= a / (a + emitter_node_importance(node ^ 1u, origin, normal, radius));
+			}
+
+			return 0.5 * (path.x + path.y);
 		}
 
 		bool emitter_candidates(uint index, uint frame, vec3 origin, vec3 normal, float radius, out int triangles[EMITTER_CANDIDATES], out float weights[EMITTER_CANDIDATES]) {

@@ -53,7 +53,7 @@ There is one screen GI, the `radiance` pass (per pixel ReSTIR final gather over 
 
 ### Emitters
 
-`goluwa/render3d/scene/emitters.lua` is shared by the probes, ReSTIR and the fog. Emissive surfaces reach GI only through emitter samples (rays alone give fireflies on small emitters). The emissive triangles form a light tree rebuilt on the GPU (`emitters.Build`: leaves and levels refit every frame, order rebuilt when the list changes); consumers draw candidates from it and `emitter_light` turns a pick into radiance over its pdf.
+`goluwa/render3d/scene/emitters.lua` is shared by the probes, ReSTIR and the fog. Emissive surfaces reach GI only through emitter samples (rays alone give fireflies on small emitters). The emissive triangles form a light tree rebuilt on the GPU (`emitters.Build`: leaves and levels refit every frame, order rebuilt when the list changes); consumers draw candidates from it and `emitter_light` turns a pick into radiance over its pdf. A traced hit finds its emitter with `emitter_of` (instance and primitive) and the tree's pdf of it with `emitter_tree_pdf`, the pick's walk read from the leaf up, so a hit found another way (a BSDF ray) can be weighed against the tree by MIS.
 
 - `emitter_random` is a low discrepancy sequence over frames: pass a stable index (slot, cell) and the frame, never a hash that includes the frame.
 - While emitters are sampled, rays must not also add the emission of what they hit, or it counts twice (`SCENE_HIT_EMISSION`). Reflections keep it.
