@@ -3,6 +3,7 @@ local vfs = import("goluwa/vfs.lua")
 local vdf = import("goluwa/codecs/vdf.lua")
 local timer = import("goluwa/timer.lua")
 local Texture = import("goluwa/render/texture.lua")
+local Color = import("goluwa/structs/color.lua")
 local sky = {}
 -- the face suffixes in the order of the faces get_face picks
 local FACES = {"rt", "lf", "bk", "ft", "up", "dn"}
@@ -36,6 +37,17 @@ local function read_face(base, face)
 	if not vfs.IsFile(path) then return nil end
 
 	local _, vmt = next(vdf.Decode(vfs.Read(path), "vmt"))
+
+	-- some skies are a flat $color instead of a texture
+	if not (vmt.hdrcompressedtexture or vmt.hdrbasetexture or vmt.basetexture) then
+		local r, g, b = vmt.color:match("(%d+)%s+(%d+)%s+(%d+)")
+		return {
+			texture = Texture.FromColor(Color(tonumber(r) / 255, tonumber(g) / 255, tonumber(b) / 255, 1)),
+			compressed = false,
+			scale = {1, 1},
+		}
+	end
+
 	local key = vmt.hdrcompressedtexture and
 		"hdrcompressedtexture" or
 		vmt.hdrbasetexture and
@@ -123,7 +135,19 @@ function sky.Load(name, on_ready)
 			if not texture:IsReady() then return timer.Delay(0.05, assemble) end
 		end
 
-		local size = faces[1].texture:GetWidth()
+		local size = 4
+		local loaded = {}
+
+		-- a face whose texture failed to load (the loader warns) is left black like a missing one
+		for i = 1, 6 do
+			if faces[i] and not faces[i].texture.format then faces[i] = nil end
+
+			if faces[i] then
+				size = math.max(size, faces[i].texture:GetWidth())
+				loaded[#loaded + 1] = faces[i].texture
+			end
+		end
+
 		local cube = Texture.New{
 			width = size,
 			height = size,
@@ -140,7 +164,7 @@ function sky.Load(name, on_ready)
 		cube:Shade(
 			ASSEMBLE_GLSL,
 			{
-				textures = textures,
+				textures = loaded,
 				custom_declarations = DECLARATIONS,
 				fragment_push_constants = {
 					size = ffi.sizeof(Constants),
