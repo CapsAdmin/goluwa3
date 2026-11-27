@@ -97,6 +97,7 @@ local OPTICAL_VOLUME_STRUCT_GLSL = [[
 			float softness;
 			float core_falloff;
 			float core_sphere;
+			float sun_scattering;
 			float abbe;
 			float foam;
 			float caustics;
@@ -274,7 +275,7 @@ function ray_materials.GetOpticalTintGLSL()
 					vec3 middle = origin + dir * (distance * (float(k) + 0.5) / 3.0);
 					vec3 sun_transmittance = optical_volume_tint(i, middle, sun_dir, 1.0e5, false, true, false);
 					vec3 sun_phase = medium_multiple_scattering(-log(max(sun_transmittance, vec3(1e-6))), mu, volume.g, 0.0, 0.0, 1.0 - dot(sun_transmittance, vec3(1.0 / 3.0)));
-					scattered += (ambient * ambient_visibility[k] + sun_radiance * sun_visibility[k] * sun_phase) * albedo * (previous - transmittance_end);
+					scattered += (ambient * ambient_visibility[k] + sun_radiance * sun_visibility[k] * volume.sun_scattering * sun_phase) * albedo * (previous - transmittance_end);
 					previous = transmittance_end;
 				}
 			}
@@ -777,7 +778,7 @@ local OpticalHeader = ffi.typeof(
 )
 local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
 local OpticalVolume = ffi.typeof(
-	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float molecular[3]; float wave; float surface_y; float falloff; float softness; float core_falloff; float core_sphere; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
+	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float molecular[3]; float wave; float surface_y; float falloff; float softness; float core_falloff; float core_sphere; float sun_scattering; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
 )
 local OpticalVolumePointer = ffi.typeof("$*", OpticalVolume)
 local OPTICAL_HEADER_SIZE = ffi.sizeof(OpticalHeader)
@@ -887,6 +888,7 @@ local function write_fog_record(volume, fluid_volume)
 	volume.falloff = fluid_volume:GetHeightFalloff()
 	volume.core_falloff = fluid_volume:GetCoreFalloff()
 	volume.core_sphere = fluid_volume:GetCoreShape() == "sphere" and 1 or 0
+	volume.sun_scattering = fluid_volume:GetSunScattering()
 end
 
 local function write_layer_record(volume)
@@ -902,6 +904,7 @@ local function write_layer_record(volume)
 	set_vec3(volume.extinction, extinction)
 	set_vec3(volume.scattering, extinction * media.GetAlbedo("fog"))
 	volume.g = media.presets.fog.PhaseG
+	volume.sun_scattering = 1
 end
 
 local function refresh_volumes(state)

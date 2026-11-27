@@ -577,7 +577,7 @@ local scatter_pass = {
 
 				if (smoke + flame <= 0.0) continue;
 
-				scattering += smoke * v.scattering * (fluid_sun * fluid_sun_phase(v, l, mu) + ambient * fluid_ambient_transmittance(v, l) + get_volume_light_scattering(ray_dir, world_pos, v.g));
+				scattering += smoke * v.scattering * (fluid_sun * v.sun_scattering * fluid_sun_phase(v, l, mu) + ambient * fluid_ambient_transmittance(v, l) + get_volume_light_scattering(ray_dir, world_pos, v.g));
 				scattering += min((smoke * v.absorption + flame * v.flame_absorption) * fluid_emission(f.y), vec3(60000.0));
 			}
 

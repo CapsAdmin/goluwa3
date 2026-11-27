@@ -21,6 +21,7 @@ Sources: `goluwa/render3d/fluid_volumes.lua` (registry, grid state, simulation k
 - `Raymarch = true` (small, near, detailed): `fluid_volumes_view` marches each pixel through the boxes and outputs pre-exposed scatter, depth and transmittance; the fog composite splits the froxel fog at that depth.
 - `Raymarch = false` (large, coarse): the froxel passes sample the atlas, so it also fogs translucents and particles, at froxel resolution.
 - Shadows: `fluid_sun_transmittance` and `fluid_local_light_transmittance` read the baked depth at the box entry point (one fetch per volume, no march). They shade opaque surfaces (`FLUID_SHADOWS` in `surface_lighting`), froxel fog and other raymarched volumes. Translucent surfaces, particles and water do not receive fluid shadows.
+- `SunScattering` scales how much the sun scatters into a volume (not its shadowing), for imported fog that a game does not light with the sun. The sky/GI ambient always scatters: without it an albedo 1 medium reads as a black absorber.
 - `EmitLight`: the bake sums the flame's emitted luminous intensity and temperature, and a hidden point light per volume follows it with a blackbody colour. Its brightness follows the flame physically; lower the flame temperature for a dimmer fire.
 - `fluid_volumes.GetStats(volume)` reads back maxima, totals and mean height a few frames late. Use it in tests instead of pixels.
 

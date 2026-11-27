@@ -1831,7 +1831,8 @@ local record_type = ffi.typeof([[
 		float floor;
 		int mode;
 		int light_slots[4];
-		float pad[2];
+		float sun_scattering;
+		float pad;
 	}
 ]])
 local header_type = ffi.typeof([[
@@ -1862,6 +1863,7 @@ local function write_record(record, volume, state)
 	record.g = medium.PhaseG
 	record.flame_absorption = media.presets.flame.Absorption.x
 	record.floor = volume:GetFloor() and 1 or 0
+	record.sun_scattering = volume:GetSunScattering()
 	record.mode = volume:GetRaymarch() and
 		fluid_volumes.MODES.raymarch or
 		fluid_volumes.MODES.froxels
@@ -2210,7 +2212,8 @@ function fluid_volumes.GetDeclarationGLSL(
 			float floor;
 			int mode;
 			ivec4 light_slots;
-			vec2 pad;
+			float sun_scattering;
+			float pad;
 		};
 
 		layout(scalar, set = 0, binding = ]] .. record_binding .. [[) readonly buffer FluidRecords {
