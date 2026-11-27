@@ -153,7 +153,7 @@ function decode(buffer, tail_mips)
 		local w, h = math.max(1, bit.rshift(width, m)), math.max(1, bit.rshift(height, m))
 		local dp = is_volume and math.max(1, bit.rshift(depth, m)) or depth
 		local size = mip_size(info, w, h, dp * faces)
-		mips[m] = {width = w, height = h, depth = dp * faces, size = size, offset = out_size}
+		mips[m] = {width = w, height = h, depth = dp, size = size, offset = out_size}
 		out_size = out_size + size
 	end
 
@@ -194,6 +194,8 @@ function decode(buffer, tail_mips)
 		width = width,
 		height = height,
 		depth = depth,
+		array_size = faces,
+		is_cubemap = faces == 6,
 		vulkan_format = info.vulkan,
 		mip_count = mip_count,
 		frames = 1,

@@ -44,6 +44,7 @@ function ImageView.New(config)
 		image = config.image,
 		format = config.format,
 		aspect = config.aspect or "color",
+		view_type = config.view_type or "2d",
 	}
 end
 

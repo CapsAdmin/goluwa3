@@ -622,6 +622,7 @@ function Texture.New(config)
 		end
 
 		local image
+		local file_cubemap = vulkan_info and vulkan_info.is_cubemap or nil
 
 		if config.image == false then
 			image = nil
@@ -658,9 +659,9 @@ function Texture.New(config)
 				tiling = image_config.tiling,
 				image_type = image_config.image_type,
 				depth = image_config.depth,
-				array_layers = image_config.array_layers,
+				array_layers = image_config.array_layers or file_cubemap and 6,
 				initial_layout = image_config.initial_layout,
-				flags = image_config.flags,
+				flags = image_config.flags or file_cubemap and {"cube_compatible"},
 			}
 		end
 
@@ -673,13 +674,13 @@ function Texture.New(config)
 		elseif image then
 			local view_config = config.view or {}
 			view = image:CreateView{
-				view_type = view_config.view_type,
+				view_type = view_config.view_type or file_cubemap and "cube",
 				format = view_config.format or format,
 				aspect = view_config.aspect,
 				base_mip_level = view_config.base_mip_level,
 				level_count = view_config.level_count,
 				base_array_layer = view_config.base_array_layer,
-				layer_count = view_config.layer_count,
+				layer_count = view_config.layer_count or file_cubemap and 6,
 				component_r = view_config.component_r,
 				component_g = view_config.component_g,
 				component_b = view_config.component_b,
@@ -740,7 +741,7 @@ function Texture.New(config)
 		end
 
 		if buffer_data and image then
-			if is_compressed and vulkan_info then
+			if vulkan_info and (is_compressed or vulkan_info.is_cubemap) then
 				self:UploadCompressed(buffer_data, vulkan_info)
 			else
 				self:Upload(buffer_data, mip_levels > 1)
@@ -1165,7 +1166,8 @@ function Texture:UploadCompressed(data, vulkan_info)
 				mip_info.height,
 				mip - 1,
 				mip_info.offset,
-				mip_info.size
+				mip_info.size,
+				vulkan_info.is_cubemap and 6 or 1
 			)
 		end
 	end

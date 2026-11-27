@@ -330,9 +330,12 @@ function CommandBuffer:Begin(reusable)
 	self.keepalive_resources = nil
 	self.recording_serial = (self.recording_serial or 0) + 1
 	vulkan.assert(
-		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
-			flags = not reusable and "one_time_submit" or nil,
-		}),
+		vulkan.lib.vkBeginCommandBuffer(
+			self.ptr[0],
+			vulkan.vk.s.CommandBufferBeginInfo{
+				flags = not reusable and "one_time_submit" or nil,
+			}
+		),
 		"failed to begin command buffer"
 	)
 	self.is_recording = true
@@ -1682,7 +1685,7 @@ function CommandBuffer:CopyBufferToImage(buffer, image, width, height, x, y, z, 
 	)
 end
 
-function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_level, buffer_offset, buffer_size)
+function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_level, buffer_offset, buffer_size, layer_count)
 	vulkan.lib.vkCmdCopyBufferToImage(
 		self.ptr[0],
 		buffer.ptr[0],
@@ -1697,7 +1700,7 @@ function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_le
 				aspectMask = "color",
 				mipLevel = mip_level or 0,
 				baseArrayLayer = 0,
-				layerCount = 1,
+				layerCount = layer_count or 1,
 			},
 			imageOffset = {x = 0, y = 0, z = 0},
 			imageExtent = {width = width, height = height, depth = 1},
