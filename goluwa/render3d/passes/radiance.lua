@@ -136,6 +136,9 @@ local function restir_uniform(trace, filter_iteration)
 		{"specular_tracking", "int"},
 		{"brdf_lut_tex", "int"},
 		{"specular_emitter_roughness", "float"},
+		{"specular_history_a_tex", "int"},
+		{"specular_history_b_tex", "int"},
+		{"specular_history_c_tex", "int"},
 		{"specular_emitters_a_tex", "int"},
 		{"specular_emitters_b_tex", "int"},
 		{"specular_emitters_c_tex", "int"},
@@ -273,6 +276,9 @@ local function restir_uniform(trace, filter_iteration)
 			block.candidate_hit_tex = self:GetTextureIndex(attachment("radiance_candidates", 1, 5))
 			block.specular_tracking = radiance.specular_tracking:Get() and 1 or 0
 			block.specular_emitter_roughness = radiance.specular_emitter_roughness:Get()
+			block.specular_history_a_tex = self:GetTextureIndex(attachment("radiance_specular_emitters_spatial", previous, 1))
+			block.specular_history_b_tex = self:GetTextureIndex(attachment("radiance_specular_emitters_spatial", previous, 2))
+			block.specular_history_c_tex = self:GetTextureIndex(attachment("radiance_specular_emitters_spatial", previous, 3))
 			block.specular_emitters_a_tex = self:GetTextureIndex(attachment("radiance_specular_emitters", 1, 1))
 			block.specular_emitters_b_tex = self:GetTextureIndex(attachment("radiance_specular_emitters", 1, 2))
 			block.specular_emitters_c_tex = self:GetTextureIndex(attachment("radiance_specular_emitters", 1, 3))
@@ -2148,7 +2154,16 @@ local SPECULAR_EMITTER_GLSL = [[
 		vec3 N;
 		vec3 V;
 		float roughness;
+		float M;
 	};
+
+	// the density radiance_specular_setup draws a ray's direction at, per solid angle
+	float specular_lobe_pdf(specular_receiver r, vec3 dir) {
+		float a = max(0.001, r.roughness * r.roughness);
+		float NoV = max(dot(r.N, r.V), 1e-4);
+		float G1 = 2.0 * NoV / (NoV + sqrt(a * a + (1.0 - a * a) * NoV * NoV));
+		return G1 * D_GGXAlpha(a, max(dot(r.N, normalize(r.V + dir)), 0.0)) / (4.0 * NoV);
+	}
 
 	// the light an emitter point sends through a receiver's lobe, per unit of the emitter's area: the rays are averaged unweighted over the visible normal distribution, so it enters at that density of its direction
 	vec3 specular_emitter_value(specular_receiver r, vec3 x, vec3 n, vec3 L, out float target) {
@@ -2160,10 +2175,7 @@ local SPECULAR_EMITTER_GLSL = [[
 
 		if (cos_e <= 0.0 || dot(r.N, dir) <= 0.0 || d2 <= 1e-8) return vec3(0.0);
 
-		float a = max(0.001, r.roughness * r.roughness);
-		float NoV = max(dot(r.N, r.V), 1e-4);
-		float G1 = 2.0 * NoV / (NoV + sqrt(a * a + (1.0 - a * a) * NoV * NoV));
-		vec3 value = L * (G1 * D_GGXAlpha(a, max(dot(r.N, normalize(r.V + dir)), 0.0)) / (4.0 * NoV) * radiance_specular_weight(r.N, r.V, r.roughness, dir) * cos_e / d2);
+		vec3 value = L * (specular_lobe_pdf(r, dir) * radiance_specular_weight(r.N, r.V, r.roughness, dir) * cos_e / d2);
 		target = luminance(value);
 
 		if (!(target > 0.0) || isinf(target)) {
@@ -2174,15 +2186,18 @@ local SPECULAR_EMITTER_GLSL = [[
 		return value;
 	}
 
-	// generalized balance heuristic over the reservoirs of several receivers: every sample's target at every receiver. the first receiver is the one resampled for
-	void specular_emitter_combine(int count, vec3 ids[SPECULAR_EMITTER_MAX], float Ws[SPECULAR_EMITTER_MAX], specular_receiver receivers[SPECULAR_EMITTER_MAX], ivec2 pos, uint stream, out vec3 picked_id, out float W, out vec3 picked_value, out vec3 picked_x) {
+	// generalized balance heuristic over the reservoirs of several receivers, confidence as the weight of each: every sample's target at every receiver. the first receiver is the one resampled for
+	void specular_emitter_combine(int count, vec3 ids[SPECULAR_EMITTER_MAX], float Ws[SPECULAR_EMITTER_MAX], specular_receiver receivers[SPECULAR_EMITTER_MAX], ivec2 pos, uint stream, out vec3 picked_id, out float W, out vec3 picked_value, out vec3 picked_x, out float total_M) {
 		float w_sum = 0.0;
 		float picked_target = 0.0;
 		picked_id = vec3(0.0);
 		picked_value = vec3(0.0);
 		picked_x = vec3(0.0);
+		total_M = 0.0;
 
 		for (int i = 0; i < count; i++) {
+			total_M += receivers[i].M;
+
 			if (!(Ws[i] > 0.0)) continue;
 
 			restir_sample s = restir_resolve(restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMITTER, ids[i]));
@@ -2199,9 +2214,9 @@ local SPECULAR_EMITTER_GLSL = [[
 			for (int j = 0; j < count; j++) {
 				float target_j;
 				specular_emitter_value(receivers[j], s.x, s.n, L, target_j);
-				denominator += target_j;
+				denominator += receivers[j].M * target_j;
 
-				if (j == i) own = target_j;
+				if (j == i) own = receivers[j].M * target_j;
 			}
 
 			float w = denominator > 0.0 ? own / denominator * target_here * Ws[i] : 0.0;
@@ -2219,6 +2234,7 @@ local SPECULAR_EMITTER_GLSL = [[
 		}
 
 		W = picked_target > 0.0 ? w_sum / picked_target : 0.0;
+		total_M = min(total_M, restir_data.max_history);
 	}
 ]]
 
@@ -2226,11 +2242,15 @@ local function specular_emitter_pass(config)
 	return {
 		name = config.name,
 		ComputePass = true,
-		ColorFormat = config.color_format,
-		framebuffer_count = 1,
+		ColorFormat = {
+			{"r32g32b32a32_sfloat", {config.name .. "_sample", "rgb"}},
+			{"r32g32b32a32_sfloat", {config.name .. "_receiver", "rgb", 0.01}},
+			{"r16g16b16a16_sfloat", {config.name .. "_normal", "rgb"}},
+		},
+		framebuffer_count = config.framebuffer_count,
 		scale = radiance.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = config.storage_images,
+		storage_images = list.extend(storage_images(3), config.storage_images),
 		descriptor_sets = scene_hits.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		storage_buffers = {{binding_index = BINDING_EMITTERS}, {binding_index = BINDING_WORK_LIST}},
 		uniform_buffers = {restir_uniform(true), scene_hits.GetRadianceCacheUniformBuffer(BINDING_GI)},
@@ -2239,10 +2259,14 @@ local function specular_emitter_pass(config)
 			cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 			dispatch_per_pixel(self, cmd, fb, desc)
 		end,
-		custom_declarations = config.declarations .. WORK_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		custom_declarations = [[
+			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_sample;
+			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_receiver;
+			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_normal;
+		]] .. config.declarations .. WORK_LIST_GLSL .. scene_hits.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
 		shader = candidate_glsl(config.emitter_candidates) .. WORK_POS_GLSL .. SPECULAR_EMITTER_GLSL .. [[
 			void main() {
-				ivec2 size = ]] .. config.size .. [[;
+				ivec2 size = imageSize(out_sample);
 				ivec2 pos;
 
 				if (!restir_work_pos(pos) || !is_screen_pos_in_bounds(pos, size)) return;
@@ -2252,123 +2276,156 @@ local function specular_emitter_pass(config)
 				vec3 N;
 				float view_depth;
 				float depth;
+				radiance_specular_ray specular;
+				bool receives = restir_surface(pos, size, gpos, P, N, view_depth, depth) && scene_hits_ready();
 
-				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth) || !scene_hits_ready()) {
-					]] .. config.skip .. [[
-					return;
+				if (receives) {
+					specular = radiance_specular_setup(pos, gpos, P, N, view_depth, depth);
+					receives = radiance_specular_emitter_share(specular.roughness) > 0.0;
 				}
 
-				radiance_specular_ray specular = radiance_specular_setup(pos, gpos, P, N, view_depth, depth);
-
-				if (!(radiance_specular_emitter_share(specular.roughness) > 0.0)) {
-					]] .. config.skip .. [[
+				if (!receives) {
+					imageStore(out_sample, pos, vec4(0.0));
+					imageStore(out_receiver, pos, vec4(0.0));
+					imageStore(out_normal, pos, vec4(0.0));
 					return;
 				}
 
 				vec3 origin = radiance_specular_origin(P, specular.geometric_N, view_depth);
-				]] .. config.body .. [[
+				vec3 ids[SPECULAR_EMITTER_MAX];
+				float Ws[SPECULAR_EMITTER_MAX];
+				specular_receiver receivers[SPECULAR_EMITTER_MAX];
+				int count = 1;
+				receivers[0] = specular_receiver(P, specular.N, specular.V, specular.roughness, 1.0);
+				ids[0] = vec3(0.0);
+				Ws[0] = 0.0;
+				]] .. config.gather .. [[
+
+				vec3 picked_id;
+				float W;
+				vec3 picked_value;
+				vec3 picked_x;
+				float total_M;
+				specular_emitter_combine(count, ids, Ws, receivers, pos, ]] .. config.stream .. [[u, picked_id, W, picked_value, picked_x, total_M);
+				]] .. config.finish .. [[
 			}
 		]],
 	}
 end
 
--- the pixel's own emitter candidates resampled by its lobe, with no history: a rare candidate the tree picks badly for a lobe would stay for the whole history as a blotch
+-- the pixel's emitter candidates: one picked by the tree, and the emitter its specular ray hit, weighed by both ways of finding them so a lobe's peak is never a rare tree pick. then resampled with last frame's reservoir where it reprojects
 local function pass_specular_emitters()
 	return specular_emitter_pass{
 		name = "radiance_specular_emitters",
-		emitter_candidates = 4,
-		color_format = {
-			{"r32g32b32a32_sfloat", {"radiance_specular_emitters_sample", "rgb"}},
-			{"r32g32b32a32_sfloat", {"radiance_specular_emitters_receiver", "rgb", 0.01}},
-			{"r16g16b16a16_sfloat", {"radiance_specular_emitters_normal", "rgb"}},
-		},
-		storage_images = storage_images(3),
-		declarations = [[
-			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_sample;
-			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_receiver;
-			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_normal;
-		]],
-		size = "imageSize(out_sample)",
-		skip = [[
-					imageStore(out_sample, pos, vec4(0.0));
-					imageStore(out_receiver, pos, vec4(0.0));
-					imageStore(out_normal, pos, vec4(0.0));
-]],
-		body = [[
+		framebuffer_count = 1,
+		emitter_candidates = 1,
+		stream = 80,
+		storage_images = read_attachments("radiance_trace", 3, 5),
+		declarations = trace_records_glsl(3, "readonly"),
+		gather = [[
 				uint index = uint(pos.y * size.x + pos.x);
 				uint frame = uint(restir_data.frame);
+				float w_sum = 0.0;
+				float chosen_target = 0.0;
 				int triangles[EMITTER_CANDIDATES];
 				float weights[EMITTER_CANDIDATES];
-				vec3 picked_id = vec3(0.0);
-				float W = 0.0;
+				uvec4 lobe = imageLoad(specular_hit, pos);
+				int lobe_emitter = !specular.lobe_below && (lobe.w & RADIANCE_RAY_HIT) != 0u ? emitter_of(lobe.w >> 8u, lobe.x) : -1;
+				bool tree = emitter_candidates(index, frame, origin, specular.N, 0.05, triangles, weights);
 
-				if (emitter_candidates(index, frame, origin, specular.N, 0.05, triangles, weights)) {
-					specular_receiver receiver = specular_receiver(P, specular.N, specular.V, specular.roughness);
-					float w_sum = 0.0;
-					float chosen_target = 0.0;
+				for (int k = 0; k <= EMITTER_CANDIDATES; k++) {
+					int e;
+					vec2 uv;
+					float tree_pdf;
 
-					for (int k = 0; k < EMITTER_CANDIDATES; k++) {
-						if (!(weights[k] > 0.0)) continue;
+					if (k == EMITTER_CANDIDATES) {
+						if (lobe_emitter < 0) continue;
 
-						int e = triangles[k];
-						scene_triangle tri = scene_hit_tri(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED);
-						vec2 uv = emitter_random(index, frame, uint(k)).yz;
+						e = lobe_emitter;
+						uv = unpackUnorm2x16(lobe.y);
+						tree_pdf = emitter_tree_pdf(e, origin, specular.N, 0.05);
+					} else {
+						if (!tree || !(weights[k] > 0.0)) continue;
+
+						e = triangles[k];
+						uv = emitter_random(index, frame, uint(k)).yz;
 
 						if (uv.x + uv.y > 1.0) uv = 1.0 - uv;
 
-						vec3 x = tri.v0 + tri.e1 * uv.x + tri.e2 * uv.y;
-						vec3 dir = normalize(x - origin);
-						vec3 n = dot(tri.normal, dir) > 0.0 ? -tri.normal : tri.normal;
-						vec3 L = ray_hit_emission(tri, ray_material_albedo(ray_materials[tri.material], x), x, emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED, dir);
-						float target;
-						specular_emitter_value(receiver, x, n, L, target);
-						// the candidate's pdf is the emitter's luminance times the receiver's cosine over its weight, in solid angle, and the target too is turned into solid angle
-						vec3 to_x = x - P;
-						float d2 = dot(to_x, to_x);
-						float w = target * d2 / max(-dot(n, normalize(to_x)), 1e-4) * weights[k] / (max(emitter_luminance(e, tri), 1e-6) * max(dot(specular.N, dir), 1e-3));
-
-						if (!(w > 0.0) || isinf(w)) continue;
-
-						w_sum += w;
-
-						if (emitter_random(index, frame, 0x68e31da4u + uint(k)).w * w_sum < w) {
-							picked_id = restir_emitter_id(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED, uv, dot(n, tri.normal) > 0.0);
-							chosen_target = target;
-						}
+						tree_pdf = emitter_target(e, uv, origin, specular.N, 0.05) * emitter_power(e) / weights[k];
 					}
 
-					W = chosen_target > 0.0 ? w_sum / float(EMITTER_CANDIDATES) / chosen_target : 0.0;
+					uint instance = emitter_instance(e);
+					uint primitive = emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED;
+					scene_triangle tri = scene_hit_tri(instance, primitive);
+					vec3 x = tri.v0 + tri.e1 * uv.x + tri.e2 * uv.y;
+					vec3 dir = normalize(x - origin);
+					vec3 n = dot(tri.normal, dir) > 0.0 ? -tri.normal : tri.normal;
+					vec3 L = ray_hit_emission(tri, ray_material_albedo(ray_materials[tri.material], x), x, instance, primitive, dir);
+					float target;
+					specular_emitter_value(receivers[0], x, n, L, target);
+					vec3 to_x = x - P;
+					float d2 = dot(to_x, to_x);
+					// balance heuristic over the tree's picks, uniform on the triangle, and the lobe's ray, both per unit of emitter area
+					float source_pdf = float(EMITTER_CANDIDATES) * tree_pdf / (0.5 * length(cross(tri.e1, tri.e2))) + specular_lobe_pdf(receivers[0], to_x * inversesqrt(d2)) * max(-dot(n, to_x), 0.0) * inversesqrt(d2) / d2;
+					float w = target / source_pdf;
+
+					if (!(w > 0.0) || isinf(w)) continue;
+
+					w_sum += w;
+
+					if (emitter_random(index, frame, 0x68e31da4u + uint(k)).w * w_sum < w) {
+						ids[0] = restir_emitter_id(instance, primitive, uv, dot(n, tri.normal) > 0.0);
+						chosen_target = target;
+					}
 				}
 
+				Ws[0] = chosen_target > 0.0 ? w_sum / chosen_target : 0.0;
+
+				ivec2 base;
+				vec4 tap_weights;
+				vec4 plane;
+				float tolerance;
+				float moved;
+				vec2 position;
+
+				if (restir_data.history_valid != 0 && restir_history_taps(pos, gpos, P, restir_geometric_normal(gpos, P), size, base, tap_weights, plane, tolerance, moved, position)) {
+					ivec2 q = clamp(ivec2(floor(position + 0.5)), ivec2(0), size - 1);
+					vec4 a = texelFetch(TEXTURE(restir_data.specular_history_a_tex), q, 0);
+					vec4 b = texelFetch(TEXTURE(restir_data.specular_history_b_tex), q, 0);
+					vec4 c = texelFetch(TEXTURE(restir_data.specular_history_c_tex), q, 0);
+
+					if (b.w > 0.0 && a.w >= 0.0 && dot(c.xyz, specular.N) >= 0.5) {
+						vec3 previous_camera = -(transpose(mat3(restir_data.prev_view)) * restir_data.prev_view[3].xyz);
+						ids[1] = a.xyz;
+						Ws[1] = a.w;
+						receivers[1] = specular_receiver(b.xyz, normalize(c.xyz), normalize(previous_camera - b.xyz), c.w, b.w);
+						count = 2;
+					}
+				}
+]],
+		finish = [[
 				imageStore(out_sample, pos, vec4(picked_id, W));
-				imageStore(out_receiver, pos, vec4(P, 1.0));
+				imageStore(out_receiver, pos, vec4(P, total_M));
 				imageStore(out_normal, pos, vec4(specular.N, specular.roughness));
 ]],
 	}
 end
 
--- this frame's reservoirs of a few neighbours that lie on the pixel's plane, then one shadow ray for the pick
+-- neighbours' reservoirs of this frame, then one shadow ray for the pick: a hidden one is not passed on. this is next frame's history
 local function pass_specular_emitters_spatial()
 	return specular_emitter_pass{
 		name = "radiance_specular_emitters_spatial",
+		framebuffer_count = 2,
 		emitter_candidates = 2,
-		-- it only adds to the candidates' specular, the framebuffer sizes the dispatch
-		color_format = {{"r8_unorm", {"radiance_specular_emitters_spatial_dummy", "r"}}},
-		storage_images = read_attachments("radiance_candidates", BINDING_OUTPUT, 1, 4),
-		declarations = "layout(set = 0, binding = 0, rgba32f) uniform image2D candidate_specular;\n",
-		size = "imageSize(candidate_specular)",
-		skip = "",
-		body = [[
-				if (!specular.sample_emitters) return;
-
-				vec3 ids[SPECULAR_EMITTER_MAX];
-				float Ws[SPECULAR_EMITTER_MAX];
-				specular_receiver receivers[SPECULAR_EMITTER_MAX];
+		stream = 90,
+		storage_images = read_attachments("radiance_candidates", 3, 1, 4),
+		declarations = "layout(set = 0, binding = 3, rgba32f) uniform image2D candidate_specular;\n",
+		gather = [[
 				vec4 own = texelFetch(TEXTURE(restir_data.specular_emitters_a_tex), pos, 0);
 				ids[0] = own.xyz;
 				Ws[0] = own.w;
-				receivers[0] = specular_receiver(P, specular.N, specular.V, specular.roughness);
-				int count = 1;
+				receivers[0].M = max(texelFetch(TEXTURE(restir_data.specular_emitters_b_tex), pos, 0).w, 1.0);
 
 				for (int t = 1; t < SPECULAR_EMITTER_MAX; t++) {
 					ivec2 tap = pos + ivec2((vec2(restir_random(pos, 60u + uint(t)), restir_random(pos, 70u + uint(t))) * 2.0 - 1.0) * SPECULAR_EMITTER_RADIUS);
@@ -2379,23 +2436,25 @@ local function pass_specular_emitters_spatial()
 					vec4 b = texelFetch(TEXTURE(restir_data.specular_emitters_b_tex), tap, 0);
 					vec4 c = texelFetch(TEXTURE(restir_data.specular_emitters_c_tex), tap, 0);
 
-					if (!(b.w > 0.0) || dot(c.xyz, specular.N) < 0.8 || abs(dot(b.xyz - P, specular.geometric_N)) > 0.05 * view_depth) continue;
+					if (!(b.w > 0.0) || !(a.w >= 0.0) || dot(c.xyz, specular.N) < 0.8 || abs(dot(b.xyz - P, specular.geometric_N)) > 0.05 * view_depth) continue;
 
 					ids[count] = a.xyz;
 					Ws[count] = a.w;
-					receivers[count] = specular_receiver(b.xyz, normalize(c.xyz), normalize(restir_data.camera_position - b.xyz), c.w);
+					receivers[count] = specular_receiver(b.xyz, normalize(c.xyz), normalize(restir_data.camera_position - b.xyz), c.w, b.w);
 					count++;
 				}
-
-				vec3 picked_id;
-				float W;
-				vec3 picked_value;
-				vec3 picked_x;
-				specular_emitter_combine(count, ids, Ws, receivers, pos, 90u, picked_id, W, picked_value, picked_x);
+]],
+		finish = [[
 				vec3 to_x = picked_x - origin;
 				float dist = length(to_x);
 
-				if (!(W > 0.0) || dist <= 0.02 * restir_data.view_scale || dot(specular.geometric_N, to_x) <= 0.0 || !scene_hit_visible(origin, to_x / dist, dist - 0.02 * restir_data.view_scale)) return;
+				if (W > 0.0 && (dist <= 0.02 * restir_data.view_scale || dot(specular.geometric_N, to_x) <= 0.0 || !scene_hit_visible(origin, to_x / dist, dist - 0.02 * restir_data.view_scale))) W = 0.0;
+
+				imageStore(out_sample, pos, vec4(picked_id, W));
+				imageStore(out_receiver, pos, vec4(P, total_M));
+				imageStore(out_normal, pos, vec4(specular.N, specular.roughness));
+
+				if (!specular.sample_emitters || !(W > 0.0)) return;
 
 				vec3 estimate = picked_value * W;
 
