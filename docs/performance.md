@@ -57,6 +57,10 @@ Freeze time-driven effects (`system.SetElapsedTime` from a high priority Update 
 - CPU: rewrite batch records and caches only when their source changed (version counters such as `property_version`, not a broad scene version), never build strings per draw. Call `Material:Touch()` after changing a vector or color in place.
 - Setting `r_feature_culling` to false (gpu_culling.lua) disables visibility culling for the worst case; LOD selection is separate.
 
+## Ray traced GI cost
+
+Screen GI traces from every pixel, but what a ray costs depends on the scene it leaves into, not on what is on screen or on triangle counts (traversal is logarithmic; tens of millions of instanced or unique triangles cost about the same). Per ray cost grows with: how many instance boxes its origin sits in (a mesh spread around an empty middle, like one material of a skybox ring, puts its box over everything inside), non opaque instances along it (alpha tests without a built micromap, media, glass), the local lights in its hit's light grid cell, the size of the emitter tree, and whether it hits anything at all (enclosed scenes shade every ray, open ones lose many to the sky). Probe grids are capped by their reach. Compare scenes by these numbers before blaming geometry.
+
 ## Texture memory
 
 Measure with `vulkan_memory.Instances` grouped by `debug_name` (`vram_dump`) and compare with `nvidia-smi` for the process.
