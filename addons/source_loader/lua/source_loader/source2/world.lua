@@ -9,6 +9,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local units = import("goluwa/static_world/units.lua")
 local resource = import("lua/source_loader/source2/resource.lua")
 local entity_lump = import("lua/source_loader/source2/entity_lump.lua")
+local map_scene = import("lua/source_loader/map_scene.lua")
 local world = {}
 local Color = import("goluwa/structs/color.lua")
 local LIGHT_BRIGHTNESS = 64
@@ -302,6 +303,10 @@ function world.Translate(name, sky_path)
 						math.cos(pitch) * math.cos(yaw)
 					)
 					atmosphere.SunRotation = weather.GetSunRotationFromDirection(direction:GetNormalized())
+				elseif class == "env_cubemap_fog" then
+					if not entity.startdisabled then
+						atmosphere.Climate.ground_fog_visibility = map_scene.GetFogVisibility(entity.cubemapfogenddistance)
+					end
 				elseif
 					entity.model and
 					(

@@ -94,6 +94,8 @@ local KEYS = {
 	"fogdirection",
 	"fogfalloffexponent",
 	"fogstrength",
+	"startdisabled",
+	"cubemapfogenddistance",
 	"fogcolor",
 	"nearz",
 	"farz",

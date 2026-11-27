@@ -16,8 +16,12 @@ local world_pack = import("goluwa/static_world/world_pack.lua")
 local decal_geometry = import("goluwa/static_world/decal_geometry.lua")
 local bit = require("bit")
 local map_scene = {}
+
+function map_scene.GetFogVisibility(fog_end)
+	return fog_end * units.meters * 10
+end
+
 local FOG_TINT_STRENGTH = 1
-local FOG_DISTANCE_SCALE = 10
 local LIGHT_INFO_KEYS = {
 	"_light",
 	"_lightHDR",
@@ -367,7 +371,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 				tonumber(info.fogenable) == 1
 			then
 				local color = info.fogcolor
-				atmosphere.Climate.ground_fog_visibility = info.fogend * units.meters * FOG_DISTANCE_SCALE
+				atmosphere.Climate.ground_fog_visibility = map_scene.GetFogVisibility(info.fogend)
 				atmosphere.FogColor = Vec3(color.r ^ 2.2, color.g ^ 2.2, color.b ^ 2.2) / math.max(color.r, color.g, color.b, 1e-4) ^ 2.2 * FOG_TINT_STRENGTH
 			end
 		end
