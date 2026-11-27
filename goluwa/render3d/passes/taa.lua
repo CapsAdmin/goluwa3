@@ -375,6 +375,7 @@ return {
 						{"jitter_delta", "vec2"},
 						{"masks_tex", "int"},
 						{"inputs_tex", "int"},
+						{"prev_inputs_tex", "int"},
 						{"prev_luma_history_tex", "int"},
 						{"history_valid", "int"},
 					},
@@ -382,6 +383,7 @@ return {
 						write_jitter_delta(block)
 						block.masks_tex = self:GetTextureIndex(render3d.pipelines.taa_reactivity:GetFramebuffer():GetAttachment(1))
 						block.inputs_tex = self:GetTextureIndex(attachment("taa_inputs", false, 1))
+						block.prev_inputs_tex = self:GetTextureIndex(attachment("taa_inputs", true, 1))
 						block.prev_luma_history_tex = self:GetTextureIndex(attachment("taa_shading", true, 2))
 						block.history_valid = frame_state.history_valid
 						return block
@@ -423,7 +425,10 @@ return {
 				vec4 luma_history = vec4(0.0);
 				float instability = 0.0;
 
-				if (shading_data.history_valid != 0 && is_uv_inside(prev_uv) && disocclusion < 0.1 && shading_change < 0.1) {
+				vec2 prev_motion = texelFetch(TEXTURE(shading_data.prev_inputs_tex), clamp(ivec2(prev_uv * vec2(size)), ivec2(0), size - 1), 0).xy;
+				bool same_motion = length((prev_motion - inputs.xy) * vec2(3840.0, 2160.0)) < 2.0;
+
+				if (shading_data.history_valid != 0 && is_uv_inside(prev_uv) && disocclusion < 0.1 && shading_change < 0.1 && same_motion) {
 					luma_history = textureLod(TEXTURE(shading_data.prev_luma_history_tex), prev_uv, 0.0);
 					float luma = inputs.w;
 					float diff0 = luma - luma_history.x;
