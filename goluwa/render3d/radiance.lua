@@ -162,7 +162,7 @@ radiance.disocclusion_samples = pvars.Setup2{
 	key = "radiance_disocclusion_samples",
 	default = 8,
 	integer = true,
-	help = "neighbouring reservoirs a pixel without a history (just disoccluded, or moving fast) resamples instead of radiance_spatial_samples. such a pixel has only its own fresh sample and the denoiser has nothing to average yet",
+	help = "neighbouring reservoirs a just disoccluded pixel resamples instead of radiance_spatial_samples. such a pixel has only its own fresh sample and the denoiser has nothing to average yet. a pixel that moves fast keeps a short history and stays at radiance_spatial_samples, or any camera turn would cost the pass several times over",
 }
 radiance.spatial_retries = pvars.Setup2{
 	key = "radiance_spatial_retries",

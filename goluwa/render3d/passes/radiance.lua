@@ -2514,6 +2514,7 @@ local function pass_temporal()
 				float fresh_W = 0.0;
 				float M = 0.0;
 				int flags = 0;
+				bool had_history = false;
 				float contribution = 0.0;
 				vec3 receiver = vec3(0.0);
 				bool kept = false;
@@ -2600,6 +2601,8 @@ local function pass_temporal()
 					} else if (restir_data.temporal != 0) {
 						history = restir_history_search(position, size, G, plane, tolerance, q);
 					}
+
+					had_history = history;
 
 					if (history) {
 						float h_W;
@@ -2709,7 +2712,8 @@ local function pass_temporal()
 				imageStore(out_b, pos, vec4(chosen.L, M));
 				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | flags)));
 				imageStore(out_geometry, pos, vec4(N, view_depth));
-				imageStore(out_receiver, pos, vec4(kept ? receiver : P, 0.0));
+				// w: whether the pixel had a history to resample, which a short one from moving fast still is
+				imageStore(out_receiver, pos, vec4(kept ? receiver : P, had_history ? 1.0 : 0.0));
 				imageStore(out_geometric_normal, pos, vec4(restir_geometric_normal(gpos, P), 0.0));
 			}
 		]],
@@ -2828,8 +2832,8 @@ local function pass_spatial()
 					vec3 origin = restir_ray_origin(gpos, P, N, view_depth, depth);
 					float turn = restir_random(pos, 4u) * 6.28318530718;
 					float plane_tolerance = 0.01 + 0.02 * view_depth;
-					// a pixel with no history (disoccluded, or moving fast) has only its own fresh sample and nothing for the denoiser to average, it reuses more neighbours
-					int count = M < 2.0 ? max(restir_data.spatial_samples, restir_data.disocclusion_samples) : restir_data.spatial_samples;
+					// a disoccluded pixel has only its own fresh sample and nothing for the denoiser to average, it reuses more neighbours. a moving one keeps a short history and does not: the whole screen moves and the pass would cost four times as much
+					int count = texelFetch(TEXTURE(restir_data.receiver_tex), pos, 0).w > 0.0 ? restir_data.spatial_samples : max(restir_data.spatial_samples, restir_data.disocclusion_samples);
 					float k = float(count);
 					float own_weight = 0.0;
 					float valid = 0.0;
