@@ -18,8 +18,8 @@ local LEAF_CELL_TARGET = 64
 local LEAF_CHUNK_THRESHOLD = 256
 local DECAL_PROJECTIONS = {[0] = "planar", "objects", "terrain", "terrain_objects"}
 local CRY_LIGHT_LUX_PER_UNIT = 500
-local CRY_LIGHT_INDIRECT_SOURCE_RADIUS = 0.5
-local CRY_LIGHT_SOURCE_RADIUS = 0.25
+local CRY_LIGHT_INDIRECT_SOURCE_RADIUS = 0.25
+local CRY_LIGHT_SOURCE_RADIUS = 0.05
 local NO_OCEAN_WATER_LEVEL = -100000
 local DEFAULT_DENSITY = 1000
 local FRICTION = 0.8
@@ -572,11 +572,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 		for index, light in ipairs(data.lights) do
 			local transform_data = level.ConvertCryWorldMatrixToEngineTransform(light.world_matrix)
-			local source_radius = light.radius * (
-					light.indirect and
-					CRY_LIGHT_INDIRECT_SOURCE_RADIUS or
-					CRY_LIGHT_SOURCE_RADIUS
-				)
+			local source_radius = light.indirect and CRY_LIGHT_INDIRECT_SOURCE_RADIUS or CRY_LIGHT_SOURCE_RADIUS
 			local color = Color(light.color.x, light.color.y, light.color.z, 1)
 			local lumen = math.pi * light.radius ^ 2 * light.multiplier * CRY_LIGHT_LUX_PER_UNIT * (
 					1 + source_radius ^ 2

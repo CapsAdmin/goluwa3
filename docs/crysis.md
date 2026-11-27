@@ -36,7 +36,7 @@ Decals and roads are projected decals ([render3d-pipeline.md](render3d-pipeline.
 
 ## Lights
 
-`Light`, `SimpleLight` and `SimpleIndirectLight` entities (`level.ExtractLight`) become `light_point`, or `light_spot` with a projector texture (`scene.lua`); inactive ones are skipped. A Cry light's multiplier and radius are converted to lumens through `CRY_LIGHT_LUX_PER_UNIT`; this calibration is by eye, not measured against CryEngine. Some multiplayer maps have no lights and rely on emissive materials.
+`Light`, `SimpleLight` and `SimpleIndirectLight` entities (`level.ExtractLight`) become `light_point`, or `light_spot` with a projector texture (`scene.lua`); inactive ones are skipped. A Cry light's multiplier and radius are converted to lumens through `CRY_LIGHT_LUX_PER_UNIT`; this calibration is by eye, not measured against CryEngine. A Cry light's radius is only its falloff range; the source radius is a fixed bulb size (`CRY_LIGHT_SOURCE_RADIUS`, larger for `SimpleIndirectLight` fill lights), since a sphere scaled by the range pokes through the walls and roof of the room the light is in and lights the building from outside. Some multiplayer maps have no lights and rely on emissive materials.
 
 ## Sun, fog, water
 
