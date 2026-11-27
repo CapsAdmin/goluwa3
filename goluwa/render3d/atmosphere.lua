@@ -1606,6 +1606,13 @@ do
 			nil
 		bump_environment_map_version()
 	end
+
+	-- a cube texture made at runtime instead of loaded from a path
+	function atmosphere.SetSkyboxTexture(texture)
+		atmosphere.skybox_path = nil
+		atmosphere.skybox_texture = texture
+		bump_environment_map_version()
+	end
 end
 
 function atmosphere.GetSkybox()

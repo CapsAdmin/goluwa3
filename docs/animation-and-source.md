@@ -63,6 +63,7 @@ Format-neutral: an `animator` component (`goluwa/entities/components/animator.lu
 ## Source skies and suns
 
 - `light_environment` and `env_sun` angles are the direction the light travels (`shadow_control` casts shadows the same way) with pitch negative going down, so the sun is at yaw + 180 degrees. Both loaders follow this; check a painted sun against it when in doubt.
+- A Source 1 skybox is six face materials `materials/skybox/<skyname><rt lf bk ft up dn>.vmt` (the `_hdr` variant when it exists). In Source axes (z up) rt faces +x, lf -x, bk +y, ft -y; going right around the horizon is bk rt ft lf, up's right edge meets ft and its bottom edge rt. Side faces are often half height (`$basetexturetransform` scale 1 2) and the bottom face is often a placeholder. `lua/source_loader/sky.lua` assembles them into a cube like a Source 2 `sky.vfx` cubemap; the bottom face orientation is unverified.
 
 ## Source 2 (Half-Life: Alyx)
 

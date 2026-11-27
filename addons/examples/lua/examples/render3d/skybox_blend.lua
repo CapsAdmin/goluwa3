@@ -17,6 +17,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local skybox_estimate = import("goluwa/render3d/skybox_estimate.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local timer = import("goluwa/timer.lua")
+local sky = import("lua/source_loader/sky.lua")
 local DEFAULT_SKYBOX = "materials/skybox/colorscript/a3_hotel_street.vmat"
 steam.MountSourceGame(assert(steam.FindSourceGame(546560), "half-life: alyx is not installed"))
 local skyboxes = {}
@@ -45,8 +46,20 @@ do
 
 	walk("materials/skybox/")
 
+	for _, appid in ipairs{220, 4000} do
+		local info = steam.FindSourceGame(appid)
+
+		if info then steam.MountSourceGame(info) end
+	end
+
+	for _, name in ipairs(sky.Find()) do
+		skyboxes[#skyboxes + 1] = {Text = "source 1/" .. name, Value = "source1:" .. name, source1 = name, exposure = 1}
+	end
+
 	table.sort(skyboxes, |a, b|-> a.Text < b.Text)
 end
+
+local source1_cubes = {}
 
 local state = {
 	skybox = DEFAULT_SKYBOX,
@@ -57,15 +70,33 @@ local state = {
 	cloud_thickness = 1200,
 }
 
-local function select_skybox(path)
+-- on_ready runs once the skybox is in place; source 1 skyboxes are assembled from their faces first
+local function select_skybox(path, on_ready)
 	for _, entry in ipairs(skyboxes) do
 		if entry.Value == path then
 			state.skybox = path
 			state.exposure = entry.exposure
 			state.estimate = nil
-			atmosphere.SetSkybox(entry.texture)
 			atmosphere.SetSkyboxIntensity(state.intensity * entry.exposure)
-			return
+
+			if not entry.source1 then
+				atmosphere.SetSkybox(entry.texture)
+				return on_ready()
+			end
+
+			if source1_cubes[entry.source1] then
+				atmosphere.SetSkyboxTexture(source1_cubes[entry.source1])
+				return on_ready()
+			end
+
+			return sky.Load(entry.source1, function(cube)
+				source1_cubes[entry.source1] = cube
+
+				if state.skybox ~= path then return end
+
+				atmosphere.SetSkyboxTexture(cube)
+				on_ready()
+			end)
 		end
 	end
 
@@ -74,7 +105,7 @@ end
 
 local function set_intensity(intensity)
 	state.intensity = intensity
-	select_skybox(state.skybox)
+	atmosphere.SetSkyboxIntensity(intensity * state.exposure)
 end
 
 local function update_sun()
@@ -155,7 +186,7 @@ local function set_as_is(enabled)
 	end
 end
 
-select_skybox(DEFAULT_SKYBOX)
+select_skybox(DEFAULT_SKYBOX, function() end)
 update_sun()
 local root = Entity.New{Name = "skybox_blend_example"}
 shapes.Box{
@@ -216,9 +247,9 @@ local SkyboxContent = react.Component(
 			Searchable = true,
 			layout = {GrowWidth = 1},
 			OnSelect = |value| -> do
-				select_skybox(value)
-
-				if state.clouds_restore then build_clouds() end
+				select_skybox(value, function()
+					if state.clouds_restore then build_clouds() end
+				end)
 			end,
 		},
 		ui.Button{
