@@ -28,6 +28,8 @@ local BLACKLISTED_MODELS = {
 }
 local BLACKLISTED_MODEL_PREFIX = "models/props/max/handposes/"
 local STATIC_COLLISION_GROUP = 4
+local VOLUMETRIC_FOG_EXTINCTION_PER_UNIT = 0.0022
+local VOLUMETRIC_FOG_EDGE_SOFTNESS_PER_EXTENT = 0.6
 
 -- the entity color is sRGB, the shaders multiply it into linear albedo
 local function get_tint(color)
@@ -272,6 +274,9 @@ function world.Translate(name, sky_path)
 	local classes = {}
 	local placed = {}
 	local constraint_entities = {}
+	local fog_volumes = {}
+	local fog_strength
+	local sun_fog_scattering = 1
 
 	for _, lump_path in ipairs(world_data.m_entityLumps) do
 		for index, entity in ipairs(entity_lump.Load(vfs, normalize_path(lump_path) .. "_c")) do
@@ -303,6 +308,21 @@ function world.Translate(name, sky_path)
 						math.cos(pitch) * math.cos(yaw)
 					)
 					atmosphere.SunRotation = weather.GetSunRotationFromDirection(direction:GetNormalized())
+					sun_fog_scattering = tonumber(entity.fog_lighting) == 0 and 0 or (entity.fogcontributionstrength or 1)
+				elseif class == "env_volumetric_fog_controller" then
+					if not entity.startdisabled then fog_strength = entity.fogstrength end
+				elseif class == "env_volumetric_fog_volume" then
+					if not entity.startdisabled and entity.fogstrength > 0 then
+						local mins, maxs = parse_vector(entity.box_mins), parse_vector(entity.box_maxs)
+						local size = units.PositionToEngine(maxs - mins)
+						fog_volumes[#fog_volumes + 1] = {
+							guid = guid,
+							entity = entity,
+							position = position + rotation:VecMul(units.PositionToEngine((mins + maxs) / 2)),
+							rotation = rotation,
+							size = Vec3(math.abs(size.x), math.abs(size.y), math.abs(size.z)),
+						}
+					end
 				elseif class == "env_cubemap_fog" then
 					if not entity.startdisabled then
 						atmosphere.Climate.ground_fog_visibility = map_scene.GetFogVisibility(entity.cubemapfogenddistance)
@@ -418,6 +438,36 @@ function world.Translate(name, sky_path)
 			::continue::
 
 			tasks.Wait()
+		end
+	end
+
+	if fog_strength then
+		for _, item in ipairs(fog_volumes) do
+			add{
+				guid = item.guid,
+				parent = group("env_volumetric_fog_volume"),
+				properties = {Name = item.entity.targetname or "env_volumetric_fog_volume"},
+				components = {
+					transform = {Position = item.position, Rotation = item.rotation},
+					fluid_volume = {
+						Simulation = "procedural",
+						Medium = "fog",
+						Density = VOLUMETRIC_FOG_EXTINCTION_PER_UNIT * fog_strength * item.entity.fogstrength / units.meters,
+						Fill = 1,
+						Size = item.size,
+						EdgeSoftness = math.min(item.size.x, item.size.y, item.size.z) * VOLUMETRIC_FOG_EDGE_SOFTNESS_PER_EXTENT,
+						Resolution = 32,
+						Raymarch = false,
+						Floor = false,
+						Obstacles = false,
+						Pushers = false,
+						EmitLight = false,
+						CoreFalloff = item.entity.falloffexponent,
+						CoreShape = item.entity.shape == 1 and "sphere" or "box",
+						SunScattering = sun_fog_scattering,
+					},
+				},
+			}
 		end
 	end
 
