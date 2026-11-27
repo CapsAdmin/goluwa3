@@ -418,6 +418,19 @@ function scene_hits.GetGLSL(block_name, shared)
 		vec3 scene_hit_deferred_specular_albedo;
 		#endif
 
+		// light from behind a transmissive hit enters its back face and, through a medium body, leaves its far side; a bounce takes the body's depth along the normal for every direction
+		vec3 scene_hit_back_light_origin(ray_material material, vec3 P, vec3 N, vec3 L, vec3 back_surface, float body_depth, bool body_walled, out vec3 light_origin) {
+			light_origin = back_surface;
+
+			if (!ray_material_has_medium(material)) return vec3(1.0);
+
+			if (body_walled) return vec3(0.0);
+
+			float path = min(body_depth / max(-dot(N, L), 0.2), MEDIUM_SOLID_PATH);
+			light_origin = P + L * (path + 0.02);
+			return optical_transmittance(material.medium_extinction, path);
+		}
+
 		vec3 shade_scene_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics) {
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ray_material material = ray_materials[tri.material];
@@ -435,7 +448,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			vec3 albedo = ray_material_albedo(material, P);
 			float hit_roughness = material.roughness;
 			float metallic = material.metallic;
-			float transmission = saturate(material.transmission);
+			float transmission = saturate(ray_material_has_medium(material) ? material.medium_transmission : material.transmission);
 
 			#if RT_HIT_TEXTURES
 			if (material.terrain_tex < 0 && material.albedo_tex >= 0) {
@@ -463,7 +476,7 @@ function scene_hits.GetGLSL(block_name, shared)
 
 				if (material.metallic_tex >= 0) metallic *= textureLod(TEXTURE(material.metallic_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.metallic_tex), 0), cone_width))[material.metallic_channel];
 
-				if (transmission > 0.0 && material.transmission_tex >= 0) transmission = saturate(material.transmission * luminance(textureLod(TEXTURE(material.transmission_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.transmission_tex), 0), cone_width)).rgb));
+				if (transmission > 0.0 && material.transmission_tex >= 0) transmission = saturate(transmission * luminance(textureLod(TEXTURE(material.transmission_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.transmission_tex), 0), cone_width)).rgb));
 			}
 			#endif
 
@@ -478,11 +491,16 @@ function scene_hits.GetGLSL(block_name, shared)
 			float sun_NoL = dot(hit_N, sun_L);
 			vec3 transmitted = transmission * material.transmission_color * albedo * (1.0 - metallic);
 			vec3 back_surface = P - hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
-			vec3 sun_surface = sun_NoL > 0.0 ? surface : back_surface;
+			bool body_walled = false;
+			float body_depth = transmission > 0.0 && ray_material_has_medium(material) ? get_medium_exit(P - hit_N * 0.003, -hit_N, body_walled) : 0.0;
+			vec3 sun_surface = surface;
+			vec3 sun_through = vec3(1.0);
 
-			if (RT_HIT_SUN != 0 && (sun_NoL > 0.0 || transmission > 0.0) && !air_grid_ray_crosses_wall(sun_surface, sun_NoL > 0.0 ? hit_N : -hit_N, -dir, sun_L, SCENE_HIT_MAX_DISTANCE) && (RT_HIT_SHADOWS == 0 || scene_hit_visible(sun_surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
+			if (sun_NoL <= 0.0 && transmission > 0.0) sun_through = scene_hit_back_light_origin(material, P, hit_N, sun_L, back_surface, body_depth, body_walled, sun_surface);
+
+			if (RT_HIT_SUN != 0 && (sun_NoL > 0.0 || (transmission > 0.0 && sun_through != vec3(0.0))) && !air_grid_ray_crosses_wall(sun_surface, sun_NoL > 0.0 ? hit_N : -hit_N, -dir, sun_L, SCENE_HIT_MAX_DISTANCE) && (RT_HIT_SHADOWS == 0 || scene_hit_visible(sun_surface, sun_L, SCENE_HIT_MAX_DISTANCE))) {
 				float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-				vec3 response = sun_NoL > 0.0 ? hit_brdf_light(brdf, hit_N, -dir, sun_L, brdf.alpha + ]] .. string.format("%.9e", atmosphere.SUN_ANGULAR_RADIUS * 0.5) .. [[) : transmitted * transmission_phase(-dir, sun_L, -sun_NoL, material.transmission_scattering) * -sun_NoL;
+				vec3 response = sun_NoL > 0.0 ? hit_brdf_light(brdf, hit_N, -dir, sun_L, brdf.alpha + ]] .. string.format("%.9e", atmosphere.SUN_ANGULAR_RADIUS * 0.5) .. [[) : transmitted * sun_through * transmission_phase(-dir, sun_L, -sun_NoL, material.transmission_scattering) * -sun_NoL;
 				vec3 sun_radiance = response * radiance_cache_data.radiance_cache_sun_radiance.rgb * get_cloud_shadow(P) * radiance_cache_ground_fog_sun_transmittance(fog_altitude, sun_L.y, radiance_cache_data.radiance_cache_ground_fog.x, radiance_cache_data.radiance_cache_ground_fog.y, radiance_cache_data.radiance_cache_ground_fog.z, radiance_cache_data.radiance_cache_ground_fog_range.x, radiance_cache_data.radiance_cache_ground_fog_range.y);
 
 				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= get_light_transmittance(sun_surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0, false, caustic_hit_covered(int(radiance_cache_data.caustic_sun.w), vec3(0.0), P));
@@ -496,7 +514,7 @@ function scene_hits.GetGLSL(block_name, shared)
 				int light_count = ]] .. block_name .. [[.light_count;
 				float total = 0.0;
 				vec3 picked_light[RT_HIT_LIGHT_SAMPLES];
-				vec4 picked_ray[RT_HIT_LIGHT_SAMPLES];
+				vec3 picked_ray[RT_HIT_LIGHT_SAMPLES];
 				float picked_weight[RT_HIT_LIGHT_SAMPLES];
 				int picked_index[RT_HIT_LIGHT_SAMPLES];
 				float u[RT_HIT_LIGHT_SAMPLES];
@@ -523,9 +541,10 @@ function scene_hits.GetGLSL(block_name, shared)
 
 						float NoL = dot(hit_N, L);
 
-						if (NoL <= 0.0) continue;
+						if (NoL <= 0.0 && transmission <= 0.0) continue;
 
-						vec3 contribution = hit_brdf_light(brdf, hit_N, -dir, L, brdf.alpha) * light.color.rgb * light.color.a * attenuation;
+						vec3 light_origin;
+						vec3 contribution = light.color.rgb * light.color.a * attenuation * (NoL > 0.0 ? hit_brdf_light(brdf, hit_N, -dir, L, brdf.alpha) : transmitted * transmission_phase(-dir, L, -NoL, material.transmission_scattering) * -NoL * scene_hit_back_light_origin(material, P, hit_N, L, back_surface, body_depth, body_walled, light_origin));
 						float weight = max(max(contribution.r, contribution.g), contribution.b);
 
 						if (weight <= 0.0) continue;
@@ -536,7 +555,7 @@ function scene_hits.GetGLSL(block_name, shared)
 						for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
 							if (u[k] < p) {
 								picked_light[k] = contribution;
-								picked_ray[k] = vec4(L, dot(light.position.xyz - surface, L));
+								picked_ray[k] = L;
 								picked_weight[k] = weight;
 								picked_index[k] = i;
 								u[k] /= p;
@@ -550,13 +569,16 @@ function scene_hits.GetGLSL(block_name, shared)
 				for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
 					if (picked_weight[k] <= 0.0) continue;
 
-					float dist = picked_ray[k].w;
-
-					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(surface, picked_ray[k].xyz, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
-
+					vec3 light_origin = surface;
 					vec3 contribution = picked_light[k];
 
-					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0, true, caustic_hit_covered(picked_index[k], scene_light(]] .. block_name .. [[.lights, picked_index[k]).position.xyz, P));
+					if (dot(hit_N, picked_ray[k]) <= 0.0) scene_hit_back_light_origin(material, P, hit_N, picked_ray[k], back_surface, body_depth, body_walled, light_origin);
+
+					float dist = dot(scene_light(]] .. block_name .. [[.lights, picked_index[k]).position.xyz - light_origin, picked_ray[k]);
+
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(light_origin, picked_ray[k], dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
+
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance(light_origin, picked_ray[k], max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0, true, caustic_hit_covered(picked_index[k], scene_light(]] .. block_name .. [[.lights, picked_index[k]).position.xyz, P));
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -582,18 +604,19 @@ function scene_hits.GetGLSL(block_name, shared)
 
 					float NoL = dot(hit_N, L);
 
-					if (NoL <= 0.0) continue;
+					if (NoL <= 0.0 && transmission <= 0.0) continue;
 
-					vec3 contribution = hit_brdf_light(brdf, hit_N, -dir, L, brdf.alpha) * light.color.rgb * light.color.a * attenuation;
+					vec3 light_origin = surface;
+					vec3 contribution = light.color.rgb * light.color.a * attenuation * (NoL > 0.0 ? hit_brdf_light(brdf, hit_N, -dir, L, brdf.alpha) : transmitted * transmission_phase(-dir, L, -NoL, material.transmission_scattering) * -NoL * scene_hit_back_light_origin(material, P, hit_N, L, back_surface, body_depth, body_walled, light_origin));
 					float light_weight = scene_hit_light_weight(contribution, P, i);
 
 					if (light_weight == 0.0) continue;
 
-					float dist = dot(light.position.xyz - surface, L);
+					float dist = dot(light.position.xyz - light_origin, L);
 
-					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_hit_visible(light_origin, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
-					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0, true, caustic_hit_covered(i, light.position.xyz, P));
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance(light_origin, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0, true, caustic_hit_covered(i, light.position.xyz, P));
 
 					radiance += contribution * light_weight;
 				}
@@ -611,6 +634,8 @@ function scene_hits.GetGLSL(block_name, shared)
 				vec3 back = gi_sample_irradiance(P, -hit_N, -dir, false, RADIANCE_CACHE_NO_VISIBILITY_RAYS, back_weight).rgb;
 
 				if (!gi_covers(P, back_weight)) back = sample_environment_irradiance(radiance_cache_data.radiance_cache_env_irradiance_tex, -hit_N) * scene_hit_open_sky(back_surface, -hit_N, P);
+
+				if (ray_material_has_medium(material)) back *= body_walled ? vec3(0.0) : optical_transmittance(material.medium_extinction, body_depth);
 
 				radiance += transmitted * back;
 			}
