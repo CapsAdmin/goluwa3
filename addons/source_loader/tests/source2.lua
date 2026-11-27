@@ -148,6 +148,19 @@ T.Test("source 2 maps name their skybox in a skybox_reference entity", function(
 	T(world.FindSkybox("a2_headcrabs_tunnel"))["=="](nil)
 end)
 
+T.Test("source 2 maps find their sky cubemap in the env_sky of the 3d skybox map", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local world = import("lua/source_loader/source2/world.lua")
+	vfs.Mount(world.GetMapDirectory(info) .. "a3_hotel_street.vpk/")
+	local sky_path = world.FindSkybox("a3_hotel_street")
+	vfs.Mount(info.vdf_directory .. sky_path .. ".vpk/")
+	T(world.FindSkyTexture("a3_hotel_street", sky_path))["=="]("materials/skybox/colorscript/a3_hotel_street_exr_8d3f8e75.vtex_c")
+end)
+
 T.Test("source 2 maps keep vr hand poses out and build their constraints", function()
 	local info = steam.FindSourceGame(546560)
 

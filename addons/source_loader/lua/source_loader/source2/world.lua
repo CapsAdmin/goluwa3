@@ -9,6 +9,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local units = import("goluwa/static_world/units.lua")
 local resource = import("lua/source_loader/source2/resource.lua")
 local entity_lump = import("lua/source_loader/source2/entity_lump.lua")
+local material = import("lua/source_loader/source2/material.lua")
 local map_scene = import("lua/source_loader/map_scene.lua")
 local world = {}
 local Color = import("goluwa/structs/color.lua")
@@ -178,6 +179,21 @@ function world.FindSkybox(name)
 		for _, entity in ipairs(entity_lump.Load(vfs, normalize_path(lump_path) .. "_c")) do
 			if entity.classname == "skybox_reference" and entity.targetmapname then
 				return entity.targetmapname:match("^(.+)%.vmap$")
+			end
+		end
+	end
+end
+
+-- the cubemap of the env_sky in the map or its 3d skybox map
+function world.FindSkyTexture(name, sky_path)
+	for _, map in ipairs{"maps/" .. name, sky_path} do
+		local world_data = resource.ReadKV3(resource.Load(vfs, map .. "/world.vwrld_c"))
+
+		for _, lump_path in ipairs(world_data.m_entityLumps) do
+			for _, entity in ipairs(entity_lump.Load(vfs, normalize_path(lump_path) .. "_c")) do
+				if entity.classname == "env_sky" and entity.skyname then
+					return material.GetInfo(entity.skyname).textures.g_tSkyTexture
+				end
 			end
 		end
 	end
@@ -606,6 +622,8 @@ function world.Load(name, info)
 		sky_path = nil
 	end
 
+	local sky_texture = world.FindSkyTexture(name, sky_path)
+	import("lua/source_loader/sky.lua").current = sky_texture and {path = sky_texture}
 	scene.Clear()
 	local task = tasks.CreateTask()
 	task:SetName("source 2 map load")

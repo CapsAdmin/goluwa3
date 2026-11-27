@@ -163,6 +163,14 @@ function source_loader.SpawnChain(name, path)
 		if not data then
 			if i == 1 then error("failed to load " .. entry.name, 0) end
 		else
+			if i == 1 then
+				for _, info in pairs(data.entities) do
+					if info.classname == "worldspawn" then
+						import("lua/source_loader/sky.lua").current = info.skyname and {skyname = info.skyname:lower()}
+					end
+				end
+			end
+
 			startup.Begin("map translate")
 			local scene_data = map_scene.Translate(data, entry.name, entry.path, i > 1 and entry.offset or nil)
 			startup.End("map translate")

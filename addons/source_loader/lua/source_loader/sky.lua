@@ -14,6 +14,8 @@ local SAMPLER = {
 	wrap_s = "clamp_to_edge",
 	wrap_t = "clamp_to_edge",
 }
+-- the sky of the loaded map: {path = cubemap texture path} for source 2, {skyname = name} for source 1
+sky.current = nil
 
 function sky.Find()
 	local names = {}
@@ -162,6 +164,23 @@ function sky.Load(name, on_ready)
 	end
 
 	assemble()
+end
+
+-- calls on_ready(cube) with the loaded map's sky
+function sky.LoadCurrent(on_ready)
+	local current = assert(sky.current, "the loaded map has no sky")
+
+	if current.skyname then return sky.Load(current.skyname, on_ready) end
+
+	local cube = Texture.New{path = current.path, sampler = SAMPLER}
+
+	local function wait()
+		if not cube:IsReady() then return timer.Delay(0.05, wait) end
+
+		on_ready(cube)
+	end
+
+	wait()
 end
 
 return sky
