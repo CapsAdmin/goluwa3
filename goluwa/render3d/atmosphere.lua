@@ -24,6 +24,8 @@ atmosphere.skybox_match = 1
 atmosphere.skybox_tint = 0
 atmosphere.skybox_match_lod = 8
 atmosphere.skybox_yaw = 0
+atmosphere.skybox_feel = 0
+atmosphere.skybox_feel_angle = math.rad(25)
 atmosphere.transmittance_texture = nil
 atmosphere.scattering_texture = nil
 atmosphere.scattering_source_texture = nil
@@ -339,6 +341,8 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	#define ATMOSPHERE_SKYBOX_TINT 0.0
 	#define ATMOSPHERE_SKYBOX_MATCH_LOD 0.0
 	#define ATMOSPHERE_SKYBOX_YAW vec2(1.0, 0.0)
+	#define ATMOSPHERE_SKYBOX_FEEL 0.0
+	#define ATMOSPHERE_SKYBOX_FEEL_LOD 0.0
 	#endif
 	#ifndef ATMOSPHERE_SUN_DISC_ILLUMINANCE
 	#define ATMOSPHERE_SUN_DISC_ILLUMINANCE ATMOSPHERE_SUN_ILLUMINANCE
@@ -842,17 +846,21 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return vec2(u, 0.5 + 0.5 * sign(e) * sqrt(abs(e)));
 	}
 
-	vec3 apply_sky_clouds(vec3 sky, vec3 dir) {
+	vec3 apply_sky_clouds(vec3 sky, vec3 dir, vec3 tint) {
 		if (ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX == -1) return sky;
 
 		vec4 clouds = textureLod(TEXTURE(ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX), get_cloud_sky_uv(dir), 0.0);
-		return sky * clouds.a + clouds.rgb / CLOUD_RADIANCE_SCALE;
+		return sky * clouds.a + clouds.rgb * tint / CLOUD_RADIANCE_SCALE;
+	}
+
+	vec3 get_skybox_cube_dir(vec3 dir) {
+		vec2 yaw = ATMOSPHERE_SKYBOX_YAW;
+		vec3 d = vec3(dir.x * yaw.x - dir.z * yaw.y, dir.y, dir.x * yaw.y + dir.z * yaw.x);
+		return vec3(-d.z, -d.x, d.y);
 	}
 
 	vec3 blend_skybox(vec3 air, vec3 dir) {
-		vec2 yaw = ATMOSPHERE_SKYBOX_YAW;
-		vec3 d = vec3(dir.x * yaw.x - dir.z * yaw.y, dir.y, dir.x * yaw.y + dir.z * yaw.x);
-		vec3 cube_dir = vec3(-d.z, -d.x, d.y);
+		vec3 cube_dir = get_skybox_cube_dir(dir);
 		vec3 sky = textureLod(CUBEMAP(ATMOSPHERE_SKYBOX_TEXTURE_INDEX), cube_dir, 0.0).rgb;
 		vec3 sky_low = textureLod(CUBEMAP(ATMOSPHERE_SKYBOX_TEXTURE_INDEX), cube_dir, ATMOSPHERE_SKYBOX_MATCH_LOD).rgb;
 		vec3 luma = vec3(0.2126, 0.7152, 0.0722);
@@ -880,9 +888,22 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		return sample_sky_view_lut_from_origin(normalize(dir), get_atmosphere_camera_origin(cam_pos));
 	}
 
+	// the skybox's colour without its texture: a heavily blurred skybox over the air in the same direction, scaled to
+	// keep the air's luminance; directions below the horizon take the horizon's
+	vec3 get_skybox_feel(vec3 dir, vec3 cam_pos) {
+		if (ATMOSPHERE_SKYBOX_TEXTURE_INDEX == -1 || ATMOSPHERE_SKYBOX_FEEL <= 0.0) return vec3(1.0);
+
+		vec3 d = normalize(vec3(dir.x, max(dir.y, 0.05), dir.z));
+		vec3 sky = textureLod(CUBEMAP(ATMOSPHERE_SKYBOX_TEXTURE_INDEX), get_skybox_cube_dir(d), ATMOSPHERE_SKYBOX_FEEL_LOD).rgb;
+		vec3 air = max(sample_sky_view_lut(d, cam_pos).rgb, vec3(1e-9));
+		vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+		vec3 feel = pow(max(sky, vec3(1e-9)) / air, vec3(ATMOSPHERE_SKYBOX_FEEL));
+		return feel * dot(air, luma) / max(dot(air * feel, luma), 1e-9);
+	}
+
 	vec3 get_sky_irradiance_sample(vec3 dir, vec3 ray_origin, bool with_clouds) {
 		vec3 sky = sample_sky_view_lut_from_origin(dir, ray_origin).rgb;
-		return with_clouds ? apply_sky_clouds(sky, dir) : sky;
+		return with_clouds ? apply_sky_clouds(sky, dir, vec3(1.0)) : sky;
 	}
 
 	vec3 get_sky_irradiance_ex(vec3 ray_origin, bool with_clouds) {
@@ -1669,6 +1690,25 @@ function atmosphere.SetSkyboxYaw(yaw)
 	atmosphere.environment_map_version = atmosphere.environment_map_version + 1
 end
 
+function atmosphere.SetSkyboxFeel(strength)
+	atmosphere.skybox_feel = strength
+	atmosphere.environment_map_version = atmosphere.environment_map_version + 1
+end
+
+function atmosphere.GetSkyboxFeel()
+	return atmosphere.skybox_feel
+end
+
+-- how wide the skybox is blurred before its colour is taken, in radians
+function atmosphere.SetSkyboxFeelAngle(angle)
+	atmosphere.skybox_feel_angle = angle
+	atmosphere.environment_map_version = atmosphere.environment_map_version + 1
+end
+
+function atmosphere.GetSkyboxFeelAngle()
+	return atmosphere.skybox_feel_angle
+end
+
 function atmosphere.GetSkyboxYaw()
 	return atmosphere.skybox_yaw
 end
@@ -1883,6 +1923,8 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_skybox_tint", "float"},
 		{"atmosphere_skybox_match_lod", "float"},
 		{"atmosphere_skybox_yaw", "vec2"},
+		{"atmosphere_skybox_feel", "float"},
+		{"atmosphere_skybox_feel_lod", "float"},
 		{"atmosphere_ground_fog_extinction", "float"},
 		{"atmosphere_ground_fog_scale_height", "float"},
 		{"atmosphere_ground_fog_start_height", "float"},
@@ -1939,6 +1981,13 @@ do
 		block.atmosphere_skybox_match_lod = atmosphere.skybox_match_lod
 		block.atmosphere_skybox_yaw[0] = math.cos(atmosphere.skybox_yaw)
 		block.atmosphere_skybox_yaw[1] = math.sin(atmosphere.skybox_yaw)
+		block.atmosphere_skybox_feel = atmosphere.skybox_feel
+		block.atmosphere_skybox_feel_lod = skybox and
+			math.max(
+				math.log(skybox:GetWidth() * atmosphere.skybox_feel_angle / (math.pi / 2)) / math.log(2),
+				0
+			) or
+			0
 		block.atmosphere_transmittance_texture_index = pipeline:GetTextureIndex(atmosphere.GetTransmittanceTexture())
 		block.atmosphere_scattering_texture_index = pipeline:GetTextureIndex(atmosphere.GetScatteringTexture())
 		block.atmosphere_scattering_source_texture_index = pipeline:GetTextureIndex(atmosphere.GetScatteringSourceTexture())
@@ -2007,6 +2056,8 @@ do
 		block.atmosphere_skybox_match_lod = 0
 		block.atmosphere_skybox_yaw[0] = 1
 		block.atmosphere_skybox_yaw[1] = 0
+		block.atmosphere_skybox_feel = 0
+		block.atmosphere_skybox_feel_lod = 0
 		block.atmosphere_transmittance_texture_index = -1
 		block.atmosphere_scattering_texture_index = -1
 		block.atmosphere_scattering_source_texture_index = -1
@@ -2043,7 +2094,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_SKYBOX_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_skybox_texture_index\n" .. "#define ATMOSPHERE_SKYBOX_INTENSITY " .. uniform_name .. ".atmosphere_skybox_intensity\n" .. "#define ATMOSPHERE_SKYBOX_BLEND " .. uniform_name .. ".atmosphere_skybox_blend\n" .. "#define ATMOSPHERE_SKYBOX_MATCH " .. uniform_name .. ".atmosphere_skybox_match\n" .. "#define ATMOSPHERE_SKYBOX_TINT " .. uniform_name .. ".atmosphere_skybox_tint\n" .. "#define ATMOSPHERE_SKYBOX_MATCH_LOD " .. uniform_name .. ".atmosphere_skybox_match_lod\n" .. "#define ATMOSPHERE_SKYBOX_YAW " .. uniform_name .. ".atmosphere_skybox_yaw\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define GROUND_FOG_SCALE_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_scale_height\n" .. "#define GROUND_FOG_START_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_start_height\n" .. "#define GROUND_FOG_TOP_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_top_height\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE vec4(" .. uniform_name .. ".atmosphere_aerosol_angstrom, " .. uniform_name .. ".atmosphere_aerosol_albedo, " .. uniform_name .. ".atmosphere_aerosol_g, " .. uniform_name .. ".atmosphere_aerosol_scale_height)\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_SKYBOX_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_skybox_texture_index\n" .. "#define ATMOSPHERE_SKYBOX_INTENSITY " .. uniform_name .. ".atmosphere_skybox_intensity\n" .. "#define ATMOSPHERE_SKYBOX_BLEND " .. uniform_name .. ".atmosphere_skybox_blend\n" .. "#define ATMOSPHERE_SKYBOX_MATCH " .. uniform_name .. ".atmosphere_skybox_match\n" .. "#define ATMOSPHERE_SKYBOX_TINT " .. uniform_name .. ".atmosphere_skybox_tint\n" .. "#define ATMOSPHERE_SKYBOX_MATCH_LOD " .. uniform_name .. ".atmosphere_skybox_match_lod\n" .. "#define ATMOSPHERE_SKYBOX_YAW " .. uniform_name .. ".atmosphere_skybox_yaw\n" .. "#define ATMOSPHERE_SKYBOX_FEEL " .. uniform_name .. ".atmosphere_skybox_feel\n" .. "#define ATMOSPHERE_SKYBOX_FEEL_LOD " .. uniform_name .. ".atmosphere_skybox_feel_lod\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define GROUND_FOG_SCALE_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_scale_height\n" .. "#define GROUND_FOG_START_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_start_height\n" .. "#define GROUND_FOG_TOP_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_top_height\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE vec4(" .. uniform_name .. ".atmosphere_aerosol_angstrom, " .. uniform_name .. ".atmosphere_aerosol_albedo, " .. uniform_name .. ".atmosphere_aerosol_g, " .. uniform_name .. ".atmosphere_aerosol_scale_height)\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 local celestial_discs_glsl = [[
@@ -2089,6 +2140,7 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 			vec3 atmos_dir = normalize(]] .. dir_var .. [[);
 			vec3 atmos_sun_dir = normalize(]] .. sun_dir_var .. [[);
 			vec3 atmos_cam_pos = ]] .. cam_pos_var .. [[;
+			vec3 skybox_feel = get_skybox_feel(atmos_dir, atmos_cam_pos);
 
 			if (ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX != -1) {
 				vec2 environment_uv = vec2(atan(atmos_dir.z, atmos_dir.x) / (2.0 * PI) + 0.5, 0.5 - asin(clamp(atmos_dir.y, -1.0, 1.0)) / PI);
@@ -2101,14 +2153,15 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 			options.air or
 			"true"
 		) .. [[;
-				vec3 atmosphere_color = atmosphere_air ? atmosphere_sample.rgb : vec3(0.0);
+				vec3 air = atmosphere_sample.rgb * skybox_feel;
+				vec3 atmosphere_color = atmosphere_air ? air : vec3(0.0);
 				float sky_object_weight = 1.0;
 
 				if (ATMOSPHERE_SKYBOX_TEXTURE_INDEX != -1) {
 					sky_object_weight = 1.0 - ATMOSPHERE_SKYBOX_BLEND * (1.0 - ATMOSPHERE_SKYBOX_MATCH);
-					vec3 skybox_color = blend_skybox(atmosphere_sample.rgb, atmos_dir);
+					vec3 skybox_color = blend_skybox(air, atmos_dir);
 					// without air the volumetric fog pass adds it over the sky, so leave only what is behind it
-					atmosphere_color = atmosphere_air ? skybox_color : max(skybox_color - atmosphere_sample.rgb, vec3(0.0));
+					atmosphere_color = atmosphere_air ? skybox_color : max(skybox_color - air, vec3(0.0));
 				}
 
 				]] .. disc_code .. [[
@@ -2129,7 +2182,7 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 			options.clouds or
 			"true"
 		) .. [[)) {
-				sky_color_output = apply_sky_clouds(sky_color_output, atmos_dir);
+				sky_color_output = apply_sky_clouds(sky_color_output, atmos_dir, skybox_feel);
 			}
 		}
 	]]

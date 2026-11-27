@@ -936,6 +936,7 @@ local composite_pass = {
 			float get_cloud_shadow_km(vec3 point);
 			bool fog_cloud_shadows = true;
 			float fog_jitter = 0.5;
+			vec3 skybox_feel = vec3(1.0);
 			#define ATMOSPHERE_CLOUD_SHADOW(point) (fog_cloud_shadows ? get_cloud_shadow_km(point) : 1.0)
 			#define ATMOSPHERE_SCATTER_JITTER fog_jitter
 		]] .. atmosphere.GetGLSLDefines("fog_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. clouds.GetShadowGLSL("fog_data.shadows") .. [[
@@ -1006,7 +1007,7 @@ local composite_pass = {
 					vec3 step_transmittance = exp(-extinction * step_size);
 					vec3 source = far_air_source(p, up, ray_dir, sun_dir, density_r, density_m, elevation_jitter) * ATMOSPHERE_SUN_ILLUMINANCE + far_air_source(p, up, ray_dir, other_dir, density_r, density_m, elevation_jitter) * other_illuminance;
 					vec3 weight = mix(vec3(step_size), (1.0 - step_transmittance) / max(extinction, vec3(1e-9)), greaterThan(extinction, vec3(1e-9)));
-					color = color * step_transmittance + source * weight;
+					color = color * step_transmittance + source * weight * skybox_feel;
 				}
 
 				return color;
@@ -1033,6 +1034,7 @@ local composite_pass = {
 				float froxel_end = FROXEL_FAR * length(view_dir) * scale;
 				vec3 sun_dir = get_current_primary_sun_direction();
 				vec3 ray_dir = normalize(mat3(fog_data.inv_view) * view_dir);
+				skybox_feel = get_skybox_feel(ray_dir, fog_data.camera_position.xyz);
 				fog_jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy + 5.588238 * float(fog_data.frame), vec2(0.06711056, 0.00583715))));
 				vec4 cloud = vec4(0.0, 0.0, 0.0, 1.0);
 				float cloud_depth = 1e30;
@@ -1080,7 +1082,7 @@ local composite_pass = {
 						behind_scattered = front_transmittance * integrate_air(origin, sky_dir, cloud_km, edge, sun_dir, 24, after_transmittance);
 					}
 
-					color = front_scattered + front_transmittance * cloud.rgb + cloud.a * (behind_scattered + layer_transmittance * scene.rgb);
+					color = (front_scattered + front_transmittance * cloud.rgb + cloud.a * behind_scattered) * skybox_feel + cloud.a * layer_transmittance * scene.rgb;
 				} else {
 					float froxel_distance = hit_distance;
 
@@ -1090,7 +1092,7 @@ local composite_pass = {
 
 						if (ATMOSPHERE_ENABLED != 0 && hit_distance > handover) {
 							if (cloud.a < 1.0 && cloud_depth > handover) {
-								scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, cloud_depth, hit_distance) * cloud.a + cloud.rgb;
+								scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, cloud_depth, hit_distance) * cloud.a + cloud.rgb * skybox_feel;
 								scene.rgb = apply_far_air(scene.rgb, ray_dir, sun_dir, handover, cloud_depth);
 								cloud = vec4(0.0, 0.0, 0.0, 1.0);
 							} else {
@@ -1100,18 +1102,18 @@ local composite_pass = {
 							froxel_distance = handover;
 						}
 
-						cloud_front = cloud.rgb;
+						cloud_front = cloud.rgb * skybox_feel;
 						scene.rgb *= cloud.a;
 					}
 
 					vec3 fog_transmittance;
 					vec3 fog_scattered = get_volumetric_fog(in_uv, froxel_distance, fog_transmittance);
-					color = scene.rgb * fog_transmittance + fog_scattered;
+					color = scene.rgb * fog_transmittance + fog_scattered * skybox_feel;
 
 					if (fog_data.cloud_view_tex >= 0 && cloud.a < 1.0) {
 						vec3 front_transmittance;
 						vec3 front_scattered = get_volumetric_fog(in_uv, froxel_distance >= 0.0 ? min(cloud_depth, froxel_distance) : cloud_depth, front_transmittance);
-						color = front_scattered + front_transmittance * cloud_front + cloud.a * (fog_scattered - front_scattered) + fog_transmittance * scene.rgb;
+						color = (front_scattered + cloud.a * (fog_scattered - front_scattered)) * skybox_feel + front_transmittance * cloud_front + fog_transmittance * scene.rgb;
 					}
 				}
 
@@ -1122,7 +1124,7 @@ local composite_pass = {
 						vec3 fluid_transmittance = textureLod(TEXTURE(fog_data.fluid_transmittance_tex), in_uv, 0.0).rgb;
 						vec3 front_transmittance;
 						vec3 front_scattered = get_volumetric_fog(in_uv, fluid.a, front_transmittance);
-						color = front_scattered + front_transmittance * fluid.rgb / pre_exposure + fluid_transmittance * (color - front_scattered);
+						color = front_scattered * skybox_feel + front_transmittance * fluid.rgb / pre_exposure + fluid_transmittance * (color - front_scattered * skybox_feel);
 					}
 				}
 

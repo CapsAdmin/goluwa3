@@ -327,6 +327,21 @@ local SkyboxContent = react.Component(
 			OnChange = atmosphere.SetSkyboxTint,
 		},
 		Knob{
+			Label = "colour feel (skybox colour, no texture)",
+			Min = 0,
+			Max = 1,
+			Value = atmosphere.GetSkyboxFeel(),
+			OnChange = atmosphere.SetSkyboxFeel,
+		},
+		Knob{
+			Label = "colour feel blur",
+			Format = "%s: %.0f°",
+			Min = 5,
+			Max = 60,
+			Value = math.deg(atmosphere.GetSkyboxFeelAngle()),
+			OnChange = |v| -> atmosphere.SetSkyboxFeelAngle(math.rad(v)),
+		},
+		Knob{
 			Label = "match lod",
 			Min = 0,
 			Max = 10,
@@ -393,7 +408,7 @@ local SkyboxWindow = react.Component(
 		Title = "SKYBOX BLEND",
 		Pinnable = true,
 		Padding = "none",
-		Size = Vec2(380, 880),
+		Size = Vec2(380, 960),
 		Position = Vec2(16, 104),
 	}{SkyboxContent{}}
 )
