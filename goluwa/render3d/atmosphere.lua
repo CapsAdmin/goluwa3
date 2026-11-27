@@ -1016,7 +1016,8 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 at_capture;
 		get_sky_hemisphere_integrals(get_atmosphere_camera_origin(world_pos), false, mean_radiance, at_point);
 		get_sky_hemisphere_integrals(get_atmosphere_camera_origin(captured_pos), false, mean_radiance, at_capture);
-		return at_point / max(at_capture, vec3(1e-9));
+		// below the horizon both integrals reach zero, and their ratio would remove all indirect light, the local lights' too
+		return mix(vec3(1.0), at_point / max(at_capture, vec3(1e-9)), greaterThan(at_capture, vec3(1e-6)));
 	}
 
 	vec3 get_ground_fog_sun_transmittance(vec3 point, vec3 sun_dir) {
