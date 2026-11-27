@@ -284,7 +284,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 			scene_hit.GetEscapeStubGLSL()
 		) .. [[
 
-		float get_sun_contact_visibility(vec3 origin, vec3 dir, float distance, bool leave_body) {
+		float get_contact_visibility(vec3 origin, vec3 dir, float distance, bool leave_body) {
 			]] .. (
 			ray_queries and
 			[[
@@ -603,7 +603,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 					// the map cannot see occluders closer than a few texels (single sided walls meeting at a corner), inside the soft filter's receiver plane tolerance, or with a penumbra under a texel
 					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
 						vec3 contact_side = leave_body ? -s.geometric_N : shadow_N;
-						shadow_factor *= get_sun_contact_visibility(scene_escape_tessellation(s.world_pos + contact_side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), contact_side, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach), leave_body);
+						shadow_factor *= get_contact_visibility(scene_escape_tessellation(s.world_pos + contact_side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), contact_side, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach), leave_body);
 					}
 				}
 
@@ -618,6 +618,12 @@ function surface_lighting.GetGLSL(block_name, ray_queries, light_limit)
 					screen_marchable = false;
 				} else if (type == 1 || type == 3) {
 					shadow_factor = light_oct_shadow_factor(light.slots.x, light.position.xyz, light.params.x, s.world_pos, light.direction.w, shadow_N);
+
+					if (shadow_factor > 0.0 && light.slots.x >= 0 && ]] .. block_name .. [[.bvh_oct_contact > 0.0) {
+						vec3 contact_side = leave_body ? -s.geometric_N : shadow_N;
+						float light_distance = distance(light.position.xyz, s.world_pos);
+						shadow_factor *= get_contact_visibility(scene_escape_tessellation(s.world_pos + contact_side * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), contact_side, ]] .. string.format("%.3f", RAY_ESCAPE) .. [[ * ]] .. block_name .. [[.view_scale), L, min(light_distance * 3.5449077 / float(]] .. block_name .. [[.bvh_oct_size) * ]] .. block_name .. [[.bvh_oct_contact, light_distance - light.direction.w - 0.05 * ]] .. block_name .. [[.view_scale), leave_body);
+					}
 
 					if (scatter_floor <= 0.0 && brightest * shadow_factor * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 

@@ -64,6 +64,12 @@ local soft = pvars.Setup2{
 	default = true,
 	help = "point and spot lights with a source radius cast soft shadows: the penumbra widens with the distance between the occluder and what it shades, off every occlusion map shadow is as sharp as the map",
 }
+local contact = pvars.Setup2{
+	key = "light_occlusion_contact",
+	default = 3,
+	min = 0,
+	help = "length of a ray toward the light from points the map leaves lit, in map texels at the point's distance. catches thin walls and edges closer than the map can resolve, 0 is off",
+}
 local bleed_reduction = pvars.Setup2{
 	key = "light_occlusion_bleed_reduction",
 	default = 0.5,
@@ -889,6 +895,7 @@ function light_occlusion.GetBlockLayout()
 		{"bvh_oct_bias", "float"},
 		{"bvh_oct_bleed_reduction", "float"},
 		{"bvh_oct_soft", "int"},
+		{"bvh_oct_contact", "float"},
 	}
 end
 
@@ -897,6 +904,7 @@ function light_occlusion.WriteOcclusionBlock(block)
 	block.bvh_oct_bias = bias:Get()
 	block.bvh_oct_bleed_reduction = bleed_reduction:Get()
 	block.bvh_oct_soft = soft:Get() and 1 or 0
+	block.bvh_oct_contact = contact:Get()
 end
 
 function light_occlusion.GetMapLayer(index, light)
