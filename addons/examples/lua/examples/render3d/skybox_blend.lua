@@ -14,6 +14,7 @@ local desktop = import("goluwa/render2d/ui/desktop.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local skybox_estimate = import("goluwa/render3d/skybox_estimate.lua")
 local DEFAULT_SKYBOX = "materials/skybox/colorscript/a3_hotel_street.vmat"
 steam.MountSourceGame(assert(steam.FindSourceGame(546560), "half-life: alyx is not installed"))
 local skyboxes = {}
@@ -55,6 +56,7 @@ local function select_skybox(path)
 	for _, entry in ipairs(skyboxes) do
 		if entry.Value == path then
 			state.skybox = path
+			state.exposure = entry.exposure
 			atmosphere.SetSkybox(entry.texture)
 			atmosphere.SetSkyboxIntensity(state.intensity * entry.exposure)
 			return
@@ -73,6 +75,28 @@ local function update_sun()
 	local pitch, yaw = math.rad(state.sun_elevation), math.rad(state.sun_azimuth)
 	weather.SetTimeScale(0)
 	weather.SetSunDirection(Vec3(math.cos(pitch) * math.sin(yaw), math.sin(pitch), math.cos(pitch) * math.cos(yaw)))
+end
+
+local function estimate()
+	local cube = atmosphere.skybox_texture
+
+	if not cube:IsReady() then return "the skybox is still loading" end
+
+	local result = skybox_estimate.Estimate(cube)
+	state.sun_elevation = result.fitted_elevation
+	state.sun_azimuth = result.sun_azimuth
+	update_sun()
+	weather.SetAerosolVisibility(result.aerosol_visibility)
+	set_intensity(result.intensity / state.exposure)
+	return string.format(
+		"painted sun %.0f° up%s, fitted %d°, visibility %.0f km, error %.2f, clouds %.0f%%",
+		result.sun_elevation,
+		result.sun_visible and "" or " (not visible)",
+		result.fitted_elevation,
+		result.aerosol_visibility / 1000,
+		result.error,
+		result.cloud_fraction * 100
+	)
 end
 
 local function set_as_is(enabled)
@@ -144,6 +168,8 @@ local Knob = react.Component(
 local SkyboxContent = react.Component(
 	||-> do
 		local as_is, set_as_is_state = react.UseState(state.restore ~= nil)
+		local report, set_report = react.UseState("")
+		local estimates, set_estimates = react.UseState(0)
 		return ui.Column{Padding = "M", layout = {GrowWidth = 1, ChildGap = 8, AlignmentX = "stretch"}}{
 		ui.Dropdown{
 			Options = skyboxes,
@@ -152,6 +178,15 @@ local SkyboxContent = react.Component(
 			layout = {GrowWidth = 1},
 			OnSelect = |value| -> select_skybox(value),
 		},
+		ui.Button{
+			Text = "Estimate atmosphere from the skybox",
+			Mode = "outline",
+			OnClick = ||-> do
+				set_report(estimate())
+				set_estimates(estimates + 1)
+			end,
+		},
+		ui.Text{Text = report, IgnoreMouseInput = true},
 		ui.Checkbox{
 			Text = "show the skybox as is (blend 1, match 0, no fog pass)",
 			Value = as_is,
@@ -191,6 +226,7 @@ local SkyboxContent = react.Component(
 			OnChange = atmosphere.SetSkyboxMatchLod,
 		},
 		Knob{
+			Key = "intensity" .. estimates,
 			Label = "raw intensity",
 			Format = "%s: %.0f",
 			Min = 1,
@@ -208,6 +244,17 @@ local SkyboxContent = react.Component(
 			OnChange = |v| -> atmosphere.SetSkyboxYaw(math.rad(v)),
 		},
 		Knob{
+			Key = "visibility" .. estimates,
+			Label = "aerosol visibility (km)",
+			Format = "%s: %.1f",
+			Min = math.log10(2000),
+			Max = math.log10(300000),
+			Value = math.log10(weather.GetAerosolVisibility()),
+			Display = |v| -> 10 ^ v / 1000,
+			OnChange = |v| -> weather.SetAerosolVisibility(10 ^ v),
+		},
+		Knob{
+			Key = "elevation" .. estimates,
 			Label = "sun elevation",
 			Format = "%s: %.1f°",
 			Min = -10,
@@ -219,6 +266,7 @@ local SkyboxContent = react.Component(
 			end,
 		},
 		Knob{
+			Key = "azimuth" .. estimates,
 			Label = "sun azimuth",
 			Format = "%s: %.0f°",
 			Min = 0,
@@ -237,7 +285,7 @@ local SkyboxWindow = react.Component(
 		Title = "SKYBOX BLEND",
 		Pinnable = true,
 		Padding = "none",
-		Size = Vec2(360, 600),
+		Size = Vec2(380, 760),
 		Position = Vec2(16, 104),
 	}{SkyboxContent{}}
 )
